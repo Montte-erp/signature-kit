@@ -1,0 +1,20 @@
+{
+  "extends": "./tooling/typescript/base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "incremental": false,
+    "emitDeclarationOnly": false,
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["bun"]
+  },
+  "include": [
+    "formats/**/__tests__/**/*.ts",
+    "integrations/**/__tests__/**/*.ts",
+    "signers/**/__tests__/**/*.ts",
+    "tooling/static-checks/__tests__/**/*.ts",
+    "tooling/testing/**/*.ts"
+  ]
+}

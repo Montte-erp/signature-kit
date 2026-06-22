@@ -1,0 +1,72 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import DocsActions from "../../components/DocsActions.astro";
+import CodePanel from "../../components/CodePanel.astro";
+import InstallTabs from "../../components/InstallTabs.astro";
+
+const program = `import { createSignatureKit } from "@signature-kit/core"
+import { loadA1SignerAdapter } from "@signature-kit/a1"
+import { Effect, Redacted } from "effect"
+
+export const program = Effect.gen(function* () {
+  const signer = yield* loadA1SignerAdapter({
+    pfx,
+    password: Redacted.make("senha-do-certificado"),
+  })
+
+  // certificates.inspect · signatures.sign · signatures.verify
+  return createSignatureKit({ signer })
+})`;
+
+const toc: [string, string][] = [
+  ["Uma fronteira, vários formatos", "#fronteira"],
+  ["O que vem nos pacotes", "#pacotes"],
+  ["Comece", "#comece"],
+];
+---
+
+<DocsLayout
+  title="Introdução"
+  description="SignatureKit é uma fronteira de assinatura Effect-native para TypeScript: o core assina bytes; formatos e provedores são pacotes."
+  group="comece aqui"
+  toc={toc}
+>
+  <h1>Introdução</h1>
+  <DocsActions title="Introdução" />
+
+  <p>
+    SignatureKit separa <em>de onde vem a assinatura</em> da <em>mutação do documento</em>. Um <code>SignerAdapter</code>
+    assina bytes; XML-DSig, PDF/PAdES e os provedores remotos são pacotes que plugam nessa mesma fronteira. Tudo roda
+    sobre Effect v4 — a falha é um valor tipado, não uma exceção.
+  </p>
+
+  <p class="aside">
+    <strong>Para quem é:</strong> times TypeScript que precisam de assinatura A1 (e-CPF / e-CNPJ), XML da NF-e e PDF PAdES
+    ICP-Brasil, no navegador ou no servidor, sem acoplar a aplicação a um backend específico.
+  </p>
+
+  <h2 id="fronteira">Uma fronteira, vários formatos</h2>
+  <p>
+    Você define o assinador uma vez. O <code>createSignatureKit</code> devolve uma execução com
+    <code>certificates.inspect</code>, <code>signatures.sign</code> e <code>signatures.verify</code> — a aplicação nunca
+    sabe se a chave veio do navegador, do servidor ou de um provedor remoto.
+  </p>
+  <CodePanel label="signature-kit.ts" code={program} />
+
+  <h2 id="pacotes">O que vem nos pacotes</h2>
+  <ul>
+    <li><code>@signature-kit/core</code> — execução, serviço de assinaturas e <code>signaturesLayer</code>.</li>
+    <li><code>@signature-kit/a1</code> — assinador A1 / PKCS#12 com identidade e-CPF e e-CNPJ.</li>
+    <li><code>@signature-kit/xml</code> e <code>@signature-kit/pdf</code> — formatos XML-DSig e PDF/PAdES sobre a mesma fronteira.</li>
+    <li><code>@signature-kit/signature-gateway</code> + provedores (DocuSign, Dropbox Sign, Adobe Sign, Clicksign).</li>
+  </ul>
+
+  <h2 id="comece">Comece</h2>
+  <p>Instale a execução e o assinador A1. Os formatos e provedores entram só quando você precisar.</p>
+  <InstallTabs spec="@signature-kit/core @signature-kit/a1" />
+
+  <div class="next-prev">
+    <span></span>
+    <a href="/docs/installation">Instalação →</a>
+  </div>
+</DocsLayout>

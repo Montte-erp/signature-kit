@@ -1,0 +1,219 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import DocsActions from "../../components/DocsActions.astro";
+import CodePanel from "../../components/CodePanel.astro";
+import InstallTabs from "../../components/InstallTabs.astro";
+import ErrorCatalog from "../../components/ErrorCatalog.astro";
+
+const shapeCode = `import { Effect } from "effect"
+import type { SignatureArtifact, SignatureKitError } from "@signature-kit/core"
+
+// O canal de erro é tipado: cada falha é um SignatureKitError.
+declare const sign: Effect.Effect<SignatureArtifact, SignatureKitError>
+
+// _tag: "SignatureKitError"
+class SignatureKitError {
+  readonly code: SignatureKitErrorCode   // 15 literais "signature-kit.*"
+  readonly retryable: boolean         // decidido no ponto da falha
+  readonly reason?: string            // mensagem contextual
+  readonly operation?: SignatureKitOperation
+  get message(): string               // default por código (reason ?? padrão)
+}`;
+
+const catchTagCode = `import { Effect } from "effect"
+import { createSignatureKit } from "@signature-kit/core"
+import { loadA1SignerAdapter } from "@signature-kit/a1"
+
+const program = Effect.gen(function* () {
+  const signer = yield* loadA1SignerAdapter({ pfx, password })
+  const signatureKit = createSignatureKit({ signer })
+  return yield* signatureKit.signatures.sign({ content, algorithm: "rsa-sha256" })
+})
+
+// O union de erro é uma única tag — discrimine por código, não por classe.
+const handled = program.pipe(
+  Effect.catchTag("SignatureKitError", (error) => {
+    switch (error.code) {
+      case "signature-kit.WRONG_PASSWORD":
+        return Effect.fail("Senha do certificado incorreta — peça a senha de novo.")
+      case "signature-kit.SIGN_FAILED":
+        // retryable é decidido no ponto da falha, não fixo por código.
+        return error.retryable ? program : Effect.fail(error.message)
+      default:
+        return Effect.fail(error.message)
+    }
+  }),
+)`;
+
+const catchIfCode = `import { Effect } from "effect"
+
+// Filtre só a falha que este call-site sabe tratar; o resto sobe tipado.
+const recovered = program.pipe(
+  Effect.catchIf(
+    (error): error is SignatureKitError =>
+      error._tag === "SignatureKitError" && error.code === "signature-kit.WRONG_PASSWORD",
+    (error) =>
+      Effect.logWarning(\`assinatura abortada em \${error.operation ?? "sign"}: \${error.message}\`),
+  ),
+)`;
+
+const familiesCode = `import { Effect } from "effect"
+import { signXml } from "@signature-kit/xml"
+import { signPdf } from "@signature-kit/pdf"
+import { a1SignaturesLayer } from "@signature-kit/a1"
+
+const layer = a1SignaturesLayer({ pfx, password })
+
+// signXml -> XmlError | SignatureKitError    (códigos xml.*)
+const xml = signXml({ xml: source, referenceId: "nfe-1" }).pipe(
+  Effect.provide(layer),
+  Effect.catchTags({
+    XmlError: (error) => Effect.fail(\`XML inválido: \${error.code}\`),
+    SignatureKitError: (error) => Effect.fail(\`Assinatura: \${error.code}\`),
+  }),
+)
+
+// signPdf -> PdfError | CmsError | SignatureKitError    (códigos pdf.*)
+const pdf = signPdf({ pdf: bytes, policy: "pades-icp-brasil" }).pipe(
+  Effect.provide(layer),
+  Effect.catchTag("PdfError", (error) => Effect.fail(\`PDF: \${error.code}\`)),
+)`;
+
+const providerCode = `import { Effect } from "effect"
+import { createSignatureGateway } from "@signature-kit/signature-gateway"
+
+// gateway.createSignatureRequest -> SignatureProviderError
+const request = gateway.createSignatureRequest({
+  provider: "docusign",
+  title: "Contrato",
+  documents,
+  recipients,
+}).pipe(
+  Effect.catchTag("SignatureProviderError", (error) => {
+    switch (error.code) {
+      case "signature_provider.UNSUPPORTED_OPERATION":
+        // ex.: nenhum adapter registrado para o provider informado.
+        return Effect.fail(error.reason ?? "Operação não suportada.")
+      case "signature_provider.HTTP":
+      case "signature_provider.INVALID_INPUT":
+      case "signature_provider.RESPONSE_SHAPE":
+        return Effect.fail(error.message)
+    }
+  }),
+)`;
+
+const toc: [string, string][] = [
+  ["A forma do erro", "#forma"],
+  ["Tratar por código", "#tratar"],
+  ["Catálogo de erros", "#catalogo"],
+  ["Erros de formato e provedor", "#familias"],
+];
+---
+
+<DocsLayout
+  title="Canal de erro tipado"
+  description="O SignatureKitError tem 15 códigos no canal de erro tipado. Discrimine por code com Effect.catchTag/catchIf e conheça as famílias XmlError, PdfError e SignatureProviderError."
+  group="conceitos"
+  toc={toc}
+>
+  <h1>Canal de erro tipado</h1>
+  <DocsActions title="Canal de erro tipado" />
+
+  <p>
+    Toda falha no core, no assinador A1 e nos formatos é um <code>SignatureKitError</code> no canal de erro do
+    <code>Effect</code> — não uma exceção lançada. O tipo de retorno carrega a falha:
+    <code>Effect&lt;SignatureArtifact, SignatureKitError&gt;</code>. Isso torna o tratamento exaustivo e verificável pelo
+    compilador: você discrimina por <code>code</code>, e o que não tratar continua subindo tipado.
+  </p>
+
+  <h2 id="forma">A forma do erro</h2>
+  <p>
+    <code>SignatureKitError</code> é uma classe com <code>_tag</code> fixo <code>"SignatureKitError"</code>. Os campos:
+  </p>
+  <ul>
+    <li><code>code</code> — um dos 15 literais <code>"signature-kit.*"</code> do <a href="#catalogo">catálogo</a>.</li>
+    <li>
+      <code>retryable</code> — booleano decidido <strong>no ponto da falha</strong>, não fixo por código. O mesmo
+      <code>code</code> pode chegar com <code>retryable: true</code> em um call-site e <code>false</code> em outro.
+    </li>
+    <li><code>reason?</code> — mensagem contextual opcional, mais específica que o padrão.</li>
+    <li><code>operation?</code> — a operação onde a falha ocorreu, útil para log e telemetria.</li>
+    <li>
+      <code>get message()</code> — a mensagem legível; resolve para <code>reason</code> quando presente, senão para o
+      texto padrão do código.
+    </li>
+  </ul>
+  <CodePanel label="forma-do-erro.ts" code={shapeCode} />
+  <p class="aside">
+    <strong>Nota:</strong> não trate <code>retryable</code> como uma propriedade do código. Sempre leia
+    <code>error.retryable</code> do valor recebido — só esse call-site sabe se a falha vale uma nova tentativa.
+  </p>
+
+  <h2 id="tratar">Tratar por código</h2>
+  <p>
+    O union de erro tem uma única tag, então <code>Effect.catchTag("SignatureKitError", ...)</code> entra no canal e você
+    discrimina por <code>error.code</code>. Um <code>switch</code> sobre <code>code</code> é exaustivo: o compilador
+    cobra os 15 literais.
+  </p>
+  <CodePanel label="tratar-erro.ts" code={catchTagCode} />
+  <p>
+    Quando você só quer interceptar uma falha específica e deixar o restante subir, use <code>Effect.catchIf</code> com
+    um predicado sobre <code>_tag</code> e <code>code</code>:
+  </p>
+  <CodePanel label="catch-if.ts" code={catchIfCode} />
+  <p class="aside">
+    <strong>Dica:</strong> em handlers de retry, decida pela combinação <code>error.code</code> +
+    <code>error.retryable</code>. Por exemplo, repetir um <a href="#err-SIGN_FAILED"><code>signature-kit.SIGN_FAILED</code></a>
+    apenas quando <code>error.retryable</code> for <code>true</code>.
+  </p>
+
+  <h2 id="catalogo">Catálogo de erros</h2>
+  <p>
+    Os 15 códigos do <code>SignatureKitError</code> e suas mensagens padrão. Cada linha tem âncora
+    <code>#err-&lt;CODE&gt;</code> — por exemplo
+    <a href="#err-WRONG_PASSWORD"><code>#err-WRONG_PASSWORD</code></a> — para link direto a partir das outras páginas.
+    Os códigos marcados como <em>editável</em> resolvem para <code>reason ?? padrão</code> em <code>message</code>.
+  </p>
+  <ErrorCatalog />
+
+  <h2 id="familias">Erros de formato e provedor</h2>
+  <p>
+    Além do <code>SignatureKitError</code>, os módulos de formato e o gateway de provedores adicionam suas próprias famílias
+    tipadas ao canal de erro. Cada uma é uma tag distinta, então <code>Effect.catchTag</code> e
+    <code>Effect.catchTags</code> separam as falhas por origem:
+  </p>
+  <ul>
+    <li>
+      <code>XmlError</code> — códigos <code>xml.*</code>. <code>signXml</code> retorna
+      <code>XmlError | SignatureKitError</code>; <code>verifyXml</code> retorna apenas <code>XmlError</code> (sem o serviço
+      <code>Signatures</code>).
+    </li>
+    <li>
+      <code>PdfError</code> — códigos <code>pdf.*</code>. <code>signPdf</code> retorna
+      <code>PdfError | CmsError | SignatureKitError</code>. Por exemplo, <code>hashAlgorithm</code> fora de
+      <code>"sha256"</code>/<code>"sha512"</code> falha como <code>pdf.SIGN_FAILED</code>.
+    </li>
+    <li>
+      <code>SignatureProviderError</code> — quatro códigos: <code>signature_provider.HTTP</code>,
+      <code>signature_provider.INVALID_INPUT</code>, <code>signature_provider.RESPONSE_SHAPE</code> e
+      <code>signature_provider.UNSUPPORTED_OPERATION</code>. Sem adapter registrado para o
+      <code>provider</code> informado, <code>createSignatureRequest</code> falha com
+      <code>signature_provider.UNSUPPORTED_OPERATION</code>.
+    </li>
+  </ul>
+  <CodePanel label="familias.ts" code={familiesCode} />
+  <p>
+    No gateway, todas as falhas remotas chegam como <code>SignatureProviderError</code>. Discrimine por
+    <code>error.code</code> da mesma forma que com o <code>SignatureKitError</code>:
+  </p>
+  <CodePanel label="gateway-erro.ts" code={providerCode} />
+  <p>
+    Os formatos e provedores são pacotes separados — instale só o que cada caminho usa.
+  </p>
+  <InstallTabs spec="@signature-kit/xml @signature-kit/pdf @signature-kit/signature-gateway" />
+
+  <div class="next-prev">
+    <a href="/docs/certificates">← Certificados A1</a>
+    <a href="/docs/xml">XML-DSig →</a>
+  </div>
+</DocsLayout>

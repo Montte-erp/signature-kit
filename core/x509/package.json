@@ -1,0 +1,25 @@
+{
+  "name": "@signature-kit/x509",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@signature-kit/asn1": "workspace:*",
+    "@signature-kit/contracts": "workspace:*",
+    "effect": "4.0.0-beta.81"
+  }
+}

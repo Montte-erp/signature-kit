@@ -1,0 +1,153 @@
+---
+import DocsLayout from "../../../layouts/DocsLayout.astro";
+import DocsActions from "../../../components/DocsActions.astro";
+import CodePanel from "../../../components/CodePanel.astro";
+import InstallTabs from "../../../components/InstallTabs.astro";
+
+const providerCode = `import { createSignatureGateway, createFetchHttpClient } from "@signature-kit/signature-gateway"
+import { docusign } from "@signature-kit/docusign"
+import { Redacted } from "effect"
+
+export const gateway = createSignatureGateway({
+  providers: [
+    docusign({
+      baseUrl: process.env.DOCUSIGN_BASE_URL ?? "",          // ex.: https://demo.docusign.net/restapi
+      accountId: process.env.DOCUSIGN_ACCOUNT_ID ?? "",
+      accessToken: Redacted.make(process.env.DOCUSIGN_TOKEN ?? ""),
+    }),
+  ],
+  http: createFetchHttpClient(),
+})`;
+
+const requestCode = `import { gateway } from "./gateway"
+import { Effect } from "effect"
+
+const program = gateway.createSignatureRequest({
+  provider: "docusign",
+  title: "Contrato de prestação de serviços",
+  message: "Revise e assine o contrato anexo.",
+  documents: [
+    { fileName: "contrato.pdf", mimeType: "application/pdf", content: pdfBytes },
+  ],
+  recipients: [
+    { name: "Ana Souza", email: "ana@exemplo.com", role: "signer", routingOrder: 1 },
+  ],
+  send: true,
+})
+
+const request = yield* program
+// request.id          -> id do envelope
+// request.state       -> "draft" | "sent"
+// request.signingUrl  -> URL de assinatura, quando disponível`;
+
+const endpointCode = `POST \${baseUrl}/v2.1/accounts/\${accountId}/envelopes
+Authorization: Bearer <accessToken>
+Content-Type: application/json`;
+
+const toc: [string, string][] = [
+  ["Instalar o pacote", "#instalar"],
+  ["Configurar o provedor", "#configurar"],
+  ["Criar uma requisição", "#criar"],
+  ["Autenticação e endpoint", "#endpoint"],
+  ["Erros que você pode ver", "#erros"],
+];
+---
+
+<DocsLayout
+  title="DocuSign"
+  description="Registre o provedor DocuSign no signature-gateway com docusign({ baseUrl, accountId, accessToken }) e crie envelopes com provider: docusign."
+  group="provedores"
+  toc={toc}
+>
+  <h1>DocuSign</h1>
+  <DocsActions title="DocuSign" />
+
+  <p>
+    <strong>O que você vai fazer:</strong> registrar o adaptador <code>docusign</code> no
+    <code>createSignatureGateway</code> e criar um envelope com <code>createSignatureRequest</code> usando <code>provider: "docusign"</code>.
+    O adaptador fala com a API REST da DocuSign por bearer token e envia o envelope para o endpoint de
+    <code>envelopes</code> da conta.
+  </p>
+
+  <section class="step" data-step="1">
+    <h3 id="instalar">Instale o pacote do provedor</h3>
+    <p>
+      O adaptador vive em <code>@signature-kit/docusign</code> e é registrado no <code>@signature-kit/signature-gateway</code>.
+      Instale os dois.
+    </p>
+    <InstallTabs spec="@signature-kit/signature-gateway @signature-kit/docusign" />
+  </section>
+
+  <section class="step" data-step="2">
+    <h3 id="configurar">Configure o provedor no gateway</h3>
+    <p>
+      <code>docusign(...)</code> é uma <em>factory</em> de provedor. Passe-a em <code>providers</code> do
+      <code>createSignatureGateway</code>. As únicas chaves de opção são <code>baseUrl</code>, <code>accountId</code> e
+      <code>accessToken</code> — esta última envolvida em <code>Redacted.make(...)</code> para manter o token fora de logs.
+    </p>
+    <CodePanel label="gateway.ts" code={providerCode} />
+    <p class="aside">
+      <strong>Nota:</strong> se você omitir <code>http</code>, o gateway usa <code>createFetchHttpClient()</code>
+      automaticamente. O exemplo acima é explícito apenas para deixar a dependência visível.
+    </p>
+  </section>
+
+  <section class="step" data-step="3">
+    <h3 id="criar">Crie uma requisição de assinatura</h3>
+    <p>
+      O despacho é por <code>adapter.id === input.provider</code>, então <code>provider: "docusign"</code> seleciona este
+      adaptador. O retorno é um <code>RemoteSignatureRequest</code> com <code>id</code> do envelope, <code>state</code>
+      (<code>"draft"</code> ou <code>"sent"</code>) e, quando disponível, <code>signingUrl</code>.
+    </p>
+    <CodePanel label="criar-envelope.ts" code={requestCode} />
+    <p class="aside">
+      <strong>Dica:</strong> <code>send: true</code> envia o envelope na criação; com <code>send: false</code> o envelope
+      fica como rascunho (<code>state: "draft"</code>). Use <code>routingOrder</code> para definir a ordem de assinatura
+      entre os <code>recipients</code>.
+    </p>
+  </section>
+
+  <section class="step" data-step="4">
+    <h3 id="endpoint">Autenticação e endpoint</h3>
+    <p>
+      O adaptador autentica por <strong>bearer token</strong>: o <code>accessToken</code> vai no cabeçalho
+      <code>Authorization: Bearer</code>. Os envelopes são criados no endpoint da conta, montado a partir de
+      <code>baseUrl</code> e <code>accountId</code>:
+    </p>
+    <CodePanel label="Endpoint" code={endpointCode} lang="http" />
+    <p>
+      O <code>baseUrl</code> é o host da API REST da sua conta (por exemplo, o ambiente de demonstração ou produção) e o
+      <code>accountId</code> é o identificador da conta DocuSign. O caminho <code>/v2.1/accounts/&#36;&#123;accountId&#125;/envelopes</code>
+      é fixo.
+    </p>
+  </section>
+
+  <h2 id="erros">Erros que você pode ver</h2>
+  <p>
+    Falhas do provedor chegam como <code>SignatureProviderError</code> no canal de erro do Effect. Os códigos relevantes
+    para o DocuSign:
+  </p>
+  <ul>
+    <li>
+      <code>signature_provider.HTTP</code> — a chamada à API da DocuSign falhou (rede, status de erro, token inválido ou
+      expirado).
+    </li>
+    <li>
+      <code>signature_provider.INVALID_INPUT</code> — o <code>SignatureGatewayRequestInput</code> está incompleto ou
+      inconsistente (sem documentos, sem destinatários, etc.).
+    </li>
+    <li>
+      <code>signature_provider.RESPONSE_SHAPE</code> — a resposta da API não tem o formato esperado para extrair o envelope.
+    </li>
+    <li>
+      <code>signature_provider.UNSUPPORTED_OPERATION</code> — nenhum adaptador registrado para o
+      <code>provider</code> informado: “No signature provider adapter registered for docusign.” Confirme que
+      <code>docusign(...)</code> está em <code>providers</code>.
+    </li>
+  </ul>
+
+  <div class="next-prev">
+    <a href="/docs/providers">← Gateway</a>
+    <a href="/docs/providers/dropbox-sign">Dropbox Sign →</a>
+  </div>
+</DocsLayout>

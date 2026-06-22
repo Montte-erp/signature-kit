@@ -1,0 +1,311 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/forms";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ──────────────────────────────────────────────────────────────────
+   Starwind UI theme — violet palette.
+   Discipline: color lives in code (Shiki). Violet is rationed to the
+   active tab bar, the active nav/TOC item, and links. Nothing else.
+   ────────────────────────────────────────────────────────────────── */
+
+:root {
+  --background: oklch(0.9892 0.0053 286.3028);
+  --foreground: oklch(0.2257 0.0194 280.2492);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2257 0.0194 280.2492);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2257 0.0194 280.2492);
+  --primary: oklch(0.6217 0.1799 287.7754);
+  --primary-foreground: oklch(1 0 0);
+  --primary-accent: oklch(0.5413 0.1805 285.7967);
+  --secondary: oklch(0.957 0.0187 289.3286);
+  --secondary-foreground: oklch(0.3569 0.0813 288.2584);
+  --secondary-accent: oklch(0.9214 0.0248 287.65);
+  --muted: oklch(0.9601 0.0093 286.2229);
+  --muted-foreground: oklch(0.51 0.0425 284.7922);
+  --accent: oklch(0.957 0.0187 289.3286);
+  --accent-foreground: oklch(0.4619 0.2173 279.9839);
+  --info: oklch(0.6217 0.1799 287.7754);
+  --info-foreground: oklch(1 0 0);
+  --success: oklch(0.62 0.15 150);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.78 0.14 82);
+  --warning-foreground: oklch(0.25 0.08 82);
+  --error: oklch(0.643 0.1925 24.3201);
+  --error-foreground: oklch(1 0 0);
+  --border: oklch(0.9175 0.0216 285.9662);
+  --input: oklch(0.866 0.0371 285.5991);
+  --outline: oklch(0.6217 0.1799 287.7754);
+  --radius: 0.5rem;
+  --sidebar-background: oklch(0.9811 0.0093 286.2277);
+  --sidebar-foreground: oklch(0.3755 0.0323 284.7377);
+  --sidebar-primary: oklch(0.6217 0.1799 287.7754);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.957 0.0187 289.3286);
+  --sidebar-accent-foreground: oklch(0.4619 0.2173 279.9839);
+  --sidebar-border: oklch(0.943 0.0134 286.1402);
+  --sidebar-outline: oklch(0.6217 0.1799 287.7754);
+  --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-serif: "Merriweather", ui-serif, serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --tracking-normal: -0.01em;
+}
+
+.dark {
+  --background: oklch(0.1503 0.0171 289.8934);
+  --foreground: oklch(0.9284 0.0161 286.0812);
+  --card: oklch(0.1941 0.024 287.7536);
+  --card-foreground: oklch(0.9284 0.0161 286.0812);
+  --popover: oklch(0.1941 0.024 287.7536);
+  --popover-foreground: oklch(0.9284 0.0161 286.0812);
+  --primary: oklch(0.6217 0.1799 287.7754);
+  --primary-foreground: oklch(1 0 0);
+  --primary-accent: oklch(0.7716 0.1036 291.3083);
+  --secondary: oklch(0.2354 0.0399 287.2762);
+  --secondary-foreground: oklch(0.9284 0.0161 286.0812);
+  --secondary-accent: oklch(0.2739 0.0616 285.5915);
+  --muted: oklch(0.2047 0.0296 286.5224);
+  --muted-foreground: oklch(0.6907 0.0467 285.113);
+  --accent: oklch(0.2739 0.0616 285.5915);
+  --accent-foreground: oklch(0.7716 0.1036 291.3083);
+  --info: oklch(0.7716 0.1036 291.3083);
+  --info-foreground: oklch(0.1503 0.0171 289.8934);
+  --success: oklch(0.74 0.16 150);
+  --success-foreground: oklch(0.17 0.06 150);
+  --warning: oklch(0.82 0.14 82);
+  --warning-foreground: oklch(0.22 0.07 82);
+  --error: oklch(0.704 0.191 22.216);
+  --error-foreground: oklch(1 0 0);
+  --border: oklch(0.2587 0.0372 285.7691);
+  --input: oklch(0.3015 0.0518 286.0003);
+  --outline: oklch(0.6217 0.1799 287.7754);
+  --sidebar-background: oklch(0.1616 0.023 287.693);
+  --sidebar-foreground: oklch(0.8147 0.0307 285.6989);
+  --sidebar-primary: oklch(0.6217 0.1799 287.7754);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.2354 0.0399 287.2762);
+  --sidebar-accent-foreground: oklch(0.9284 0.0161 286.0812);
+  --sidebar-border: oklch(0.2587 0.0372 285.7691);
+  --sidebar-outline: oklch(0.6217 0.1799 287.7754);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-accent: var(--primary-accent);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary-accent: var(--secondary-accent);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-error: var(--error);
+  --color-error-foreground: var(--error-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-outline: var(--outline);
+  --color-sidebar: var(--sidebar-background);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-outline: var(--sidebar-outline);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-serif: var(--font-serif);
+
+  --radius-xs: calc(var(--radius) - 0.375rem);
+  --radius-sm: calc(var(--radius) - 0.25rem);
+  --radius-md: calc(var(--radius) - 0.125rem);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 0.25rem);
+  --radius-2xl: calc(var(--radius) + 0.5rem);
+  --radius-3xl: calc(var(--radius) + 1rem);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-outline/50;
+  }
+
+  body {
+    min-height: 100%;
+    margin: 0;
+    @apply bg-background text-foreground font-sans antialiased scheme-light dark:scheme-dark;
+    letter-spacing: var(--tracking-normal);
+  }
+
+  button {
+    @apply cursor-pointer;
+  }
+
+  ::selection {
+    background: color-mix(in oklch, var(--primary) 38%, transparent);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--foreground) 16%, transparent) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: color-mix(in oklch, var(--foreground) 14%, transparent);
+    border-radius: 999px;
+  }
+}
+
+/* ── Layout ────────────────────────────────────────────────────── */
+
+@utility sw-container {
+  @apply mx-auto w-full max-w-6xl px-5 sm:px-6 lg:px-8;
+}
+
+/* Hairline rules carry section rhythm (the editorial divider). */
+@utility hairline-t {
+  border-top: 1px solid var(--border);
+}
+@utility hairline-y {
+  border-block: 1px solid var(--border);
+}
+
+/* Tighter tracking for the display headline only. */
+@utility track-display {
+  letter-spacing: -0.022em;
+}
+
+/* ── Code panels (Shiki output) ────────────────────────────────── */
+
+@utility sw-code {
+  @apply overflow-hidden rounded-xl border border-border bg-card;
+}
+
+/* The one place a primary rule appears off-code: the signing boundary. */
+.seam-frame {
+  position: relative;
+}
+.seam-frame::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 0;
+  height: 2px;
+  background: var(--primary);
+  z-index: 2;
+}
+
+.sw-code-tab {
+  @apply flex h-10 items-center gap-2 border-b border-border px-3 font-mono text-xs text-muted-foreground;
+}
+
+.sw-code pre {
+  margin: 0;
+  padding: 1.05rem 1.2rem;
+  overflow: auto;
+  font-size: 12.5px;
+  line-height: 1.8;
+  background: transparent !important;
+}
+.sw-code pre code {
+  font-family: var(--font-mono);
+}
+
+.copy-btn {
+  @apply inline-flex size-7 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition hover:border-primary/40 hover:text-foreground;
+}
+.copy-btn[data-copied="true"] {
+  @apply border-success/50 text-success;
+}
+
+/* Active tab bar — the rationed primary accent. */
+.code-tab-btn[data-active="true"] {
+  @apply text-foreground;
+  box-shadow: inset 0 -2px 0 0 var(--primary);
+}
+
+/* Vertical tree leaf (repo tree, install tabs) active state. */
+.leaf-btn {
+  @apply transition;
+}
+.leaf-btn[data-active="true"] {
+  @apply text-foreground;
+  box-shadow: inset 2px 0 0 0 var(--primary);
+}
+
+/* Tab panel cross-fade on switch only. */
+[data-tab-panel]:not([hidden]) {
+  animation: tab-fade 120ms ease both;
+}
+@keyframes tab-fade {
+  from {
+    opacity: 0.4;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ── Docs prose ────────────────────────────────────────────────── */
+
+@utility sw-prose {
+  @apply prose prose-invert max-w-none prose-headings:scroll-mt-24 prose-headings:font-semibold prose-headings:tracking-tight prose-h1:text-3xl prose-h2:text-xl prose-h2:mt-12 prose-h3:text-base prose-p:text-muted-foreground prose-li:text-muted-foreground prose-a:text-primary-accent prose-a:font-medium prose-a:underline-offset-4 prose-code:text-foreground prose-strong:text-foreground prose-code:before:content-none prose-code:after:content-none;
+}
+
+.toc-link[data-active="true"] {
+  @apply text-foreground;
+}
+
+.sw-prose .step {
+  @apply relative mt-10 border-l border-border pl-8;
+}
+.sw-prose .step::before {
+  content: attr(data-step);
+  @apply absolute -left-[0.95rem] top-0 grid size-7 place-items-center rounded-full border border-border bg-card font-mono text-xs text-primary-accent;
+}
+.sw-prose .step > h3 {
+  @apply mt-0;
+}
+
+/* Bold-led inline aside (Dica: / Atenção:) instead of tinted banners. */
+.sw-prose .aside {
+  @apply mt-6 border-l-2 border-border pl-4 text-sm leading-7 text-muted-foreground;
+}
+.sw-prose .aside > strong {
+  @apply text-foreground;
+}
+
+.sw-prose .next-prev {
+  @apply mt-14 grid gap-3 border-t border-border pt-6 text-sm sm:grid-cols-2;
+}
+.sw-prose .next-prev a {
+  @apply inline-flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-4 py-3 font-medium text-foreground no-underline transition hover:border-primary/40;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  [data-tab-panel]:not([hidden]) {
+    animation: none !important;
+    transition: none !important;
+  }
+}

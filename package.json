@@ -1,0 +1,39 @@
+{
+  "name": "signature-kit",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.14",
+  "workspaces": [
+    "apps/*",
+    "core/*",
+    "signers/*",
+    "formats/*",
+    "integrations/*",
+    "shared/*",
+    "tooling/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b",
+    "typecheck:test": "tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:validar-iti": "SIGNATURE_KIT_ITI_VALIDATE=1 vitest run formats/pdf/__tests__/validar-iti.integration.test.ts",
+    "site:dev": "bun --cwd apps/web dev",
+    "site:build": "bun --cwd apps/web build",
+    "check:declarative-errors": "bun tooling/static-checks/check-declarative-errors.ts",
+    "lint": "oxlint -c tooling/oxc/base.json core signers formats integrations shared tooling --deny-warnings",
+    "format": "oxfmt -c tooling/oxc/oxfmt.json --write core signers formats integrations shared tooling '!**/.cache/**' '!**/node_modules/**' '!**/dist/**' '!**/*.d.ts' '!**/*.tsbuildinfo'",
+    "format:check": "oxfmt -c tooling/oxc/oxfmt.json --check core signers formats integrations shared tooling '!**/.cache/**' '!**/node_modules/**' '!**/dist/**' '!**/*.d.ts' '!**/*.tsbuildinfo'",
+    "check:static": "bun run check:declarative-errors && bun run lint && bun run format:check",
+    "check": "bun run check:static && bun run typecheck && bun run typecheck:test"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.0.0-beta.81",
+    "@types/bun": "latest",
+    "effect": "4.0.0-beta.81",
+    "oxfmt": "^0.54.0",
+    "oxlint": "^1.69.0",
+    "typescript": "latest",
+    "vitest": "^4.0.0"
+  }
+}

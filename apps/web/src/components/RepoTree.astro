@@ -1,0 +1,64 @@
+---
+import { Code } from "astro:components";
+import { Check, Copy } from "@lucide/astro";
+import { packageTree } from "../data/signature-kit";
+
+const leaves = packageTree.flatMap((g) => g.leaves);
+const first = leaves[0];
+---
+
+<div class="grid gap-4 lg:grid-cols-[0.85fr_1.15fr] lg:items-start" data-code-tabs>
+  <div class="rounded-xl border border-border bg-card p-2.5 font-mono text-sm">
+    {
+      packageTree.map((g) => (
+        <div class="mb-2 last:mb-0">
+          <div class="px-2 py-1 text-xs text-muted-foreground/70">{g.dir}</div>
+          {g.leaves.map((leaf) => (
+            <button
+              type="button"
+              class="leaf-btn flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-muted-foreground hover:text-foreground"
+              data-tab={leaf.name}
+              data-active={leaf.name === first.name ? "true" : "false"}
+            >
+              <span class="truncate">
+                <span class="text-muted-foreground/45">@signature-kit/</span>
+                {leaf.name.replace("@signature-kit/", "")}
+              </span>
+              {leaf.internal && <span class="shrink-0 text-[10px] text-muted-foreground/45">interno</span>}
+            </button>
+          ))}
+        </div>
+      ))
+    }
+  </div>
+
+  <div class="sw-code group relative">
+    <div class="sw-code-tab justify-between">
+      <span class="font-mono text-foreground" data-tab-title>{first.name}</span>
+      <button type="button" class="copy-btn shrink-0" data-copy={first.install} aria-label="Copiar comando">
+        <Copy class="size-3.5 [[data-copied=true]_&]:hidden" />
+        <Check class="hidden size-3.5 [[data-copied=true]_&]:block" />
+      </button>
+    </div>
+    {
+      leaves.map((leaf) => (
+        <div data-tab-panel={leaf.name} hidden={leaf.name !== first.name} class="space-y-3 p-5">
+          <p class="text-sm leading-7 text-muted-foreground">{leaf.summary}</p>
+          <p class="font-mono text-xs text-muted-foreground">
+            exports: <span class="text-foreground">{leaf.exports}</span>
+          </p>
+          {leaf.internal ? (
+            <p class="font-mono text-xs text-muted-foreground/55">pacote interno — sem API pública</p>
+          ) : (
+            <Code code={leaf.install} lang="bash" theme="vesper" />
+          )}
+          {leaf.href && (
+            <a href={leaf.href} class="inline-block text-xs font-medium text-primary-accent">
+              ver na documentação →
+            </a>
+          )}
+        </div>
+      ))
+    }
+  </div>
+</div>

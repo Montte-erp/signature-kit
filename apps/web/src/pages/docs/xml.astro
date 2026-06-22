@@ -1,0 +1,195 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import DocsActions from "../../components/DocsActions.astro";
+import CodePanel from "../../components/CodePanel.astro";
+import InstallTabs from "../../components/InstallTabs.astro";
+
+const signCode = `import { signXml } from "@signature-kit/xml"
+import { a1SignaturesLayer } from "@signature-kit/a1"
+import { Effect, Redacted } from "effect"
+
+const layer = a1SignaturesLayer({
+  pfx,                                       // Uint8Array — bytes do .pfx/.p12
+  password: Redacted.make(process.env.A1_PASSWORD ?? ""),
+})
+
+// signXml -> Effect<string, XmlError | SignatureKitError, Signatures>
+const signed: string = yield* signXml({
+  xml,                                       // string — documento de entrada
+  referenceId: "nfe-1",
+}).pipe(Effect.provide(layer))
+// 'signed' é o XML assinado, com o <Signature> embutido`;
+
+const requestCode = `// XmlSigningRequest — apenas 'xml' é obrigatório
+const signed = yield* signXml({
+  xml,
+  algorithm: "rsa-sha256",                   // padrão; ou "rsa-sha512"
+  referenceId: "nfe-1",                      // -> Reference URI "#nfe-1"
+  signatureId: "SignatureKit-NFe",              // id do elemento <Signature>
+  signingTime: new Date(),
+}).pipe(Effect.provide(layer))`;
+
+const nfeCode = `// NF-e: o id do <infNFe> é o alvo da referência enveloped
+const xml = \`<NFe xmlns="http://www.portalfiscal.inf.br/nfe">
+  <infNFe Id="NFe35200114200166000187550010000000071234567890" versao="4.00">
+    <!-- ide, emit, dest, det, total, transp, ... -->
+  </infNFe>
+</NFe>\`
+
+const signed = yield* signXml({
+  xml,
+  referenceId: "NFe35200114200166000187550010000000071234567890",
+}).pipe(Effect.provide(layer))
+// o <Signature> é inserido como irmão de <infNFe>, apontando para "#NFe35..."`;
+
+const verifyCode = `import { verifyXml } from "@signature-kit/xml"
+import { Effect } from "effect"
+
+// verifyXml -> Effect<XmlVerificationResult, XmlError>
+// SEM requisito de Signatures: roda fora da fronteira do assinador
+const result = yield* verifyXml({
+  xml: signed,
+  requireReferenceUri: "#nfe-1",             // falha se a URI não existir
+})
+
+// XmlVerificationResult
+result.valid           // boolean
+result.signatureCount  // number — quantos <Signature> foram verificados
+result.referenceUris   // readonly string[] — ex.: ["#nfe-1"]`;
+
+const explicitKeyCode = `// Verificação com chave explícita (em vez do cert embutido no KeyInfo)
+const result = yield* verifyXml({
+  xml: signed,
+  publicKeyDer,                              // Uint8Array — SubjectPublicKeyInfo DER
+  requireReferenceUri: "#nfe-1",
+})
+// result.valid: boolean`;
+
+const toc: [string, string][] = [
+  ["Instale o pacote", "#instalar"],
+  ["Assinar um XML", "#assinar"],
+  ["Referência e enveloped", "#referencia"],
+  ["Enquadramento NF-e", "#nfe"],
+  ["Verificar a assinatura", "#verificar"],
+  ["Verificação com chave explícita", "#chave-explicita"],
+  ["Erros que você pode ver", "#erros"],
+];
+---
+
+<DocsLayout
+  title="XML-DSig"
+  description="Assine documentos XML com signXml e valide com verifyXml: referência enveloped, certificado X.509 embutido no KeyInfo e verificação fora da fronteira do assinador."
+  group="formatos"
+  toc={toc}
+>
+  <h1>XML-DSig</h1>
+  <DocsActions title="XML-DSig" />
+
+  <p>
+    <strong>O que você vai fazer:</strong> assinar uma string XML com <code>signXml</code> sobre a fronteira
+    <code>Signatures</code>, e depois validar o resultado com <code>verifyXml</code> — que não exige assinador e roda em qualquer
+    lugar. O algoritmo padrão é <code>"rsa-sha256"</code> e o certificado X.509 entra no <code>KeyInfo</code>
+    automaticamente.
+  </p>
+
+  <section class="step" data-step="1">
+    <h3 id="instalar">Instale o pacote</h3>
+    <p>O formato XML vive em <code>@signature-kit/xml</code>. Ele consome o serviço <code>Signatures</code> fornecido por um assinador.</p>
+    <InstallTabs spec="@signature-kit/xml" />
+  </section>
+
+  <section class="step" data-step="2">
+    <h3 id="assinar">Assinar um XML</h3>
+    <p>
+      <code>signXml</code> recebe um <code>XmlSigningRequest</code> e devolve um
+      <code>Effect&lt;string, XmlError | SignatureKitError, Signatures&gt;</code> — a saída é o XML assinado como string.
+      O requisito <code>Signatures</code> é satisfeito com <code>Effect.provide(a1SignaturesLayer(...))</code>: a poder de
+      assinatura vem do A1, e o módulo de formato cuida apenas da mutação do documento.
+    </p>
+    <CodePanel label="assinar-xml.ts" code={signCode} />
+    <p class="aside">
+      <strong>Nota:</strong> <code>verifyXml</code> não tem requisito <code>Signatures</code> — só <code>signXml</code> precisa
+      da fronteira do assinador. Você assina com o layer e verifica sem ele.
+    </p>
+  </section>
+
+  <section class="step" data-step="3">
+    <h3 id="referencia">Referência e enveloped</h3>
+    <p>
+      <code>referenceId</code> define o alvo da assinatura enveloped: passar <code>referenceId: "nfe-1"</code> produz uma
+      <code>Reference</code> com URI <code>"#nfe-1"</code>, apontando para o elemento de mesmo <code>Id</code> dentro do
+      próprio documento. Os demais campos do <code>XmlSigningRequest</code> são opcionais:
+    </p>
+    <CodePanel label="request-xml.ts" code={requestCode} />
+    <p>
+      Sem <code>algorithm</code>, vale o padrão <code>"rsa-sha256"</code>; a outra opção é <code>"rsa-sha512"</code>.
+      O certificado X.509 do assinador é embutido no <code>KeyInfo</code> da própria assinatura, então o verificador não
+      precisa da chave por fora — a menos que você queira fixá-la (veja
+      <a href="#chave-explicita">verificação com chave explícita</a>).
+    </p>
+  </section>
+
+  <section class="step" data-step="4">
+    <h3 id="nfe">Enquadramento NF-e</h3>
+    <p>
+      A NF-e é um caso concreto típico: o <code>Id</code> de <code>infNFe</code> é a chave de acesso, e a assinatura aponta
+      para ele. Use a chave de acesso como <code>referenceId</code> para que a URI fique <code>"#NFe35..."</code>.
+    </p>
+    <CodePanel label="assinar-nfe.ts" code={nfeCode} />
+    <p class="aside">
+      <strong>Dica:</strong> a string de saída é o XML pronto para envio. Como <code>signXml</code> devolve
+      <code>string</code>, você pode serializar direto no payload da SEFAZ sem etapas intermediárias.
+    </p>
+  </section>
+
+  <section class="step" data-step="5">
+    <h3 id="verificar">Verificar a assinatura</h3>
+    <p>
+      <code>verifyXml</code> recebe um <code>XmlVerificationRequest</code> e devolve
+      <code>Effect&lt;XmlVerificationResult, XmlError&gt;</code>. Não há requisito <code>Signatures</code>: a verificação usa
+      o certificado embutido no <code>KeyInfo</code>. Use <code>requireReferenceUri</code> para exigir que uma URI específica
+      esteja presente entre as referências assinadas.
+    </p>
+    <CodePanel label="verificar-xml.ts" code={verifyCode} />
+    <p>
+      O resultado expõe <code>valid</code> (a assinatura confere), <code>signatureCount</code> (quantos elementos
+      <code>&lt;Signature&gt;</code> foram verificados) e <code>referenceUris</code> (as URIs de referência encontradas, como
+      <code>["#nfe-1"]</code>).
+    </p>
+  </section>
+
+  <section class="step" data-step="6">
+    <h3 id="chave-explicita">Verificação com chave explícita</h3>
+    <p>
+      Por padrão a chave pública vem do certificado embutido. Para fixar a chave esperada — ignorando o que estiver no
+      <code>KeyInfo</code> —, passe <code>publicKeyDer</code> (o <code>SubjectPublicKeyInfo</code> em DER). Útil quando você
+      já confia em uma chave específica e não quer aceitar a que veio no documento.
+    </p>
+    <CodePanel label="verificar-chave.ts" code={explicitKeyCode} />
+  </section>
+
+  <h2 id="erros">Erros que você pode ver</h2>
+  <p>
+    Toda falha de assinatura é um <code>SignatureKitError</code> tipado no canal de erro; falhas específicas do parsing/canon
+    XML chegam como <code>XmlError</code>. Os mais comuns:
+  </p>
+  <ul>
+    <li>
+      <a href="/docs/errors#err-INVALID_INPUT"><code>signature-kit.INVALID_INPUT</code></a> — o XML não casa com o
+      <code>referenceId</code> informado, ou não há elemento com aquele <code>Id</code>.
+    </li>
+    <li>
+      <a href="/docs/errors#err-SIGN_FAILED"><code>signature-kit.SIGN_FAILED</code></a> — a operação de assinatura sobre o digest
+      não pôde ser concluída.
+    </li>
+    <li>
+      <a href="/docs/errors#err-VERIFY_FAILED"><code>signature-kit.VERIFY_FAILED</code></a> — a verificação não confere
+      (<code>result.valid</code> seria <code>false</code> ou a URI exigida não está presente).
+    </li>
+  </ul>
+
+  <div class="next-prev">
+    <a href="/docs/errors">← Canal de erro tipado</a>
+    <a href="/docs/pdf">PDF / PAdES →</a>
+  </div>
+</DocsLayout>

@@ -1,0 +1,201 @@
+---
+import DocsLayout from "../../../layouts/DocsLayout.astro";
+import DocsActions from "../../../components/DocsActions.astro";
+import CodePanel from "../../../components/CodePanel.astro";
+import InstallTabs from "../../../components/InstallTabs.astro";
+
+const providerCode = `import { Redacted } from "effect"
+import { dropboxSign } from "@signature-kit/dropbox-sign"
+
+const provider = dropboxSign({
+  apiKey: Redacted.make(process.env.DROPBOX_SIGN_API_KEY!),
+  testMode: true,
+})`;
+
+const gatewayCode = `import { Effect, Redacted } from "effect"
+import { createSignatureGateway, createFetchHttpClient } from "@signature-kit/signature-gateway"
+import { dropboxSign } from "@signature-kit/dropbox-sign"
+
+const gateway = createSignatureGateway({
+  providers: [
+    dropboxSign({
+      apiKey: Redacted.make(process.env.DROPBOX_SIGN_API_KEY!),
+      testMode: true,
+    }),
+  ],
+  http: createFetchHttpClient(),
+})`;
+
+const requestCode = `const request = gateway.createSignatureRequest({
+  provider: "dropbox-sign",
+  title: "Contrato de prestação de serviço",
+  documents: [
+    { fileName: "contrato.pdf", mimeType: "application/pdf", content: pdfBytes },
+  ],
+  recipients: [
+    { name: "Ana Souza", email: "ana@exemplo.com.br", role: "signer" },
+  ],
+  send: true,
+})
+
+const result = yield* request  // RemoteSignatureRequest: { id, state, signingUrl?, ... }`;
+
+const baseUrlCode = `dropboxSign({
+  apiKey: Redacted.make(process.env.DROPBOX_SIGN_API_KEY!),
+  baseUrl: "https://api.hellosign.com/v3", // valor padrão; sobrescreva para um mock/proxy
+  testMode: true,
+})`;
+
+const draftCode = `// send: false não cria rascunho neste adaptador.
+gateway.createSignatureRequest({
+  provider: "dropbox-sign",
+  title: "Contrato",
+  documents: [{ fileName: "c.pdf", mimeType: "application/pdf", content: pdfBytes }],
+  recipients: [{ name: "Ana", email: "ana@exemplo.com.br" }],
+  send: false,
+})
+// -> SignatureProviderError
+//    "Dropbox Sign send endpoint does not create drafts."`;
+
+const toc: [string, string][] = [
+  ["Instalar", "#instalar"],
+  ["Configurar o provedor", "#configurar"],
+  ["Registrar no gateway", "#gateway"],
+  ["Criar a solicitação", "#solicitacao"],
+  ["Modo de teste", "#modo-de-teste"],
+  ["Endpoint não cria rascunhos", "#rascunhos"],
+  ["Erros que você pode ver", "#erros"],
+];
+---
+
+<DocsLayout
+  title="Dropbox Sign"
+  description="Configure o adaptador Dropbox Sign (HelloSign API v3) e despache solicitações de assinatura pelo gateway SignatureKit."
+  group="provedores"
+  toc={toc}
+>
+  <h1>Dropbox Sign</h1>
+  <DocsActions title="Dropbox Sign" />
+
+  <p>
+    <strong>O que você vai fazer:</strong> instalar <code>@signature-kit/dropbox-sign</code>, construir o adaptador com
+    <code>dropboxSign(...)</code>, registrá-lo em um <code>createSignatureGateway</code> e despachar uma solicitação com
+    <code>provider: "dropbox-sign"</code>. O adaptador fala com a HelloSign API v3 usando autenticação HTTP Basic.
+  </p>
+
+  <section class="step" data-step="1">
+    <h3 id="instalar">Instale o pacote do provedor</h3>
+    <p>
+      O adaptador vem em seu próprio pacote. Você também precisa do <code>@signature-kit/signature-gateway</code> para
+      despachar as solicitações.
+    </p>
+    <InstallTabs spec="@signature-kit/dropbox-sign @signature-kit/signature-gateway" />
+  </section>
+
+  <section class="step" data-step="2">
+    <h3 id="configurar">Configure o provedor</h3>
+    <p>
+      <code>dropboxSign</code> recebe a chave de API embrulhada em <code>Redacted.make(...)</code>. Importe
+      <code>Redacted</code> de <code>"effect"</code> — a chave nunca aparece em logs ou em mensagens de erro porque o tipo
+      <code>Redacted</code> mascara seu conteúdo.
+    </p>
+    <CodePanel label="dropbox-sign.ts" code={providerCode} />
+    <p>As opções aceitas são exatamente estas:</p>
+    <ul>
+      <li>
+        <code>apiKey: Redacted&lt;string&gt;</code> — obrigatória. A chave de API da conta Dropbox Sign. O adaptador a
+        usa como nome de usuário em uma autenticação HTTP Basic, com a senha vazia (<code>apiKey:</code>).
+      </li>
+      <li>
+        <code>baseUrl?: string</code> — opcional. Padrão <code>"https://api.hellosign.com/v3"</code>.
+      </li>
+      <li>
+        <code>testMode?: boolean</code> — opcional. Veja <a href="#modo-de-teste">Modo de teste</a>.
+      </li>
+    </ul>
+    <p class="aside">
+      <strong>Atenção:</strong> este adaptador usa <code>apiKey</code> com HTTP Basic, não <code>accessToken</code>/<code>accountId</code>
+      com bearer. Esses campos pertencem a outros provedores e serão ignorados aqui.
+    </p>
+    <p>
+      Para apontar para um mock ou um proxy nos testes, sobrescreva <code>baseUrl</code>; caso contrário pode omiti-lo e
+      usar o padrão.
+    </p>
+    <CodePanel label="dropbox-sign.base-url.ts" code={baseUrlCode} />
+  </section>
+
+  <section class="step" data-step="3">
+    <h3 id="gateway">Registre o adaptador no gateway</h3>
+    <p>
+      O gateway despacha cada solicitação pelo <code>adapter.id</code> que casa com o campo <code>provider</code> da
+      entrada. O id deste adaptador é <code>"dropbox-sign"</code>. Se você omitir <code>http</code>, o gateway usa
+      <code>createFetchHttpClient()</code> automaticamente.
+    </p>
+    <CodePanel label="gateway.ts" code={gatewayCode} />
+    <p class="aside">
+      <strong>Nota:</strong> sem nenhum adaptador para <code>"dropbox-sign"</code> registrado, o gateway falha com
+      <code>signature_provider.UNSUPPORTED_OPERATION</code> e a razão
+      <em>"No signature provider adapter registered for dropbox-sign."</em>
+    </p>
+  </section>
+
+  <section class="step" data-step="4">
+    <h3 id="solicitacao">Crie a solicitação de assinatura</h3>
+    <p>
+      <code>createSignatureRequest</code> retorna um <code>Effect&lt;RemoteSignatureRequest, SignatureProviderError&gt;</code>.
+      O resultado traz o <code>id</code> remoto, o <code>state</code> (<code>"draft" | "sent"</code>) e, quando disponível,
+      <code>signingUrl</code> e <code>detailsUrl</code>.
+    </p>
+    <CodePanel label="solicitar-assinatura.ts" code={requestCode} />
+  </section>
+
+  <section class="step" data-step="5">
+    <h3 id="modo-de-teste">Ative o modo de teste</h3>
+    <p>
+      Com <code>testMode: true</code>, a solicitação é enviada à Dropbox Sign marcada como teste: ela não é legalmente
+      vinculante e não consome cota de envios. Use essa flag em desenvolvimento e em CI; remova-a (ou defina
+      <code>false</code>) somente em produção.
+    </p>
+    <CodePanel label="dropbox-sign.test.ts" code={providerCode} />
+  </section>
+
+  <h2 id="rascunhos">O endpoint de envio não cria rascunhos</h2>
+  <p>
+    O <code>send</code> da entrada do gateway controla se a solicitação deve ser despachada para os signatários. Para a
+    Dropbox Sign, porém, o caminho de criação é sempre um envio — não há criação de rascunho. Passar
+    <code>send: false</code> resulta em um <code>SignatureProviderError</code> com a mensagem abaixo.
+  </p>
+  <CodePanel label="sem-rascunho.ts" code={draftCode} />
+  <p>
+    Se o seu fluxo precisa de uma etapa de revisão antes do envio, faça essa pausa do lado da sua aplicação e chame
+    <code>createSignatureRequest</code> apenas quando estiver pronto para disparar.
+  </p>
+
+  <h2 id="erros">Erros que você pode ver</h2>
+  <p>
+    As falhas deste adaptador são do tipo <code>SignatureProviderError</code>, com um dos seguintes códigos:
+  </p>
+  <ul>
+    <li>
+      <code>signature_provider.INVALID_INPUT</code> — a entrada da solicitação é inválida (por exemplo, sem documentos
+      ou destinatários).
+    </li>
+    <li>
+      <code>signature_provider.HTTP</code> — a chamada HTTP à HelloSign API v3 falhou (status de erro, rede, ou chave de
+      API rejeitada no Basic auth).
+    </li>
+    <li>
+      <code>signature_provider.RESPONSE_SHAPE</code> — a resposta da API não tinha o formato esperado.
+    </li>
+    <li>
+      <code>signature_provider.UNSUPPORTED_OPERATION</code> — operação não suportada: nenhum adaptador
+      <code>"dropbox-sign"</code> registrado no gateway, ou <code>send: false</code>, que dispara
+      <em>"Dropbox Sign send endpoint does not create drafts."</em>
+    </li>
+  </ul>
+
+  <div class="next-prev">
+    <a href="/docs/providers/docusign">← DocuSign</a>
+    <a href="/docs/providers/adobe-sign">Adobe Sign →</a>
+  </div>
+</DocsLayout>

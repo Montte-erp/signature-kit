@@ -1,0 +1,10 @@
+{
+  "name": "@tooling/static-checks",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "bin": {
+    "check-declarative-errors": "./check-declarative-errors.ts"
+  },
+  "type": "module"
+}

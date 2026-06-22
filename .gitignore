@@ -1,0 +1,9 @@
+node_modules/
+**/dist/
+**/.cache/
+apps/web/.astro/
+apps/web/dist/
+.env
+.env.*
+coverage/
+.DS_Store

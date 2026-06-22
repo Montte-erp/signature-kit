@@ -1,0 +1,127 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import DocsActions from "../../components/DocsActions.astro";
+import CodePanel from "../../components/CodePanel.astro";
+
+const programCode = `import { createSignatureKit } from "@signature-kit/core"
+import { loadA1SignerAdapter } from "@signature-kit/a1"
+import { Effect, Redacted } from "effect"
+
+export const program = Effect.gen(function* () {
+  const signer = yield* loadA1SignerAdapter({
+    pfx,                                          // Uint8Array — bytes do .pfx/.p12
+    password: Redacted.make(process.env.A1_PASSWORD ?? ""),
+  })
+  const signatureKit = createSignatureKit({ signer })
+
+  // identidade normalizada — identity.document traz e-CPF / e-CNPJ
+  const identity = yield* signatureKit.certificates.inspect()
+
+  const content = new TextEncoder().encode("conteúdo a assinar")
+  const artifact = yield* signatureKit.signatures.sign({
+    content,
+    algorithm: "rsa-sha256",
+  })
+
+  const result = yield* signatureKit.signatures.verify({
+    content,
+    signature: artifact.signature,
+    algorithm: artifact.algorithm,
+  })
+
+  return { identity, artifact, result }
+})`;
+
+const runCode = `import { Effect } from "effect"
+
+const { result } = await Effect.runPromise(program)
+console.log(result.valid) // boolean — true se a assinatura confere`;
+
+const formatsCode = `import { signXml } from "@signature-kit/xml"
+import { signPdf } from "@signature-kit/pdf"
+import { a1SignaturesLayer } from "@signature-kit/a1"
+import { Effect } from "effect"
+
+const layer = a1SignaturesLayer({ pfx, password })
+
+const signedXml = yield* signXml({ xml, referenceId: "nfe-1" })
+  .pipe(Effect.provide(layer))
+
+const signedPdf = yield* signPdf({ pdf, policy: "pades-icp-brasil" })
+  .pipe(Effect.provide(layer))`;
+
+const toc: [string, string][] = [
+  ["Carregar o A1 e inspecionar", "#carregar"],
+  ["Assinar e verificar bytes", "#assinar"],
+  ["Rodar o programa", "#rodar"],
+  ["Assinar XML e PDF", "#formatos"],
+  ["Erros que você pode ver", "#erros"],
+];
+---
+
+<DocsLayout
+  title="Primeiro uso"
+  description="Carregue um A1, inspecione a identidade e assine seus primeiros bytes — depois um XML e um PDF — em um único programa Effect."
+  group="comece aqui"
+  toc={toc}
+>
+  <h1>Primeiro uso</h1>
+  <DocsActions title="Primeiro uso" />
+
+  <p>
+    <strong>O que você vai fazer:</strong> montar um programa Effect que carrega o certificado A1, lê a identidade,
+    assina e verifica bytes — e então assina um XML e um PDF reusando a mesma fronteira.
+  </p>
+
+  <section class="step" data-step="1">
+    <h3 id="carregar">Carregar o A1 e inspecionar a identidade</h3>
+    <p>
+      <code>loadA1SignerAdapter</code> recebe os bytes do <code>.pfx</code> e a senha <code>Redacted</code> e devolve um
+      <code>SignerAdapter</code>. <code>certificates.inspect</code> retorna uma <code>SignerIdentity</code> normalizada —
+      <code>document</code> traz o e-CPF ou e-CNPJ quando presente.
+    </p>
+  </section>
+
+  <section class="step" data-step="2">
+    <h3 id="assinar">Assinar e verificar bytes</h3>
+    <p>
+      O serviço expõe <code>signatures.sign</code> e <code>signatures.verify</code>. A verificação retorna um valor —
+      <code>result.valid</code> é <code>boolean</code> —; uma falha real vira <code>SignatureKitError</code> no canal de
+      erro, nunca uma exceção solta.
+    </p>
+    <CodePanel label="quickstart.ts" code={programCode} />
+  </section>
+
+  <section class="step" data-step="3">
+    <h3 id="rodar">Rodar o programa</h3>
+    <p>Execute o <code>Effect</code> com <code>Effect.runPromise</code> (ou rode dentro de outro programa Effect).</p>
+    <CodePanel label="run.ts" code={runCode} />
+  </section>
+
+  <section class="step" data-step="4">
+    <h3 id="formatos">Assinar XML e PDF</h3>
+    <p>
+      Os formatos consomem a mesma fronteira via <code>Effect.provide</code>. <code>a1SignaturesLayer</code> fornece o
+      serviço <code>Signatures</code> — a linha do <code>layer</code> é idêntica para XML e PDF.
+    </p>
+    <CodePanel label="documentos.ts" code={formatsCode} />
+  </section>
+
+  <h2 id="erros">Erros que você pode ver</h2>
+  <ul>
+    <li>
+      <a href="/docs/errors#err-WRONG_PASSWORD"><code>signature-kit.WRONG_PASSWORD</code></a> — senha do certificado incorreta.
+    </li>
+    <li>
+      <a href="/docs/errors#err-SIGN_FAILED"><code>signature-kit.SIGN_FAILED</code></a> — falha ao assinar o conteúdo.
+    </li>
+    <li>
+      <a href="/docs/errors#err-VERIFY_FAILED"><code>signature-kit.VERIFY_FAILED</code></a> — falha ao verificar a assinatura.
+    </li>
+  </ul>
+
+  <div class="next-prev">
+    <a href="/docs/installation">← Instalação</a>
+    <a href="/docs/signers">A fronteira de assinatura →</a>
+  </div>
+</DocsLayout>

@@ -1,0 +1,10 @@
+{
+  "extends": "../../tooling/typescript/core.json",
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../../core/contracts" },
+    { "path": "../../core/x509" },
+    { "path": "../../core/core" },
+    { "path": "../../shared/crypto" }
+  ]
+}

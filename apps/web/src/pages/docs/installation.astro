@@ -1,0 +1,129 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import DocsActions from "../../components/DocsActions.astro";
+import CodePanel from "../../components/CodePanel.astro";
+import InstallTabs from "../../components/InstallTabs.astro";
+
+const runtimeCode = `import { createSignatureKit } from "@signature-kit/core"
+import { loadA1SignerAdapter } from "@signature-kit/a1"
+import { Effect, Redacted } from "effect"
+
+export const program = Effect.gen(function* () {
+  const signer = yield* loadA1SignerAdapter({
+    pfx,                                          // Uint8Array — bytes do .pfx/.p12
+    password: Redacted.make(process.env.A1_PASSWORD ?? ""),
+  })
+
+  return createSignatureKit({ signer })
+})`;
+
+const signCode = `const signatureKit = yield* program
+
+const identity = yield* signatureKit.certificates.inspect()  // e-CPF / e-CNPJ
+const artifact = yield* signatureKit.signatures.sign({
+  content,
+  algorithm: "rsa-sha256",
+})
+
+const result = yield* signatureKit.signatures.verify({
+  content,
+  signature: artifact.signature,
+  algorithm: artifact.algorithm,
+})
+// result.valid: boolean`;
+
+const formatsCode = `import { signXml } from "@signature-kit/xml"
+import { signPdf } from "@signature-kit/pdf"
+import { a1SignaturesLayer } from "@signature-kit/a1"
+import { Effect } from "effect"
+
+const layer = a1SignaturesLayer({ pfx, password })
+
+const signedXml = yield* signXml({ xml, referenceId: "nfe-1" })
+  .pipe(Effect.provide(layer))
+
+const signedPdf = yield* signPdf({ pdf, policy: "pades-icp-brasil" })
+  .pipe(Effect.provide(layer))`;
+
+const toc: [string, string][] = [
+  ["Instale os pacotes", "#instalar"],
+  ["Crie a execução", "#execucao"],
+  ["Assine e verifique", "#assinar"],
+  ["Adicione formatos", "#formatos"],
+  ["Erros que você pode ver", "#erros"],
+];
+---
+
+<DocsLayout
+  title="Instalação"
+  description="Instale o core e o assinador A1, crie a execução createSignatureKit e assine seus primeiros bytes."
+  group="comece aqui"
+  toc={toc}
+>
+  <h1>Instalação</h1>
+  <DocsActions title="Instalação" />
+
+  <p>
+    <strong>O que você vai fazer:</strong> instalar a execução, carregar um certificado A1 e assinar bytes com erro tipado.
+    Formatos e provedores entram depois, sem mudar o contrato da aplicação.
+  </p>
+
+  <section class="step" data-step="1">
+    <h3 id="instalar">Instale os pacotes</h3>
+    <p>Comece pela execução <code>@signature-kit/core</code> e pelo assinador <code>@signature-kit/a1</code>.</p>
+    <InstallTabs spec="@signature-kit/core @signature-kit/a1" />
+  </section>
+
+  <section class="step" data-step="2">
+    <h3 id="execucao">Crie a execução SignatureKit</h3>
+    <p>
+      <code>loadA1SignerAdapter</code> recebe os bytes do <code>.pfx</code> e a senha <code>Redacted</code>, e devolve um
+      <code>SignerAdapter</code>. <code>createSignatureKit</code> monta a execução a partir dele.
+    </p>
+    <CodePanel label="signature-kit.ts" code={runtimeCode} />
+    <p class="aside">
+      <strong>Dica:</strong> a senha é <code>Redacted.Redacted&lt;string&gt;</code> — envolva com
+      <code>Redacted.make(...)</code> para manter o segredo fora de logs até a fronteira de uso.
+    </p>
+  </section>
+
+  <section class="step" data-step="3">
+    <h3 id="assinar">Assine e verifique bytes</h3>
+    <p>
+      A execução expõe <code>certificates.inspect</code>, <code>signatures.sign</code> e
+      <code>signatures.verify</code>. O algoritmo é <code>"rsa-sha256"</code> ou <code>"rsa-sha512"</code>.
+    </p>
+    <CodePanel label="assinar.ts" code={signCode} />
+  </section>
+
+  <section class="step" data-step="4">
+    <h3 id="formatos">Adicione XML e PDF</h3>
+    <p>
+      Formatos consomem a mesma fronteira via <code>Effect.provide(layer)</code>. Use <code>a1SignaturesLayer</code> para
+      fornecer o serviço <code>Signatures</code> — a linha do layer não muda entre XML e PDF.
+    </p>
+    <InstallTabs spec="@signature-kit/xml @signature-kit/pdf" class="mb-4" />
+    <CodePanel label="documentos.ts" code={formatsCode} />
+  </section>
+
+  <h2 id="erros">Erros que você pode ver</h2>
+  <p>Toda falha é um <code>SignatureKitError</code> tipado no canal de erro. Os mais comuns na instalação:</p>
+  <ul>
+    <li>
+      <a href="/docs/errors#err-WRONG_PASSWORD"><code>signature-kit.WRONG_PASSWORD</code></a> — “Wrong certificate password.”
+    </li>
+    <li>
+      <a href="/docs/errors#err-NO_PRIVATE_KEY"><code>signature-kit.NO_PRIVATE_KEY</code></a> — “The file does not contain a
+      private key.”
+    </li>
+    <li>
+      <a href="/docs/errors#err-INVALID_FORMAT"><code>signature-kit.INVALID_FORMAT</code></a> — o arquivo não é um PKCS#12
+      (.pfx/.p12).
+    </li>
+  </ul>
+
+  <div class="next-prev">
+    <a href="/docs">← Introdução</a>
+    <a href="/docs/quickstart">Primeiro uso →</a>
+  </div>
+</DocsLayout>

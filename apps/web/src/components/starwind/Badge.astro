@@ -1,0 +1,41 @@
+---
+import { tv } from "tailwind-variants";
+
+type BadgeVariant = "default" | "primary" | "secondary" | "outline" | "info" | "success" | "warning" | "error";
+type BadgeSize = "sm" | "md";
+type Props = {
+  variant?: BadgeVariant;
+  size?: BadgeSize;
+  class?: string;
+};
+
+const badge = tv({
+  base: "inline-flex items-center gap-2 rounded-full border font-semibold uppercase tracking-[0.2em]",
+  variants: {
+    variant: {
+      default: "border-border bg-card text-muted-foreground",
+      primary: "border-primary bg-primary/25 text-primary-accent shadow-sm shadow-primary/20",
+      secondary: "border-secondary bg-secondary/15 text-secondary-accent",
+      outline: "border-border bg-transparent text-muted-foreground",
+      info: "border-info bg-info/15 text-info",
+      success: "border-success bg-success/15 text-success",
+      warning: "border-warning bg-warning/15 text-warning",
+      error: "border-error bg-error/15 text-error",
+    },
+    size: {
+      sm: "px-2.5 py-1 text-[10px]",
+      md: "px-3 py-1 text-xs",
+    },
+  },
+  defaultVariants: {
+    variant: "default",
+    size: "md",
+  },
+});
+
+const { variant = "default", size = "md", class: className } = Astro.props;
+---
+
+<span class={badge({ variant, size, class: className })}>
+  <slot />
+</span>

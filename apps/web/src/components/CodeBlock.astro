@@ -1,0 +1,36 @@
+---
+import { Code } from "astro:components";
+import { Check, Copy } from "@lucide/astro";
+
+interface Props {
+  title?: string;
+  code?: string;
+  lang?: string;
+  class?: string;
+}
+
+const { title = "terminal", code = "", lang = "ts", class: className = "" } = Astro.props;
+const trimmed = code.trim();
+const dotColors = ["bg-error/70", "bg-warning/70", "bg-success/70"];
+---
+
+<div class={`sw-code group relative ${className}`}>
+  <div class="sw-code-tab justify-between">
+    <span class="inline-flex items-center gap-2">
+      <span class="flex items-center gap-1.5">
+        {dotColors.map((c) => <span class={`size-2 rounded-full ${c}`} />)}
+      </span>
+      <span class="ml-1 font-mono text-foreground">{title}</span>
+    </span>
+    <button
+      type="button"
+      class="copy-btn opacity-0 transition group-hover:opacity-100"
+      data-copy={trimmed}
+      aria-label="Copiar código"
+    >
+      <Copy class="size-3.5 [[data-copied=true]_&]:hidden" />
+      <Check class="hidden size-3.5 [[data-copied=true]_&]:block" />
+    </button>
+  </div>
+  <Code code={trimmed} lang={lang as any} theme="vesper" />
+</div>

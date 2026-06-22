@@ -1,0 +1,32 @@
+---
+import { Check, Copy, Sparkles } from "@lucide/astro";
+
+interface Props {
+  title?: string;
+}
+const { title = "" } = Astro.props;
+const prompt = `Sobre a biblioteca SignatureKit (assinatura digital Effect-native para TypeScript)${title ? ` — ${title}` : ""}: `;
+const claudeUrl = `https://claude.ai/new?q=${encodeURIComponent(prompt)}`;
+---
+
+<div class="not-prose mt-5 flex flex-wrap items-center gap-2">
+  <button
+    type="button"
+    data-copy-article
+    class="copy-btn !size-auto gap-1.5 px-2.5 py-1.5 text-xs"
+    aria-label="Copiar a página como texto"
+  >
+    <Copy class="size-3.5 [[data-copied=true]_&]:hidden" />
+    <Check class="hidden size-3.5 [[data-copied=true]_&]:block" />
+    <span>Copiar página</span>
+  </button>
+  <a
+    href={claudeUrl}
+    target="_blank"
+    rel="noreferrer"
+    class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+  >
+    <Sparkles class="size-3.5" />
+    Perguntar à IA
+  </a>
+</div>
