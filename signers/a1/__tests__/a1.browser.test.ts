@@ -19,32 +19,52 @@ if (typeof document === "undefined") {
   });
 } else {
   describe("A1 browser integration", () => {
-    it.effect("loads an A1 signer and signs with browser WebCrypto", () =>
+    it.effect("loads e-CPF and e-CNPJ A1 certificates and signs with browser WebCrypto", () =>
       Effect.gen(function* () {
         expect(typeof window.crypto.subtle.importKey).toBe("function");
         expect(typeof document.createElement).toBe("function");
 
-        const pfx = yield* readA1FixtureFromBrowser("ecpf");
-        const profile = yield* parseA1CertificateProfile({ pfx, password: PASSWORD });
-        expect(profile.document).toBe("12345678901");
-        expect(profile.daysUntilExpiry).toBeGreaterThan(0);
+        const ecpf = yield* readA1FixtureFromBrowser("ecpf");
+        const ecnpj = yield* readA1FixtureFromBrowser("ecnpj");
+        const ecpfProfile = yield* parseA1CertificateProfile({ pfx: ecpf, password: PASSWORD });
+        const ecnpjProfile = yield* parseA1CertificateProfile({ pfx: ecnpj, password: PASSWORD });
+        expect(ecpfProfile.document).toBe("12345678901");
+        expect(ecnpjProfile.document).toBe("12345678000195");
+        expect(ecpfProfile.daysUntilExpiry).toBeGreaterThan(0);
+        expect(ecnpjProfile.daysUntilExpiry).toBeGreaterThan(0);
 
-        const signatureKit = yield* loadA1SignatureKit({ pfx, password: PASSWORD });
+        const signatureKit = yield* loadA1SignatureKit({ pfx: ecpf, password: PASSWORD });
         const content = textEncoder.encode("SignatureKit A1 browser payload");
-        const artifact = yield* signatureKit.signatures.sign({ content, algorithm: "rsa-sha256" });
-        const verification = yield* signatureKit.signatures.verify({
+        const sha1 = yield* signatureKit.signatures.sign({ content, algorithm: "rsa-sha1" });
+        const sha256 = yield* signatureKit.signatures.sign({ content, algorithm: "rsa-sha256" });
+        const sha512 = yield* signatureKit.signatures.sign({ content, algorithm: "rsa-sha512" });
+        const sha1Verification = yield* signatureKit.signatures.verify({
           content,
-          signature: artifact.signature,
-          algorithm: artifact.algorithm,
+          signature: sha1.signature,
+          algorithm: sha1.algorithm,
+        });
+        const sha256Verification = yield* signatureKit.signatures.verify({
+          content,
+          signature: sha256.signature,
+          algorithm: sha256.algorithm,
+        });
+        const sha512Verification = yield* signatureKit.signatures.verify({
+          content,
+          signature: sha512.signature,
+          algorithm: sha512.algorithm,
         });
         const tampered = yield* signatureKit.signatures.verify({
           content: textEncoder.encode("tampered"),
-          signature: artifact.signature,
-          algorithm: artifact.algorithm,
+          signature: sha512.signature,
+          algorithm: sha512.algorithm,
         });
 
-        expect(artifact.signature.byteLength).toBeGreaterThan(0);
-        expect(verification.valid).toBe(true);
+        expect(sha1.signature.byteLength).toBeGreaterThan(0);
+        expect(sha256.signature.byteLength).toBeGreaterThan(0);
+        expect(sha512.signature.byteLength).toBeGreaterThan(0);
+        expect(sha1Verification.valid).toBe(true);
+        expect(sha256Verification.valid).toBe(true);
+        expect(sha512Verification.valid).toBe(true);
         expect(tampered.valid).toBe(false);
       }),
     );

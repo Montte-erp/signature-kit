@@ -19,7 +19,7 @@
     "test:validar-iti": "SIGNATURE_KIT_ITI_VALIDATE=1 vitest run formats/pdf/__tests__/validar-iti.integration.test.ts",
     "test:integration:server": "bun --cwd tooling/integration-tests test:server",
     "test:integration:browser": "vitest run --config tooling/vitest/browser.config.ts signers/a1/__tests__/a1.browser.test.ts",
-    "test:performance": "vitest run signers/a1/__tests__/a1.performance.test.ts",
+    "test:performance": "vitest run core/certificates/__tests__/certificates.performance.test.ts signers/a1/__tests__/a1.performance.test.ts",
     "site:dev": "bun --cwd apps/web dev",
     "site:build": "bun --cwd apps/web build",
     "check:declarative-errors": "bun tooling/static-checks/check-declarative-errors.ts",
