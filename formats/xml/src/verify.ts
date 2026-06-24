@@ -1,3 +1,7 @@
+import "reflect-metadata";
+import { X509Certificate } from "@peculiar/x509";
+import { base64ToBytes } from "@signature-kit/crypto/base64";
+import type { SignatureAlgorithm } from "@signature-kit/core/config";
 import { Effect } from "effect";
 import { Parse, SignedXml } from "xmldsigjs";
 import {
@@ -6,7 +10,6 @@ import {
   XmlError,
   XmlErrorCodeValue,
   XmlOperationValue,
-  safeCauseMetadata,
 } from "./config";
 import { ensureXmlRuntime, toBufferSource, xmlSignatureAlgorithm } from "./engine";
 
@@ -14,7 +17,7 @@ const XMLDSIG_NAMESPACE = "http://www.w3.org/2000/09/xmldsig#";
 
 const importVerificationKey = (
   publicKeyDer: Uint8Array,
-  algorithm: "rsa-sha256" | "rsa-sha512",
+  algorithm: SignatureAlgorithm,
 ): Effect.Effect<CryptoKey, XmlError> =>
   Effect.tryPromise({
     try: () =>
@@ -25,19 +28,42 @@ const importVerificationKey = (
         true,
         ["verify"],
       ),
-    catch: (cause) =>
+    catch: () =>
       new XmlError({
         code: XmlErrorCodeValue.keyImportFailed,
         retryable: false,
         operation: XmlOperationValue.keyImport,
-        ...safeCauseMetadata(cause),
       }),
   });
 
-const isVerificationMismatch = (error: XmlError): boolean =>
-  error.code === XmlErrorCodeValue.verifyFailed &&
-  (error.reason?.includes("Invalid digest") === true ||
-    error.reason?.includes("Invalid signature") === true);
+const embeddedVerificationKey = (
+  signatureElement: Element,
+  algorithm: SignatureAlgorithm,
+): Effect.Effect<CryptoKey | undefined, XmlError> => {
+  const certificateText =
+    signatureElement
+      .getElementsByTagNameNS(XMLDSIG_NAMESPACE, "X509Certificate")
+      .item(0)
+      ?.textContent?.replace(/[\t\n\r ]/g, "") ?? "";
+
+  if (certificateText.length === 0) {
+    return Effect.succeed(undefined);
+  }
+
+  return Effect.tryPromise({
+    try: () =>
+      new X509Certificate(toBufferSource(base64ToBytes(certificateText))).publicKey.export(
+        xmlSignatureAlgorithm(algorithm),
+        ["verify"],
+      ),
+    catch: () =>
+      new XmlError({
+        code: XmlErrorCodeValue.keyImportFailed,
+        retryable: false,
+        operation: XmlOperationValue.keyImport,
+      }),
+  });
+};
 
 export const verifyXml = (
   input: XmlVerificationRequest,
@@ -48,12 +74,11 @@ export const verifyXml = (
 
     const document = yield* Effect.try({
       try: () => Parse(input.xml),
-      catch: (cause) =>
+      catch: () =>
         new XmlError({
           code: XmlErrorCodeValue.invalidXml,
           retryable: false,
           operation: XmlOperationValue.parse,
-          ...safeCauseMetadata(cause),
         }),
     });
 
@@ -73,12 +98,11 @@ export const verifyXml = (
     const signedXml = new SignedXml(document);
     yield* Effect.try({
       try: () => signedXml.LoadXml(signatureElement),
-      catch: (cause) =>
+      catch: () =>
         new XmlError({
           code: XmlErrorCodeValue.invalidXml,
           retryable: false,
           operation: XmlOperationValue.parse,
-          ...safeCauseMetadata(cause),
         }),
     });
 
@@ -94,19 +118,23 @@ export const verifyXml = (
 
     const publicKey =
       input.publicKeyDer === undefined
-        ? undefined
+        ? yield* embeddedVerificationKey(signatureElement, algorithm)
         : yield* importVerificationKey(input.publicKeyDer, algorithm);
 
     const valid = yield* Effect.tryPromise({
       try: () => (publicKey === undefined ? signedXml.Verify() : signedXml.Verify(publicKey)),
-      catch: (cause) =>
+      catch: () =>
         new XmlError({
           code: XmlErrorCodeValue.verifyFailed,
           retryable: false,
           operation: XmlOperationValue.verify,
-          ...safeCauseMetadata(cause),
         }),
-    }).pipe(Effect.catchIf(isVerificationMismatch, () => Effect.succeed(false)));
+    }).pipe(
+      Effect.catchIf(
+        (error: XmlError) => error.code === XmlErrorCodeValue.verifyFailed,
+        () => Effect.succeed(false),
+      ),
+    );
 
     return { valid, signatureCount: signatures.length, referenceUris };
   });

@@ -1,5 +1,5 @@
-import { verifyDetachedSignedData } from "@signature-kit/cms";
-import type { CmsError } from "@signature-kit/cms";
+import type { CmsError } from "@signature-kit/cms/config";
+import { verifyDetachedSignedData } from "@signature-kit/cms/verify";
 import { Effect } from "effect";
 import { extractPdfSignature } from "./byte-range";
 import { PdfError } from "./config";

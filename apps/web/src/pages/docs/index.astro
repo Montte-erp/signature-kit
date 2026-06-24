@@ -4,8 +4,8 @@ import DocsActions from "../../components/DocsActions.astro";
 import CodePanel from "../../components/CodePanel.astro";
 import InstallTabs from "../../components/InstallTabs.astro";
 
-const program = `import { createSignatureKit } from "@signature-kit/core"
-import { loadA1SignerAdapter } from "@signature-kit/a1"
+const program = `import { createSignatureKit } from "@signature-kit/core/runtime"
+import { loadA1SignerAdapter } from "@signature-kit/a1/signer"
 import { Effect, Redacted } from "effect"
 
 export const program = Effect.gen(function* () {
@@ -58,7 +58,7 @@ const toc: [string, string][] = [
     <li><code>@signature-kit/core</code> — execução, serviço de assinaturas e <code>signaturesLayer</code>.</li>
     <li><code>@signature-kit/a1</code> — assinador A1 / PKCS#12 com identidade e-CPF e e-CNPJ.</li>
     <li><code>@signature-kit/xml</code> e <code>@signature-kit/pdf</code> — formatos XML-DSig e PDF/PAdES sobre a mesma fronteira.</li>
-    <li><code>@signature-kit/signature-gateway</code> + provedores (DocuSign, Dropbox Sign, Adobe Sign, Clicksign).</li>
+    <li><code>@signature-kit/docusign</code>, <code>@signature-kit/clicksign</code>, <code>@signature-kit/assinafy</code> e <code>@signature-kit/zapsign</code> — signers remotos diretos sobre <code>SignatureHttpClient</code>.</li>
   </ul>
 
   <h2 id="comece">Comece</h2>

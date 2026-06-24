@@ -12,7 +12,6 @@ import {
   CmsError,
   CmsErrorCodeValue,
   CmsOperationValue,
-  safeCauseMetadata,
   webCryptoHashName,
 } from "./config";
 
@@ -36,11 +35,10 @@ export const digest = (
 ): Effect.Effect<Uint8Array, CmsError> =>
   Effect.tryPromise({
     try: () => crypto.subtle.digest(webCryptoHashName(algorithm), toBufferSource(data)),
-    catch: (cause) =>
+    catch: () =>
       new CmsError({
         code: CmsErrorCodeValue.unsupportedAlgorithm,
         reason: `Failed to digest with ${algorithm}.`,
         operation: CmsOperationValue.attributes,
-        ...safeCauseMetadata(cause),
       }),
   }).pipe(Effect.map((buffer) => new Uint8Array(buffer)));

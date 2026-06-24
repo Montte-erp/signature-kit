@@ -1,5 +1,4 @@
 {
   "extends": "../../tooling/typescript/core.json",
-  "include": ["src/**/*.ts"],
-  "references": [{ "path": "../contracts" }]
+  "include": ["src/**/*.ts"]
 }

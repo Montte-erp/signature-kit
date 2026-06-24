@@ -4,8 +4,8 @@ import DocsActions from "../../components/DocsActions.astro";
 import CodePanel from "../../components/CodePanel.astro";
 import InstallTabs from "../../components/InstallTabs.astro";
 
-const signCode = `import { signXml } from "@signature-kit/xml"
-import { a1SignaturesLayer } from "@signature-kit/a1"
+const signCode = `import { signXml } from "@signature-kit/xml/sign"
+import { a1SignaturesLayer } from "@signature-kit/a1/signer"
 import { Effect, Redacted } from "effect"
 
 const layer = a1SignaturesLayer({
@@ -42,7 +42,7 @@ const signed = yield* signXml({
 }).pipe(Effect.provide(layer))
 // o <Signature> é inserido como irmão de <infNFe>, apontando para "#NFe35..."`;
 
-const verifyCode = `import { verifyXml } from "@signature-kit/xml"
+const verifyCode = `import { verifyXml } from "@signature-kit/xml/verify"
 import { Effect } from "effect"
 
 // verifyXml -> Effect<XmlVerificationResult, XmlError>

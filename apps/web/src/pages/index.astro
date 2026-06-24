@@ -44,7 +44,7 @@ const claudeAsk = `https://claude.ai/new?q=${encodeURIComponent(
           Uma fronteira assina bytes; XML, PDF e ICP-Brasil são pacotes. Carregue um assinador A1/PKCS#12 (e-CPF,
           e-CNPJ) uma vez e assine no navegador ou no servidor — com erro tipado e segredos <code
             class="font-mono text-foreground">Redacted</code
-          >. DocuSign, Dropbox Sign, Adobe Sign e Clicksign entram como pacotes independentes.
+          >. DocuSign, Clicksign, Assinafy e ZapSign entram como signers remotos independentes.
         </p>
 
         <div class="mt-7 flex flex-wrap items-center gap-3">
@@ -158,13 +158,13 @@ const claudeAsk = `https://claude.ai/new?q=${encodeURIComponent(
         <SectionHeader
           num="05"
           title="Cada provedor é um pacote."
-          lead="Config real e tipada por provedor — chaves diferentes, segredos Redacted. O gateway normaliza createSignatureRequest entre todos."
+          lead="Config real e tipada por provedor — chaves diferentes, segredos Redacted. Cada pacote expõe sua própria create*SignatureRequest sem gateway normalizador."
         />
         <div class="space-y-4">
           <CodeTabs tabs={providerTabs} />
           <p class="font-mono text-xs leading-6 text-muted-foreground/70">
-            // sem adapter registrado, a falha é typed: "No signature provider adapter registered for ${"{provider}"}."
-            <br />// signature_provider.UNSUPPORTED_OPERATION
+            // cada pacote remoto monta seu próprio protocolo e usa SignatureHttpClient.
+            <br />// falhas remotas chegam como SignatureKitError com provider + status.
           </p>
         </div>
       </div>

@@ -1,11 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
 import { PDFDocument } from "@cantoo/pdf-lib";
-import { Effect, Redacted } from "effect";
+import { Effect, Redacted, Result, Schema } from "effect";
 import { readA1Fixture } from "../../../tooling/testing/fixtures";
-import { a1SignaturesLayer } from "@signature-kit/a1";
-import { signPdf, verifyPdf } from "@signature-kit/pdf";
+import { a1SignaturesLayer } from "@signature-kit/a1/signer";
+import { signPdf } from "@signature-kit/pdf/sign";
+import { verifyPdf } from "@signature-kit/pdf/verify";
 import { extractPdfSignature } from "../src/byte-range";
 import { indexOfBytes } from "../src/bytes";
+import { PdfSigningRequestSchema } from "../src/config";
 
 const PASSWORD = Redacted.make("changeit");
 const SIGNATURE_POLICY_OID_DER = Uint8Array.of(
@@ -38,6 +40,7 @@ const SIGNING_CERTIFICATE_V2_OID_DER = Uint8Array.of(
   0x02,
   0x2f,
 );
+const latin1 = new TextDecoder("latin1");
 
 const createPdf: Effect.Effect<Uint8Array> = Effect.promise(async () => {
   const pdf = await PDFDocument.create();
@@ -98,6 +101,95 @@ describe("PDF signatures", () => {
         indexOfBytes(extracted.signature, SIGNING_CERTIFICATE_V2_OID_DER),
       ).toBeGreaterThanOrEqual(0);
       expect(indexOfBytes(extracted.signature, SIGNATURE_POLICY_OID_DER)).toBeGreaterThanOrEqual(0);
+    }),
+  );
+
+  it.effect("signs PDFs with legacy SHA-1 and embeds signature dictionary metadata", () =>
+    Effect.gen(function* () {
+      const pfx = yield* readA1Fixture("ecnpj");
+      const pdf = yield* createPdf;
+      const signed = yield* signPdf({
+        pdf,
+        hashAlgorithm: "sha1",
+        reason: "Approval",
+        name: "Empresa CNPJ:12345678000195",
+        location: "Office",
+        contactInfo: "test@example.com",
+        signingTime: new Date("2026-01-02T03:04:05Z"),
+        appearance: { pageIndex: 0, widgetRect: [10, 20, 110, 60] },
+      }).pipe(Effect.provide(a1SignaturesLayer({ pfx, password: PASSWORD })));
+      const verification = yield* verifyPdf({ pdf: signed });
+      const text = latin1.decode(signed);
+
+      expect(verification.valid).toBe(true);
+      expect(text).toContain("Approval");
+      expect(text).toContain("Empresa CNPJ:12345678000195");
+      expect(text).toContain("Office");
+      expect(text).toContain("test@example.com");
+      expect(text).toContain("/SubFilter /adbe.pkcs7.detached");
+      expect(text).toContain("/ByteRange");
+    }),
+  );
+
+  it.effect("validates PDF signing request schemas and rejects invalid catalogs", () =>
+    Effect.gen(function* () {
+      const pdf = yield* createPdf;
+      const valid = yield* Schema.decodeUnknownEffect(PdfSigningRequestSchema)({
+        pdf,
+        reason: "Approval",
+        location: "Office",
+        policy: "pades-icp-brasil",
+        hashAlgorithm: "sha512",
+        timestamp: {
+          tsaUrl: "https://timestamp.valid.com.br",
+          hashAlgorithm: "sha256",
+          timeoutMillis: 5000,
+        },
+        appearance: { pageIndex: 0, widgetRect: [10, 20, 110, 60] },
+      });
+      const invalidPolicy = yield* Effect.result(
+        Schema.decodeUnknownEffect(PdfSigningRequestSchema)({
+          pdf,
+          policy: "invalid-policy",
+        }),
+      );
+      const invalidHash = yield* Effect.result(
+        Schema.decodeUnknownEffect(PdfSigningRequestSchema)({
+          pdf,
+          hashAlgorithm: "md5",
+        }),
+      );
+
+      expect(valid.policy).toBe("pades-icp-brasil");
+      expect(valid.timestamp?.tsaUrl).toContain("timestamp.valid.com.br");
+      expect(valid.appearance?.widgetRect).toEqual([10, 20, 110, 60]);
+      expect(Result.isFailure(invalidPolicy)).toBe(true);
+      expect(Result.isFailure(invalidHash)).toBe(true);
+    }),
+  );
+
+  it.effect("keeps invalid PDF and out-of-range page errors typed", () =>
+    Effect.gen(function* () {
+      const pfx = yield* readA1Fixture("ecnpj");
+      const layer = a1SignaturesLayer({ pfx, password: PASSWORD });
+      const invalidPdf = yield* Effect.result(
+        signPdf({ pdf: new Uint8Array([1, 2, 3]) }).pipe(Effect.provide(layer)),
+      );
+      const missingPage = yield* Effect.result(
+        signPdf({
+          pdf: yield* createPdf,
+          appearance: { pageIndex: 5 },
+        }).pipe(Effect.provide(layer)),
+      );
+
+      expect(Result.isFailure(invalidPdf)).toBe(true);
+      if (Result.isFailure(invalidPdf)) {
+        expect(invalidPdf.failure.code).toBe("pdf.INVALID_PDF");
+      }
+      expect(Result.isFailure(missingPage)).toBe(true);
+      if (Result.isFailure(missingPage)) {
+        expect(missingPage.failure.code).toBe("pdf.INVALID_PDF");
+      }
     }),
   );
 });

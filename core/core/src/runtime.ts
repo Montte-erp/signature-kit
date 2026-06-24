@@ -8,7 +8,7 @@ import type {
   SignatureKitError,
   VerificationResult,
   VerifyInput,
-} from "@signature-kit/contracts";
+} from "./config";
 import type { Effect } from "effect";
 import { createSignaturesService } from "./signatures";
 import type { SignaturesService } from "./signatures";

@@ -17,7 +17,6 @@ import {
   CmsErrorCodeValue,
   CmsOid,
   CmsOperationValue,
-  safeCauseMetadata,
   webCryptoHashName,
 } from "./config";
 import { digest, toArrayBuffer, toBufferSource } from "./engine";
@@ -32,23 +31,21 @@ export const createDetachedSignedData = (
 
     const certificate = yield* Effect.try({
       try: () => pkijs.Certificate.fromBER(toArrayBuffer(input.certificateDer)),
-      catch: (cause) =>
+      catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.decodeError,
           reason: "Failed to parse the signer certificate DER.",
           operation: CmsOperationValue.parse,
-          ...safeCauseMetadata(cause),
         }),
     });
 
     const chain = yield* Effect.try({
       try: () => (input.chainDer ?? []).map((der) => pkijs.Certificate.fromBER(toArrayBuffer(der))),
-      catch: (cause) =>
+      catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.decodeError,
           reason: "Failed to parse a chain certificate DER.",
           operation: CmsOperationValue.parse,
-          ...safeCauseMetadata(cause),
         }),
     });
 
@@ -82,12 +79,11 @@ export const createDetachedSignedData = (
           ],
           certificates: [certificate, ...chain],
         }),
-      catch: (cause) =>
+      catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.encodeError,
           reason: "Failed to assemble the CMS SignedData.",
           operation: CmsOperationValue.encode,
-          ...safeCauseMetadata(cause),
         }),
     });
 
@@ -99,12 +95,11 @@ export const createDetachedSignedData = (
           webCryptoHashName(hashAlgorithm),
           toBufferSource(input.content),
         ),
-      catch: (cause) =>
+      catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.signError,
           reason: "Web Crypto signing of the CMS attributes failed.",
           operation: CmsOperationValue.sign,
-          ...safeCauseMetadata(cause),
         }),
     });
 
@@ -139,12 +134,11 @@ export const createDetachedSignedData = (
           });
           return undefined;
         },
-        catch: (cause) =>
+        catch: () =>
           new CmsError({
             code: CmsErrorCodeValue.encodeError,
             reason: "Failed to embed the timestamp token.",
             operation: CmsOperationValue.encode,
-            ...safeCauseMetadata(cause),
           }),
       });
     }
@@ -157,12 +151,11 @@ export const createDetachedSignedData = (
         });
         return new Uint8Array(contentInfo.toSchema().toBER(false));
       },
-      catch: (cause) =>
+      catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.encodeError,
           reason: "Failed to serialize the CMS ContentInfo.",
           operation: CmsOperationValue.encode,
-          ...safeCauseMetadata(cause),
         }),
     });
   });

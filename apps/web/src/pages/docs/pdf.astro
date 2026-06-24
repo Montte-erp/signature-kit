@@ -4,8 +4,8 @@ import DocsActions from "../../components/DocsActions.astro";
 import CodePanel from "../../components/CodePanel.astro";
 import InstallTabs from "../../components/InstallTabs.astro";
 
-const signCode = `import { signPdf } from "@signature-kit/pdf"
-import { a1SignaturesLayer } from "@signature-kit/a1"
+const signCode = `import { signPdf } from "@signature-kit/pdf/sign"
+import { a1SignaturesLayer } from "@signature-kit/a1/signer"
 import { Effect, Redacted } from "effect"
 
 const program = signPdf({
@@ -48,7 +48,7 @@ const explicit = signPdf({
   },
 }).pipe(Effect.provide(layer))`;
 
-const verifyCode = `import { verifyPdf } from "@signature-kit/pdf"
+const verifyCode = `import { verifyPdf } from "@signature-kit/pdf/verify"
 import { Effect } from "effect"
 
 // verifyPdf NÃO requer o serviço Signatures — não há .pipe(Effect.provide(...))
@@ -178,6 +178,6 @@ const toc: [string, string][] = [
 
   <div class="next-prev">
     <a href="/docs/xml">← XML-DSig</a>
-    <a href="/docs/providers">Gateway →</a>
+    <a href="/docs/providers">Signers remotos →</a>
   </div>
 </DocsLayout>

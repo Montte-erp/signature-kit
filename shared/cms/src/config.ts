@@ -13,18 +13,7 @@ import { Schema } from "effect";
 // Error code catalog
 // =============================================================================
 
-export type CmsErrorCode =
-  | "cms.ENCODE_ERROR"
-  | "cms.DECODE_ERROR"
-  | "cms.SIGN_ERROR"
-  | "cms.VERIFY_ERROR"
-  | "cms.DIGEST_MISMATCH"
-  | "cms.CHAIN_ERROR"
-  | "cms.UNSUPPORTED_ALGORITHM"
-  | "cms.TIMESTAMP_ERROR"
-  | "cms.POLICY_ERROR"
-  | "cms.UNKNOWN";
-const CmsErrorCodeSchema: Schema.Decoder<CmsErrorCode> = Schema.Literals([
+export const CmsErrorCodeSchema = Schema.Literals([
   "cms.ENCODE_ERROR",
   "cms.DECODE_ERROR",
   "cms.SIGN_ERROR",
@@ -36,6 +25,7 @@ const CmsErrorCodeSchema: Schema.Decoder<CmsErrorCode> = Schema.Literals([
   "cms.POLICY_ERROR",
   "cms.UNKNOWN",
 ]);
+export type CmsErrorCode = (typeof CmsErrorCodeSchema)["Type"];
 export const CmsErrorCodeValue = {
   encodeError: "cms.ENCODE_ERROR",
   decodeError: "cms.DECODE_ERROR",
@@ -49,15 +39,7 @@ export const CmsErrorCodeValue = {
   unknown: "cms.UNKNOWN",
 } satisfies Record<string, CmsErrorCode>;
 
-export type CmsOperation =
-  | "cms.parse"
-  | "cms.attributes"
-  | "cms.sign"
-  | "cms.verify"
-  | "cms.encode"
-  | "cms.timestamp"
-  | "cms.policy";
-const CmsOperationSchema: Schema.Decoder<CmsOperation> = Schema.Literals([
+export const CmsOperationSchema = Schema.Literals([
   "cms.parse",
   "cms.attributes",
   "cms.sign",
@@ -66,6 +48,7 @@ const CmsOperationSchema: Schema.Decoder<CmsOperation> = Schema.Literals([
   "cms.timestamp",
   "cms.policy",
 ]);
+export type CmsOperation = (typeof CmsOperationSchema)["Type"];
 export const CmsOperationValue = {
   parse: "cms.parse",
   attributes: "cms.attributes",
@@ -80,14 +63,9 @@ export const CmsOperationValue = {
 // Hash algorithm catalog
 // =============================================================================
 
-export type CmsHashAlgorithm = "sha256" | "sha1" | "sha384" | "sha512";
-const CmsHashAlgorithmSchema: Schema.Decoder<CmsHashAlgorithm> = Schema.Literals([
-  "sha256",
-  "sha1",
-  "sha384",
-  "sha512",
-]);
-export const cmsHashAlgorithmSchema: Schema.Decoder<CmsHashAlgorithm> = CmsHashAlgorithmSchema;
+export const CmsHashAlgorithmSchema = Schema.Literals(["sha256", "sha1", "sha384", "sha512"]);
+export type CmsHashAlgorithm = (typeof CmsHashAlgorithmSchema)["Type"];
+export const cmsHashAlgorithmSchema = CmsHashAlgorithmSchema;
 export const CmsHashAlgorithmValue = {
   sha256: "sha256",
   sha1: "sha1",
@@ -139,80 +117,77 @@ export const CmsOid = {
 };
 
 // =============================================================================
-// Input / output contracts (plain types — a CryptoKey is not Schema-decodable)
+// Input / output contracts
 // =============================================================================
+
+const isCryptoKey = (value: unknown): value is CryptoKey =>
+  value !== null &&
+  typeof value === "object" &&
+  typeof Reflect.get(value, "type") === "string" &&
+  typeof Reflect.get(value, "extractable") === "boolean" &&
+  Array.isArray(Reflect.get(value, "usages"));
+
+const CryptoKeySchema = Schema.declare<CryptoKey>(isCryptoKey, {
+  identifier: "CryptoKey",
+});
 
 /**
  * ICP-Brasil signature-policy-identifier inputs. The policy hash and OID come
  * from the relevant Política de Assinatura (e.g. AD-RB / AD-RT) document.
  */
-export type IcpBrasilPolicy = {
-  readonly policyOid: string;
-  readonly policyHash: Uint8Array;
-  readonly policyHashAlgorithm: CmsHashAlgorithm;
-  readonly policyUri: string;
-};
+export const IcpBrasilPolicySchema = Schema.Struct({
+  policyOid: Schema.NonEmptyString,
+  policyHash: Schema.Uint8Array,
+  policyHashAlgorithm: CmsHashAlgorithmSchema,
+  policyUri: Schema.NonEmptyString,
+});
+export type IcpBrasilPolicy = (typeof IcpBrasilPolicySchema)["Type"];
 
 /** RFC 3161 timestamp request inputs for PAdES-T / CAdES-T (ICP-Brasil AD-RT). */
-export type TimestampOptions = {
-  readonly tsaUrl: string;
-  readonly hashAlgorithm?: CmsHashAlgorithm | undefined;
-  readonly timeoutMillis?: number | undefined;
-};
+export const TimestampOptionsSchema = Schema.Struct({
+  tsaUrl: Schema.NonEmptyString,
+  hashAlgorithm: Schema.optional(CmsHashAlgorithmSchema),
+  timeoutMillis: Schema.optional(Schema.Number),
+});
+export type TimestampOptions = (typeof TimestampOptionsSchema)["Type"];
 
-export type CreateDetachedSignedDataInput = {
-  readonly content: Uint8Array;
-  readonly signingKey: CryptoKey;
-  readonly certificateDer: Uint8Array;
-  readonly chainDer?: readonly Uint8Array[] | undefined;
-  readonly hashAlgorithm?: CmsHashAlgorithm | undefined;
-  readonly signingTime?: Date | undefined;
-  readonly icpBrasil?: IcpBrasilPolicy | undefined;
-  readonly timestamp?: TimestampOptions | undefined;
-};
+export const CreateDetachedSignedDataInputSchema = Schema.Struct({
+  content: Schema.Uint8Array,
+  signingKey: CryptoKeySchema,
+  certificateDer: Schema.Uint8Array,
+  chainDer: Schema.optional(Schema.Array(Schema.Uint8Array)),
+  hashAlgorithm: Schema.optional(CmsHashAlgorithmSchema),
+  signingTime: Schema.optional(Schema.Date),
+  icpBrasil: Schema.optional(IcpBrasilPolicySchema),
+  timestamp: Schema.optional(TimestampOptionsSchema),
+});
+export type CreateDetachedSignedDataInput = (typeof CreateDetachedSignedDataInputSchema)["Type"];
 
-export type VerifyDetachedSignedDataInput = {
-  readonly cms: Uint8Array;
-  readonly content: Uint8Array;
-  readonly trustedRoots?: readonly Uint8Array[] | undefined;
-};
+export const VerifyDetachedSignedDataInputSchema = Schema.Struct({
+  cms: Schema.Uint8Array,
+  content: Schema.Uint8Array,
+  trustedRoots: Schema.optional(Schema.Array(Schema.Uint8Array)),
+});
+export type VerifyDetachedSignedDataInput = (typeof VerifyDetachedSignedDataInputSchema)["Type"];
 
-export type CmsVerifyResult = {
-  readonly valid: boolean;
-  readonly chainValid: boolean;
-  readonly signerSerialNumber: string | null;
-};
+export const CmsVerifyResultSchema = Schema.Struct({
+  valid: Schema.Boolean,
+  chainValid: Schema.Boolean,
+  signerSerialNumber: Schema.NullOr(Schema.String),
+});
+export type CmsVerifyResult = (typeof CmsVerifyResultSchema)["Type"];
 
 // =============================================================================
 // Tagged error
 // =============================================================================
 
-type CmsErrorFields = {
-  readonly _tag: "CmsError";
-  readonly code: CmsErrorCode;
-  readonly reason?: string | undefined;
-  readonly operation?: CmsOperation | undefined;
-  readonly upstreamTag?: string | undefined;
-  readonly upstreamCode?: string | undefined;
-};
-type CmsErrorInput = {
-  readonly code: CmsErrorCode;
-  readonly reason?: string | undefined;
-  readonly operation?: CmsOperation | undefined;
-  readonly upstreamTag?: string | undefined;
-  readonly upstreamCode?: string | undefined;
-};
-type CmsErrorConstructor = new (input: CmsErrorInput) => CmsErrorFields;
-
-const CmsErrorBase: CmsErrorConstructor = Schema.TaggedErrorClass<CmsErrorFields>()("CmsError", {
+export class CmsError extends Schema.TaggedErrorClass<CmsError>()("CmsError", {
   code: CmsErrorCodeSchema,
   reason: Schema.optional(Schema.String),
   operation: Schema.optional(CmsOperationSchema),
   upstreamTag: Schema.optional(Schema.String),
   upstreamCode: Schema.optional(Schema.String),
-});
-
-export class CmsError extends CmsErrorBase {
+}) {
   get message(): string {
     switch (this.code) {
       case "cms.ENCODE_ERROR":
@@ -238,25 +213,3 @@ export class CmsError extends CmsErrorBase {
     }
   }
 }
-
-// =============================================================================
-// Boundary metadata (preserve a wrapped cause's tag/code without branching)
-// =============================================================================
-
-const firstStringField = (input: unknown, field: string): string | undefined => {
-  if (typeof input !== "object" || input === null) return undefined;
-  const value = Reflect.get(input, field);
-  if (typeof value === "string" && value.length > 0) return value;
-  if (typeof value === "number") return value.toString();
-  return undefined;
-};
-
-export type CmsCauseMetadata = {
-  readonly upstreamTag?: string | undefined;
-  readonly upstreamCode?: string | undefined;
-};
-
-export const safeCauseMetadata = (cause: unknown): CmsCauseMetadata => ({
-  upstreamTag: firstStringField(cause, "_tag") ?? firstStringField(cause, "name"),
-  upstreamCode: firstStringField(cause, "code"),
-});

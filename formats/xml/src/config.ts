@@ -1,16 +1,7 @@
 import { Schema } from "effect";
-import type { SignatureAlgorithm } from "@signature-kit/contracts";
+import { SignatureAlgorithmSchema } from "@signature-kit/core/config";
 
-export type XmlErrorCode =
-  | "xml.RUNTIME_UNAVAILABLE"
-  | "xml.INVALID_XML"
-  | "xml.SIGNATURE_NOT_FOUND"
-  | "xml.UNSUPPORTED_ALGORITHM"
-  | "xml.KEY_IMPORT_FAILED"
-  | "xml.SIGN_FAILED"
-  | "xml.VERIFY_FAILED";
-
-const XmlErrorCodeSchema: Schema.Decoder<XmlErrorCode> = Schema.Literals([
+export const XmlErrorCodeSchema = Schema.Literals([
   "xml.RUNTIME_UNAVAILABLE",
   "xml.INVALID_XML",
   "xml.SIGNATURE_NOT_FOUND",
@@ -19,6 +10,7 @@ const XmlErrorCodeSchema: Schema.Decoder<XmlErrorCode> = Schema.Literals([
   "xml.SIGN_FAILED",
   "xml.VERIFY_FAILED",
 ]);
+export type XmlErrorCode = (typeof XmlErrorCodeSchema)["Type"];
 
 export const XmlErrorCodeValue = {
   runtimeUnavailable: "xml.RUNTIME_UNAVAILABLE",
@@ -30,20 +22,14 @@ export const XmlErrorCodeValue = {
   verifyFailed: "xml.VERIFY_FAILED",
 } satisfies Record<string, XmlErrorCode>;
 
-export type XmlOperation =
-  | "xml.runtime"
-  | "xml.parse"
-  | "xml.key-import"
-  | "xml.sign"
-  | "xml.verify";
-
-const XmlOperationSchema: Schema.Decoder<XmlOperation> = Schema.Literals([
+export const XmlOperationSchema = Schema.Literals([
   "xml.runtime",
   "xml.parse",
   "xml.key-import",
   "xml.sign",
   "xml.verify",
 ]);
+export type XmlOperation = (typeof XmlOperationSchema)["Type"];
 
 export const XmlOperationValue = {
   runtime: "xml.runtime",
@@ -53,71 +39,37 @@ export const XmlOperationValue = {
   verify: "xml.verify",
 } satisfies Record<string, XmlOperation>;
 
-export type XmlSigningRequest = {
-  readonly xml: string;
-  readonly algorithm?: SignatureAlgorithm | undefined;
-  readonly referenceId?: string | undefined;
-  readonly signatureId?: string | undefined;
-  readonly signingTime?: Date | undefined;
-};
+export const XmlSigningRequestSchema = Schema.Struct({
+  xml: Schema.String,
+  algorithm: Schema.optional(SignatureAlgorithmSchema),
+  referenceId: Schema.optional(Schema.String),
+  signatureId: Schema.optional(Schema.String),
+  signingTime: Schema.optional(Schema.Date),
+});
+export type XmlSigningRequest = (typeof XmlSigningRequestSchema)["Type"];
 
-export type XmlVerificationRequest = {
-  readonly xml: string;
-  readonly algorithm?: SignatureAlgorithm | undefined;
-  readonly publicKeyDer?: Uint8Array | undefined;
-  readonly requireReferenceUri?: string | undefined;
-};
+export const XmlVerificationRequestSchema = Schema.Struct({
+  xml: Schema.String,
+  algorithm: Schema.optional(SignatureAlgorithmSchema),
+  publicKeyDer: Schema.optional(Schema.Uint8Array),
+  requireReferenceUri: Schema.optional(Schema.String),
+});
+export type XmlVerificationRequest = (typeof XmlVerificationRequestSchema)["Type"];
 
-export type XmlVerificationResult = {
-  readonly valid: boolean;
-  readonly signatureCount: number;
-  readonly referenceUris: readonly string[];
-};
+export const XmlVerificationResultSchema = Schema.Struct({
+  valid: Schema.Boolean,
+  signatureCount: Schema.Number,
+  referenceUris: Schema.Array(Schema.String),
+});
+export type XmlVerificationResult = (typeof XmlVerificationResultSchema)["Type"];
 
-type XmlErrorFields = {
-  readonly code: XmlErrorCode;
-  readonly retryable: boolean;
-  readonly reason?: string | undefined;
-  readonly operation?: XmlOperation | undefined;
-  readonly upstreamTag?: string | undefined;
-  readonly upstreamCode?: string | undefined;
-};
-
-type XmlErrorInput = XmlErrorFields & {
-  readonly cause?: unknown;
-};
-
-type XmlErrorConstructor = new (input: XmlErrorInput) => XmlErrorFields;
-
-const XmlErrorBase: XmlErrorConstructor = Schema.TaggedErrorClass<XmlErrorFields>()("XmlError", {
+export class XmlError extends Schema.TaggedErrorClass<XmlError>()("XmlError", {
   code: XmlErrorCodeSchema,
   retryable: Schema.Boolean,
   reason: Schema.optional(Schema.String),
   operation: Schema.optional(XmlOperationSchema),
-  upstreamTag: Schema.optional(Schema.String),
-  upstreamCode: Schema.optional(Schema.String),
-});
-
-export class XmlError extends XmlErrorBase {
+}) {
   get message(): string {
     return this.reason ?? this.code;
   }
 }
-
-const firstStringField = (input: unknown, field: string): string | undefined => {
-  if (input === null || typeof input !== "object") return undefined;
-  const value = Reflect.get(input, field);
-  return typeof value === "string" ? value : undefined;
-};
-
-export type XmlCauseMetadata = {
-  readonly reason?: string | undefined;
-  readonly upstreamTag?: string | undefined;
-  readonly upstreamCode?: string | undefined;
-};
-
-export const safeCauseMetadata = (cause: unknown): XmlCauseMetadata => ({
-  reason: firstStringField(cause, "message"),
-  upstreamTag: firstStringField(cause, "_tag") ?? firstStringField(cause, "name"),
-  upstreamCode: firstStringField(cause, "code"),
-});

@@ -16,7 +16,6 @@ import {
   CmsErrorCodeValue,
   CmsOperationValue,
   hashAlgorithmOid,
-  safeCauseMetadata,
 } from "./config";
 import { digest, toArrayBuffer } from "./engine";
 
@@ -46,12 +45,11 @@ export const requestTimestamp = (input: {
         });
         return new Uint8Array(request.toSchema().toBER(false));
       },
-      catch: (cause) =>
+      catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.timestampError,
           reason: "Failed to encode the RFC 3161 request.",
           operation: CmsOperationValue.timestamp,
-          ...safeCauseMetadata(cause),
         }),
     });
 
@@ -63,12 +61,11 @@ export const requestTimestamp = (input: {
           body: requestDer,
           signal,
         }),
-      catch: (cause) =>
+      catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.timestampError,
           reason: `TSA request to ${input.tsaUrl} failed.`,
           operation: CmsOperationValue.timestamp,
-          ...safeCauseMetadata(cause),
         }),
     }).pipe(
       Effect.timeoutOrElse({
@@ -96,12 +93,11 @@ export const requestTimestamp = (input: {
 
     const responseBytes = yield* Effect.tryPromise({
       try: () => response.arrayBuffer(),
-      catch: (cause) =>
+      catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.timestampError,
           reason: "Failed to read the TSA response.",
           operation: CmsOperationValue.timestamp,
-          ...safeCauseMetadata(cause),
         }),
     });
 
@@ -114,12 +110,11 @@ export const requestTimestamp = (input: {
         }
         return new Uint8Array(token.toSchema().toBER(false));
       },
-      catch: (cause) =>
+      catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.timestampError,
           reason: "Failed to parse the TSA response.",
           operation: CmsOperationValue.timestamp,
-          ...safeCauseMetadata(cause),
         }),
     }).pipe(
       Effect.flatMap((token) =>

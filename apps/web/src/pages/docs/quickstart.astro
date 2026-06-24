@@ -3,8 +3,8 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
 import DocsActions from "../../components/DocsActions.astro";
 import CodePanel from "../../components/CodePanel.astro";
 
-const programCode = `import { createSignatureKit } from "@signature-kit/core"
-import { loadA1SignerAdapter } from "@signature-kit/a1"
+const programCode = `import { createSignatureKit } from "@signature-kit/core/runtime"
+import { loadA1SignerAdapter } from "@signature-kit/a1/signer"
 import { Effect, Redacted } from "effect"
 
 export const program = Effect.gen(function* () {
@@ -37,9 +37,9 @@ const runCode = `import { Effect } from "effect"
 const { result } = await Effect.runPromise(program)
 console.log(result.valid) // boolean — true se a assinatura confere`;
 
-const formatsCode = `import { signXml } from "@signature-kit/xml"
-import { signPdf } from "@signature-kit/pdf"
-import { a1SignaturesLayer } from "@signature-kit/a1"
+const formatsCode = `import { signXml } from "@signature-kit/xml/sign"
+import { signPdf } from "@signature-kit/pdf/sign"
+import { a1SignaturesLayer } from "@signature-kit/a1/signer"
 import { Effect } from "effect"
 
 const layer = a1SignaturesLayer({ pfx, password })

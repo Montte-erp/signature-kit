@@ -1,15 +1,17 @@
 # signers/
 
-Workspace group for local signer backends: packages that provide concrete
-`SignerAdapter` signing power to the core runtime.
+Workspace group for signer backends and remote-signature adapters.
 
 - `signers/a1` → `@signature-kit/a1` — A1 / PKCS#12 local signing power.
+- `signers/docusign` → `@signature-kit/docusign` — DocuSign remote signing workflow.
+- `signers/clicksign` → `@signature-kit/clicksign` — Clicksign remote signing workflow.
+- `signers/assinafy` → `@signature-kit/assinafy` — Assinafy remote signing workflow.
+- `signers/zapsign` → `@signature-kit/zapsign` — ZapSign remote signing workflow.
 
-Remote provider integrations live under `integrations/*` so provider routing does
-not turn `signers/` into a monolithic package bucket.
+There is no `integrations/*` layer and no provider-neutral gateway package.
 
 ```ts
-import { loadA1SignerAdapter } from "@signature-kit/a1";
+import { loadA1SignerAdapter } from "@signature-kit/a1/signer";
 import { Redacted } from "effect";
 
 const signer =

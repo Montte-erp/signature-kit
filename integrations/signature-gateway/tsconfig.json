@@ -1,4 +1,0 @@
-{
-  "extends": "../../tooling/typescript/core.json",
-  "include": ["src/**/*.ts"]
-}

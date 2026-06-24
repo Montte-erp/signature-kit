@@ -1,0 +1,22 @@
+{
+  "name": "@tooling/integration-tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:server": "vitest run __tests__/signature-kit.server.test.ts"
+  },
+  "dependencies": {
+    "@effect/vitest": "4.0.0-beta.86",
+    "@signature-kit/a1": "workspace:*",
+    "@signature-kit/assinafy": "workspace:*",
+    "@signature-kit/clicksign": "workspace:*",
+    "@signature-kit/core": "workspace:*",
+    "@signature-kit/docusign": "workspace:*",
+    "@signature-kit/pdf": "workspace:*",
+    "@signature-kit/xml": "workspace:*",
+    "@signature-kit/zapsign": "workspace:*",
+    "effect": "4.0.0-beta.86",
+    "vitest": "^4.0.0"
+  }
+}

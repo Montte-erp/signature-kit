@@ -43,11 +43,11 @@ export const docsNavigation = [
   {
     title: "provedores",
     links: [
-      { text: "Gateway", href: "/docs/providers" },
+      { text: "Signers remotos", href: "/docs/providers" },
       { text: "DocuSign", href: "/docs/providers/docusign" },
-      { text: "Dropbox Sign", href: "/docs/providers/dropbox-sign" },
-      { text: "Adobe Sign", href: "/docs/providers/adobe-sign" },
       { text: "Clicksign", href: "/docs/providers/clicksign" },
+      { text: "Assinafy", href: "/docs/providers/assinafy" },
+      { text: "ZapSign", href: "/docs/providers/zapsign" },
     ],
   },
 ];
@@ -73,9 +73,11 @@ export const footerNavigation = [
   {
     title: "provedores",
     links: [
-      { text: "Gateway", href: "/docs/providers" },
+      { text: "Signers remotos", href: "/docs/providers" },
       { text: "DocuSign", href: "/docs/providers/docusign" },
       { text: "Clicksign", href: "/docs/providers/clicksign" },
+      { text: "Assinafy", href: "/docs/providers/assinafy" },
+      { text: "ZapSign", href: "/docs/providers/zapsign" },
     ],
   },
 ];

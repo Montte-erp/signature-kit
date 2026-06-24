@@ -6,7 +6,6 @@ import {
   CmsError,
   CmsErrorCodeValue,
   CmsOperationValue,
-  safeCauseMetadata,
 } from "./config";
 
 export const IcpBrasilPadesPolicy = {
@@ -14,7 +13,7 @@ export const IcpBrasilPadesPolicy = {
     policyOid: "2.16.76.1.7.1.11.1.1",
     policyUri: "http://politicas.icpbrasil.gov.br/PA_PAdES_AD_RB_v1_1.der",
   },
-} as const;
+};
 
 const DEFAULT_POLICY_TIMEOUT_MILLIS = 10000;
 let cachedAdRbV11: IcpBrasilPolicy | null = null;
@@ -103,12 +102,11 @@ export const fetchIcpBrasilPadesPolicy = (options?: {
   return Effect.gen(function* () {
     const response = yield* Effect.tryPromise({
       try: (signal) => fetch(IcpBrasilPadesPolicy.adRbV11.policyUri, { signal }),
-      catch: (cause) =>
+      catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.policyError,
           reason: "Failed to download the ICP-Brasil PAdES AD-RB policy.",
           operation: CmsOperationValue.policy,
-          ...safeCauseMetadata(cause),
         }),
     }).pipe(
       Effect.timeoutOrElse({
@@ -136,12 +134,11 @@ export const fetchIcpBrasilPadesPolicy = (options?: {
 
     const policyDer = yield* Effect.tryPromise({
       try: () => response.arrayBuffer(),
-      catch: (cause) =>
+      catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.policyError,
           reason: "Failed to read the ICP-Brasil PAdES AD-RB policy response.",
           operation: CmsOperationValue.policy,
-          ...safeCauseMetadata(cause),
         }),
     });
 

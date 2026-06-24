@@ -1,19 +1,41 @@
 {
   "files": [],
   "references": [
-    { "path": "shared/asn1" },
-    { "path": "shared/crypto" },
-    { "path": "shared/cms" },
-    { "path": "core/contracts" },
-    { "path": "core/x509" },
-    { "path": "core/core" },
-    { "path": "signers/a1" },
-    { "path": "integrations/signature-gateway" },
-    { "path": "integrations/docusign" },
-    { "path": "integrations/dropbox-sign" },
-    { "path": "integrations/adobe-sign" },
-    { "path": "integrations/clicksign" },
-    { "path": "formats/xml" },
-    { "path": "formats/pdf" }
+    {
+      "path": "shared/asn1"
+    },
+    {
+      "path": "shared/crypto"
+    },
+    {
+      "path": "shared/cms"
+    },
+    {
+      "path": "core/core"
+    },
+    {
+      "path": "core/certificates"
+    },
+    {
+      "path": "signers/a1"
+    },
+    {
+      "path": "signers/docusign"
+    },
+    {
+      "path": "signers/clicksign"
+    },
+    {
+      "path": "signers/assinafy"
+    },
+    {
+      "path": "signers/zapsign"
+    },
+    {
+      "path": "formats/xml"
+    },
+    {
+      "path": "formats/pdf"
+    }
   ]
 }

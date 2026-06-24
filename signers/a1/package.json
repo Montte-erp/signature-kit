@@ -5,12 +5,20 @@
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/create-a1-signer-adapter.js",
+  "types": "./dist/create-a1-signer-adapter.d.ts",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
+    },
+    "./signer": {
+      "types": "./dist/create-a1-signer-adapter.d.ts",
+      "import": "./dist/create-a1-signer-adapter.js"
+    },
+    "./web-crypto": {
+      "types": "./dist/web-crypto.d.ts",
+      "import": "./dist/web-crypto.js"
     }
   },
   "scripts": {
@@ -19,10 +27,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@signature-kit/contracts": "workspace:*",
+    "@signature-kit/certificates": "workspace:*",
     "@signature-kit/core": "workspace:*",
     "@signature-kit/crypto": "workspace:*",
-    "@signature-kit/x509": "workspace:*",
-    "effect": "4.0.0-beta.81"
+    "effect": "4.0.0-beta.86"
   }
 }

@@ -2,13 +2,12 @@
 
 Workspace group for small publishable core packages.
 
-- `core/contracts` → `@signature-kit/contracts` — shared schemas, typed errors, signer contracts.
-- `core/x509` → `@signature-kit/x509` — X.509 parsing and certificate identity helpers.
-- `core/core` → `@signature-kit/core` — the lean `Signatures` service plus `createSignatureKit` runtime facade.
+- `core/core` → `@signature-kit/core` — runtime schemas, typed errors, `Signatures`, and `createSignatureKit`.
+- `core/certificates` → `@signature-kit/certificates` — Effect-safe PKCS#12/X.509 parsing and identity helpers.
 
 ```ts
-import { createSignatureKit } from "@signature-kit/core";
-import { loadA1SignerAdapter } from "@signature-kit/a1";
+import { createSignatureKit } from "@signature-kit/core/runtime";
+import { loadA1SignerAdapter } from "@signature-kit/a1/signer";
 import { Effect, Redacted } from "effect";
 
 const program = Effect.gen(function* () {

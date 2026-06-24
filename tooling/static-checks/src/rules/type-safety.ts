@@ -7,13 +7,6 @@ const hasTypeAssertion = (line: string): boolean => {
       continue;
     }
 
-    // `as const` is a safe const-assertion: it narrows to literal/readonly types
-    // and cannot introduce unsoundness. Allowed (matches alchemy-effect practice).
-    // Only value-type casts (`as Foo`, `as any`, `as unknown as Foo`) are flagged.
-    if (/^const\b/.test(rest)) {
-      continue;
-    }
-
     if (/^\s*[,.;:)\]}]/.test(rest)) {
       continue;
     }
@@ -36,8 +29,7 @@ const hasErasedEffectAny = (line: string): boolean =>
 
 export const typeSafetyChecks: readonly Check[] = [
   {
-    message:
-      "Do not use value-type `as` casts; validate/convert through a Schema/Effect boundary. (`as const` is allowed.)",
+    message: "Do not use `as` casts; validate/convert through a Schema/Effect boundary.",
     test: ({ line }) => hasTypeAssertion(line),
     ignoreImportLine: true,
   },

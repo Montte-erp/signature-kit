@@ -1,0 +1,74 @@
+---
+import DocsLayout from "../../../layouts/DocsLayout.astro";
+import DocsActions from "../../../components/DocsActions.astro";
+import CodePanel from "../../../components/CodePanel.astro";
+import InstallTabs from "../../../components/InstallTabs.astro";
+
+const assinafyCode = `import { createAssinafySignatureRequest } from "@signature-kit/assinafy"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
+
+const request = yield* createAssinafySignatureRequest(
+  {
+    apiKey: Redacted.make(process.env.ASSINAFY_API_KEY ?? ""),
+    environment: "sandbox",
+  },
+  {
+    title: "Contrato",
+    message: "Assine para concluir.",
+    documents: [{ fileName: "contrato.pdf", mimeType: "application/pdf", content: pdfBytes }],
+    recipients: [{ name: "Carla Nunes", email: "carla@example.com", role: "signer" }],
+  },
+).pipe(Effect.provide(signatureHttpClientLive))
+
+// request.provider === "assinafy"`;
+
+const toc: [string, string][] = [
+  ["Instalar", "#instalar"],
+  ["Criar assinatura", "#criar"],
+  ["Credenciais", "#credenciais"],
+  ["Erros", "#erros"],
+];
+---
+
+<DocsLayout
+  title="Assinafy"
+  description="Crie solicitações Assinafy com createAssinafySignatureRequest(...), SignatureHttpClient e credenciais Redacted."
+  group="provedores"
+  toc={toc}
+>
+  <h1>Assinafy</h1>
+  <DocsActions title="Assinafy" />
+
+  <section class="step" data-step="1">
+    <h2 id="instalar">Instalar</h2>
+    <p>Assinafy é um signer remoto direto. Não há camada <code>integrations/*</code>.</p>
+    <InstallTabs spec="@signature-kit/core @signature-kit/assinafy" />
+  </section>
+
+  <section class="step" data-step="2">
+    <h2 id="criar">Criar assinatura</h2>
+    <p>
+      A função cria o documento, registra os signers e cria o assignment na API Assinafy. O retorno é o
+      <code>RemoteSignatureRequest</code> normalizado.
+    </p>
+    <CodePanel label="assinafy.ts" code={assinafyCode} />
+  </section>
+
+  <h2 id="credenciais">Credenciais</h2>
+  <p>
+    Use <code>apiKey</code> ou <code>accessToken</code>. Ambos são <code>Redacted&lt;string&gt;</code> e só são abertos no
+    boundary HTTP do pacote.
+  </p>
+
+  <h2 id="erros">Erros</h2>
+  <p>
+    Falhas de credencial ausente, validação, HTTP e shape de resposta usam <code>SignatureKitError</code>, com
+    <code>provider: "assinafy"</code>.
+  </p>
+
+  <div class="next-prev">
+    <a href="/docs/providers/clicksign">← Clicksign</a>
+    <a href="/docs/providers/zapsign">ZapSign →</a>
+  </div>
+</DocsLayout>

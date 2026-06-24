@@ -17,8 +17,8 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
   Do not silently fall back for required configuration or impossible states.
 - Use `Context.Service` + `Layer` (v4) for services and dependencies. Do not use
   `Context.Tag`, `Context.GenericTag`, `Effect.Tag`, or `Effect.Service`.
-  (`Context.Tag` is the Effect 3 API and does not exist in Effect 4 — it only shows
-  up in alchemy-effect's docs page, never in its code, which uses `Context.Service`.)
+  (`Context.Tag` is the Effect 3 API and does not exist in Effect 4; Alchemy v2
+  code uses `Context.Service` + `Layer` for portable seams.)
 - Do not hide requirements with `Effect.provide` deep inside library code.
   `Effect.provide` is allowed in tests, runtime boundaries, or small convenience
   factories with an explicit `// effect-boundary: <reason> [allow-provide]` marker.
@@ -38,58 +38,72 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
   `finally`, or build runtime error wrapper classes. Promise/IO adaptation uses
   `Effect.tryPromise` / `Effect.try` with an inline declarative `catch` that
   constructs a tagged error.
-- `instanceof` IS allowed for narrowing an unknown/external cause at an adaptation
-  boundary (e.g. classifying a thrown SDK `Error` to map it to a tagged error — the
-  alchemy-effect idiom). Prefer `Effect.catchTag` / `Match` for our own tagged
-  errors; do not reach for `instanceof` where a tag already discriminates.
-- Preserve safe structured origin metadata when converting at a boundary
-  (`operation`, `phase`, `schemaName`, `issuePath`, `issueMessage`, `upstreamTag`,
-  `upstreamCode`, HTTP `status`). Do not use `String(error)` as the only data.
-- Do not branch on unknown caught error shapes unless a real contract requires it.
+- Do not use `instanceof` for error/cause classification. At SDK boundaries,
+  construct a tagged error with the exact operation, a stable human reason,
+  known protocol facts (HTTP `status`, schema issue fields), and no generic
+  unknown-cause metadata wrapper. If the cause has no real contract, let it be
+  a defect instead of pretending it is typed.
+- Preserve structured origin metadata only when the source is typed or
+  protocol-defined (`operation`, `phase`, `schemaName`, `issuePath`,
+  `issueMessage`, HTTP `status`, upstream tagged-error `_tag`/`code`).
+  Do not use `String(error)` as the only data.
 
 ## Schema and type rules
 
 - Prefer `Schema` as the source of truth for data/config contracts; derive types.
 - Use `Schema.Literals([...])` for literal catalogs (codes, statuses, operations).
-- No value-type `as` casts (`as Foo`, `as any`, `as unknown as Foo`). Validate/convert
-  through Schema/Effect, or model data as a discriminated union so reads narrow
-  without assertions. `as const` IS allowed: it is a safe const-assertion (narrows to
-  literal/readonly types, cannot introduce unsoundness) and is heavily used in
-  idiomatic Effect 4 code (alchemy-effect: 500+ uses).
+- No `as` casts, including `as const`. Validate/convert through Schema/Effect, keep
+  literal catalogs in `Schema.Literals([...])`, or model data as discriminated
+  unions so reads narrow without assertions.
 - No manual interfaces for config/data contracts when `Schema` can derive the type.
 
-## Effect 4 idioms (aligned with alchemy-effect)
+## Effect 4 idioms (aligned with Alchemy v2)
 
 - Wrap an external library/SDK as a `Context.Service` that exposes typed `Effect`
-  methods plus a `raw` escape hatch to the underlying client (alchemy's
-  `Binding.Service` pattern). Construct it via `Layer`, pulling secrets from a
-  credentials service; keep them `Redacted` and unwrap only at the SDK call.
-- Adapt the SDK's promises with `Effect.tryPromise`; in `catch`, narrow the unknown
-  cause (`instanceof Error`, message/code inspection) and construct a tagged error.
+  methods plus a `raw` escape hatch to the underlying client. Construct it via
+  `Layer`; keep secrets `Redacted` and unwrap only at the SDK call.
+- Adapt SDK promises with `Effect.tryPromise`; in `catch`, construct the tagged
+  error directly with explicit operation/reason/status metadata. Do not add error
+  wrapper helpers, `safeCauseMetadata`/`toCauseMetadata`, or `instanceof` branches.
   Push typing down to the wrapper so consumers only ever see tagged errors.
 - Effect 4 renamed `Either` → `Result`: use `Effect.result` + `Result.isSuccess/`
   `isFailure`, not `Effect.either` / `effect/Either` (removed).
 - `Effect.fnUntraced(function* () { ... })` defines an effectful function;
   `Match.value(x).pipe(Match.when(...), Match.exhaustive)` for total branching.
+- Alchemy v2 patterns apply to this repo's seams: resource/provider modules use
+  `Resource<T>(type)` as the constructor/tag, providers use `Provider.effect`,
+  provider bundles expose a `providers()` layer, runtime seams are
+  `Context.Service` contracts implemented by `Layer.effect`, and expensive or
+  stateful initialization is deferred/cached instead of running at import time.
 
 ## Architecture taste
 
-- No barrel files that only re-export. Entry points provide real public API.
+- No barrel files that only re-export. Package exports point at the real module
+  (`@signature-kit/pdf/sign`, `@signature-kit/core/runtime`, etc.) unless the
+  package has one genuine root module.
 - Avoid `types.ts`. Keep schemas, `Schema.TaggedErrorClass` catalogs, and config
   together in `config.ts` when they belong to the same package.
 - The signer backend is not the document format. A `SignerAdapter` owns "where the
   signing power comes from"; it must not own XML/PDF document mutation.
 - `shared/*` packages are internal-only and unpublished (`@signature-kit/asn1`,
-  `@signature-kit/crypto`). Public packages live in `core/`, `signers/`, `formats/`,
-  `integrations/`.
+  `@signature-kit/crypto`, `@signature-kit/cms`). Public packages live in `core/`,
+  `signers/`, and `formats/`; there is no `integrations/*` layer.
 
 ## Packages
 
 ```text
-shared/asn1     @signature-kit/asn1     pure ASN.1 DER decode/encode (Effect boundary)
-shared/crypto   @signature-kit/crypto   PKCS#12, PEM, hashing, cipher primitives
-core/core       @signature-kit/core     signing runtime contracts + certificate handling
-signers/a1      @signature-kit/a1        first e-signature adapter (A1 / PKCS#12)
+shared/asn1       @signature-kit/asn1       pure ASN.1 DER decode/encode (Effect boundary)
+shared/crypto     @signature-kit/crypto     PKCS#12, PEM, hashing, cipher primitives
+shared/cms        @signature-kit/cms        CMS/PKCS#7 and RFC 3161 timestamping
+core/core         @signature-kit/core       runtime schemas, typed errors, Signatures service
+core/certificates @signature-kit/certificates Effect-safe PKCS#12/X.509 certificate API
+signers/a1        @signature-kit/a1         A1 / PKCS#12 local signer adapter
+signers/docusign  @signature-kit/docusign   DocuSign remote signer
+signers/clicksign @signature-kit/clicksign  Clicksign remote signer
+signers/assinafy  @signature-kit/assinafy   Assinafy remote signer
+signers/zapsign    @signature-kit/zapsign    ZapSign remote signer
+formats/xml       @signature-kit/xml        XML-DSig document mutation
+formats/pdf       @signature-kit/pdf        PDF/PAdES detached-signature adapter
 ```
 
 ## Validation
@@ -97,10 +111,10 @@ signers/a1      @signature-kit/a1        first e-signature adapter (A1 / PKCS#12
 - Run `bun run check` (or `bun run check:static`) at the repo root.
 - Prefer static checks over ad-hoc review:
   - no `runSync`/`runPromise`/`runFork`
-  - no value-type `as` casts (`as Foo`/`as any`/`as unknown as`); `as const` is fine
-  - no `throw`/library `try/catch`; `instanceof` allowed only for boundary cause-narrowing
+  - no `as` casts (`as Foo`/`as any`/`as unknown as`/`as const`)
+  - no `throw`, `instanceof`, or library `try/catch`
   - no legacy Effect service APIs
-  - no manual contract interfaces when `Schema` can derive
+  - no manual config/data contracts when `Schema` can derive the type
   - secrets use `Redacted`
 - Tests for Effect workflows use `@effect/vitest` (or `bun test`).
 

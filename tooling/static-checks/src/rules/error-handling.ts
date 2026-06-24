@@ -18,11 +18,9 @@ const hasRuntimeErrorHelpers = (line: string): boolean => {
     return true;
   }
 
-  // `instanceof` is intentionally NOT flagged: narrowing an unknown/external cause
-  // at an adaptation boundary (e.g. classifying a thrown SDK `Error` before mapping
-  // it to a tagged error) is legitimate and idiomatic (matches alchemy-effect, which
-  // uses `instanceof` 100+ times). Prefer `Effect.catchTag`/`Match` for our own
-  // tagged errors. We still reject `throw new <non-tagged>` below.
+  if (/\binstanceof\b/.test(line)) {
+    return true;
+  }
   const throwNewMatch = /throw\s+new\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?(?:\s*<[^>]+>)?)/g;
   for (const match of line.matchAll(throwNewMatch)) {
     const candidate = match[1]?.trim() ?? "";
@@ -68,10 +66,6 @@ const hasErrorFactoryOrClassName = (line: string, _path: string, source: string)
   );
   const name = declarationMatch[1] ?? "";
   if (/(?:Failure|Fault|Error)$/.test(name)) {
-    if (/\bclass\b/.test(declaration) && /\bextends\s+[A-Za-z_$][\w$]*ErrorBase\b/.test(line)) {
-      return false;
-    }
-
     if (/\bclass\b/.test(declaration) && /TaggedError/i.test(source)) {
       const start = source.indexOf(line);
       if (start !== -1) {
@@ -93,6 +87,8 @@ const hasErrorFactoryOrClassName = (line: string, _path: string, source: string)
 const hasStringErrorOnlyMapping = (line: string): boolean =>
   /\b(?:reason|cause|message)\s*:\s*String\s*\(\s*(?:error|reason|cause|unknown)\s*\)/.test(line);
 
+const hasGenericCauseMetadataWrapper = (line: string): boolean =>
+  /\b(?:safe|to)[A-Za-z_$]*CauseMetadata\b|\bfirstStringField\b/.test(line);
 const hasDirectEventSinkCallback = (line: string): boolean =>
   /\beventSink\?\.\s*\(|\beventSink\s*\(/.test(line) &&
   !/\b(?:readonly\s+eventSink|eventSink\s*:|type\s+.*EventSink|eventSink\s*===)/.test(line);
@@ -106,7 +102,7 @@ export const errorHandlingChecks: readonly Check[] = [
   },
   {
     message:
-      "Use a tagged Effect error at the decision point; do not `throw` or use library `try/catch/finally` (adapt with Effect.try/tryPromise). `instanceof` is allowed for boundary cause-narrowing.",
+      "Use a tagged Effect error at the decision point; do not `throw`, `instanceof`, or library `try/catch/finally` (adapt with Effect.try/tryPromise and explicit operation/reason/status metadata).",
     test: ({ line }) => hasRuntimeErrorHelpers(line),
     ignoreImportLine: false,
   },
@@ -114,6 +110,12 @@ export const errorHandlingChecks: readonly Check[] = [
     message:
       "Use a TaggedErrorClass/Schema.TaggedErrorClass helper at the decision point. Do not create *Failure/*Fault/*Error helpers elsewhere.",
     test: ({ line, path, source }) => hasErrorFactoryOrClassName(line, path, source),
+    ignoreImportLine: true,
+  },
+  {
+    message:
+      "Do not hide unknown causes behind generic safeCauseMetadata/toCauseMetadata wrappers; use explicit typed metadata or defects.",
+    test: ({ line }) => hasGenericCauseMetadataWrapper(line),
     ignoreImportLine: true,
   },
   {

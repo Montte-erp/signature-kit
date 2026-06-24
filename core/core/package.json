@@ -5,12 +5,24 @@
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/runtime.js",
+  "types": "./dist/runtime.d.ts",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
+    },
+    "./signatures": {
+      "types": "./dist/signatures.d.ts",
+      "import": "./dist/signatures.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
+    },
+    "./http": {
+      "types": "./dist/http.d.ts",
+      "import": "./dist/http.js"
     }
   },
   "scripts": {
@@ -19,7 +31,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@signature-kit/contracts": "workspace:*",
-    "effect": "4.0.0-beta.81"
+    "effect": "4.0.0-beta.86"
   }
 }

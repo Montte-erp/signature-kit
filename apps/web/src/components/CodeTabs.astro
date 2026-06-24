@@ -37,7 +37,7 @@ const items = tabs.map((t) => ({ ...t, code: t.code.trim(), lang: t.lang ?? "ts"
   {
     items.map((tab, i) => (
       <div data-tab-panel={tab.label} hidden={i !== 0}>
-        <Code code={tab.code} lang={tab.lang as any} theme="vesper" />
+        <Code code={tab.code} lang={tab.lang} theme="vesper" />
       </div>
     ))
   }

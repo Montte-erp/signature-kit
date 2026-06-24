@@ -11,10 +11,13 @@
     "types": ["bun"]
   },
   "include": [
+    "core/**/__tests__/**/*.ts",
     "formats/**/__tests__/**/*.ts",
-    "integrations/**/__tests__/**/*.ts",
+    "shared/**/__tests__/**/*.ts",
     "signers/**/__tests__/**/*.ts",
+    "tooling/integration-tests/**/*.ts",
     "tooling/static-checks/__tests__/**/*.ts",
-    "tooling/testing/**/*.ts"
+    "tooling/testing/**/*.ts",
+    "tooling/vitest/**/*.ts"
   ]
 }

@@ -2,29 +2,28 @@
  * Web Crypto (SubtleCrypto) boundary for byte signing and verification.
  *
  * The private key PEM is unwrapped from `Redacted` only here, at the exact
- * import point, and never logged. RSA-SHA256/512 map to RSASSA-PKCS1-v1_5.
+ * import point, and never logged. RSA-SHA1/256/512 map to RSASSA-PKCS1-v1_5
+ * (RFC 8017, section 8.2).
  */
-
-import { pemToDer } from "@signature-kit/crypto";
-import type { SignatureAlgorithm } from "@signature-kit/contracts";
+import { pemToDer } from "@signature-kit/crypto/pem";
+import type { SignatureAlgorithm } from "@signature-kit/core/config";
 import {
   SignatureKitError,
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
-  safeCauseMetadata,
-} from "@signature-kit/contracts";
+} from "@signature-kit/core/config";
 import { Effect, Redacted } from "effect";
 
 const RSA_ALGORITHM_NAME = "RSASSA-PKCS1-v1_5";
 
 type RsaAlgorithm = {
   readonly name: typeof RSA_ALGORITHM_NAME;
-  readonly hash: "SHA-256" | "SHA-512";
+  readonly hash: "SHA-1" | "SHA-256" | "SHA-512";
 };
 
 const rsaAlgorithm = (algorithm: SignatureAlgorithm): RsaAlgorithm => ({
   name: RSA_ALGORITHM_NAME,
-  hash: algorithm === "rsa-sha512" ? "SHA-512" : "SHA-256",
+  hash: algorithm === "rsa-sha1" ? "SHA-1" : algorithm === "rsa-sha512" ? "SHA-512" : "SHA-256",
 });
 
 /** Copy into a fresh ArrayBuffer-backed view so it satisfies `BufferSource`. */
@@ -45,13 +44,12 @@ const importKey = (
       crypto.subtle.importKey(format, toBufferSource(keyData), rsaAlgorithm(algorithm), false, [
         usage,
       ]),
-    catch: (cause) =>
+    catch: () =>
       new SignatureKitError({
         code: SignatureKitErrorCodeValue.keyImportFailed,
         retryable: false,
         reason: `Failed to import ${format} key for ${algorithm}.`,
         operation: SignatureKitOperationValue.cryptoImport,
-        ...safeCauseMetadata(cause),
       }),
   });
 
@@ -75,12 +73,11 @@ export const signWithKey = (
   Effect.gen(function* () {
     const signature = yield* Effect.tryPromise({
       try: () => crypto.subtle.sign(rsaAlgorithm(algorithm).name, key, toBufferSource(content)),
-      catch: (cause) =>
+      catch: () =>
         new SignatureKitError({
           code: SignatureKitErrorCodeValue.signFailed,
           retryable: false,
           operation: SignatureKitOperationValue.cryptoSign,
-          ...safeCauseMetadata(cause),
         }),
     });
     return new Uint8Array(signature);
@@ -100,11 +97,10 @@ export const verifyWithKey = (
         toBufferSource(signature),
         toBufferSource(content),
       ),
-    catch: (cause) =>
+    catch: () =>
       new SignatureKitError({
         code: SignatureKitErrorCodeValue.verifyFailed,
         retryable: false,
         operation: SignatureKitOperationValue.cryptoVerify,
-        ...safeCauseMetadata(cause),
       }),
   });

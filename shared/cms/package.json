@@ -5,12 +5,36 @@
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/config.js",
+  "types": "./dist/config.d.ts",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+    "./attributes": {
+      "types": "./dist/attributes.d.ts",
+      "import": "./dist/attributes.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
+    },
+    "./engine": {
+      "types": "./dist/engine.d.ts",
+      "import": "./dist/engine.js"
+    },
+    "./icp-brasil": {
+      "types": "./dist/icp-brasil.d.ts",
+      "import": "./dist/icp-brasil.js"
+    },
+    "./sign": {
+      "types": "./dist/sign.d.ts",
+      "import": "./dist/sign.js"
+    },
+    "./timestamp": {
+      "types": "./dist/timestamp.d.ts",
+      "import": "./dist/timestamp.js"
+    },
+    "./verify": {
+      "types": "./dist/verify.d.ts",
+      "import": "./dist/verify.js"
     }
   },
   "scripts": {
@@ -25,7 +49,7 @@
     "@peculiar/asn1-x509": "2.8.0",
     "@signature-kit/asn1": "workspace:*",
     "asn1js": "3.0.10",
-    "effect": "4.0.0-beta.81",
+    "effect": "4.0.0-beta.86",
     "pkijs": "3.4.0"
   }
 }

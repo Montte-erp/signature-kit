@@ -1,11 +1,12 @@
 ---
 import { Code } from "astro:components";
 import { Check, Copy } from "@lucide/astro";
+import type { CodeLanguage } from "astro";
 
 interface Props {
   title?: string;
   code?: string;
-  lang?: string;
+  lang?: CodeLanguage;
   class?: string;
 }
 
@@ -32,5 +33,5 @@ const dotColors = ["bg-error/70", "bg-warning/70", "bg-success/70"];
       <Check class="hidden size-3.5 [[data-copied=true]_&]:block" />
     </button>
   </div>
-  <Code code={trimmed} lang={lang as any} theme="vesper" />
+  <Code code={trimmed} lang={lang} theme="vesper" />
 </div>

@@ -10,7 +10,7 @@ import type {
   SignatureKitError,
   VerificationResult,
   VerifyInput,
-} from "@signature-kit/contracts";
+} from "./config";
 
 export type SignaturesService = {
   readonly inspect: () => Effect.Effect<SignerIdentity, SignatureKitError>;

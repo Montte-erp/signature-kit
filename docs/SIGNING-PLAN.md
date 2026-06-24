@@ -26,41 +26,36 @@ and call the same `Signatures` service.
 
 ## Current package APIs
 
-### `@signature-kit/config`
-
-- owns shared schemas, typed `SignatureKitError`, and signer contracts.
-
-### `@signature-kit/x509`
-
-- `parseX509(der) → Effect<X509Info, SignatureKitError>`
-- `toSignerIdentity(certificate) → SignerIdentity`
-
 ### `@signature-kit/core`
 
+- `SignatureKitError`, signature schemas, `SignerAdapter`, and remote signer request DTOs live in `@signature-kit/core/config`.
+- `SignatureHttpClient` lives in `@signature-kit/core/http`.
 - `createSignatureKit({ signer }) → SignatureKitRuntime`
 - `createSignaturesService(signer) → SignaturesService`
 - `signaturesLayer(signer) → Layer<Signatures>`
 - `signatures.inspect/sign/verify` require the `Signatures` service and stay
   backend-agnostic.
 
-`createSignatureKit` is the small root facade for app code; the service/layer APIs
-remain available for Effect dependency injection.
+`@signature-kit/core` is the small root runtime facade plus the shared contract surface;
+there is no separate contracts-only package.
+
+### `@signature-kit/certificates`
+
+- `parseCertificate(source, password) → Effect<Certificate, SignatureKitError>`
+- `toSignerIdentity(certificate) → SignerIdentity`
 
 ### `@signature-kit/a1`
 
-- `parseCertificate(pfx, password) → Effect<Certificate, SignatureKitError>`
 - `createA1SignerAdapter(certificate) → SignerAdapter`
 - `loadA1SignerAdapter({ pfx, password }) → Effect<SignerAdapter, SignatureKitError>`
 - `a1SignaturesLayer({ pfx, password }) → Layer<Signatures, SignatureKitError>`
 
-### `@signature-kit/signature-gateway` + provider packages
+### Remote signer packages
 
-- `@signature-kit/signature-gateway` owns only the provider-neutral gateway seam.
-- `@signature-kit/docusign`, `@signature-kit/dropbox-sign`, `@signature-kit/adobe-sign`, and
-  `@signature-kit/clicksign` each own one provider protocol adapter.
-- `createSignatureGateway({ providers: [docusign(...), dropboxSign(...)] })`
-  routes multiple provider packages through one API without a monolithic
-  `signature-providers` package.
+- `@signature-kit/docusign`, `@signature-kit/clicksign`, `@signature-kit/assinafy`,
+  and `@signature-kit/zapsign` each own one remote signing protocol adapter.
+- Remote signers expose direct `create*SignatureRequest(...)` functions over the
+  `SignatureHttpClient` service; there is no provider-neutral gateway package.
 
 ### `@signature-kit/xml`
 

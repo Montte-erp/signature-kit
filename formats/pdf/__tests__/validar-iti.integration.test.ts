@@ -3,8 +3,9 @@ import { readFile } from "node:fs/promises";
 import { PDFDocument } from "@cantoo/pdf-lib";
 import { Effect, Redacted } from "effect";
 import { readA1Fixture, toArrayBufferView } from "../../../tooling/testing/fixtures";
-import { a1SignaturesLayer } from "@signature-kit/a1";
-import { signPdf, verifyPdf } from "@signature-kit/pdf";
+import { a1SignaturesLayer } from "@signature-kit/a1/signer";
+import { signPdf } from "@signature-kit/pdf/sign";
+import { verifyPdf } from "@signature-kit/pdf/verify";
 
 const DEFAULT_EXPECTED_STATUS_WITH_FIXTURE = 406;
 const DEFAULT_EXPECTED_STATUS_WITH_EXTERNAL_CERTIFICATE = 200;

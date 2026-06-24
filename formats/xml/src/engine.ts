@@ -2,6 +2,7 @@ import { DOMImplementation, DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import { Application } from "xmldsigjs";
 import { setNodeDependencies } from "xml-core";
 import { Effect } from "effect";
+import type { SignatureAlgorithm } from "@signature-kit/core/config";
 import { XmlError, XmlErrorCodeValue, XmlOperationValue } from "./config";
 
 const XML_RSA_ALGORITHM_NAME = "RSASSA-PKCS1-v1_5";
@@ -28,15 +29,15 @@ export const ensureXmlRuntime = (): Effect.Effect<void, XmlError> => {
   return Effect.void;
 };
 
-export const xmlSignatureAlgorithm = (
-  algorithm: "rsa-sha256" | "rsa-sha512",
-): RsaHashedImportParams => ({
+export const xmlSignatureAlgorithm = (algorithm: SignatureAlgorithm): RsaHashedImportParams => ({
   name: XML_RSA_ALGORITHM_NAME,
-  hash: algorithm === "rsa-sha512" ? "SHA-512" : "SHA-256",
+  hash: algorithm === "rsa-sha1" ? "SHA-1" : algorithm === "rsa-sha512" ? "SHA-512" : "SHA-256",
 });
 
-export const xmlDigestAlgorithm = (algorithm: "rsa-sha256" | "rsa-sha512"): "SHA-256" | "SHA-512" =>
-  algorithm === "rsa-sha512" ? "SHA-512" : "SHA-256";
+export const xmlDigestAlgorithm = (
+  algorithm: SignatureAlgorithm,
+): "SHA-1" | "SHA-256" | "SHA-512" =>
+  algorithm === "rsa-sha1" ? "SHA-1" : algorithm === "rsa-sha512" ? "SHA-512" : "SHA-256";
 
 export const toBufferSource = (data: Uint8Array): Uint8Array<ArrayBuffer> => {
   const copy = new Uint8Array(data.byteLength);

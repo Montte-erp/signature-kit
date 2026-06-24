@@ -14,7 +14,6 @@ import {
   PdfError,
   PdfErrorCodeValue,
   PdfOperationValue,
-  safeCauseMetadata,
 } from "./config";
 
 export const DEFAULT_SIGNATURE_LENGTH = 16384;
@@ -115,12 +114,11 @@ export const addSignaturePlaceholder = (
 
       return pdfDoc.save({ useObjectStreams: false, updateFieldAppearances: false });
     },
-    catch: (cause) =>
+    catch: () =>
       new PdfError({
         code: PdfErrorCodeValue.invalidPdf,
         retryable: false,
         operation: PdfOperationValue.placeholder,
-        ...safeCauseMetadata(cause),
       }),
   }).pipe(
     Effect.flatMap((bytes) =>

@@ -1,11 +1,12 @@
 ---
 import { Code } from "astro:components";
 import { Check, Copy, Terminal } from "@lucide/astro";
+import type { CodeLanguage } from "astro";
 
 interface Props {
   label?: string;
   code?: string;
-  lang?: string;
+  lang?: CodeLanguage;
   kind?: "file" | "terminal";
   seam?: boolean;
   class?: string;
@@ -13,7 +14,7 @@ interface Props {
 
 const { label, code = "", lang, kind = "file", seam = false, class: className = "" } = Astro.props;
 const trimmed = code.trim();
-const language = lang ?? (kind === "terminal" ? "bash" : "ts");
+const language: CodeLanguage = lang ?? (kind === "terminal" ? "bash" : "ts");
 const title = label ?? (kind === "terminal" ? "Terminal" : "código");
 ---
 
@@ -33,5 +34,5 @@ const title = label ?? (kind === "terminal" ? "Terminal" : "código");
       <Check class="hidden size-3.5 [[data-copied=true]_&]:block" />
     </button>
   </div>
-  <Code code={trimmed} lang={language as any} theme="vesper" />
+  <Code code={trimmed} lang={language} theme="vesper" />
 </div>

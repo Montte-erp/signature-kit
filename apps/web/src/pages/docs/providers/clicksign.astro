@@ -4,167 +4,73 @@ import DocsActions from "../../../components/DocsActions.astro";
 import CodePanel from "../../../components/CodePanel.astro";
 import InstallTabs from "../../../components/InstallTabs.astro";
 
-const gatewayCode = `import { createSignatureGateway, createFetchHttpClient } from "@signature-kit/signature-gateway"
-import { clicksign } from "@signature-kit/clicksign"
-import { Redacted } from "effect"
+const clicksignCode = `import { createClicksignSignatureRequest } from "@signature-kit/clicksign"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
 
-export const gateway = createSignatureGateway({
-  providers: [
-    clicksign({
-      accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
-      environment: "sandbox",   // "production" | "sandbox"
-      locale: "pt-BR",          // "en-US" | "pt-BR"
-      autoClose: true,
-    }),
-  ],
-  http: createFetchHttpClient(),
-})`;
+const request = yield* createClicksignSignatureRequest(
+  {
+    accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
+    environment: "sandbox",
+    locale: "pt-BR",
+    autoClose: true,
+  },
+  {
+    title: "Termo de adesão",
+    message: "Assine para continuar.",
+    documents: [{ fileName: "termo.pdf", mimeType: "application/pdf", content: pdfBytes }],
+    recipients: [{ name: "Bruno Lima", email: "bruno@example.com", role: "signer" }],
+  },
+).pipe(Effect.provide(signatureHttpClientLive))
 
-const requestCode = `import { Effect } from "effect"
-import { gateway } from "./gateway"
-
-const request = gateway.createSignatureRequest({
-  provider: "clicksign",
-  title: "Contrato de prestação de serviços",
-  message: "Assine o documento em anexo.",
-  documents: [
-    { fileName: "contrato.pdf", mimeType: "application/pdf", content: pdfBytes },
-  ],
-  recipients: [
-    { name: "Ana Souza", email: "ana@exemplo.com.br", role: "signer" },
-  ],
-  send: true,
-})
-
-const remote = yield* request
-// remote.provider === "clicksign"
-// remote.id        — id da solicitação no Clicksign
-// remote.state     — "draft" | "sent"
-// remote.signingUrl — URL de assinatura, quando disponível`;
-
-const oneDocCode = `// Um documento por solicitação. Dois ou mais disparam INVALID_INPUT:
-const tooMany = gateway.createSignatureRequest({
-  provider: "clicksign",
-  title: "Pacote de contratos",
-  documents: [
-    { fileName: "a.pdf", mimeType: "application/pdf", content: aBytes },
-    { fileName: "b.pdf", mimeType: "application/pdf", content: bBytes },
-  ],
-  recipients: [{ name: "Ana Souza", email: "ana@exemplo.com.br" }],
-})
-// SignatureProviderError code "signature_provider.INVALID_INPUT"
-// reason "Clicksign API v1 adapter supports one uploaded document per signature request."`;
+// request.provider === "clicksign"`;
 
 const toc: [string, string][] = [
-  ["Instalar o adaptador", "#instalar"],
-  ["Registrar o provedor", "#configurar"],
-  ["Criar a solicitação", "#solicitar"],
-  ["Ambiente e limites", "#ambiente"],
+  ["Instalar", "#instalar"],
+  ["Criar documento", "#criar"],
+  ["Limite da API", "#limite"],
   ["Erros", "#erros"],
 ];
 ---
 
 <DocsLayout
   title="Clicksign"
-  description="Registre o provedor Clicksign no signature-gateway, dispare solicitações com provider:'clicksign' e respeite o limite de um documento por requisição da API v1."
+  description="Crie solicitações Clicksign com createClicksignSignatureRequest(...), sem gateway normalizador."
   group="provedores"
   toc={toc}
 >
   <h1>Clicksign</h1>
   <DocsActions title="Clicksign" />
 
-  <p>
-    <strong>O que você vai fazer:</strong> registrar o adaptador <code>clicksign</code> no
-    <code>signature-gateway</code> e disparar uma solicitação de assinatura remota com
-    <code>provider: "clicksign"</code>. O adaptador fala com a API v1 do Clicksign: autentica pelo parâmetro de query
-    <code>access_token</code> e aceita <strong>um documento por requisição</strong>.
-  </p>
-
   <section class="step" data-step="1">
-    <h3 id="instalar">Instale o adaptador</h3>
-    <p>
-      Instale o pacote do provedor junto do <code>@signature-kit/signature-gateway</code>, que expõe
-      <code>createSignatureGateway</code> e o cliente HTTP padrão.
-    </p>
-    <InstallTabs spec="@signature-kit/clicksign @signature-kit/signature-gateway" />
+    <h2 id="instalar">Instalar</h2>
+    <p>Clicksign é um signer remoto direto sobre a API v1.</p>
+    <InstallTabs spec="@signature-kit/core @signature-kit/clicksign" />
   </section>
 
   <section class="step" data-step="2">
-    <h3 id="configurar">Configure o provedor no gateway</h3>
+    <h2 id="criar">Criar documento</h2>
     <p>
-      <code>clicksign(...)</code> devolve uma <code>SignatureProviderFactory</code> com <code>id</code>
-      <code>"clicksign"</code>. Passe o <code>accessToken</code> como <code>Redacted</code> e selecione o ambiente. Se
-      <code>http</code> for omitido, o gateway usa <code>createFetchHttpClient()</code>.
+      A função cria o documento, cria o signer e opcionalmente notifica por e-mail. O token fica em
+      <code>Redacted</code> até o boundary HTTP.
     </p>
-    <CodePanel label="gateway.ts" code={gatewayCode} />
-    <p class="aside">
-      <strong>Nota:</strong> as chaves do <code>clicksign</code> são <code>accessToken</code> (obrigatória),
-      <code>environment</code>, <code>baseUrl</code>, <code>locale</code> e <code>autoClose</code> — todas opcionais exceto
-      <code>accessToken</code>. <code>locale</code> aceita apenas <code>"en-US"</code> ou <code>"pt-BR"</code>.
-    </p>
+    <CodePanel label="clicksign.ts" code={clicksignCode} />
   </section>
 
-  <section class="step" data-step="3">
-    <h3 id="solicitar">Crie a solicitação de assinatura</h3>
-    <p>
-      A dispatch do gateway é por <code>adapter.id === input.provider</code>, então use
-      <code>provider: "clicksign"</code>. O retorno é um <code>RemoteSignatureRequest</code> com <code>id</code>,
-      <code>state</code> (<code>"draft"</code> ou <code>"sent"</code>) e, quando aplicável, <code>signingUrl</code>.
-    </p>
-    <CodePanel label="solicitar-assinatura.ts" code={requestCode} />
-    <p class="aside">
-      <strong>Atenção:</strong> sem um adaptador registrado para o <code>provider</code>, o gateway falha com
-      <code>signature_provider.UNSUPPORTED_OPERATION</code> e reason
-      <code>"No signature provider adapter registered for clicksign."</code>.
-    </p>
-  </section>
+  <h2 id="limite">Limite da API</h2>
+  <p>
+    A implementação atual aceita um documento por requisição, seguindo o fluxo v1 da Clicksign. Requisições com múltiplos
+    documentos falham no canal tipado com <code>signature-kit.UNSUPPORTED_OPERATION</code>.
+  </p>
 
-  <section class="step" data-step="4">
-    <h3 id="ambiente">Ambiente, autenticação e limites</h3>
-    <p>
-      <code>environment</code> seleciona a base URL quando <code>baseUrl</code> não é informado:
-    </p>
-    <ul>
-      <li><code>"production"</code> &rarr; <code>https://app.clicksign.com/api/v1</code></li>
-      <li>caso contrário (inclui <code>"sandbox"</code>) &rarr; <code>https://sandbox.clicksign.com/api/v1</code></li>
-    </ul>
-    <p>
-      A autenticação não usa cabeçalho <code>Authorization</code>: o token vai na query string como
-      <code>?access_token=</code>, anexado pelo adaptador a cada chamada. Mantenha-o em <code>Redacted</code> até a
-      fronteira de uso.
-    </p>
-    <p>
-      A API v1 do Clicksign aceita um único documento enviado por solicitação. Por isso o adaptador rejeita
-      <code>documents</code> com mais de um item antes de chamar a rede:
-    </p>
-    <CodePanel label="um-documento.ts" code={oneDocCode} />
-    <p class="aside">
-      <strong>Dica:</strong> para enviar vários documentos, crie uma solicitação por documento. Cada chamada a
-      <code>createSignatureRequest</code> devolve seu próprio <code>RemoteSignatureRequest</code>.
-    </p>
-
-    <h2 id="erros">Erros que você pode ver</h2>
-    <p>Falhas do provedor são um <code>SignatureProviderError</code> tipado no canal de erro:</p>
-    <ul>
-      <li>
-        <code>signature_provider.INVALID_INPUT</code> — mais de um documento, ou entrada que o adaptador rejeita antes
-        da rede.
-      </li>
-      <li>
-        <code>signature_provider.HTTP</code> — a API do Clicksign respondeu com status de erro.
-      </li>
-      <li>
-        <code>signature_provider.RESPONSE_SHAPE</code> — a resposta não tem o formato esperado pelo adaptador.
-      </li>
-      <li>
-        <code>signature_provider.UNSUPPORTED_OPERATION</code> — nenhum adaptador registrado para o
-        <code>provider</code> informado.
-      </li>
-    </ul>
-  </section>
+  <h2 id="erros">Erros</h2>
+  <p>
+    Entrada inválida, HTTP remoto e response shape falham como <code>SignatureKitError</code>, com
+    <code>provider: "clicksign"</code>.
+  </p>
 
   <div class="next-prev">
-    <a href="/docs/providers/adobe-sign">← Adobe Sign</a>
-    <span></span>
+    <a href="/docs/providers/docusign">← DocuSign</a>
+    <a href="/docs/providers/assinafy">Assinafy →</a>
   </div>
 </DocsLayout>

@@ -6,6 +6,7 @@ import { effectBoundaryChecks } from "./rules/effect-boundaries";
 import { observabilityCatalogChecks } from "./rules/observability-catalogs";
 import { configChecks } from "./rules/config";
 import { dependencyChecks } from "./rules/dependencies";
+import { architectureChecks } from "./rules/architecture";
 
 export const checks: readonly Check[] = [
   schemaContractChecks[0],
@@ -27,4 +28,5 @@ export const checks: readonly Check[] = [
   configChecks[0],
   dependencyChecks[0],
   dependencyChecks[1],
+  architectureChecks[0],
 ];

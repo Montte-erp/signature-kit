@@ -1,0 +1,15 @@
+{
+  "extends": "../../tooling/typescript/core.json",
+  "include": ["src/**/*.ts"],
+  "references": [
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../../shared/asn1"
+    },
+    {
+      "path": "../../shared/crypto"
+    }
+  ]
+}

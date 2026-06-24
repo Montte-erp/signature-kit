@@ -15,7 +15,8 @@ import { decodeOidBytes } from "./oid";
 // Node model
 // =============================================================================
 
-export type Asn1Class = "universal" | "context" | "application" | "private";
+export const Asn1ClassSchema = Schema.Literals(["universal", "context", "application", "private"]);
+export type Asn1Class = (typeof Asn1ClassSchema)["Type"];
 
 export type Asn1Primitive = {
   readonly kind: "primitive";
@@ -42,38 +43,22 @@ export type Asn1Step<A> =
 // Error catalog
 // =============================================================================
 
-export type Asn1ErrorCode = "asn1.DECODE_ERROR" | "asn1.STRUCTURE_ERROR" | "asn1.OID_ERROR";
-const Asn1ErrorCodeSchema: Schema.Decoder<Asn1ErrorCode> = Schema.Literals([
+export const Asn1ErrorCodeSchema = Schema.Literals([
   "asn1.DECODE_ERROR",
   "asn1.STRUCTURE_ERROR",
   "asn1.OID_ERROR",
 ]);
+export type Asn1ErrorCode = (typeof Asn1ErrorCodeSchema)["Type"];
 export const Asn1ErrorCodeValue = {
   decodeError: "asn1.DECODE_ERROR",
   structureError: "asn1.STRUCTURE_ERROR",
   oidError: "asn1.OID_ERROR",
 } satisfies Record<string, Asn1ErrorCode>;
 
-type Asn1ErrorFields = {
-  readonly _tag: "Asn1Error";
-  readonly code: Asn1ErrorCode;
-  readonly reason?: string | undefined;
-};
-type Asn1ErrorInput = {
-  readonly code: Asn1ErrorCode;
-  readonly reason?: string | undefined;
-};
-type Asn1ErrorConstructor = new (input: Asn1ErrorInput) => Asn1ErrorFields;
-
-const Asn1ErrorBase: Asn1ErrorConstructor = Schema.TaggedErrorClass<Asn1ErrorFields>()(
-  "Asn1Error",
-  {
-    code: Asn1ErrorCodeSchema,
-    reason: Schema.optional(Schema.String),
-  },
-);
-
-export class Asn1Error extends Asn1ErrorBase {
+export class Asn1Error extends Schema.TaggedErrorClass<Asn1Error>()("Asn1Error", {
+  code: Asn1ErrorCodeSchema,
+  reason: Schema.optional(Schema.String),
+}) {
   get message(): string {
     switch (this.code) {
       case "asn1.DECODE_ERROR":

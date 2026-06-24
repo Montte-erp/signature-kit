@@ -84,9 +84,9 @@ Benchmark against current docs:
   future HSM/government signers, XML, PDF, and remote workflow vendors behind
   adapters or format modules.
 - PayKit's setup creates one `createPayKit({ ... })` server instance and provider
-  portability comes from a common API over provider-specific packages. SignatureKit
-  should keep `createSignatureGateway({ providers: [...] })` as that common API and
-  keep DocuSign/Dropbox Sign/Adobe Sign/Clicksign in separate packages.
+  portability comes from provider-specific packages. SignatureKit keeps DocuSign,
+  Clicksign, Assinafy, and ZapSign as direct remote signer packages instead of
+  adding a provider-neutral gateway.
 - PayKit exposes handlers and clients because billing has a server/client product
   surface. SignatureKit should not add a handler/client abstraction until a real
   request/response signing product surface exists; cryptographic signing remains a
@@ -173,11 +173,12 @@ They are workspace-only implementation details.
 
 Use these physical repo groups:
 
+- `apps/`
 - `core/`
 - `signers/`
 - `formats/`
-- `integrations/`
 - `shared/`
+- `tooling/`
 
 These are grouping directories, not publishable packages themselves.
 Every publishable package lives one level below them and owns its own `package.json`.
@@ -188,66 +189,46 @@ Every publishable package lives one level below them and owns its own `package.j
 
 #### `core/`
 
-- `core/config` → `@signature-kit/config`
-- `core/x509` → `@signature-kit/x509`
 - `core/core` → `@signature-kit/core`
+- `core/certificates` → `@signature-kit/certificates`
 
 #### `signers/`
 
 - `signers/a1` → `@signature-kit/a1`
-- `signers/gateway` → `@signature-kit/signature-gateway`
 - `signers/docusign` → `@signature-kit/docusign`
-- `signers/dropbox-sign` → `@signature-kit/dropbox-sign`
-- `signers/adobe-sign` → `@signature-kit/adobe-sign`
 - `signers/clicksign` → `@signature-kit/clicksign`
-- later: `signers/gov-br` → `@signature-kit/gov-br`
-- later: `signers/cloud-kms` → `@signature-kit/cloud-kms`
+- `signers/assinafy` → `@signature-kit/assinafy`
+- `signers/zapsign` → `@signature-kit/zapsign`
 
 #### `formats/`
 
 - `formats/xml` → `@signature-kit/xml`
 - `formats/pdf` → `@signature-kit/pdf`
-- later: `formats/cms` → `@signature-kit/cms`
 
-#### `integrations/`
+#### `tooling/`
 
-- later, only if runtime code justifies it: `integrations/node` → `@signature-kit/node`
-- later, only if runtime code justifies it: `integrations/web` → `@signature-kit/web`
+- `tooling/static-checks` → architecture and Effect-native policy checks
+  for this monorepo
 
 #### `shared/`
 
-- `shared/crypto` → internal crypto helpers
-- `shared/xml` → internal XML primitives
-- `shared/testkit` → fixtures, golden files, Bun test helpers
-- `shared/config` → internal shared tsconfig/build config
+- `shared/asn1` → internal ASN.1 DER decode/encode
+- `shared/crypto` → internal PKCS#12, PEM, hashing, cipher primitives
+- `shared/cms` → internal CMS/PKCS#7 and RFC 3161 timestamping
 
 ---
 
 ## 5. Package Responsibilities
 
-### 5.1 `@signature-kit/config`
+### 5.1 `@signature-kit/core`
 
 Purpose:
 
-- own public schemas, typed errors, and signer contracts;
+- own public runtime schemas, typed `SignatureKitError`, and signer contracts;
+- expose the `Signatures` service and `createSignatureKit` facade;
 - keep every package on the same `SignatureKitError` catalog;
-- expose only contracts, not runtime behaviour.
-
-### 5.2 `@signature-kit/x509`
-
-Purpose:
-
-- parse X.509 DER;
-- normalize certificate identity fields;
-- keep certificate inspection out of the runtime package.
-
-### 5.3 `@signature-kit/core`
-
-Purpose:
-
-- own the lean `Signatures` runtime service;
-- expose stable APIs over signer backends;
-- stay agnostic about A1, remote signers, formats, and providers.
+- expose remote signer request DTOs and the `SignatureHttpClient` seam without a
+  separate contracts-only package.
 
 Must not depend on:
 
@@ -256,36 +237,45 @@ Must not depend on:
 - government-specific SDKs;
 - UI frameworks.
 
-### 5.4 `@signature-kit/a1`
+### 5.2 `@signature-kit/certificates`
 
 Purpose:
 
-- load `.pfx` / `.p12` containers;
+- parse PKCS#12/PFX sources and X.509 DER;
+- normalize certificate identity fields, including ICP-Brasil CPF/CNPJ data;
+- keep certificate parsing out of the runtime facade.
+
+
+### 5.3 `@signature-kit/a1`
+
+Purpose:
+
+- load `.pfx` / `.p12` containers through `@signature-kit/certificates`;
 - validate password;
 - extract certificate and private-key material internally;
 - implement the signer adapter contract using A1 certificates.
 
 This package is the first real backend, not the whole product.
 
-### 5.5 `@signature-kit/signature-gateway`
+### 5.4 Remote signer packages
 
 Purpose:
 
-- expose the tiny PayKit-style gateway seam for provider-side signature workflows;
-- route multiple provider adapters through one common request shape;
-- avoid importing any concrete provider package.
-
-### 5.6 Provider signer packages
-
-Purpose:
-
-- one package per provider: DocuSign, Dropbox Sign, Adobe Acrobat Sign, Clicksign;
-- export a small provider factory (`docusign(...)`, `dropboxSign(...)`, etc.) that
-  plugs into `@signature-kit/signature-gateway`;
+- one package per provider: DocuSign, Clicksign, Assinafy, ZapSign;
+- expose direct `create*SignatureRequest(...)` functions over `SignatureHttpClient`;
 - keep provider HTTP protocol details inside that provider adapter;
 - let users install only the providers they use.
 
-### 5.7 `@signature-kit/xml`
+### 5.5 Alchemy provider pattern
+
+Alchemy v2 is used inside signer packages, not as a separate integration package:
+
+- signer packages declare resource constructors with `Resource<T>(type)`;
+- resource providers use `Provider.effect(...)`;
+- each signer package may expose a `providers(options)` layer;
+- state-store-safe props stay at the Alchemy boundary and decode into runtime inputs.
+
+### 5.6 `@signature-kit/xml`
 
 Purpose:
 
@@ -293,7 +283,7 @@ Purpose:
 - keep canonicalization, transforms, digesting, and insertion logic separate from signer backends;
 - accept any signer adapter compatible with the core contract.
 
-### 5.8 `@signature-kit/gov-br`
+### 5.7 future government signer packages
 
 Only add this package when a real remote-government signer seam exists.
 
@@ -306,8 +296,8 @@ Its role is not generic signing logic. Its role is backend-specific protocol, au
 ### 6.1 Runtime surface
 
 ```ts
-import { createSignatureKit } from "@signature-kit/core";
-import { loadA1SignerAdapter } from "@signature-kit/a1";
+import { createSignatureKit } from "@signature-kit/core/runtime";
+import { loadA1SignerAdapter } from "@signature-kit/a1/signer";
 import { Effect, Redacted } from "effect";
 
 const program = Effect.gen(function* () {
@@ -382,7 +372,7 @@ type SignerIdentity = {
 ### 7.3 Core signing inputs
 
 ```ts
-type SignatureAlgorithm = "rsa-sha256" | "rsa-sha512";
+type SignatureAlgorithm = "rsa-sha1" | "rsa-sha256" | "rsa-sha512";
 
 type SignInput = {
   content: Uint8Array;
@@ -411,13 +401,14 @@ type XmlSignatureModule = {
 
 ### 8.1 What is in the first working cut
 
-- `@signature-kit/config`, `@signature-kit/x509`, and lean `@signature-kit/core`;
+- `@signature-kit/core` and `@signature-kit/certificates`;
 - `@signature-kit/a1` for PKCS#12 / PFX loading, password validation, e-CPF/e-CNPJ
   identity extraction, byte signing, and byte verification;
+- `@signature-kit/docusign`, `@signature-kit/clicksign`, `@signature-kit/assinafy`,
+  and `@signature-kit/zapsign` for remote signature-request workflows;
 - `@signature-kit/xml` for XMLDSig sign/verify over the `Signatures` seam;
 - `@signature-kit/pdf` and internal `@signature-kit/cms` for detached CMS / PAdES-shaped
   PDF signing;
-- `@signature-kit/signature-gateway` plus one package per remote workflow provider;
 - focused `@effect/vitest` tests with fixtures, tamper checks, browser smoke, and
   real ITI Validar endpoint smoke.
 
@@ -506,16 +497,13 @@ The value should come from:
 
 ```txt
 core/
-  config/      # schemas, signer contracts, typed SignatureKitError catalog
-  x509/        # X.509 parse + identity normalization
-  core/        # Signatures service + createSignatureKit facade
+  core/         # runtime schemas, errors, Signatures service, createSignatureKit facade
+  certificates/ # PKCS#12/X.509 parse + identity normalization
 signers/
-  a1/          # PKCS#12 signer adapter
-  gateway/     # provider-neutral signature request gateway
-  docusign/    # provider protocol adapter
-  dropbox-sign/
-  adobe-sign/
+  a1/           # PKCS#12 signer adapter
+  docusign/     # remote signer adapter
   clicksign/
+  assinafy/
 formats/
   xml/         # XMLDSig document mutation
   pdf/         # PDF mutation + detached CMS embedding
@@ -536,13 +524,12 @@ Use simple, stable names:
 - future adapter factory: `createGovBrSignerAdapter`
 - certificate API: `certificates.inspect`
 - bytes API: `signatures.sign`, `signatures.verify`
-- XML API: `xml.sign`, `xml.verify`
-- provider gateway API: `createSignatureGateway`
-- provider factories: `docusign`, `dropboxSign`, `adobeSign`, `clicksign`
+- remote signer API: `createDocuSignSignatureRequest`, `createClicksignSignatureRequest`,
+  `createAssinafySignatureRequest`, `createZapSignSignatureRequest`
 
 Do not introduce synonyms for the same concept. Use `signer` for signing
 capability backends; use `provider` only for remote workflow vendors such as
-DocuSign or Dropbox Sign.
+DocuSign, Clicksign, Assinafy, and ZapSign.
 
 ---
 
@@ -553,7 +540,7 @@ SignatureKit now has:
 1. one lean signer runtime in `@signature-kit/core`;
 2. one real local backend in `@signature-kit/a1`;
 3. XML and PDF format modules that consume the same signing seam;
-4. one PayKit-style provider gateway with separate provider packages;
+4. direct remote signer packages for DocuSign, Clicksign, Assinafy, and ZapSign;
 5. OSS packaging and boring names.
 
 The architecture succeeds if A1 is only the first backend, not the product definition.

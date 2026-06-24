@@ -15,9 +15,27 @@ import {
   CmsError,
   CmsErrorCodeValue,
   CmsOperationValue,
-  safeCauseMetadata,
 } from "./config";
 import { toArrayBuffer } from "./engine";
+
+const isUint8Array = (value: unknown): value is Uint8Array =>
+  Object.prototype.toString.call(value) === "[object Uint8Array]";
+
+const constructorName = (value: unknown): string | undefined => {
+  if (value === null || typeof value !== "object") return undefined;
+  const constructor = Reflect.get(value, "constructor");
+  if (
+    constructor === null ||
+    (typeof constructor !== "object" && typeof constructor !== "function")
+  ) {
+    return undefined;
+  }
+  const name = Reflect.get(constructor, "name");
+  return typeof name === "string" ? name : undefined;
+};
+
+const isSignedDataVerifyMismatch = (cause: unknown): boolean =>
+  constructorName(cause) === "SignedDataVerifyError";
 
 const signerSerialHex = (signed: pkijs.SignedData): string | null => {
   const sid = signed.signerInfos[0]?.sid;
@@ -27,7 +45,7 @@ const signerSerialHex = (signed: pkijs.SignedData): string | null => {
   const valueBlock = Reflect.get(serial, "valueBlock");
   if (valueBlock === null || typeof valueBlock !== "object") return null;
   const view = Reflect.get(valueBlock, "valueHexView");
-  if (!(view instanceof Uint8Array)) return null;
+  if (!isUint8Array(view)) return null;
   return Array.from(view, (byte) => byte.toString(16).padStart(2, "0")).join("");
 };
 
@@ -40,24 +58,22 @@ export const verifyDetachedSignedData = (
         const contentInfo = pkijs.ContentInfo.fromBER(toArrayBuffer(input.cms));
         return new pkijs.SignedData({ schema: contentInfo.content });
       },
-      catch: (cause) =>
+      catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.decodeError,
           reason: "Failed to parse the CMS ContentInfo.",
           operation: CmsOperationValue.verify,
-          ...safeCauseMetadata(cause),
         }),
     });
 
     const trustedCerts = yield* Effect.try({
       try: () =>
         (input.trustedRoots ?? []).map((der) => pkijs.Certificate.fromBER(toArrayBuffer(der))),
-      catch: (cause) =>
+      catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.decodeError,
           reason: "Failed to parse a trusted root DER.",
           operation: CmsOperationValue.verify,
-          ...safeCauseMetadata(cause),
         }),
     });
 
@@ -74,17 +90,15 @@ export const verifyDetachedSignedData = (
           extendedMode: true,
         }),
       catch: (cause) =>
-        cause instanceof pkijs.SignedDataVerifyError
+        isSignedDataVerifyMismatch(cause)
           ? new CmsError({
               code: CmsErrorCodeValue.digestMismatch,
               operation: CmsOperationValue.verify,
-              ...safeCauseMetadata(cause),
             })
           : new CmsError({
               code: CmsErrorCodeValue.verifyError,
               reason: "CMS verification failed.",
               operation: CmsOperationValue.verify,
-              ...safeCauseMetadata(cause),
             }),
     }).pipe(
       Effect.map((result) => ({

@@ -5,12 +5,20 @@
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/sign.js",
+  "types": "./dist/sign.d.ts",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
+    },
+    "./sign": {
+      "types": "./dist/sign.d.ts",
+      "import": "./dist/sign.js"
+    },
+    "./verify": {
+      "types": "./dist/verify.d.ts",
+      "import": "./dist/verify.js"
     }
   },
   "scripts": {
@@ -20,11 +28,10 @@
   },
   "dependencies": {
     "@peculiar/x509": "2.0.0",
-    "@signature-kit/contracts": "workspace:*",
     "@signature-kit/core": "workspace:*",
     "@signature-kit/crypto": "workspace:*",
     "@xmldom/xmldom": "^0.9.8",
-    "effect": "4.0.0-beta.81",
+    "effect": "4.0.0-beta.86",
     "reflect-metadata": "^0.2.2",
     "xml-core": "^1.2.5",
     "xmldsigjs": "2.8.7"

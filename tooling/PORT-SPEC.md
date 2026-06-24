@@ -6,19 +6,18 @@ pass `bun run check:static`. Read `AGENTS.md` for the full discipline.
 ## Hard rules (enforced by static checks — a violation fails the build)
 
 - NO `throw` (no `throw new Error`, no throwing anything).
-- NO value-type `as` casts (`as Foo`/`as any`/`as unknown as`). `as const` IS allowed
-  (safe const-assertion — narrows to literal/readonly, cannot introduce unsoundness).
+- NO `as` casts, including `as const`. Literal catalogs come from
+  `Schema.Literals([...])` so the schema owns both runtime validation and type
+  narrowing.
 - NO bare `try`/`catch`/`finally` blocks. (`Effect.try` / `Effect.tryPromise` are fine.)
-- `instanceof` only for narrowing an unknown/external cause at an adaptation boundary
-  (classifying a thrown SDK error before mapping it to a tagged error).
+- NO `instanceof` cause classification; unknown non-contract causes stay defects.
 - NO `String(error)` as the only preserved error data.
 - Fallible boundaries return `Effect.Effect<A, CryptoError>`. Construct the tagged
   `CryptoError` at the decision point.
 - Total pure functions (hashing, key expansion, block transforms) just return their
   value — they must simply never throw. Remove defensive guards whose precondition
   is guaranteed by the only caller (e.g. "block must be 64 bytes").
-- Use `!` non-null assertions for indexed access (allowed). Never a value-type `as`
-  cast (`as const` is fine).
+- Use `!` non-null assertions for indexed access (allowed). Never an `as` cast.
 - Import style: extensionless (`from "./sha1"`, `from "../config"`). Use
   `import type { ... }` for type-only imports (verbatimModuleSyntax is on).
 - 2-space indent, double quotes, semicolons, trailing commas, printWidth 100.

@@ -17,7 +17,7 @@ export type SignerAdapter = {
   verify(input: VerifyInput): Effect.Effect<VerificationResult, SignatureKitError>;
 };`;
 
-const a1Code = `import { loadA1SignerAdapter } from "@signature-kit/a1"
+const a1Code = `import { loadA1SignerAdapter } from "@signature-kit/a1/signer"
 import { Effect, Redacted } from "effect"
 
 // loadA1SignerAdapter -> Effect<SignerAdapter, SignatureKitError>
@@ -30,8 +30,8 @@ signer.id          // "a1"
 const identity = yield* signer.inspect()   // SignerIdentity (e-CPF / e-CNPJ)
 const artifact = yield* signer.sign({ content, algorithm: "rsa-sha256" })`;
 
-const layerCode = `import { signaturesLayer, signatures } from "@signature-kit/core"
-import { loadA1SignerAdapter } from "@signature-kit/a1"
+const layerCode = `import { signaturesLayer, signatures } from "@signature-kit/core/signatures"
+import { loadA1SignerAdapter } from "@signature-kit/a1/signer"
 import { Effect, Redacted } from "effect"
 
 const program = Effect.gen(function* () {
@@ -51,9 +51,9 @@ const signer = yield* loadA1SignerAdapter({ pfx, password: Redacted.make(pwd) })
 // signaturesLayer(signer) -> Layer<Signatures>  (Layer.succeed)
 yield* program.pipe(Effect.provide(signaturesLayer(signer)))`;
 
-const a1LayerCode = `import { signXml } from "@signature-kit/xml"
-import { signPdf } from "@signature-kit/pdf"
-import { a1SignaturesLayer } from "@signature-kit/a1"
+const a1LayerCode = `import { signXml } from "@signature-kit/xml/sign"
+import { signPdf } from "@signature-kit/pdf/sign"
+import { a1SignaturesLayer } from "@signature-kit/a1/signer"
 import { Effect, Redacted } from "effect"
 
 // a1SignaturesLayer(options) -> Layer<Signatures, SignatureKitError>
@@ -66,8 +66,9 @@ const signedXml = yield* signXml({ xml, referenceId: "nfe-1" })
 const signedPdf = yield* signPdf({ pdf, policy: "pades-icp-brasil" })
   .pipe(Effect.provide(layer))`;
 
-const swapCode = `import { signPdf } from "@signature-kit/pdf"
-import { signaturesLayer, type SignerAdapter } from "@signature-kit/core"
+const swapCode = `import { signPdf } from "@signature-kit/pdf/sign"
+import { signaturesLayer } from "@signature-kit/core/signatures"
+import type { SignerAdapter } from "@signature-kit/core/config"
 import { Effect } from "effect"
 
 // A costura é só uma porta: qualquer SignerAdapter serve, desde que tenha id.
@@ -109,19 +110,19 @@ const toc: [string, string][] = [
 
   <h2 id="contrato">O contrato SignerAdapter</h2>
   <p>
-    O tipo abaixo é a definição literal exportada por <code>@signature-kit/contracts</code>. O doc-comment fixa a regra que o resto
+    O tipo abaixo é a definição literal exportada por <code>@signature-kit/core/config</code>. O doc-comment fixa a regra que o resto
     desta página detalha: o assinador é dono de onde vem o poder de assinar, e <strong>nunca</strong> da mutação de
     formato.
   </p>
-  <CodePanel seam label="core/contracts/src/index.ts" code={adapterType} />
+  <CodePanel seam label="core/core/src/config.ts" code={adapterType} />
 
   <h2 id="membros">Os seis membros da costura</h2>
   <p>Toda implementação de <code>SignerAdapter</code> entrega exatamente estes seis membros:</p>
   <ul>
     <li>
-      <code>id: string</code> — identidade do backend de assinatura. O A1 usa <code>"a1"</code>. (Não confunda com o
-      despacho do gateway de provedores remotos, que casa <code>input.provider</code> contra os adaptadores DocuSign,
-      Dropbox Sign, Adobe Sign e Clicksign — outro subsistema.)
+      <code>id: string</code> — identidade do backend de assinatura. O A1 usa <code>"a1"</code>. Signers remotos
+      como DocuSign, Clicksign, Assinafy e ZapSign usam funções <code>create*SignatureRequest(...)</code>, não passam por
+      esta costura de mutação XML/PDF.
     </li>
     <li>
       <code>inspect()</code> — devolve <code>Effect&lt;SignerIdentity, SignatureKitError&gt;</code> com

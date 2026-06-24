@@ -91,17 +91,17 @@ describe("workspace layer checks", () => {
     );
     await writePackage(
       root,
-      "core/x509",
-      "@signature-kit/x509",
+      "core/certificates",
+      "@signature-kit/certificates",
       { "@signature-kit/asn1": "workspace:*" },
       [],
       "import { asn1 } from '@signature-kit/asn1';\nexport const value = asn1;\n",
     );
 
     expect(collectWorkspaceLayerDiagnostics(root)).toContainEqual({
-      path: "core/x509/tsconfig.json",
+      path: "core/certificates/tsconfig.json",
       message:
-        "@signature-kit/x509 depends on @signature-kit/asn1 but does not reference its tsconfig project.",
+        "@signature-kit/certificates depends on @signature-kit/asn1 but does not reference its tsconfig project.",
     });
   });
 

@@ -37,9 +37,9 @@ certificate.
   adapters around it. SignatureKit mirrors that with `createSignatureKit({ signer })`,
   while keeping Effect `Context.Service` / `Layer` APIs available for libraries.
 - PayKit centers provider portability on one configured instance and separate
-  provider packages. SignatureKit mirrors that with
-  `createSignatureGateway({ providers: [docusign(...), dropboxSign(...)] })`;
-  there is no monolithic `signature-providers` package.
+  provider packages. SignatureKit deliberately does not add a gateway: DocuSign,
+  Clicksign, Assinafy, and ZapSign expose direct `create*SignatureRequest(...)`
+  functions over `SignatureHttpClient`.
 - Deliberate difference: SignatureKit is a cryptographic runtime, not a SaaS
   workflow app. Core does not import XML, PDF, A1, or provider packages; each seam
   stays replaceable.
@@ -50,15 +50,13 @@ certificate.
 shared/asn1        @signature-kit/asn1                ASN.1 DER decode/encode
 shared/crypto      @signature-kit/crypto              PKCS#12, PEM, hashes, cipher primitives
 shared/cms         @signature-kit/cms                 CMS/PKCS#7, ICP attrs, RFC 3161 timestamping
-core/config        @signature-kit/config              shared schemas, typed errors, signer contracts
-core/x509          @signature-kit/x509                X.509 parsing and identity normalization
-core/core          @signature-kit/core                Signatures service + createSignatureKit runtime
+core/core          @signature-kit/core                runtime schemas, typed errors, Signatures service
+core/certificates  @signature-kit/certificates        Effect-safe PKCS#12/X.509 certificate API
 signers/a1         @signature-kit/a1                  A1 / PKCS#12 signer adapter
-signers/gateway    @signature-kit/signature-gateway   provider-neutral signature workflow gateway
-signers/docusign   @signature-kit/docusign            DocuSign provider adapter
-signers/dropbox-sign @signature-kit/dropbox-sign      Dropbox Sign provider adapter
-signers/adobe-sign @signature-kit/adobe-sign          Adobe Acrobat Sign provider adapter
-signers/clicksign  @signature-kit/clicksign           Clicksign provider adapter
+signers/docusign   @signature-kit/docusign            DocuSign remote signer
+signers/clicksign  @signature-kit/clicksign           Clicksign remote signer
+signers/assinafy   @signature-kit/assinafy            Assinafy remote signer
+signers/zapsign    @signature-kit/zapsign             ZapSign remote signer
 formats/xml        @signature-kit/xml                 XML-DSig sign/verify
 formats/pdf        @signature-kit/pdf                 PDF detached CMS sign/verify
 ```
@@ -68,8 +66,8 @@ formats/pdf        @signature-kit/pdf                 PDF detached CMS sign/veri
 ### Local signing runtime
 
 ```ts
-import { createSignatureKit } from "@signature-kit/core";
-import { loadA1SignerAdapter } from "@signature-kit/a1";
+import { createSignatureKit } from "@signature-kit/core/runtime";
+import { loadA1SignerAdapter } from "@signature-kit/a1/signer";
 import { Effect, Redacted } from "effect";
 
 const program = Effect.gen(function* () {
@@ -92,9 +90,11 @@ const program = Effect.gen(function* () {
 ### XML/PDF formats over the same signer
 
 ```ts
-import { signaturesLayer } from "@signature-kit/core";
-import { signPdf, verifyPdf } from "@signature-kit/pdf";
-import { signXml, verifyXml } from "@signature-kit/xml";
+import { signaturesLayer } from "@signature-kit/core/signatures";
+import { signPdf } from "@signature-kit/pdf/sign";
+import { verifyPdf } from "@signature-kit/pdf/verify";
+import { signXml } from "@signature-kit/xml/sign";
+import { verifyXml } from "@signature-kit/xml/verify";
 import { Effect } from "effect";
 
 // Reuse any SignerAdapter, including the A1 signer from the previous example.
@@ -119,31 +119,22 @@ const documentProgram = Effect.gen(function* () {
 ### Remote provider workflows
 
 ```ts
-import { createSignatureGateway } from "@signature-kit/signature-gateway";
-import { docusign } from "@signature-kit/docusign";
-import { dropboxSign } from "@signature-kit/dropbox-sign";
-import { Redacted } from "effect";
+import { createDocuSignSignatureRequest } from "@signature-kit/docusign";
+import { signatureHttpClientLive } from "@signature-kit/core/http";
+import { Effect, Redacted } from "effect";
 
-const gateway = createSignatureGateway({
-  providers: [
-    docusign({
-      baseUrl: "https://demo.docusign.net/restapi",
-      accountId: "account-123",
-      accessToken: Redacted.make("docusign-token"),
-    }),
-    dropboxSign({
-      apiKey: Redacted.make("dropbox-key"),
-      testMode: true,
-    }),
-  ],
-});
-
-const request = gateway.createSignatureRequest({
-  provider: "docusign",
-  title: "Contract",
-  documents: [document],
-  recipients: [{ name: "Ana Silva", email: "ana@example.com" }],
-});
+const request = createDocuSignSignatureRequest(
+  {
+    baseUrl: "https://demo.docusign.net/restapi",
+    accountId: "account-123",
+    accessToken: Redacted.make("docusign-token"),
+  },
+  {
+    title: "Contract",
+    documents: [document],
+    recipients: [{ name: "Ana Silva", email: "ana@example.com" }],
+  },
+).pipe(Effect.provide(signatureHttpClientLive));
 ```
 
 ## Validation

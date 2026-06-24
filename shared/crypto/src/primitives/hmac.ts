@@ -86,10 +86,10 @@ export function hmac(alg: HmacHashAlgorithm, key: Uint8Array, data: Uint8Array):
  * Currently optimized for SHA-256 (the most common PBKDF2 PRF).
  * Falls back to the standard hmac() for other algorithms.
  */
-export interface HmacContext {
+export type HmacContext = {
   /** Compute HMAC for the given message data */
-  compute(data: Uint8Array): Uint8Array;
-}
+  readonly compute: (data: Uint8Array) => Uint8Array;
+};
 
 /**
  * Create a precomputed HMAC context for SHA-256 with a fixed key.

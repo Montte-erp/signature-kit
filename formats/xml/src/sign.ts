@@ -1,11 +1,11 @@
-import { bytesToBase64 } from "@signature-kit/crypto";
-import { signatures } from "@signature-kit/core";
-import type { Signatures } from "@signature-kit/core";
-import type { SignatureKitError } from "@signature-kit/contracts";
+import { bytesToBase64 } from "@signature-kit/crypto/base64";
+import { signatures } from "@signature-kit/core/signatures";
+import type { Signatures } from "@signature-kit/core/signatures";
+import type { SignatureKitError } from "@signature-kit/core/config";
 import { Effect } from "effect";
 import { Parse, SignedXml } from "xmldsigjs";
 import type { OptionsSignReference } from "xmldsigjs";
-import { XmlError, XmlErrorCodeValue, XmlOperationValue, safeCauseMetadata } from "./config";
+import { XmlError, XmlErrorCodeValue, XmlOperationValue } from "./config";
 import type { XmlSigningRequest } from "./config";
 import { ensureXmlRuntime, xmlDigestAlgorithm, xmlSignatureAlgorithm } from "./engine";
 
@@ -20,12 +20,11 @@ export const signXml = (
 
     const document = yield* Effect.try({
       try: () => Parse(input.xml),
-      catch: (cause) =>
+      catch: () =>
         new XmlError({
           code: XmlErrorCodeValue.invalidXml,
           retryable: false,
           operation: XmlOperationValue.parse,
-          ...safeCauseMetadata(cause),
         }),
     });
 
@@ -46,23 +45,21 @@ export const signXml = (
           x509: [bytesToBase64(certificate.certificateDer)],
           references: [reference],
         }),
-      catch: (cause) =>
+      catch: () =>
         new XmlError({
           code: XmlErrorCodeValue.signFailed,
           retryable: false,
           operation: XmlOperationValue.sign,
-          ...safeCauseMetadata(cause),
         }),
     });
 
     return yield* Effect.try({
       try: () => signedXml.toString(),
-      catch: (cause) =>
+      catch: () =>
         new XmlError({
           code: XmlErrorCodeValue.signFailed,
           retryable: false,
           operation: XmlOperationValue.sign,
-          ...safeCauseMetadata(cause),
         }),
     });
   });

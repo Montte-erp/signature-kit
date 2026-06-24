@@ -32,7 +32,8 @@ const hasManualSchemaContract = (line: string, path: string, source: string): bo
   }
   const schemaAlternatives = [...schemaCandidates].map(escapeRegex).join("|");
   const namedSchemaPattern = "\\b(?:const|export\\s+const)\\s+(?:" + schemaAlternatives + ")\\b";
-  const schemaAnnotationPattern = "\\bSchema\\.(?:Decoder|Schema)\\s*<\\s*" + escapedName + "\\b";
+  const schemaAnnotationPattern =
+    "\\bSchema\\.(?:ConstraintDecoder|Schema)\\s*<\\s*" + escapedName + "\\b";
   const contextPattern = "\\bContext\\.Reference\\s*<\\s*" + escapedName + "\\s*>";
   const derivedTypePattern =
     "\\b(?:export\\s+)?type\\s+" +

@@ -4,187 +4,131 @@ import DocsActions from "../../components/DocsActions.astro";
 import CodePanel from "../../components/CodePanel.astro";
 import InstallTabs from "../../components/InstallTabs.astro";
 
-const gatewayCode = `import { createSignatureGateway, createFetchHttpClient } from "@signature-kit/signature-gateway"
-import { docusign } from "@signature-kit/docusign"
-import { clicksign } from "@signature-kit/clicksign"
-import { Redacted } from "effect"
+const docusignCode = `import { createDocuSignSignatureRequest } from "@signature-kit/docusign"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
 
-export const gateway = createSignatureGateway({
-  http: createFetchHttpClient(),
-  providers: [
-    docusign({
-      baseUrl: process.env.DOCUSIGN_BASE_URL!,
-      accountId: process.env.DOCUSIGN_ACCOUNT_ID!,
-      accessToken: Redacted.make(process.env.DOCUSIGN_TOKEN ?? ""),
-    }),
-    clicksign({
-      accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
-      environment: "production",
-    }),
-  ],
-})`;
+const request = yield* createDocuSignSignatureRequest(
+  {
+    baseUrl: process.env.DOCUSIGN_BASE_URL!,
+    accountId: process.env.DOCUSIGN_ACCOUNT_ID!,
+    accessToken: Redacted.make(process.env.DOCUSIGN_TOKEN ?? ""),
+  },
+  {
+    title: "Contrato de prestação de serviços",
+    documents: [{ fileName: "contrato.pdf", mimeType: "application/pdf", content }],
+    recipients: [{ name: "Ana Souza", email: "ana@exemplo.com.br" }],
+    send: true,
+  },
+).pipe(Effect.provide(signatureHttpClientLive))`;
 
-const requestCode = `import { Effect } from "effect"
-import { gateway } from "./gateway"
+const clicksignCode = `import { createClicksignSignatureRequest } from "@signature-kit/clicksign"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
 
-const program = gateway.createSignatureRequest({
-  provider: "docusign",                 // dispatch por adapter.id
-  title: "Contrato de prestação de serviços",
-  documents: [
-    { fileName: "contrato.pdf", mimeType: "application/pdf", content },
-  ],
-  recipients: [
-    { name: "Ana Souza", email: "ana@exemplo.com.br" },
-  ],
-  send: true,
-})
+const request = yield* createClicksignSignatureRequest(
+  {
+    accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
+    environment: "production",
+    locale: "pt-BR",
+    autoClose: true,
+  },
+  {
+    title: "Termo de adesão",
+    documents: [{ fileName: "termo.pdf", mimeType: "application/pdf", content }],
+    recipients: [{ name: "Bruno Lima", email: "bruno@exemplo.com.br", role: "signer" }],
+  },
+).pipe(Effect.provide(signatureHttpClientLive))`;
 
-const request = yield* program
-// request.provider     -> "docusign"
-// request.id           -> string (id no provedor)
-// request.state        -> "draft" | "sent"
-// request.signingUrl?  -> URL de assinatura, quando disponível
-// request.detailsUrl?  -> URL de acompanhamento, quando disponível`;
+const assinafyCode = `import { createAssinafySignatureRequest } from "@signature-kit/assinafy"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
 
-const switchProviderCode = `// A mesma forma de requisição vale para qualquer provedor:
-// só o campo provider muda o adapter que recebe a chamada.
-const naClicksign = yield* gateway.createSignatureRequest({
-  provider: "clicksign",                // dispatch por adapter.id === "clicksign"
-  title: "Termo de adesão",
-  documents: [
-    { fileName: "termo.pdf", mimeType: "application/pdf", content },
-  ],
-  recipients: [
-    { name: "Bruno Lima", email: "bruno@exemplo.com.br", role: "signer" },
-  ],
-})`;
+const request = yield* createAssinafySignatureRequest(
+  {
+    apiKey: Redacted.make(process.env.ASSINAFY_API_KEY ?? ""),
+    environment: "sandbox",
+  },
+  {
+    title: "Contrato",
+    documents: [{ fileName: "contrato.pdf", mimeType: "application/pdf", content }],
+    recipients: [{ name: "Carla Nunes", email: "carla@example.com" }],
+  },
+).pipe(Effect.provide(signatureHttpClientLive))`;
 
-const noAdapterCode = `import { Effect } from "effect"
-import { gateway } from "./gateway"
+const zapSignCode = `import { createZapSignSignatureRequest } from "@signature-kit/zapsign"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
 
-const program = gateway.createSignatureRequest({
-  provider: "adobe-sign",               // não foi registrado no setup
-  title: "Aditivo contratual",
-  documents: [{ fileName: "aditivo.pdf", mimeType: "application/pdf", content }],
-  recipients: [{ name: "Ana Souza", email: "ana@exemplo.com.br" }],
-})
-
-const result = yield* Effect.either(program)
-if (result._tag === "Left") {
-  const error = result.left            // SignatureProviderError
-  // error.code   -> "signature_provider.UNSUPPORTED_OPERATION"
-  // error.reason -> "No signature provider adapter registered for adobe-sign."
-}`;
+const request = yield* createZapSignSignatureRequest(
+  {
+    apiToken: Redacted.make(process.env.ZAPSIGN_API_TOKEN ?? ""),
+    environment: "sandbox",
+  },
+  {
+    title: "Contrato",
+    documents: [{ fileName: "contrato.pdf", mimeType: "application/pdf", content }],
+    recipients: [{ name: "Davi Rocha", email: "davi@example.com" }],
+  },
+).pipe(Effect.provide(signatureHttpClientLive))`;
 
 const toc: [string, string][] = [
-  ["O gateway de provedores", "#conceito"],
-  ["Montar o gateway", "#montar"],
-  ["Criar uma requisição", "#criar"],
-  ["Uma forma para todos", "#forma-unica"],
-  ["Quando não há adapter", "#sem-adapter"],
-  ["Erros que você pode ver", "#erros"],
+  ["Sem gateway", "#sem-gateway"],
+  ["DocuSign", "#docusign"],
+  ["Clicksign", "#clicksign"],
+  ["Assinafy", "#assinafy"],
+  ["ZapSign", "#zapsign"],
+  ["Erros tipados", "#erros"],
 ];
 ---
 
 <DocsLayout
-  title="Gateway de provedores"
-  description="Monte um gateway de assinatura remota com createSignatureGateway, despache por adapter.id e use uma única forma de requisição para DocuSign, Clicksign e os demais provedores."
+  title="Signers remotos"
+  description="Use DocuSign, Clicksign, Assinafy e ZapSign por funções diretas create*SignatureRequest(...), com SignatureHttpClient injetado via Effect Layer."
   group="provedores"
   toc={toc}
 >
-  <h1>Gateway de provedores</h1>
-  <DocsActions title="Gateway de provedores" />
+  <h1>Signers remotos</h1>
+  <DocsActions title="Signers remotos" />
 
+  <h2 id="sem-gateway">Sem gateway</h2>
   <p>
-    <strong>O que você vai fazer:</strong> registrar um ou mais provedores de assinatura remota em um único gateway,
-    enviar uma requisição com a mesma forma para qualquer um deles e tratar a falha tipada quando o provedor pedido não
-    está registrado.
+    SignatureKit não tem pacote normalizador de provedores. Cada signer remoto vive em <code>signers/*</code>, expõe sua
+    própria função <code>create*SignatureRequest(...)</code> e usa o mesmo <code>SignatureHttpClient</code> de
+    <code>@signature-kit/core/http</code>. Isso mantém as opções específicas no pacote certo e evita um dispatcher central.
   </p>
-
-  <h2 id="conceito">O gateway de provedores</h2>
-  <p>
-    O pacote <code>@signature-kit/signature-gateway</code> coordena provedores de assinatura remota — DocuSign, Dropbox Sign,
-    Adobe Sign e Clicksign — atrás de uma fronteira só. Cada provedor é uma fábrica de adapter (<code>docusign(...)</code>,
-    <code>clicksign(...)</code>, etc.) com chaves de configuração próprias, e cada adapter expõe um <code>id</code> estável.
-    O gateway recebe a lista de adapters e despacha cada requisição pelo <code>id</code> que bate com o campo
-    <code>provider</code> da entrada. A assinatura local em XML e PDF não passa por aqui; este gateway trata fluxos de
-    assinatura hospedados no provedor.
-  </p>
-  <InstallTabs spec="@signature-kit/signature-gateway @signature-kit/docusign @signature-kit/clicksign" />
+  <InstallTabs spec="@signature-kit/core @signature-kit/docusign @signature-kit/clicksign @signature-kit/assinafy @signature-kit/zapsign" />
 
   <section class="step" data-step="1">
-    <h3 id="montar">Monte o gateway</h3>
-    <p>
-      <code>createSignatureGateway</code> recebe <code>{`{ providers, http? }`}</code>. Em <code>providers</code> vão as
-      fábricas de adapter já configuradas. Em <code>http</code> você pode passar um cliente próprio; se omitir,
-      <code>createFetchHttpClient()</code> é usado por padrão. Os tokens são <code>Redacted</code> — envolva cada um com
-      <code>Redacted.make(...)</code>.
-    </p>
-    <CodePanel label="gateway.ts" code={gatewayCode} />
-    <p class="aside">
-      <strong>Nota:</strong> as chaves de configuração diferem por provedor. <code>docusign</code> pede
-      <code>baseUrl</code> + <code>accountId</code> + <code>accessToken</code>; <code>clicksign</code> pede
-      <code>accessToken</code> + <code>environment</code>. Veja cada provedor para o conjunto exato de opções.
-    </p>
+    <h3 id="docusign">DocuSign</h3>
+    <p>Cria envelopes na API REST da DocuSign com bearer token, <code>baseUrl</code> e <code>accountId</code>.</p>
+    <CodePanel label="docusign.ts" code={docusignCode} />
   </section>
 
   <section class="step" data-step="2">
-    <h3 id="criar">Crie uma requisição</h3>
-    <p>
-      <code>gateway.createSignatureRequest(input)</code> devolve um <code>Effect</code> com um
-      <code>RemoteSignatureRequest</code> no sucesso e um <code>SignatureProviderError</code> no canal de erro. A entrada
-      tem <code>provider</code>, <code>title</code>, a lista de <code>documents</code> (cada um com <code>fileName</code>,
-      <code>mimeType</code> e <code>content: Uint8Array</code>) e a lista de <code>recipients</code> (cada um com
-      <code>name</code> e <code>email</code>). O campo <code>provider</code> decide qual adapter atende a chamada.
-    </p>
-    <CodePanel label="criar-requisicao.ts" code={requestCode} />
-    <p class="aside">
-      <strong>Dica:</strong> o resultado traz <code>state</code> (<code>"draft"</code> ou <code>"sent"</code>) e os campos
-      opcionais <code>signingUrl</code> e <code>detailsUrl</code>. Use <code>send: true</code> quando quiser disparar o
-      envio direto, em vez de criar um rascunho.
-    </p>
+    <h3 id="clicksign">Clicksign</h3>
+    <p>Envia um documento por requisição na API v1 da Clicksign; o token é transportado como segredo redigido.</p>
+    <CodePanel label="clicksign.ts" code={clicksignCode} />
   </section>
 
   <section class="step" data-step="3">
-    <h3 id="forma-unica">Use uma forma para todos</h3>
-    <p>
-      A forma da requisição é a mesma para qualquer provedor registrado. Trocar de DocuSign para Clicksign é trocar o
-      valor de <code>provider</code>: o gateway despacha pelo <code>adapter.id</code> correspondente
-      (<code>"docusign"</code>, <code>"dropbox-sign"</code>, <code>"adobe-sign"</code>, <code>"clicksign"</code>) e cada
-      adapter traduz a entrada para a API do seu provedor.
-    </p>
-    <CodePanel label="trocar-provedor.ts" code={switchProviderCode} />
+    <h3 id="assinafy">Assinafy</h3>
+    <p>Cria documento, signer e assignment na API Assinafy usando API key ou access token.</p>
+    <CodePanel label="assinafy.ts" code={assinafyCode} />
   </section>
 
   <section class="step" data-step="4">
-    <h3 id="sem-adapter">Trate quando não há adapter</h3>
-    <p>
-      Se o <code>provider</code> da entrada não casar com nenhum <code>adapter.id</code> registrado no setup, a chamada
-      falha com um <code>SignatureProviderError</code> de código
-      <code>signature_provider.UNSUPPORTED_OPERATION</code> e <code>reason</code>
-      <code>"No signature provider adapter registered for $&#123;provider&#125;."</code>. É um erro tipado no canal de erro
-      do <code>Effect</code> — você decide se registra o adapter faltante ou rejeita a requisição.
-    </p>
-    <CodePanel label="sem-adapter.ts" code={noAdapterCode} />
+    <h3 id="zapsign">ZapSign</h3>
+    <p>Cria documento PDF na API ZapSign com token bearer e retorna o primeiro link de assinatura.</p>
+    <CodePanel label="zapsign.ts" code={zapSignCode} />
   </section>
 
-  <h2 id="erros">Erros que você pode ver</h2>
-  <p>Toda falha do gateway é um <code>SignatureProviderError</code> tipado. Os códigos possíveis:</p>
-  <ul>
-    <li>
-      <code>signature_provider.UNSUPPORTED_OPERATION</code> — o provedor pedido não está registrado, ou a operação não é
-      suportada por aquele adapter.
-    </li>
-    <li>
-      <code>signature_provider.INVALID_INPUT</code> — a entrada da requisição não satisfaz o que o provedor exige.
-    </li>
-    <li>
-      <code>signature_provider.HTTP</code> — falha na chamada HTTP ao provedor.
-    </li>
-    <li>
-      <code>signature_provider.RESPONSE_SHAPE</code> — a resposta do provedor não tem a forma esperada.
-    </li>
-  </ul>
+  <h2 id="erros">Erros tipados</h2>
+  <p>
+    Todas as funções retornam <code>Effect.Effect&lt;RemoteSignatureRequest, SignatureKitError, SignatureHttpClient&gt;</code>.
+    Falhas de entrada, HTTP e shape de resposta permanecem no canal tipado do Effect com <code>provider</code>,
+    <code>operation</code>, <code>schemaName</code> e <code>status</code> quando esses dados existem.
+  </p>
 
   <div class="next-prev">
     <a href="/docs/pdf">← PDF / PAdES</a>

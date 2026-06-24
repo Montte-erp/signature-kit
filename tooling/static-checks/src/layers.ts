@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 
-export type WorkspaceLayer = "shared" | "core" | "signers" | "formats" | "integrations" | "apps";
+export type WorkspaceLayer = "shared" | "core" | "signers" | "formats" | "apps";
 
 type JsonObject = { readonly [key: string]: unknown };
 
@@ -19,15 +19,14 @@ export type WorkspaceLayerDiagnostic = {
   readonly message: string;
 };
 
-const workspaceRoots: readonly string[] = ["shared", "core", "signers", "formats", "integrations"];
+const workspaceRoots: readonly string[] = ["shared", "core", "signers", "formats"];
 
 const allowedDependencyLayers: Record<WorkspaceLayer, readonly WorkspaceLayer[]> = {
   shared: ["shared"],
   core: ["shared", "core"],
   signers: ["shared", "core", "signers"],
   formats: ["shared", "core", "formats"],
-  integrations: ["shared", "core", "integrations"],
-  apps: ["shared", "core", "signers", "formats", "integrations", "apps"],
+  apps: ["shared", "core", "signers", "formats", "apps"],
 };
 
 const sourceExtensions: Record<string, true> = {
@@ -51,7 +50,6 @@ const layerForDirectory = (directory: string): WorkspaceLayer | undefined => {
     case "core":
     case "signers":
     case "formats":
-    case "integrations":
     case "apps":
       return segment;
     default:

@@ -1,20 +1,18 @@
 import { Schema } from "effect";
-import type { CmsHashAlgorithm, IcpBrasilPolicy, TimestampOptions } from "@signature-kit/cms";
+import {
+  CmsHashAlgorithmSchema,
+  IcpBrasilPolicySchema,
+  TimestampOptionsSchema,
+} from "@signature-kit/cms/config";
 
-export type PdfErrorCode =
-  | "pdf.INVALID_PDF"
-  | "pdf.PLACEHOLDER_NOT_FOUND"
-  | "pdf.SIGNATURE_TOO_LARGE"
-  | "pdf.SIGN_FAILED"
-  | "pdf.VERIFY_FAILED";
-
-const PdfErrorCodeSchema: Schema.Decoder<PdfErrorCode> = Schema.Literals([
+export const PdfErrorCodeSchema = Schema.Literals([
   "pdf.INVALID_PDF",
   "pdf.PLACEHOLDER_NOT_FOUND",
   "pdf.SIGNATURE_TOO_LARGE",
   "pdf.SIGN_FAILED",
   "pdf.VERIFY_FAILED",
 ]);
+export type PdfErrorCode = (typeof PdfErrorCodeSchema)["Type"];
 
 export const PdfErrorCodeValue = {
   invalidPdf: "pdf.INVALID_PDF",
@@ -24,14 +22,13 @@ export const PdfErrorCodeValue = {
   verifyFailed: "pdf.VERIFY_FAILED",
 } satisfies Record<string, PdfErrorCode>;
 
-export type PdfOperation = "pdf.parse" | "pdf.placeholder" | "pdf.sign" | "pdf.verify";
-
-const PdfOperationSchema: Schema.Decoder<PdfOperation> = Schema.Literals([
+export const PdfOperationSchema = Schema.Literals([
   "pdf.parse",
   "pdf.placeholder",
   "pdf.sign",
   "pdf.verify",
 ]);
+export type PdfOperation = (typeof PdfOperationSchema)["Type"];
 
 export const PdfOperationValue = {
   parse: "pdf.parse",
@@ -40,86 +37,61 @@ export const PdfOperationValue = {
   verify: "pdf.verify",
 } satisfies Record<string, PdfOperation>;
 
-export type PdfSignatureAppearance = {
-  readonly pageIndex?: number | undefined;
-  readonly widgetRect?: readonly [number, number, number, number] | undefined;
-};
+const PdfCoordinateTupleSchema = Schema.Tuple([
+  Schema.Number,
+  Schema.Number,
+  Schema.Number,
+  Schema.Number,
+]);
 
-export type PdfSignaturePolicy = "pades-ades" | "pades-icp-brasil";
+export const PdfSignatureAppearanceSchema = Schema.Struct({
+  pageIndex: Schema.optional(Schema.Number),
+  widgetRect: Schema.optional(PdfCoordinateTupleSchema),
+});
+export type PdfSignatureAppearance = (typeof PdfSignatureAppearanceSchema)["Type"];
 
-export type PdfSigningRequest = {
-  readonly pdf: Uint8Array;
-  readonly reason?: string | undefined;
-  readonly contactInfo?: string | undefined;
-  readonly name?: string | undefined;
-  readonly location?: string | undefined;
-  readonly signingTime?: Date | undefined;
-  readonly signatureLength?: number | undefined;
-  readonly hashAlgorithm?: CmsHashAlgorithm | undefined;
-  readonly policy?: PdfSignaturePolicy | undefined;
-  readonly icpBrasil?: IcpBrasilPolicy | undefined;
-  readonly policyTimeoutMillis?: number | undefined;
-  readonly timestamp?: TimestampOptions | undefined;
-  readonly appearance?: PdfSignatureAppearance | undefined;
-};
+export const PdfSignaturePolicySchema = Schema.Literals(["pades-ades", "pades-icp-brasil"]);
+export type PdfSignaturePolicy = (typeof PdfSignaturePolicySchema)["Type"];
 
-export type PdfVerificationRequest = {
-  readonly pdf: Uint8Array;
-  readonly trustedRoots?: readonly Uint8Array[] | undefined;
-};
+export const PdfSigningRequestSchema = Schema.Struct({
+  pdf: Schema.Uint8Array,
+  reason: Schema.optional(Schema.String),
+  contactInfo: Schema.optional(Schema.String),
+  name: Schema.optional(Schema.String),
+  location: Schema.optional(Schema.String),
+  signingTime: Schema.optional(Schema.Date),
+  signatureLength: Schema.optional(Schema.Number),
+  hashAlgorithm: Schema.optional(CmsHashAlgorithmSchema),
+  policy: Schema.optional(PdfSignaturePolicySchema),
+  icpBrasil: Schema.optional(IcpBrasilPolicySchema),
+  policyTimeoutMillis: Schema.optional(Schema.Number),
+  timestamp: Schema.optional(TimestampOptionsSchema),
+  appearance: Schema.optional(PdfSignatureAppearanceSchema),
+});
+export type PdfSigningRequest = (typeof PdfSigningRequestSchema)["Type"];
 
-export type PdfVerificationResult = {
-  readonly valid: boolean;
-  readonly chainValid: boolean;
-  readonly signatureCount: number;
-  readonly byteRange: readonly [number, number, number, number];
-  readonly signerSerialNumber: string | null;
-};
+export const PdfVerificationRequestSchema = Schema.Struct({
+  pdf: Schema.Uint8Array,
+  trustedRoots: Schema.optional(Schema.Array(Schema.Uint8Array)),
+});
+export type PdfVerificationRequest = (typeof PdfVerificationRequestSchema)["Type"];
 
-type PdfErrorFields = {
-  readonly code: PdfErrorCode;
-  readonly retryable: boolean;
-  readonly reason?: string | undefined;
-  readonly operation?: PdfOperation | undefined;
-  readonly upstreamTag?: string | undefined;
-  readonly upstreamCode?: string | undefined;
-};
+export const PdfVerificationResultSchema = Schema.Struct({
+  valid: Schema.Boolean,
+  chainValid: Schema.Boolean,
+  signatureCount: Schema.Number,
+  byteRange: PdfCoordinateTupleSchema,
+  signerSerialNumber: Schema.NullOr(Schema.String),
+});
+export type PdfVerificationResult = (typeof PdfVerificationResultSchema)["Type"];
 
-type PdfErrorInput = PdfErrorFields & {
-  readonly cause?: unknown;
-};
-
-type PdfErrorConstructor = new (input: PdfErrorInput) => PdfErrorFields;
-
-const PdfErrorBase: PdfErrorConstructor = Schema.TaggedErrorClass<PdfErrorFields>()("PdfError", {
+export class PdfError extends Schema.TaggedErrorClass<PdfError>()("PdfError", {
   code: PdfErrorCodeSchema,
   retryable: Schema.Boolean,
   reason: Schema.optional(Schema.String),
   operation: Schema.optional(PdfOperationSchema),
-  upstreamTag: Schema.optional(Schema.String),
-  upstreamCode: Schema.optional(Schema.String),
-});
-
-export class PdfError extends PdfErrorBase {
+}) {
   get message(): string {
     return this.reason ?? this.code;
   }
 }
-
-const firstStringField = (input: unknown, field: string): string | undefined => {
-  if (input === null || typeof input !== "object") return undefined;
-  const value = Reflect.get(input, field);
-  return typeof value === "string" ? value : undefined;
-};
-
-export type PdfCauseMetadata = {
-  readonly reason?: string | undefined;
-  readonly upstreamTag?: string | undefined;
-  readonly upstreamCode?: string | undefined;
-};
-
-export const safeCauseMetadata = (cause: unknown): PdfCauseMetadata => ({
-  reason: firstStringField(cause, "message"),
-  upstreamTag: firstStringField(cause, "_tag") ?? firstStringField(cause, "name"),
-  upstreamCode: firstStringField(cause, "code"),
-});

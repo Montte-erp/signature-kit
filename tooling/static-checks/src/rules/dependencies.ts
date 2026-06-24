@@ -18,7 +18,7 @@ export const dependencyChecks: readonly Check[] = [
     message:
       "OpenTelemetry must be optional for the consumer; do not add @effect/opentelemetry or @opentelemetry/* to package dependencies.",
     test: ({ line, path }) =>
-      /^(?:core|signers|formats|integrations)\/[^/]+\/package\.json$/.test(path) &&
+      /^(?:core|signers|formats)\/[^/]+\/package\.json$/.test(path) &&
       hasMandatoryOtelDependency(line),
     ignoreImportLine: false,
   },

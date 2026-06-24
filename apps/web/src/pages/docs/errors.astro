@@ -6,14 +6,14 @@ import InstallTabs from "../../components/InstallTabs.astro";
 import ErrorCatalog from "../../components/ErrorCatalog.astro";
 
 const shapeCode = `import { Effect } from "effect"
-import type { SignatureArtifact, SignatureKitError } from "@signature-kit/core"
+import type { SignatureArtifact, SignatureKitError } from "@signature-kit/core/config"
 
 // O canal de erro é tipado: cada falha é um SignatureKitError.
 declare const sign: Effect.Effect<SignatureArtifact, SignatureKitError>
 
 // _tag: "SignatureKitError"
 class SignatureKitError {
-  readonly code: SignatureKitErrorCode   // 15 literais "signature-kit.*"
+  readonly code: SignatureKitErrorCode   // 18 literais "signature-kit.*"
   readonly retryable: boolean         // decidido no ponto da falha
   readonly reason?: string            // mensagem contextual
   readonly operation?: SignatureKitOperation
@@ -21,8 +21,8 @@ class SignatureKitError {
 }`;
 
 const catchTagCode = `import { Effect } from "effect"
-import { createSignatureKit } from "@signature-kit/core"
-import { loadA1SignerAdapter } from "@signature-kit/a1"
+import { createSignatureKit } from "@signature-kit/core/runtime"
+import { loadA1SignerAdapter } from "@signature-kit/a1/signer"
 
 const program = Effect.gen(function* () {
   const signer = yield* loadA1SignerAdapter({ pfx, password })
@@ -58,9 +58,9 @@ const recovered = program.pipe(
 )`;
 
 const familiesCode = `import { Effect } from "effect"
-import { signXml } from "@signature-kit/xml"
-import { signPdf } from "@signature-kit/pdf"
-import { a1SignaturesLayer } from "@signature-kit/a1"
+import { signXml } from "@signature-kit/xml/sign"
+import { signPdf } from "@signature-kit/pdf/sign"
+import { a1SignaturesLayer } from "@signature-kit/a1/signer"
 
 const layer = a1SignaturesLayer({ pfx, password })
 
@@ -80,23 +80,22 @@ const pdf = signPdf({ pdf: bytes, policy: "pades-icp-brasil" }).pipe(
 )`;
 
 const providerCode = `import { Effect } from "effect"
-import { createSignatureGateway } from "@signature-kit/signature-gateway"
+import { createDocuSignSignatureRequest } from "@signature-kit/docusign"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
 
-// gateway.createSignatureRequest -> SignatureProviderError
-const request = gateway.createSignatureRequest({
-  provider: "docusign",
+const request = createDocuSignSignatureRequest(options, {
   title: "Contrato",
   documents,
   recipients,
 }).pipe(
-  Effect.catchTag("SignatureProviderError", (error) => {
+  Effect.provide(signatureHttpClientLive),
+  Effect.catchTag("SignatureKitError", (error) => {
     switch (error.code) {
-      case "signature_provider.UNSUPPORTED_OPERATION":
-        // ex.: nenhum adapter registrado para o provider informado.
-        return Effect.fail(error.reason ?? "Operação não suportada.")
-      case "signature_provider.HTTP":
-      case "signature_provider.INVALID_INPUT":
-      case "signature_provider.RESPONSE_SHAPE":
+      case "signature-kit.HTTP":
+        return Effect.fail(error.reason ?? "Falha HTTP remota.")
+      case "signature-kit.INVALID_INPUT":
+      case "signature-kit.RESPONSE_SHAPE":
+      case "signature-kit.UNSUPPORTED_OPERATION":
         return Effect.fail(error.message)
     }
   }),
@@ -112,7 +111,7 @@ const toc: [string, string][] = [
 
 <DocsLayout
   title="Canal de erro tipado"
-  description="O SignatureKitError tem 15 códigos no canal de erro tipado. Discrimine por code com Effect.catchTag/catchIf e conheça as famílias XmlError, PdfError e SignatureProviderError."
+  description="O SignatureKitError mantém falhas de certificados, signers remotos e formatos no canal de erro tipado. Discrimine por code com Effect.catchTag/catchIf."
   group="conceitos"
   toc={toc}
 >
@@ -169,7 +168,7 @@ const toc: [string, string][] = [
 
   <h2 id="catalogo">Catálogo de erros</h2>
   <p>
-    Os 15 códigos do <code>SignatureKitError</code> e suas mensagens padrão. Cada linha tem âncora
+    Os 18 códigos do <code>SignatureKitError</code> e suas mensagens padrão. Cada linha tem âncora
     <code>#err-&lt;CODE&gt;</code> — por exemplo
     <a href="#err-WRONG_PASSWORD"><code>#err-WRONG_PASSWORD</code></a> — para link direto a partir das outras páginas.
     Os códigos marcados como <em>editável</em> resolvem para <code>reason ?? padrão</code> em <code>message</code>.
@@ -178,7 +177,7 @@ const toc: [string, string][] = [
 
   <h2 id="familias">Erros de formato e provedor</h2>
   <p>
-    Além do <code>SignatureKitError</code>, os módulos de formato e o gateway de provedores adicionam suas próprias famílias
+    Além do <code>SignatureKitError</code>, os módulos de formato e signers remotos adicionam suas próprias famílias
     tipadas ao canal de erro. Cada uma é uma tag distinta, então <code>Effect.catchTag</code> e
     <code>Effect.catchTags</code> separam as falhas por origem:
   </p>
@@ -194,23 +193,21 @@ const toc: [string, string][] = [
       <code>"sha256"</code>/<code>"sha512"</code> falha como <code>pdf.SIGN_FAILED</code>.
     </li>
     <li>
-      <code>SignatureProviderError</code> — quatro códigos: <code>signature_provider.HTTP</code>,
-      <code>signature_provider.INVALID_INPUT</code>, <code>signature_provider.RESPONSE_SHAPE</code> e
-      <code>signature_provider.UNSUPPORTED_OPERATION</code>. Sem adapter registrado para o
-      <code>provider</code> informado, <code>createSignatureRequest</code> falha com
-      <code>signature_provider.UNSUPPORTED_OPERATION</code>.
+      Signers remotos não têm família paralela. Entrada inválida, HTTP remoto, response shape e operação não suportada
+      falham como <code>SignatureKitError</code> com <code>provider</code>, <code>operation</code>, <code>schemaName</code> e
+      <code>status</code> quando esses metadados existem.
     </li>
   </ul>
   <CodePanel label="familias.ts" code={familiesCode} />
   <p>
-    No gateway, todas as falhas remotas chegam como <code>SignatureProviderError</code>. Discrimine por
-    <code>error.code</code> da mesma forma que com o <code>SignatureKitError</code>:
+    Nos signers remotos, falhas de entrada, HTTP e shape de resposta chegam como <code>SignatureKitError</code>. Discrimine por
+    <code>error.code</code> da mesma forma:
   </p>
-  <CodePanel label="gateway-erro.ts" code={providerCode} />
+  <CodePanel label="remote-signer-erro.ts" code={providerCode} />
   <p>
-    Os formatos e provedores são pacotes separados — instale só o que cada caminho usa.
+    Os formatos e signers são pacotes separados — instale só o que cada caminho usa.
   </p>
-  <InstallTabs spec="@signature-kit/xml @signature-kit/pdf @signature-kit/signature-gateway" />
+  <InstallTabs spec="@signature-kit/xml @signature-kit/pdf @signature-kit/core @signature-kit/docusign" />
 
   <div class="next-prev">
     <a href="/docs/certificates">← Certificados A1</a>

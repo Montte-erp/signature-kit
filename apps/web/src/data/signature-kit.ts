@@ -4,10 +4,12 @@
 // Never invent API surface here — if it isn't in the source, it isn't here.
 // ──────────────────────────────────────────────────────────────────────────
 
+import type { CodeLanguage } from "astro";
+
 export type Snippet = {
   /** Filename for `file` chrome, or a label for `terminal` chrome. */
   readonly label: string;
-  readonly lang: string;
+  readonly lang: CodeLanguage;
   readonly kind?: "file" | "terminal";
   readonly code: string;
 };
@@ -18,8 +20,8 @@ export const heroTabs: readonly Snippet[] = [
   {
     label: "signature-kit.ts",
     lang: "ts",
-    code: `import { createSignatureKit } from "@signature-kit/core"
-import { loadA1SignerAdapter } from "@signature-kit/a1"
+    code: `import { createSignatureKit } from "@signature-kit/core/runtime"
+import { loadA1SignerAdapter } from "@signature-kit/a1/signer"
 import { Effect, Redacted } from "effect"
 
 // pfx: Uint8Array — os bytes do .pfx/.p12 (A1)
@@ -106,7 +108,7 @@ export const runtimeTabs: readonly Snippet[] = [
 // ── The seam: the real SignerAdapter type, verbatim ─────────────────────────
 
 export const signerAdapterType: Snippet = {
-  label: "core/contracts/src/index.ts",
+  label: "core/core/src/config.ts",
   lang: "ts",
   code: `/**
  * The capability seam. A signer owns "where the signing power comes from".
@@ -128,8 +130,8 @@ export const formatTabs: readonly Snippet[] = [
   {
     label: "xml-dsig.ts",
     lang: "ts",
-    code: `import { signXml } from "@signature-kit/xml"
-import { a1SignaturesLayer } from "@signature-kit/a1"
+    code: `import { signXml } from "@signature-kit/xml/sign"
+import { a1SignaturesLayer } from "@signature-kit/a1/signer"
 import { Effect } from "effect"
 
 const layer = a1SignaturesLayer({ pfx, password })
@@ -142,8 +144,8 @@ const signedXml = yield* signXml({
   {
     label: "pdf-pades.ts",
     lang: "ts",
-    code: `import { signPdf } from "@signature-kit/pdf"
-import { a1SignaturesLayer } from "@signature-kit/a1"
+    code: `import { signPdf } from "@signature-kit/pdf/sign"
+import { a1SignaturesLayer } from "@signature-kit/a1/signer"
 import { Effect } from "effect"
 
 const layer = a1SignaturesLayer({ pfx, password })
@@ -170,7 +172,7 @@ const signedPdf = yield* signPdf({
 ];
 
 // ── Typed error catalog: the real SignatureKitError union ──────────────────────
-// `message` is the verbatim default from core/contracts SignatureKitError.message.
+// `message` is the verbatim default from @signature-kit/core/config SignatureKitError.message.
 // Codes marked overridable resolve to `this.reason ?? <default>` at runtime.
 
 export type ErrorEntry = {
@@ -194,6 +196,9 @@ export const errorCatalog: readonly ErrorEntry[] = [
   { code: "signature-kit.DIGEST_FAILED", message: "Failed to compute the certificate digest.", overridable: false },
   { code: "signature-kit.SIGN_FAILED", message: "Failed to sign the content.", overridable: true },
   { code: "signature-kit.VERIFY_FAILED", message: "Failed to verify the signature.", overridable: true },
+  { code: "signature-kit.HTTP", message: "Remote signature HTTP request failed.", overridable: true },
+  { code: "signature-kit.RESPONSE_SHAPE", message: "Remote signature response shape was invalid.", overridable: true },
+  { code: "signature-kit.UNSUPPORTED_OPERATION", message: "Remote signature operation is unsupported.", overridable: true },
   { code: "signature-kit.UNKNOWN", message: "Unknown SignatureKit failure.", overridable: true },
 ];
 
@@ -203,7 +208,7 @@ export const errorShape: Snippet = {
   lang: "ts",
   code: `// _tag: "SignatureKitError"
 class SignatureKitError {
-  readonly code: SignatureKitErrorCode   // 15 literais "signature-kit.*"
+  readonly code: SignatureKitErrorCode   // 18 literais "signature-kit.*"
   readonly retryable: boolean         // decidido no ponto da falha
   readonly reason?: string            // mensagem contextual
   readonly operation?: SignatureKitOperation
@@ -217,72 +222,84 @@ export const providerTabs: readonly Snippet[] = [
   {
     label: "clicksign.ts",
     lang: "ts",
-    code: `import { clicksign } from "@signature-kit/clicksign"
-import { Redacted } from "effect"
+    code: `import { createClicksignSignatureRequest } from "@signature-kit/clicksign"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
 
-const provider = clicksign({
-  accessToken: Redacted.make(token),
-  environment: "sandbox",   // "production" | "sandbox"
-  locale: "pt-BR",          // "en-US" | "pt-BR"
-  autoClose: true,
-})`,
+const request = createClicksignSignatureRequest(
+  {
+    accessToken: Redacted.make(token),
+    environment: "sandbox",
+    locale: "pt-BR",
+    autoClose: true,
+  },
+  {
+    title: "Contrato",
+    documents: [{ fileName: "contrato.pdf", mimeType: "application/pdf", content }],
+    recipients: [{ name: "Ana Silva", email: "ana@example.com" }],
+  },
+).pipe(Effect.provide(signatureHttpClientLive))`,
   },
   {
     label: "docusign.ts",
     lang: "ts",
-    code: `import { docusign } from "@signature-kit/docusign"
-import { Redacted } from "effect"
+    code: `import { createDocuSignSignatureRequest } from "@signature-kit/docusign"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
 
-const provider = docusign({
-  baseUrl: "https://demo.docusign.net/restapi",
-  accountId: "account-123",
-  accessToken: Redacted.make(token),
-})`,
+const request = createDocuSignSignatureRequest(
+  {
+    baseUrl: "https://demo.docusign.net/restapi",
+    accountId: "account-123",
+    accessToken: Redacted.make(token),
   },
   {
-    label: "dropbox-sign.ts",
-    lang: "ts",
-    code: `import { dropboxSign } from "@signature-kit/dropbox-sign"
-import { Redacted } from "effect"
-
-const provider = dropboxSign({
-  apiKey: Redacted.make(key),
-  testMode: true,
-})`,
+    title: "Contrato",
+    documents: [{ fileName: "contrato.pdf", mimeType: "application/pdf", content }],
+    recipients: [{ name: "Ana Silva", email: "ana@example.com" }],
+  },
+).pipe(Effect.provide(signatureHttpClientLive))`,
   },
   {
-    label: "adobe-sign.ts",
+    label: "assinafy.ts",
     lang: "ts",
-    code: `import { adobeSign } from "@signature-kit/adobe-sign"
-import { Redacted } from "effect"
+    code: `import { createAssinafySignatureRequest } from "@signature-kit/assinafy"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
 
-const provider = adobeSign({
-  baseUrl: "https://api.na1.adobesign.com/api/rest/v6",
-  accessToken: Redacted.make(token),
-})`,
+const request = createAssinafySignatureRequest(
+  {
+    apiKey: Redacted.make(apiKey),
+    environment: "sandbox",
+  },
+  {
+    title: "Contrato",
+    documents: [{ fileName: "contrato.pdf", mimeType: "application/pdf", content }],
+    recipients: [{ name: "Ana Silva", email: "ana@example.com" }],
+  },
+).pipe(Effect.provide(signatureHttpClientLive))`,
+  },
+  {
+    label: "zapsign.ts",
+    lang: "ts",
+    code: `import { createZapSignSignatureRequest } from "@signature-kit/zapsign"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
+
+const request = createZapSignSignatureRequest(
+  {
+    apiToken: Redacted.make(token),
+    environment: "sandbox",
+    locale: "pt-br",
+  },
+  {
+    title: "Contrato",
+    documents: [{ fileName: "contrato.pdf", mimeType: "application/pdf", content }],
+    recipients: [{ name: "Ana Silva", email: "ana@example.com" }],
+  },
+).pipe(Effect.provide(signatureHttpClientLive))`,
   },
 ];
-
-export const gatewaySnippet: Snippet = {
-  label: "gateway.ts",
-  lang: "ts",
-  code: `import { createSignatureGateway, createFetchHttpClient } from "@signature-kit/signature-gateway"
-import { docusign } from "@signature-kit/docusign"
-import { clicksign } from "@signature-kit/clicksign"
-
-const gateway = createSignatureGateway({
-  http: createFetchHttpClient(),
-  providers: [docusign(docuSignOptions), clicksign(clicksignOptions)],
-})
-
-// um formato de requisição para todos os provedores:
-const request = yield* gateway.createSignatureRequest({
-  provider: "docusign",
-  title: "Contrato",
-  documents: [{ fileName: "contrato.pdf", mimeType: "application/pdf", content }],
-  recipients: [{ name: "Ana Silva", email: "ana@example.com" }],
-})`,
-};
 
 // ── Repo tree: the real monorepo shape; "instale só o que usar" ─────────────
 
@@ -304,18 +321,18 @@ export const packageTree: readonly PackageGroup[] = [
   {
     dir: "core/",
     leaves: [
-      { name: "@signature-kit/core", summary: "Runtime de assinatura: assina e verifica bytes.", exports: "createSignatureKit · signaturesLayer · signatures", install: "bun add @signature-kit/core", href: "/docs/signers" },
-      { name: "@signature-kit/contracts", summary: "Contratos e o modelo de erro tipado.", exports: "SignerAdapter · SignatureKitError · SignInput", install: "bun add @signature-kit/contracts", href: "/docs/errors" },
-      { name: "@signature-kit/x509", summary: "Parsing X.509 e campos ICP-Brasil.", exports: "parseX509 · toSignerIdentity", install: "bun add @signature-kit/x509", href: "/docs/certificates" },
+      { name: "@signature-kit/core", summary: "Runtime, contratos de assinatura e erro tipado.", exports: "createSignatureKit · SignerAdapter · SignatureKitError", install: "bun add @signature-kit/core", href: "/docs/signers" },
+      { name: "@signature-kit/certificates", summary: "Parsing PKCS#12/X.509 e campos ICP-Brasil.", exports: "parseCertificate · toSignerIdentity", install: "bun add @signature-kit/certificates", href: "/docs/certificates" },
     ],
   },
   {
     dir: "signers/",
     leaves: [
       { name: "@signature-kit/a1", summary: "Assinador A1 / PKCS#12 (e-CPF, e-CNPJ).", exports: "loadA1SignerAdapter · a1SignaturesLayer", install: "bun add @signature-kit/a1", href: "/docs/signers" },
-      { name: "@signature-kit/signature-gateway", summary: "Gateway que normaliza provedores remotos.", exports: "createSignatureGateway", install: "bun add @signature-kit/signature-gateway", href: "/docs/providers" },
-      { name: "@signature-kit/docusign", summary: "Fábrica do provedor DocuSign.", exports: "docusign", install: "bun add @signature-kit/docusign", href: "/docs/providers/docusign" },
-      { name: "@signature-kit/clicksign", summary: "Fábrica do provedor Clicksign.", exports: "clicksign", install: "bun add @signature-kit/clicksign", href: "/docs/providers/clicksign" },
+      { name: "@signature-kit/docusign", summary: "Signer remoto DocuSign.", exports: "createDocuSignSignatureRequest · providers", install: "bun add @signature-kit/docusign", href: "/docs/providers/docusign" },
+      { name: "@signature-kit/clicksign", summary: "Signer remoto Clicksign.", exports: "createClicksignSignatureRequest · providers", install: "bun add @signature-kit/clicksign", href: "/docs/providers/clicksign" },
+      { name: "@signature-kit/assinafy", summary: "Signer remoto Assinafy.", exports: "createAssinafySignatureRequest · providers", install: "bun add @signature-kit/assinafy", href: "/docs/providers/assinafy" },
+      { name: "@signature-kit/zapsign", summary: "Signer remoto ZapSign.", exports: "createZapSignSignatureRequest · providers", install: "bun add @signature-kit/zapsign", href: "/docs/providers/zapsign" },
     ],
   },
   {

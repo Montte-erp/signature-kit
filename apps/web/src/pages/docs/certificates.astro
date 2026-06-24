@@ -58,7 +58,7 @@ console.log(cert.brazilian)      // campos ICP-Brasil extraídos
 // a chave privada é Redacted: não aparece em logs nem em JSON.stringify
 const pem = Redacted.value(cert.privateKeyPem) // só na fronteira de uso`;
 
-const validityCode = `import { toSignerIdentity, isCertificateValid, daysUntilExpiry } from "@signature-kit/x509"
+const validityCode = `import { toSignerIdentity, isCertificateValid, daysUntilExpiry } from "@signature-kit/certificates"
 import { Effect } from "effect"
 
 // cert: Certificate vindo de signatureKit.certificates.get()
@@ -155,10 +155,10 @@ const toc: [string, string][] = [
 
   <section class="step" data-step="5">
     <h3 id="validade">Validade e ICP-Brasil</h3>
-    <p>Instale o pacote de baixo nível para trabalhar diretamente com o X.509:</p>
-    <InstallTabs spec="@signature-kit/x509" class="mb-4" />
+    <p>Instale o pacote de baixo nível para trabalhar diretamente com PKCS#12/X.509:</p>
+    <InstallTabs spec="@signature-kit/certificates" class="mb-4" />
     <p>
-      <code>@signature-kit/x509</code> expõe utilitários puros sobre o certificado:
+      <code>@signature-kit/certificates</code> expõe utilitários puros sobre o certificado:
       <code>toSignerIdentity(cert)</code> reduz um <code>Certificate</code> para a mesma <code>SignerIdentity</code> de
       <code>inspect</code>; <code>isCertificateValid(cert)</code> retorna um <code>boolean</code> e
       <code>daysUntilExpiry(cert)</code>, um <code>number</code>. Para bytes DER crus, <code>parseX509(der)</code> devolve

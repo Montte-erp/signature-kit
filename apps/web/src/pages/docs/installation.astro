@@ -4,8 +4,8 @@ import DocsActions from "../../components/DocsActions.astro";
 import CodePanel from "../../components/CodePanel.astro";
 import InstallTabs from "../../components/InstallTabs.astro";
 
-const runtimeCode = `import { createSignatureKit } from "@signature-kit/core"
-import { loadA1SignerAdapter } from "@signature-kit/a1"
+const runtimeCode = `import { createSignatureKit } from "@signature-kit/core/runtime"
+import { loadA1SignerAdapter } from "@signature-kit/a1/signer"
 import { Effect, Redacted } from "effect"
 
 export const program = Effect.gen(function* () {
@@ -32,9 +32,9 @@ const result = yield* signatureKit.signatures.verify({
 })
 // result.valid: boolean`;
 
-const formatsCode = `import { signXml } from "@signature-kit/xml"
-import { signPdf } from "@signature-kit/pdf"
-import { a1SignaturesLayer } from "@signature-kit/a1"
+const formatsCode = `import { signXml } from "@signature-kit/xml/sign"
+import { signPdf } from "@signature-kit/pdf/sign"
+import { a1SignaturesLayer } from "@signature-kit/a1/signer"
 import { Effect } from "effect"
 
 const layer = a1SignaturesLayer({ pfx, password })
