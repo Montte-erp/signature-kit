@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Copy } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -48,9 +49,19 @@ export const InstallCommand = ({
       <span className="truncate">{command}</span>
       <span
         aria-hidden
-        className="text-muted-foreground transition-colors group-hover/button:text-foreground"
+        className="relative grid size-4 place-items-center text-muted-foreground transition-colors group-hover/button:text-foreground"
       >
-        {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.span
+            key={copied ? "check" : "copy"}
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            transition={{ duration: 0.15, ease: [0.23, 1, 0.32, 1] }}
+          >
+            {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+          </motion.span>
+        </AnimatePresence>
       </span>
     </Button>
   );

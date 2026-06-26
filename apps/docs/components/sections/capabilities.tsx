@@ -98,16 +98,14 @@ export function Capabilities() {
           />
         </FadeIn>
 
-        <FadeIn delay={0.05}>
-          <div className="mt-10 grid gap-4 sm:grid-cols-2">
-            {CAPABILITIES.map((capability, i) => (
-              <Card
-                key={capability.docHref}
-                className={cn(
-                  "group gap-0 p-5",
-                  capability.wide && "sm:col-span-2",
-                )}
-              >
+        <div className="mt-10 grid gap-4 sm:grid-cols-2">
+          {CAPABILITIES.map((capability, i) => (
+            <FadeIn
+              key={capability.docHref}
+              delay={0.05 + i * 0.05}
+              className={cn("h-full", capability.wide && "sm:col-span-2")}
+            >
+              <Card className="group flex h-full flex-col gap-0 p-5">
                 <span className="font-mono text-xs text-muted-foreground">
                   {String(i + 1).padStart(2, "0")}
                 </span>
@@ -126,7 +124,7 @@ export function Capabilities() {
                 </CardContent>
                 <CardFooter className="p-0">
                   <Link
-                    className="mt-4 inline-flex items-center gap-1.5 self-start text-sm font-medium text-foreground underline-offset-4 hover:underline"
+                    className="mt-4 inline-flex items-center gap-1.5 self-start text-sm font-medium text-foreground underline-offset-4 transition-transform duration-100 ease-out hover:underline active:scale-[0.98]"
                     href={localePath(capability.docHref)}
                   >
                     {m.cap_read_docs()}
@@ -134,9 +132,9 @@ export function Capabilities() {
                   </Link>
                 </CardFooter>
               </Card>
-            ))}
-          </div>
-        </FadeIn>
+            </FadeIn>
+          ))}
+        </div>
       </Container>
     </Section>
   );

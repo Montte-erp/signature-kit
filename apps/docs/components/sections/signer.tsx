@@ -52,7 +52,7 @@ export function Signer() {
 
             <CardContent className="grid gap-8 p-6 md:grid-cols-3 md:p-8">
               {STEPS.map((step, i) => (
-                <div key={step.title()} className="flex flex-col gap-3">
+                <FadeIn key={step.title()} delay={0.1 + i * 0.06} className="flex flex-col gap-3">
                   <div className="flex items-center gap-2">
                     <span className="flex size-8 items-center justify-center rounded-lg border border-border bg-input/30">
                       <step.icon className="size-4 text-foreground" />
@@ -63,7 +63,7 @@ export function Signer() {
                   </div>
                   <h3 className="text-base font-medium text-foreground">{step.title()}</h3>
                   <p className="text-sm leading-relaxed text-muted-foreground">{step.body()}</p>
-                </div>
+                </FadeIn>
               ))}
             </CardContent>
 

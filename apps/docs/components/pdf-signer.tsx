@@ -651,7 +651,7 @@ function Step({
         {!locked ? (
           <ChevronDown
             className={cn(
-              "size-4 shrink-0 text-muted-foreground transition-transform",
+              "size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
               open && "rotate-180",
             )}
           />
@@ -659,7 +659,7 @@ function Step({
       </Button>
       <div
         className={cn(
-          "grid transition-[grid-template-rows] duration-200 ease-out",
+          "grid transition-[grid-template-rows] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none",
           open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
         )}
       >
@@ -2081,7 +2081,7 @@ export function PdfSigner({
                       href="https://validar.iti.gov.br/"
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-4xl border border-border bg-input/30 px-3 text-sm font-medium text-foreground transition-colors hover:bg-input/50"
+                      className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-4xl border border-border bg-input/30 px-3 text-sm font-medium text-foreground transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-input/50 active:scale-[0.98]"
                     >
                       {m.signer_validate()}
                       <ExternalLink className="size-3.5" />
