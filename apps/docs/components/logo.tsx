@@ -1,34 +1,9 @@
-import type { SVGProps } from "react";
+import { Signature, type LucideProps } from "lucide-react";
 
 /**
- * SignatureKit mark — a minimal seal/checkmark. Uses currentColor so it
- * inherits the foreground wherever it is rendered (nav, footer, …).
+ * SignatureKit mark — lucide's `Signature` glyph (a signing flourish). Uses
+ * currentColor so it inherits the foreground wherever it renders (nav, footer, …).
  */
-export function Logo(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden
-      {...props}
-    >
-      <rect
-        x="2.75"
-        y="2.75"
-        width="18.5"
-        height="18.5"
-        rx="5.25"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      />
-      <path
-        d="M7.5 12.5l3 3 6-7"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+export function Logo(props: LucideProps) {
+  return <Signature aria-hidden {...props} />;
 }

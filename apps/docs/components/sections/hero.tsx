@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { localePath } from "@/lib/links";
 import { m } from "@/paraglide/messages";
 
-const EASE = [0.16, 1, 0.3, 1] as const;
+const EASE = [0.23, 1, 0.32, 1] as const;
 
 /**
  * Landing hero. Centered column, monochrome rhythm: a generic open-source pill,
