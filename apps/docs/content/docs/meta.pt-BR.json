@@ -12,7 +12,26 @@
     "pdf",
     "xml",
     "errors",
+    "---React---",
+    "components/index",
+    "components/signature-builder-surface",
+    "components/signature-ink-pad",
+    "components/browser-signing",
+    "components/slot-reuse",
+    "components/react-pdf",
+    "components/docuseal",
+    "components/builder-api",
+    "components/hooks",
+    "components/schemas",
+    "---APIs remotas---",
     "providers/index",
-    "components/index"
+    "providers/docusign",
+    "providers/clicksign",
+    "providers/assinafy",
+    "providers/zapsign",
+    "providers/docuseal",
+    "providers/adobe-sign",
+    "providers/dropbox-sign",
+    "providers/documenso"
   ]
 }

@@ -34,16 +34,27 @@ figure.shiki {
 }
 
 /* Docs sidebar footer: Fumadocs stacks the language selector above the theme
-   toggle. Lay them on one line instead (scoped to the desktop sidebar). */
+   toggle. Lay them on one tidy line instead (scoped to the desktop sidebar). */
 #nd-sidebar .flex.flex-col.p-4.pt-2 {
   flex-direction: row;
   align-items: center;
   gap: 0.5rem;
 }
+/* language selector fills the row; its label stays on a single line */
 #nd-sidebar .flex.flex-col.p-4.pt-2 > :first-child {
   flex: 1;
   min-width: 0;
   margin-bottom: 0;
+}
+#nd-sidebar .flex.flex-col.p-4.pt-2 > :first-child > :not(svg) {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* theme toggle keeps its compact box pinned at the end */
+#nd-sidebar .flex.flex-col.p-4.pt-2 > :nth-child(2) {
+  flex: none;
 }
 
 @theme inline {
