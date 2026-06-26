@@ -85,11 +85,10 @@
   "final_lead": "Código aberto, licença MIT, nativo de Effect. Um ponto único de assinatura tipado para A1, PDF, XML e provedores remotos — cada falha um valor no qual você pode fazer match.",
   "final_cta": "Início rápido",
 
-  "footer_brand_blurb": "Um ponto único de assinatura tipado para cada documento — A1/PKCS#12, PDF/PAdES, XML-DSig e provedores remotos por trás de um único ponto nativo de Effect. Código aberto, licença MIT.",
+  "footer_brand_blurb": "Assinaturas digitais tipadas para TypeScript — certificados A1, PDF, XML e provedores remotos. Código aberto, MIT.",
   "footer_col_docs": "Documentação",
   "footer_col_providers": "Provedores",
   "footer_col_project": "Projeto",
-  "footer_link_installation": "Instalação",
   "footer_link_quickstart": "Início rápido",
   "footer_link_signing_boundary": "O ponto único de assinatura",
   "footer_link_pdf": "PDF / PAdES",

@@ -85,11 +85,10 @@
   "final_lead": "Open source, MIT licensed, Effect-native. One typed seam for A1, PDF, XML, and remote providers — every failure a value you can match on.",
   "final_cta": "Quickstart",
 
-  "footer_brand_blurb": "One typed boundary for every signature — A1/PKCS#12, PDF/PAdES, XML-DSig, and remote providers behind a single Effect-native seam. Open source, MIT licensed.",
+  "footer_brand_blurb": "Typed digital signatures for TypeScript — A1 certificates, PDF, XML, and remote providers. Open source, MIT.",
   "footer_col_docs": "Docs",
   "footer_col_providers": "Providers",
   "footer_col_project": "Project",
-  "footer_link_installation": "Installation",
   "footer_link_quickstart": "Quickstart",
   "footer_link_signing_boundary": "The signing boundary",
   "footer_link_pdf": "PDF / PAdES",

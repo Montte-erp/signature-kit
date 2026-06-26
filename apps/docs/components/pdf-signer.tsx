@@ -61,7 +61,6 @@ import {
   type PdfDocumentProxy,
 } from "@/components/pdf-page";
 import { bakeStamp, toBottomLeft } from "@/components/pdf-stamp";
-import { useAsyncQueuer } from "@tanstack/react-pacer/async-queuer";
 import { Store, useStore } from "@tanstack/react-store";
 import { caveat } from "@/lib/handwriting-font";
 import { cn } from "@/lib/utils";
@@ -850,7 +849,13 @@ function BatchResults({
 // The signer
 // ---------------------------------------------------------------------------
 
-export function PdfSigner({ className }: { className?: string }) {
+export function PdfSigner({
+  className,
+  inDialog,
+}: {
+  className?: string;
+  inDialog?: boolean;
+}) {
   const [docs, setDocs] = React.useState<DocEntry[]>([]);
   const [activeDocId, setActiveDocId] = React.useState<string | undefined>();
 
@@ -902,72 +907,15 @@ export function PdfSigner({ className }: { className?: string }) {
   // the live queue counts (no finalize useEffect).
   const placeRan = useStore(placeRunStore, (s) => s.ran);
 
-  // Best-guess auto-placement runs as a TanStack Pacer async QUEUE: each loaded
-  // document is enqueued and processed one at a time (concurrency 1, auto-started),
-  // applying each placement the moment it settles (onSuccess) and switching the
-  // canvas to that document so the marker drops in live. The DocList reads the
-  // queue's live state so every document visibly advances queued → placing →
-  // placed, and a 28-PDF batch can't block the UI.
-  const placeQueuer = useAsyncQueuer<DocEntry>(
-    async (d) => {
-      const anchor = bestGuessAnchor(d); // pure geometry — no pdf.js, instant
-      if (!anchor) return { id: d.id, placed: false as const };
-      const store = createSignatureBuilderStore({
-        template: d.template,
-        draft: SIGNATURE_DRAFT,
-      });
-      const result = await runEffect(
-        store.placeField({
-          documentId: d.documentId,
-          pageIndex: anchor.pageIndex,
-          x: anchor.cx,
-          y: anchor.cy,
-          draft: SIGNATURE_DRAFT,
-          anchor: "center",
-        }),
-      );
-      if (!result.ok) return { id: d.id, placed: false as const };
-      const field = result.value.fields.find(
-        (f) => f.id === SIGNATURE_FIELD_ID,
-      );
-      if (!field) return { id: d.id, placed: false as const };
-      // Yield to the browser between docs so the just-placed marker can paint
-      // before the next document takes over the canvas, and so a large batch never
-      // pins the main thread. Geometry placement above is sub-millisecond.
-      await new Promise((resolve) => setTimeout(resolve, 24));
-      return {
-        id: d.id,
-        placed: true as const,
-        template: result.value,
-        rect: field.rect,
-      };
-    },
-    {
-      concurrency: 1,
-      started: true,
-      onSuccess: (res) => {
-        if (!res.placed) return;
-        const { id, template, rect } = res;
-        setDocs((prev) =>
-          prev.map((x) => (x.id === id ? { ...x, template, rect } : x)),
-        );
-        // Reveal this document with its marker dropping in live: switch the canvas
-        // to it and remount so the builder store re-hydrates the placed rect.
-        setActiveDocId(id);
-        setCanvasNonce((n) => n + 1);
-      },
-    },
-  );
-
-  // Live queue view, read straight from the queuer's TanStack Store. "Placing" is
-  // derived from item counts (active + queued) — NEVER from `isRunning`, which stays
-  // true forever after the queuer auto-starts (that was the "never finishes" bug).
-  const placeView = useStore(placeQueuer.store, (s) => ({
-    activeIds: s.activeItems.map((d) => d.id),
-    queuedIds: s.items.map((d) => d.id),
-  }));
-  const placing =
-    placeView.activeIds.length > 0 || placeView.queuedIds.length > 0;
+  // Best-guess auto-placement is PURE GEOMETRY (sub-millisecond per doc — see
+  // bestGuessAnchor), so it runs as a plain async loop, NOT a work queue. `placing`
+  // is real state, flipped back to false when the loop ends, so the button can never
+  // spin forever — the old AsyncQueuer could leave an item stuck at "queued" and
+  // never drain ("o best guess nao termina nunca"). `placingIds` / `queuedIds` drive
+  // the live per-document status in the DocList.
+  const [placing, setPlacing] = React.useState(false);
+  const [placingIds, setPlacingIds] = React.useState<readonly string[]>([]);
+  const [queuedIds, setQueuedIds] = React.useState<readonly string[]>([]);
 
   const activeDoc = docs.find((d) => d.id === activeDocId);
   const placedCount = docs.filter((d) => d.rect).length;
@@ -1170,7 +1118,7 @@ export function PdfSigner({ className }: { className?: string }) {
   // manual click uses (via a throwaway store per doc), so each placement persists
   // into DocEntry.rect and signs identically to a hand-placed one. The queuer is
   // auto-started, so we just clear() and add — no start()/stop() dance.
-  const autoPlaceAll = () => {
+  const autoPlaceAll = async () => {
     if (docs.length === 0 || placing) return;
     setError("");
     // A new placement run invalidates any prior signed run, exactly like handlePlaced.
@@ -1178,8 +1126,58 @@ export function PdfSigner({ className }: { className?: string }) {
     setRows({});
     setStatus(""); // hand the status line to the DERIVED best-guess status
     placeRunStore.setState(() => ({ ran: true }));
-    placeQueuer.clear(); // drop anything left over from a previous run
-    for (const d of docs) placeQueuer.addItem(d);
+
+    const queue = docs; // snapshot at click time
+    setPlacing(true);
+    setQueuedIds(queue.map((d) => d.id));
+    for (const d of queue) {
+      setQueuedIds((prev) => prev.filter((id) => id !== d.id));
+      setPlacingIds([d.id]);
+      const anchor = bestGuessAnchor(d); // pure geometry — no pdf.js, instant
+      if (anchor) {
+        // Drive the SAME store.placeField path the manual click uses (via a throwaway
+        // store per doc), so each placement persists into DocEntry.rect and signs
+        // identically to a hand-placed one.
+        const store = createSignatureBuilderStore({
+          template: d.template,
+          draft: SIGNATURE_DRAFT,
+        });
+        const result = await runEffect(
+          store.placeField({
+            documentId: d.documentId,
+            pageIndex: anchor.pageIndex,
+            x: anchor.cx,
+            y: anchor.cy,
+            draft: SIGNATURE_DRAFT,
+            anchor: "center",
+          }),
+        );
+        if (result.ok) {
+          const field = result.value.fields.find(
+            (f) => f.id === SIGNATURE_FIELD_ID,
+          );
+          if (field) {
+            const placedTemplate = result.value;
+            const placedRect = field.rect;
+            setDocs((prev) =>
+              prev.map((x) =>
+                x.id === d.id
+                  ? { ...x, template: placedTemplate, rect: placedRect }
+                  : x,
+              ),
+            );
+            // Reveal each doc with its marker dropping in live: switch the canvas to
+            // it and remount so the builder store re-hydrates the placed rect.
+            setActiveDocId(d.id);
+            setCanvasNonce((n) => n + 1);
+          }
+        }
+      }
+      setPlacingIds([]);
+      // Yield so the just-placed marker paints before the next doc takes the canvas.
+      await new Promise((resolve) => setTimeout(resolve, 24));
+    }
+    setPlacing(false);
   };
 
   const onPfxFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1567,12 +1565,31 @@ export function PdfSigner({ className }: { className?: string }) {
   ].filter(Boolean) as string[];
 
   return (
-    <div className={cn("@container", className)}>
-      <div className="grid gap-6 @4xl:grid-cols-[minmax(0,1fr)_minmax(400px,440px)]">
-        {/* LEFT / TOP — persistent document canvas, never part of the accordion.
-            Sticky in BOTH layouts so the live stamp preview + placement marker stay
-            visible while the accordion scrolls beneath it. */}
-        <div className="sticky top-0 z-10 min-w-0 self-start bg-background pb-1 @4xl:top-0">
+    <div
+      className={cn(
+        "@container",
+        inDialog && "flex min-h-0 flex-1 flex-col",
+        className,
+      )}
+    >
+      <div
+        className={cn(
+          "grid gap-6 @4xl:grid-cols-[minmax(0,1fr)_minmax(400px,440px)]",
+          inDialog &&
+            "min-h-0 flex-1 overflow-y-auto p-6 @4xl:grid-rows-[minmax(0,1fr)] @4xl:overflow-hidden",
+        )}
+      >
+        {/* LEFT / TOP — persistent document canvas. In the dialog it owns its own
+            scroll (the steps pane scrolls separately, so the modal never has one
+            scroll that moves everything); standalone it stays sticky. */}
+        <div
+          className={cn(
+            "min-w-0 bg-background pb-1",
+            inDialog
+              ? "@4xl:min-h-0 @4xl:self-stretch @4xl:overflow-y-auto"
+              : "sticky top-0 z-10 self-start @4xl:top-0",
+          )}
+        >
           <div className="mb-2 flex items-center justify-between gap-2">
             <span className="text-xs font-medium text-muted-foreground">
               {m.signer_doc_label()}
@@ -1631,7 +1648,12 @@ export function PdfSigner({ className }: { className?: string }) {
         </div>
 
         {/* RIGHT / BELOW — the guided accordion */}
-        <div className="flex flex-col gap-2.5">
+        <div
+          className={cn(
+            "flex flex-col gap-2.5",
+            inDialog && "@4xl:min-h-0 @4xl:self-stretch @4xl:overflow-y-auto",
+          )}
+        >
           {/* STEP 1 — Documents */}
           <Step
             n={1}
@@ -1654,8 +1676,8 @@ export function PdfSigner({ className }: { className?: string }) {
                 activeDocId={activeDocId}
                 onSelect={setActiveDocId}
                 onRemove={removeDoc}
-                placingIds={placeView.activeIds}
-                queuedIds={placeView.queuedIds}
+                placingIds={placingIds}
+                queuedIds={queuedIds}
               />
             ) : null}
             {/* Best guess — auto-place a signature rect on every loaded document at
@@ -1666,7 +1688,7 @@ export function PdfSigner({ className }: { className?: string }) {
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => autoPlaceAll()}
+                onClick={() => void autoPlaceAll()}
                 disabled={placing}
                 className="gap-1.5 text-xs text-foreground disabled:opacity-60"
               >
@@ -2128,8 +2150,8 @@ export function PdfSignerDialog({ children }: { children: React.ReactNode }) {
             {m.signer_dialog_desc()}
           </DialogDescription>
         </DialogHeader>
-        <div className="overflow-y-auto p-6">
-          <PdfSigner />
+        <div className="flex min-h-0 flex-1">
+          <PdfSigner inDialog />
         </div>
       </DialogContent>
     </Dialog>

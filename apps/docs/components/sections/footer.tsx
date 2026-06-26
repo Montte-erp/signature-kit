@@ -15,53 +15,28 @@ const GithubMark = (props: SVGProps<SVGSVGElement>) => (
 );
 
 /**
- * Landing footer — a solid top border, the brand cell (shared Logo +
- * wordmark + blurb + GitHub action), a trio of link columns, then a bottom
- * bar carrying the required Montte attribution. Pure-monochrome shadcn tokens
- * only; no coral, no fd-* tokens.
- *
- * Server component — plain markup, no motion. Every href resolves to a real
- * /docs route or an honest external URL.
+ * Landing footer — restrained: the brand cell (logo + short blurb + GitHub),
+ * two tight link groups, and a bottom bar with the Montte attribution. No
+ * provider link farm; the docs sidebar owns per-provider nav. Pure-monochrome
+ * shadcn tokens, server component, every href a real route or honest URL.
  */
 
 const GITHUB_URL = "https://github.com/Montte-erp/signature-kit";
 
 const DOCS_LINKS = [
-  { href: "/docs/installation", label: m.footer_link_installation },
   { href: "/docs/quickstart", label: m.footer_link_quickstart },
   { href: "/docs/signers", label: m.footer_link_signing_boundary },
   { href: "/docs/pdf", label: m.footer_link_pdf },
   { href: "/docs/xml", label: m.footer_link_xml },
   { href: "/docs/errors", label: m.footer_link_errors },
-];
-
-const PROVIDER_LINKS = [
-  { href: "/docs/providers/docusign", label: "DocuSign" },
-  { href: "/docs/providers/clicksign", label: "Clicksign" },
-  { href: "/docs/providers/assinafy", label: "Assinafy" },
-  { href: "/docs/providers/zapsign", label: "ZapSign" },
-  { href: "/docs/providers/docuseal", label: "DocuSeal" },
-  { href: "/docs/providers/adobe-sign", label: "Adobe Sign" },
-  { href: "/docs/providers/dropbox-sign", label: "Dropbox Sign" },
-  { href: "/docs/providers/documenso", label: "Documenso" },
-];
+] as const;
 
 const PROJECT_LINKS = [
-  {
-    href: "/blog",
-    label: m.footer_link_blog,
-  },
-  {
-    external: true,
-    href: GITHUB_URL,
-    label: m.footer_link_github,
-  },
-  {
-    external: true,
-    href: `${GITHUB_URL}/issues`,
-    label: m.footer_link_issues,
-  },
-];
+  { href: "/docs/providers", label: m.footer_col_providers },
+  { href: "/blog", label: m.footer_link_blog },
+  { external: true, href: GITHUB_URL, label: m.footer_link_github },
+  { external: true, href: `${GITHUB_URL}/issues`, label: m.footer_link_issues },
+] as const;
 
 const COLUMN_HEADER_CLASS =
   "font-mono text-[10px] font-bold uppercase tracking-[0.11em] text-muted-foreground/70";
@@ -75,7 +50,7 @@ interface FooterLinkProps {
 const FooterLink = ({ href, external, children }: FooterLinkProps) =>
   external ? (
     <a
-      className="text-sm font-normal text-muted-foreground transition-colors hover:text-foreground"
+      className="text-sm text-muted-foreground transition-colors hover:text-foreground"
       href={href}
       rel="noreferrer"
       target="_blank"
@@ -84,82 +59,67 @@ const FooterLink = ({ href, external, children }: FooterLinkProps) =>
     </a>
   ) : (
     <Link
-      className="text-sm font-normal text-muted-foreground transition-colors hover:text-foreground"
+      className="text-sm text-muted-foreground transition-colors hover:text-foreground"
       href={localePath(href)}
     >
       {children}
     </Link>
   );
 
+interface FooterColumn {
+  readonly header: string;
+  readonly links: readonly { href: string; external?: boolean; label: () => string }[];
+}
+
+const FooterColumn = ({ header, links }: FooterColumn) => (
+  <div className="flex flex-col gap-3">
+    <p className={COLUMN_HEADER_CLASS}>{header}</p>
+    <ul className="flex flex-col gap-2.5">
+      {links.map(({ href, external, label }) => (
+        <li key={href}>
+          <FooterLink href={href} external={external}>
+            {label()}
+          </FooterLink>
+        </li>
+      ))}
+    </ul>
+  </div>
+);
+
 export const Footer = () => (
   <footer className="border-t border-border">
-    <div className="mx-auto max-w-7xl px-6 py-16 sm:py-20">
-      <div className="grid grid-cols-2 gap-x-12 gap-y-10 sm:grid-cols-4 lg:gap-x-16">
-        <div className="col-span-2 flex flex-col gap-4 sm:col-span-1">
+    <div className="mx-auto max-w-6xl px-6 py-14">
+      <div className="flex flex-col gap-12 md:flex-row md:items-start md:justify-between">
+        <div className="flex max-w-xs flex-col items-start gap-4">
           <div className="flex items-center gap-2">
             <Logo className="size-4 text-foreground" />
             <span className="text-sm font-semibold tracking-tight text-foreground">
               SignatureKit
             </span>
           </div>
-          <p className="max-w-[34ch] text-sm leading-relaxed text-pretty text-muted-foreground">
+          <p className="text-sm leading-relaxed text-pretty text-muted-foreground">
             {m.footer_brand_blurb()}
           </p>
           <Button asChild size="icon" variant="outline">
-            <a
-              aria-label="GitHub"
-              href={GITHUB_URL}
-              rel="noreferrer"
-              target="_blank"
-            >
+            <a aria-label="GitHub" href={GITHUB_URL} rel="noreferrer" target="_blank">
               <GithubMark />
             </a>
           </Button>
         </div>
 
-        <div className="flex flex-col gap-3">
-          <p className={COLUMN_HEADER_CLASS}>{m.footer_col_docs()}</p>
-          <ul className="flex flex-col gap-2">
-            {DOCS_LINKS.map(({ href, label }) => (
-              <li key={href}>
-                <FooterLink href={href}>{label()}</FooterLink>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="flex flex-col gap-3">
-          <p className={COLUMN_HEADER_CLASS}>{m.footer_col_providers()}</p>
-          <ul className="flex flex-col gap-2">
-            {PROVIDER_LINKS.map(({ href, label }) => (
-              <li key={href}>
-                <FooterLink href={href}>{label}</FooterLink>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="flex flex-col gap-3">
-          <p className={COLUMN_HEADER_CLASS}>{m.footer_col_project()}</p>
-          <ul className="flex flex-col gap-2">
-            {PROJECT_LINKS.map(({ external, href, label }) => (
-              <li key={href}>
-                <FooterLink external={external} href={href}>
-                  {label()}
-                </FooterLink>
-              </li>
-            ))}
-          </ul>
+        <div className="flex gap-16 sm:gap-24">
+          <FooterColumn header={m.footer_col_docs()} links={DOCS_LINKS} />
+          <FooterColumn header={m.footer_col_project()} links={PROJECT_LINKS} />
         </div>
       </div>
 
-      <div className="mt-14 flex flex-col gap-3 border-t border-border pt-6 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-12 flex flex-col gap-3 border-t border-border pt-6 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs text-muted-foreground">
           {m.footer_attribution_prefix()}{" "}
           <a
             aria-label="Montte"
             className="inline-flex items-center gap-1.5 align-baseline text-sm font-semibold tracking-tight text-foreground transition-colors hover:text-foreground"
-            href="https://github.com/Montte-erp"
+            href="https://montte.co"
             rel="noreferrer"
             target="_blank"
             title="Montte"
