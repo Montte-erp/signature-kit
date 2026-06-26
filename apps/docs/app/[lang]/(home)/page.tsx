@@ -4,6 +4,7 @@ import { AutoSign } from "@/components/sections/auto-sign";
 import { ProvidersShowcase } from "@/components/sections/providers-showcase";
 import { Capabilities } from "@/components/sections/capabilities";
 import { GetStarted } from "@/components/sections/get-started";
+import { Sponsors } from "@/components/sections/sponsors";
 import { FinalCta } from "@/components/sections/final-cta";
 import { setServerLocale } from "@/lib/server-locale";
 import type { Lang } from "@/lib/locale";
@@ -24,6 +25,7 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
       <ProvidersShowcase />
       <Capabilities />
       <GetStarted />
+      <Sponsors />
       <FinalCta />
     </main>
   );

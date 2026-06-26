@@ -85,6 +85,8 @@
   "gs_note2_d": "or",
   "gs_note2_e": "— or hand the seam to a remote provider.",
 
+  "sponsors_eyebrow": "Backed by",
+  "sponsors_lead": "Built by Montte and running in production at Licitei — one of Brazil's largest procurement platforms — where it signs thousands of bid documents in the browser.",
   "final_eyebrow": "Ready when you are",
   "final_title": "Ship the signing layer once.",
   "final_lead": "Open source, MIT licensed, Effect-native. One typed seam for A1, PDF, XML, and remote providers — every failure a value you can match on.",

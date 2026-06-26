@@ -2,6 +2,7 @@ import type { SVGProps } from "react";
 import Link from "next/link";
 
 import { Logo } from "@/components/logo";
+import { MontteLogo } from "@/components/brand/montte-logo";
 import { Button } from "@/components/ui/button";
 import { localePath } from "@/lib/links";
 import { m } from "@/paraglide/messages";
@@ -157,12 +158,13 @@ export const Footer = () => (
           {m.footer_attribution_prefix()}{" "}
           <a
             aria-label="Montte"
-            className="align-baseline text-sm font-semibold tracking-tight text-foreground transition-colors hover:text-foreground"
+            className="inline-flex items-center gap-1.5 align-baseline text-sm font-semibold tracking-tight text-foreground transition-colors hover:text-foreground"
             href="https://github.com/Montte-erp"
             rel="noreferrer"
             target="_blank"
             title="Montte"
           >
+            <MontteLogo className="h-3 w-auto" />
             Montte
           </a>
         </p>

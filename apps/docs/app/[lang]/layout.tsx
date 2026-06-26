@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import { LocaleProvider } from "@/components/locale-provider";
 import { setServerLocale } from "@/lib/server-locale";
 import { i18n, provider } from "@/lib/i18n";
+import { SITE_NAME, SITE_URL } from "@/lib/site";
 import type { Lang } from "@/lib/locale";
 
 const inter = Inter({
@@ -18,12 +19,15 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: {
-    template: "%s | SignatureKit",
+    template: `%s | ${SITE_NAME}`,
     default: "SignatureKit — Effect-native digital signatures for TypeScript",
   },
   description:
     "One typed signing boundary for A1/PKCS#12 certificates, PDF (PAdES), XML-DSig, and remote providers. Sign in the browser or on the server, with typed errors and Redacted secrets. A Montte product.",
+  openGraph: { siteName: SITE_NAME, type: "website" },
+  twitter: { card: "summary_large_image" },
 };
 
 export function generateStaticParams() {
