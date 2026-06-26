@@ -48,9 +48,6 @@ export function Signer() {
               <span className="font-mono text-xs text-muted-foreground">
                 {m.signer_window_label()}
               </span>
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground/70">
-                {m.signer_offline()}
-              </span>
             </CardHeader>
 
             <CardContent className="grid gap-8 p-6 md:grid-cols-3 md:p-8">

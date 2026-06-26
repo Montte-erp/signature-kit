@@ -10,10 +10,6 @@
   "nav_errors": "Errors",
   "nav_get_started": "Get started",
 
-  "marquee_built_on": "Built on",
-  "marquee_supports": "Supports",
-  "marquee_integrates": "Integrates with",
-
   "hero_badge": "Open source · MIT · A Montte product",
   "hero_title": "One typed boundary for every signature.",
   "hero_subhead": "A1/PKCS#12, PDF/PAdES, XML-DSig, and remote providers behind one Effect-native seam. Swap the signer, keep the program — browser or server, typed errors, Redacted secrets.",
@@ -23,7 +19,6 @@
   "signer_title": "Sign a real PDF, right here.",
   "signer_lead": "No backend, no upload, no SaaS. Drop in a PDF, click where the signature goes, load your A1 (e-CPF / e-CNPJ), and sign with WebCrypto. The document and the private key never leave the page.",
   "signer_window_label": "signaturekit — browser signer",
-  "signer_offline": "offline · local",
   "signer_assurance": "100% client-side · WebCrypto · PAdES (AdES-BES)",
   "signer_open": "Open the signer",
   "signer_step1_title": "Upload your PDF",
@@ -46,7 +41,6 @@
   "showcase_feature_redacted_desc": "Tokens and API keys stay wrapped in Redacted until the HTTP boundary — never logged, never leaked.",
   "showcase_feature_shape_label": "One request shape",
   "showcase_feature_shape_desc": "The same title / documents / recipients request normalizes to a RemoteSignatureRequest across all eight providers.",
-  "showcase_supported": "Integrates with",
   "showcase_card_provider": "Provider",
   "showcase_card_hint": "Use arrows or click a logo",
   "showcase_prev": "Previous provider",
@@ -86,7 +80,6 @@
   "gs_note2_e": "— or hand the seam to a remote provider.",
 
   "sponsors_eyebrow": "Backed by",
-  "sponsors_lead": "Built by Montte and running in production at Licitei — one of Brazil's largest procurement platforms — where it signs thousands of bid documents in the browser.",
   "final_eyebrow": "Ready when you are",
   "final_title": "Ship the signing layer once.",
   "final_lead": "Open source, MIT licensed, Effect-native. One typed seam for A1, PDF, XML, and remote providers — every failure a value you can match on.",
@@ -105,7 +98,7 @@
   "footer_link_github": "GitHub",
   "footer_link_issues": "Issues",
   "footer_link_blog": "Blog",
-  "footer_attribution_prefix": "SignatureKit is a product of",
+  "footer_attribution_prefix": "Developed and maintained by",
   "footer_copyright": "© 2026 Montte · MIT License",
 
   "signer_dialog_title": "Sign PDFs in your browser",

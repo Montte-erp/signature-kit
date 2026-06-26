@@ -1,6 +1,6 @@
 ---
-title: "SignatureKit × Licitei: assinar no navegador, sem cobrar por assinatura"
-description: "A Licitei é uma das maiores plataformas de licitação do Brasil. Cada disputa exige assinar dezenas de propostas e declarações de habilitação com certificado A1 — e as APIs de assinatura pagas cobram por assinatura. Veja como a Montte e a Licitei levaram tudo para o navegador, onde assinar é de graça, não quebra o fluxo e o certificado nunca sai do dispositivo."
+title: "SignatureKit × Licitei: assinar com A1 no navegador, sem cobrar por assinatura"
+description: "A Licitei é uma das maiores plataformas de licitação do Brasil. Cada disputa exige assinar dezenas de propostas e declarações de habilitação com certificado A1 — e as APIs de assinatura pagas cobram por assinatura, por documento ou por envelope. Veja como a Montte e a Licitei levaram a assinatura para o navegador, onde o custo marginal é zero, o fluxo não quebra e a chave privada nunca sai do dispositivo."
 date: "2026-06-26"
 author: "Montte"
 ---
@@ -11,21 +11,37 @@ Parece um problema resolvido — é só plugar uma API de assinatura e seguir. S
 
 ## O custo de uma assinatura
 
-Os serviços de assinatura pagos cobram **por assinatura**. Para um documento, tudo bem. Mas uma licitação nunca é um documento só: o licitante assina **dezenas de documentos de uma vez**, toda vez que entra numa disputa. Multiplique o preço por assinatura por dezenas de documentos, por milhares de licitantes, por cada disputa que eles entram, e aquele item de custo deixa de ser o custo de uma funcionalidade — vira o custo do produto.
+Os serviços de assinatura pagos cobram **por documento, por envelope ou por assinatura**. Para um documento, tudo bem. Mas uma licitação nunca é um documento só: o licitante assina **dezenas de documentos de uma vez**, toda vez que entra numa disputa. E o modelo de preço é, por construção, indexado a essa contagem.
 
-A saída óbvia — "deixa o usuário assinar por fora e subir o resultado" — é pior. Ela quebra o fluxo: o licitante sai da Licitei no meio da disputa, briga com outra ferramenta, volta e sobe tudo de novo. Num processo em que a disputa fecha num minuto exato, esse atrito faz perder licitação.
+Não é especulação, é o que as tabelas dizem. A Clicksign tem uma base mensal a partir de R$39/mês e cobra cada documento que estoura a franquia — de R$2,40 a R$6,90 por documento, sendo que o plano com mais recursos chega a custar *mais* caro por documento na franquia de entrada (R$3,00 no Start contra R$6,90 no Automação, a 20 documentos) ([Clicksign, preços](https://www.clicksign.com/preco)). A ZapSign cobra um adicional explícito de R$0,50 por assinatura com certificado digital, que se soma ao limite de documentos do plano ([ZapSign, tabela de funcionalidades](https://zapsign.com.br/tabela-funcionalidades-v2)). A DocuSign trabalha por envelope: os planos pagos travam em cerca de 100 envelopes por usuário por ano, e cada acordo enviado consome um envelope independentemente de quantos signatários tenha ([DocuSign, planos e preços](https://ecom.docusign.com/plans-and-pricing/esignature)).
+
+Multiplique qualquer um desses por dezenas de documentos, por milhares de licitantes, por cada disputa que eles entram, e aquele item de custo deixa de ser o custo de uma funcionalidade — vira o custo do produto.
+
+A saída óbvia — "deixa o usuário assinar por fora e subir o resultado" — é pior. Ela quebra o fluxo: o licitante sai da Licitei no meio da disputa, briga com outra ferramenta, volta e sobe tudo de novo. E não há folga para isso. A Lei 14.133/2021 determina que as licitações sejam realizadas **preferencialmente sob a forma eletrônica** (art. 17, §2º), com fases ordenadas de apresentação de propostas e de habilitação ([TCE-SP, art. 17](https://www.tce.sp.gov.br/legislacao-comentada/lei-14133-1o-abril-2021/17)). No pregão eletrônico federal, propostas e documentos de habilitação são enviados juntos e **exclusivamente pelo sistema**, só podem ser substituídos até a abertura da sessão pública, e a disputa corre em tempos automáticos fixos — dez minutos no modo aberto ([Portal de Compras, pregão eletrônico](https://www.gov.br/compras/pt-br/acesso-a-informacao/perguntas-frequentes/novo-decreto-do-pregao-eletronico)). Num processo que fecha num minuto exato, esse atrito faz perder licitação.
+
+## O que é, de fato, assinar com A1
+
+O A1 não é uma assinatura genérica de PDF. É um certificado **ICP-Brasil**, e isso tem peso jurídico definido: documentos assinados com certificado ICP-Brasil têm a **mesma validade jurídica que documentos em papel com assinatura manuscrita**, nos termos do art. 10 da MP 2.200-2/2001 ([ITI, certificação digital](https://www.gov.br/iti/pt-br/acesso-a-informacao/perguntas-frequentes/certificacao-digital)). É o que a Lei 14.063/2020 chama de **assinatura eletrônica qualificada** — o nível mais alto entre simples, avançada e qualificada, justamente o que usa certificado ICP-Brasil (§1º do art. 10 da MP 2.200-2/2001) ([Governo Digital, assinatura eletrônica](https://www.gov.br/governodigital/pt-br/identidade/assinatura-eletronica/saiba-mais-sobre-a-assinatura-eletronica)).
+
+O que distingue o A1 dos outros é onde a chave mora. O A1 é um certificado **em software**, um arquivo guardado no próprio computador ou celular do titular, com validade de um ano. O A3 vive em mídia de hardware — cartão, token ou HSM remoto — com validade de um a cinco anos ([ITI, certificação digital](https://www.gov.br/iti/pt-br/acesso-a-informacao/perguntas-frequentes/certificacao-digital)). O A1 ser um arquivo é exatamente o que torna possível assiná-lo no navegador, sem token físico, e por isso ele é o formato que o licitante leva para uma disputa eletrônica.
 
 ## Por que "assinatura com A1" ainda custa tanto
 
 Aqui está a parte fácil de não enxergar. A maioria dos serviços que *aceitam* certificado A1 ainda cobra caro por isso, e o motivo é arquitetural: eles assinam **no servidor**. O usuário entrega o `.pfx` (ou um cofre de chaves gerenciado o guarda) junto com o documento; o serviço assina no servidor e devolve o resultado.
 
-Assinar no servidor significa infraestrutura para manter, uma chave privada que sai da máquina do usuário, responsabilidade para carregar e um medidor para faturar. O preço por assinatura não está pagando a criptografia — uma assinatura RSA sobre um hash leva microssegundos. Está pagando o *servidor*.
+O preço por assinatura não está pagando a criptografia. A operação criptográfica em si é barata e rápida: toda assinatura de chave pública é calculada sobre um **hash de tamanho fixo** do documento, não sobre o documento inteiro — é o que torna a assinatura rápida ([MDN, SubtleCrypto.sign()](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/sign)). O que custa é o *servidor* e, principalmente, a **guarda da chave** que ele implica.
+
+E essa guarda é cara de verdade. Assinar no servidor com custódia gerenciada significa pagar por operação: no AWS KMS, assinatura assimétrica custa US$0,15 a cada 10.000 requisições, está explicitamente **fora** da franquia gratuita, e cada chave ainda custa US$1/mês ([AWS KMS, preços](https://aws.amazon.com/kms/pricing/)). Querer custódia em hardware piora: um *custom key store* com CloudHSM cobra US$1,60 por HSM por hora, e a AWS recomenda no mínimo dois para disponibilidade — cerca de US$2.380/mês só de cluster, antes de qualquer assinatura ([AWS KMS, preços](https://aws.amazon.com/kms/pricing/)).
+
+Custódia também é **responsabilidade**, não só custo. A recomendação do NIST é direta: a chave privada deve permanecer **sob controle exclusivo de seu titular** e ser protegida contra divulgação não autorizada ([NIST SP 800-57 Part 1 Rev. 5](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf)). E o que está em jogo se isso falha é tudo: o próprio NIST alerta que a divulgação de uma chave privada de assinatura torna **suspeitas a integridade e a irretratabilidade de todos os dados já assinados** por aquela chave ([NIST SP 800-57 Part 1 Rev. 5](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf)). Concentrar milhares de `.pfx` de licitantes num servidor é concentrar exatamente esse risco.
 
 Então a Montte e a Licitei fizeram a pergunta óbvia: e se o servidor não estiver no caminho?
 
 ## Assine no navegador
 
 O `@signature-kit` roda o **fluxo de assinatura inteiro no navegador**. Os bytes do PDF, o container A1 `.p12`/`.pfx` e a senha ficam na memória local da página e nunca fazem uma requisição de rede. O PAdES é calculado no cliente; a aplicação recebe de volta os bytes assinados, prontos para baixar ou guardar.
+
+Isso é possível porque o navegador já traz a primitiva certa. A Web Crypto API expõe operações criptográficas direto no cliente — inclusive em Web Workers — e o `SubtleCrypto.sign()` gera a assinatura digital com a chave privada usando RSASSA-PKCS1-v1_5, RSA-PSS, ECDSA ou Ed25519 ([MDN, Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API)). É exatamente a operação necessária para assinar o hash de um PDF sem servidor.
 
 ```package-install
 @signature-kit/react @signature-kit/pdf @signature-kit/a1
@@ -108,18 +124,20 @@ O `@signature-kit` roda o **fluxo de assinatura inteiro no navegador**. Os bytes
   `icpBrasil` no input de assinatura. Nada disso muda onde a assinatura acontece — continua sendo o navegador.
 </Callout>
 
+A escolha de PAdES não é casual: é o padrão **ETSI EN 319 142** para assinaturas eletrônicas avançadas embutidas no próprio PDF, com perfis baseline (B-B, B-T, B-LT, B-LTA) que viajam junto com o documento ([PAdES, Wikipedia](https://en.wikipedia.org/wiki/PAdES)). A assinatura fica dentro do arquivo entregue na disputa, sem depender de nenhum servidor da Licitei para ser verificada depois.
+
 ## O que isso mudou para a Licitei
 
-- **Custo marginal zero por assinatura.** A parte cara era o servidor, e não existe servidor. Assinar dezenas de
+- **Custo marginal zero por assinatura.** A parte cara era o servidor e a custódia da chave, e não existe servidor. Assinar dezenas de
   documentos por disputa custa o mesmo que assinar um: nada.
-- **O certificado nunca sai do dispositivo.** O `.pfx` e a senha ficam na aba, `Redacted` de ponta a ponta. É a melhor
-  resposta possível para "para onde foi minha chave privada?" — ela não foi a lugar nenhum.
+- **O certificado nunca sai do dispositivo.** O `.pfx` e a senha ficam na aba, `Redacted` de ponta a ponta — a chave sob controle
+  exclusivo do titular, como o NIST recomenda. É a melhor resposta possível para "para onde foi minha chave privada?": ela não foi a lugar nenhum.
 - **Não quebra o fluxo.** O licitante nunca sai da Licitei. Sobe, posiciona, assina o lote, anexa — na mesma tela,
-  contra o mesmo prazo.
+  contra o mesmo prazo de dez minutos.
 - **Um documento ruim não derruba o lote.** Uma assinatura que falha é um resultado tipado, não uma exceção. Os outros
   documentos continuam assinando; a falha aparece com um código que dá para tratar.
 
-A criptografia nunca foi a parte difícil. Tirar isso do servidor — e manter tipado, em lote e no navegador — é o que
+A criptografia nunca foi a parte difícil — é um hash assinado em microssegundos. Tirar isso do servidor — e manter tipado, em lote e no navegador — é o que
 tornou a assinatura com certificado digital algo que a Licitei pôde simplesmente *incluir*, em vez de tarifar.
 
 ## Continue lendo

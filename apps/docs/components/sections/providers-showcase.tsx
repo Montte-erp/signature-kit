@@ -285,35 +285,6 @@ export function ProvidersShowcase() {
                   </div>
                 ))}
               </dl>
-
-              {/* "Integrates with" stack — each provider fronted by its REAL,
-                  greyscaled brand logo (Google S2 favicons, resolved server-side,
-                  always returns an icon). The label lives in the title attr so the
-                  row stays a clean monochrome avatar cluster. */}
-              <div className="mt-8 flex items-center gap-3">
-                <span className="shrink-0 font-mono text-[10px] tracking-widest text-muted-foreground/70 uppercase">
-                  {m.showcase_supported()}
-                </span>
-                <ul className="flex -space-x-2">
-                  {PROVIDERS_SHOWCASE.map((provider) => (
-                    <li
-                      key={provider.domain}
-                      title={provider.name}
-                      className="grid size-7 place-items-center overflow-hidden rounded-full border border-border bg-background ring-2 ring-background transition-transform hover:z-10 hover:-translate-y-0.5"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={brandLogoUrl(provider.domain)}
-                        alt={provider.name}
-                        width={16}
-                        height={16}
-                        loading="lazy"
-                        className="size-4 object-contain opacity-80 grayscale"
-                      />
-                    </li>
-                  ))}
-                </ul>
-              </div>
             </div>
 
             {/* RIGHT — interactive carousel (client), fed server-highlighted panels */}

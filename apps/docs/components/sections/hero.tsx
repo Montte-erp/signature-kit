@@ -22,30 +22,20 @@ export function Hero() {
   return (
     <section className="relative overflow-hidden">
       <div className="mx-auto flex max-w-5xl flex-col items-center px-6 pt-20 pb-14 text-center sm:pt-24 sm:pb-16 lg:pt-28 lg:pb-20">
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.4, ease: EASE }}
+        <Badge
+          asChild
+          variant="outline"
+          className="gap-2 px-3 py-1 font-mono text-xs text-muted-foreground hover:text-foreground"
         >
-          <Badge
-            asChild
-            variant="outline"
-            className="gap-2 px-3 py-1 font-mono text-xs text-muted-foreground hover:text-foreground"
+          <a
+            href="https://github.com/Montte-erp/signature-kit"
+            rel="noreferrer"
+            target="_blank"
           >
-            <a
-              href="https://github.com/Montte-erp/signature-kit"
-              rel="noreferrer"
-              target="_blank"
-            >
-              <span aria-hidden className="inline-block size-1.5 rounded-full bg-foreground/70" />
-              {m.hero_badge()}
-              <ArrowRight
-                data-icon="inline-end"
-                className="transition-transform group-hover/badge:translate-x-0.5"
-              />
-            </a>
-          </Badge>
-        </motion.div>
+            {m.hero_badge()}
+            <ArrowRight data-icon="inline-end" />
+          </a>
+        </Badge>
 
         <motion.h1
           className="mt-6 max-w-[20ch] text-[2.5rem]/[1.05] font-medium tracking-tight text-balance text-foreground sm:text-7xl lg:text-8xl"

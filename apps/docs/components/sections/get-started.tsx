@@ -1,4 +1,3 @@
-import { ArrowRight } from "lucide-react";
 import { Tab, Tabs } from "fumadocs-ui/components/tabs";
 
 import { CodeBlock } from "@/components/code-block";
@@ -58,7 +57,7 @@ const { identity, artifact } = await Effect.runPromise(program)`;
 const FLUSH = "!my-0 border-0 bg-transparent shadow-none";
 // Circular numbered step badge with a soft ring — reads as an ordered sequence.
 const INDEX_CHIP =
-  "grid size-6 shrink-0 place-items-center rounded-full border border-border bg-background font-mono text-[11px] font-medium text-foreground ring-4 ring-muted/40";
+  "grid size-6 shrink-0 place-items-center rounded-full border border-border bg-background font-mono text-[11px] font-medium text-foreground";
 
 export function GetStarted() {
   return (
@@ -73,23 +72,7 @@ export function GetStarted() {
         </FadeIn>
 
         <FadeIn delay={0.05}>
-          <div className="relative mt-10">
-            {/* Decorative hairline grid + radial fade behind the card, so the
-                two-panel "program" reads as sitting on a blueprint. */}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute -inset-x-4 -inset-y-6 -z-10 opacity-50 [background-image:linear-gradient(to_right,var(--border)_1px,transparent_1px),linear-gradient(to_bottom,var(--border)_1px,transparent_1px)] [background-size:32px_32px] [mask-image:radial-gradient(60%_60%_at_50%_45%,#000,transparent)]"
-            />
-            <Card className="relative grid gap-0 overflow-hidden rounded-2xl p-0 shadow-none lg:grid-cols-2">
-              {/* Seam connector: links step 01 → 02 at the header line (lg only,
-                  centered in the empty middle of both headers). */}
-              <span
-                aria-hidden
-                className="absolute left-1/2 top-[1.65rem] z-10 hidden size-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-border bg-background text-muted-foreground lg:grid"
-              >
-                <ArrowRight className="size-3.5" />
-              </span>
-
+          <Card className="mt-10 grid gap-0 overflow-hidden rounded-2xl p-0 shadow-none lg:grid-cols-2">
               {/* 01 — Install */}
               <div className="flex flex-col border-b border-border lg:border-r lg:border-b-0">
               <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
@@ -162,7 +145,6 @@ export function GetStarted() {
               </div>
             </div>
             </Card>
-          </div>
         </FadeIn>
       </Container>
     </Section>

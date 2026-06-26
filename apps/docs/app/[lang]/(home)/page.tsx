@@ -1,4 +1,5 @@
 import { Hero } from "@/components/sections/hero";
+import { Integrations } from "@/components/sections/integrations";
 import { Signer } from "@/components/sections/signer";
 import { AutoSign } from "@/components/sections/auto-sign";
 import { ProvidersShowcase } from "@/components/sections/providers-showcase";
@@ -20,6 +21,7 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
   return (
     <main className="flex flex-col">
       <Hero />
+      <Integrations />
       <Signer />
       <AutoSign />
       <ProvidersShowcase />

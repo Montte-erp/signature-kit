@@ -22,11 +22,7 @@ export function FinalCta() {
     <Section className="border-t border-border">
       <Container className="py-20 sm:py-28">
         <FadeIn>
-          <div className="relative mx-auto max-w-3xl overflow-hidden rounded-3xl border border-border bg-card/40 px-6 py-14 text-center sm:px-12 sm:py-20">
-            {/* top hairline */}
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-foreground/15 to-transparent" />
-            {/* subtle radial backdrop */}
-            <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(60%_60%_at_50%_0%,color-mix(in_oklab,var(--foreground)_5%,transparent),transparent)]" />
+          <div className="mx-auto max-w-3xl rounded-3xl border border-border bg-card/40 px-6 py-14 text-center sm:px-12 sm:py-20">
             <Eyebrow className="text-center">{m.final_eyebrow()}</Eyebrow>
             <h2 className="mx-auto mt-3 max-w-[20ch] text-[2.5rem]/[1.05] font-medium tracking-tight text-balance text-foreground sm:text-5xl lg:text-6xl">
               {m.final_title()}
