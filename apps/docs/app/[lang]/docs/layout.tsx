@@ -10,8 +10,13 @@ export default async function Layout({ params, children }: LayoutProps<"/[lang]/
   // localized, and pull the per-locale page tree.
   setServerLocale(lang as Lang);
 
+  // The "Get started" CTA belongs to the landing nav only — drop it from the docs
+  // sidebar (you are already in the docs). Keep the rest of baseOptions (nav,
+  // theme switch).
+  const docsOptions = { ...baseOptions(lang as Lang), links: [] };
+
   return (
-    <DocsLayout tree={source.getPageTree(lang)} {...baseOptions(lang as Lang)}>
+    <DocsLayout tree={source.getPageTree(lang)} {...docsOptions}>
       {children}
     </DocsLayout>
   );

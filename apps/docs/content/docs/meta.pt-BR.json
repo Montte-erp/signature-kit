@@ -2,19 +2,19 @@
   "title": "Documentação",
   "root": true,
   "pages": [
-    "---COMECE AQUI---",
+    "---Comece aqui---",
     "index",
     "installation",
     "quickstart",
-    "---CONCEITOS---",
+    "---Assinatura com certificado---",
     "signers",
     "certificates",
-    "errors",
-    "---FORMATOS---",
-    "xml",
     "pdf",
-    "---INTEGRAÇÕES---",
-    "components",
-    "providers"
+    "xml",
+    "errors",
+    "---Assinadores remotos---",
+    "providers",
+    "---Componentes---",
+    "components"
   ]
 }

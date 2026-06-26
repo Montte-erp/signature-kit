@@ -29,6 +29,9 @@ export function baseOptions(lang: Lang): BaseLayoutProps {
         </div>
       ),
     },
+    // A single clean sun/moon toggle — not the default 3-way light/dark/system
+    // segmented control, which renders cramped in the sidebar footer.
+    themeSwitch: { mode: "light-dark" },
     links: [
       {
         type: "custom",
