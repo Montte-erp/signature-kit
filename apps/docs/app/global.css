@@ -33,6 +33,19 @@ figure.shiki {
   box-shadow: none;
 }
 
+/* Docs sidebar footer: Fumadocs stacks the language selector above the theme
+   toggle. Lay them on one line instead (scoped to the desktop sidebar). */
+#nd-sidebar .flex.flex-col.p-4.pt-2 {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+#nd-sidebar .flex.flex-col.p-4.pt-2 > :first-child {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

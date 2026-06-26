@@ -12,9 +12,7 @@
     "pdf",
     "xml",
     "errors",
-    "---Remote signers---",
-    "providers",
-    "---Components---",
-    "components"
+    "providers/index",
+    "components/index"
   ]
 }

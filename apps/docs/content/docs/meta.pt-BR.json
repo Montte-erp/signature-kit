@@ -12,9 +12,7 @@
     "pdf",
     "xml",
     "errors",
-    "---Assinadores remotos---",
-    "providers",
-    "---Componentes---",
-    "components"
+    "providers/index",
+    "components/index"
   ]
 }
