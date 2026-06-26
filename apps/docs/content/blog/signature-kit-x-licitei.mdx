@@ -1,290 +1,126 @@
 ---
-title: "SignatureKit × Licitei"
-description: "Licitei builds beautiful PDFs with @react-pdf/renderer — but react-pdf can't sign them, and the A1 certificate lives behind a presigned URL. Here's how SignatureKit closes that gap: render, stamp a rubric on every page, place the signature, and sign with an A1 cert streamed straight from object storage."
+title: "SignatureKit × Licitei: signing in the browser, without per-signature fees"
+description: "Licitei is one of Brazil's largest procurement platforms. Every bid means signing dozens of proposals and qualification declarations with an A1 certificate — and paid e-signature APIs charge per signature. Here's how Montte and Licitei moved the whole thing into the browser, where signing is free, stays in the flow, and the certificate never leaves the device."
 date: "2026-06-26"
 author: "Montte"
 ---
 
-[Licitei](https://licitei.com.br) builds its documents with [`@react-pdf/renderer`](https://react-pdf.org) and marks where the signature belongs with its own React component. That is a great authoring story and a bad signing story: the bytes that come out of `@react-pdf/renderer` are a plain PDF with no signature field, and the A1 certificate that has to sign them lives in object storage behind a presigned URL — not on the server's disk.
+[Licitei](https://licitei.com.br) is one of the largest public-procurement (*licitação*) platforms in Brazil. To bid, a user has to sign: every proposal (*proposta*) and every qualification declaration (*declaração de habilitação*) needs a real digital signature with the bidder's A1 certificate.
 
-So how do you turn a beautiful-but-unsigned react-pdf document into a PAdES-signed PDF, with a rubric on every page, using a certificate you never want to write to disk? That is exactly the seam `@signature-kit` was built for — and it closes the gap without caring how the PDF was produced.
+That sounds solved — plug in an e-signature API and move on. Except the economics don't work.
 
-This post walks the flow end to end. We render the template, stamp a visible rubric on every page, resolve where the visible signature goes (the marked field if Licitei placed one, otherwise auto-placement), and provide the `Signatures` boundary straight from the presigned `.pfx` URL.
+## The cost of a signature
+
+Paid e-signature services price **per signature**. For one document that's fine. But a *licitação* is never one document: a bidder signs **dozens of documents at once**, every single time they enter a bid. Multiply per-signature pricing by dozens of documents, by thousands of bidders, by every bid they file, and the line item stops being a feature cost — it becomes the product's cost.
+
+The obvious escape — "let the user sign somewhere else and upload the result" — is worse. It breaks the flow: the bidder leaves Licitei mid-bid, wrestles with another tool, comes back, re-uploads. In a process where bids close at a fixed minute, that friction loses bids.
+
+## Why "A1 signing" still costs so much
+
+Here's the part that's easy to miss. Most services that *do* support A1 certificates still charge heavily for it, and the reason is architectural: they sign **on a server**. The user hands over the `.pfx` (or a managed key vault holds it) along with the document; the service signs server-side and returns the result.
+
+Server-side signing means infrastructure to run, a private key that leaves the user's machine, liability to carry, and a meter to bill against. The per-signature price isn't paying for the cryptography — an RSA signature over a hash is microseconds. It's paying for the *server*.
+
+So Montte and Licitei asked the obvious question: what if the server isn't in the loop at all?
+
+## Sign in the browser
+
+`@signature-kit` runs the **entire signing flow in the browser**. The PDF bytes, the A1 `.p12`/`.pfx` container, and its password stay in the page's local memory and never make a network request. PAdES is computed client-side; the app gets back finished, signed bytes to download or store.
 
 ```package-install
-@signature-kit/react @signature-kit/pdf @signature-kit/a1 @react-pdf/renderer
+@signature-kit/react @signature-kit/pdf @signature-kit/a1
 ```
 
-<Callout type="info" title="One flow, two placement modes">
-  If the React-PDF template carries a signature field, the visible signature lands exactly there
-  (`pdfSignatureAppearanceFromField`). If it does not, `signPdf` places it for you with
-  `appearance.placement.kind: "auto"`. Same signer, same certificate, same PAdES output.
+<Callout type="error" title="Nothing leaves the device">
+  The document, the `.pfx`, and the password live only in the browser tab. The password is wrapped as `Redacted`
+  before it reaches `a1SignaturesLayer`, so it never lands in a log or an error message. No request is made — the
+  private key never travels.
 </Callout>
 
 ## The flow
 
 <Steps>
-  <Step title="Render the React-PDF template to bytes">
-    `renderReactSignatureTemplatePdf` validates the template and the render options and produces the draft PDF bytes
-    as an `Effect`. This is the document Licitei assembled — pages, labels, and the marked signature position — turned
-    into a `Uint8Array` ready to stamp and sign.
+  <Step title="Read each uploaded PDF as bytes">
+    `readBrowserFileBytes` turns a `File`/`Blob` into a `Uint8Array`, all in memory. Failures are typed
+    (`react.FILE_READ_FAILED`), never a thrown exception.
 
-    ```ts title="1-render.ts"
-    import { renderReactSignatureTemplatePdf } from "@signature-kit/react/react-pdf"
-    import { Effect } from "effect"
+    ```ts title="read.ts"
+    import { readBrowserFileBytes } from "@signature-kit/react/browser-pdf"
 
-    // `template` is your ReactSignatureTemplate — the same object Licitei marks
-    // the signature position on with its custom field component.
-    const pdfBytes: Uint8Array = await Effect.runPromise(
-      renderReactSignatureTemplatePdf(template, { title: "Edital — proposta" }),
-    )
-    ```
-
-    ```ts
-    renderReactSignatureTemplatePdf(
-      template: ReactSignatureTemplate,
-      options?: ReactPdfRenderOptions,
-    ): Effect.Effect<Uint8Array, ReactIntegrationError>
+    const bytes = await Effect.runPromise(readBrowserFileBytes(file))
     ```
   </Step>
 
-  <Step title="Stamp a name-derived rubric on every page">
-    A PAdES signature is a single CMS over the whole document; its widget carries no visible appearance. The Brazilian
-    *rubrica em todas as páginas* is therefore drawn as ordinary page content **before** signing — one
-    `stampPdfRubric` call with `pages: "all"`, so the same rubric repeats on every page and the later signature's byte
-    range covers all of it.
+  <Step title="Build the template and place the signature">
+    `createBrowserPdfSignatureBuilderState` loads the PDF's pages with pdf-lib and produces a validated template with
+    the signature field positioned — explicitly, or auto-placed. Its `template` is what the signer consumes.
 
-    `rect` is `[left, bottom, right, top]` in PDF points with a **bottom-left origin**. Keeping `left` small pins the
-    rubric to the left margin of each page.
+    ```ts title="build.ts"
+    import { createBrowserPdfSignatureBuilderState } from "@signature-kit/react/browser-pdf"
 
-    ```ts title="2-stamp.ts"
-    import { stampPdfRubric } from "@signature-kit/pdf/stamp"
-    import { Effect } from "effect"
-
-    // Name-derived initials: "Maria Auxiliadora Costa" -> "MAC".
-    const initials = (name: string) =>
-      name
-        .split(/\s+/)
-        .filter(Boolean)
-        .map((part) => part[0]!.toUpperCase())
-        .join("")
-
-    const stampedPdf: Uint8Array = await Effect.runPromise(
-      stampPdfRubric(pdfBytes, {
-        rect: [24, 24, 132, 78], // left margin, bottom-left origin
-        pages: "all",
-        lines: [initials("Maria Auxiliadora Costa")],
-        border: true,
+    const state = await Effect.runPromise(
+      createBrowserPdfSignatureBuilderState({
+        id: "proposta",
+        name: file.name,
+        documentId: "proposta",
+        documentName: file.name,
+        pdf: bytes,
+        role: { id: "signer-1", label: "Licitante", required: true },
+        draft: { id: "sig", type: "signature", roleId: "signer-1", width: 180, height: 48 },
+        placement: { pageIndex: 0, x: 360, y: 96, anchor: "center" },
       }),
     )
     ```
-
-    ```ts
-    stampPdfRubric(
-      pdf: Uint8Array,
-      stamp: PdfRubricStamp,
-    ): Effect.Effect<Uint8Array, PdfError>
-    ```
-
-    <TypeTable
-      type={{
-        rect: { type: "[number, number, number, number]", required: true, description: "[left, bottom, right, top] in PDF points, bottom-left origin." },
-        pages: { type: '"all" | number[]', description: 'Which pages to stamp. Default: "all".' },
-        lines: { type: "string[]", description: "Text lines to draw — e.g. the name-derived initials." },
-        imagePng: { type: "Uint8Array", description: "PNG bytes to draw instead of (or alongside) the lines." },
-        border: { type: "boolean", description: "Draw the framing rectangle. Default: true." },
-      }}
-    />
   </Step>
 
-  <Step title="Resolve where the visible signature goes">
-    If Licitei marked a signature field on the template, derive the appearance from it — the visible signature lands on
-    that exact rect. `pdfSignatureAppearanceFromField` converts the field's top-left builder rect into the bottom-left
-    `widgetRect` the PAdES signer expects.
+  <Step title="Sign every bid document in one batch">
+    `signBrowserPdfBatch` signs the whole set under **one** `a1SignaturesLayer` — the certificate is unlocked once and
+    reused for every document. It signs strictly one-by-one, and a document that fails is captured as
+    `{ ok: false, error }` instead of aborting the run, so you always get one result per input, in order. `onItemSettled`
+    fires as each finishes, so the UI can stream progress and hand each signed file straight back to the bid.
 
-    ```ts title="3a-marked-field.ts"
-    import { pdfSignatureAppearanceFromField } from "@signature-kit/react/builder"
-    import type { PdfSignatureAppearance } from "@signature-kit/pdf/config"
-    import { Effect } from "effect"
-
-    const appearance: PdfSignatureAppearance = await Effect.runPromise(
-      pdfSignatureAppearanceFromField(template, "field-signer-1"),
-    )
-    // -> { pageIndex, widgetRect: [left, bottom, right, top] }
-    ```
-
-    If there is no marked field, hand the placement to `signPdf` with `kind: "auto"`. It looks for an existing empty
-    signature slot that matches the anchor and, finding none, picks a collision-free rect on the chosen page.
-
-    ```ts title="3b-auto-placement.ts"
-    import type { PdfSignatureAppearance } from "@signature-kit/pdf/config"
-
-    const appearance: PdfSignatureAppearance = {
-      placement: {
-        kind: "auto",
-        page: "last",          // "first" | "last"; default "last"
-        anchor: "bottom-right",
-        width: 180,
-        height: 54,
-        margin: 36,
-        gap: 8,
-      },
-    }
-    ```
-
-    <Callout type="warn" title="Auto-placement is only reachable through signPdf">
-      The browser helper `signBrowserPdf` always derives `{ pageIndex, widgetRect }` from a builder field and never sets
-      `placement`. To use `kind: "auto"` you must call `signPdf` directly with an `appearance` object — which is exactly
-      what this flow does.
-    </Callout>
-  </Step>
-
-  <Step title="Provide the A1 certificate from a presigned URL and sign">
-    `a1SignaturesLayerFromUrl` fetches the PKCS#12 (`.pfx`) bytes from the presigned URL with a `GET`, decrypts them
-    with the password, and exposes the agnostic `Signatures` service as a `Layer`. `signPdf` requires that boundary, so
-    you `Effect.provide` the layer before running. The certificate is streamed straight into memory — it never touches
-    the server's disk.
-
-    The password is a `Redacted<string>`, so it stays out of logs and error messages. Wrap it with `Redacted.make`.
-
-    ```ts title="4-sign.ts"
-    import { a1SignaturesLayerFromUrl } from "@signature-kit/a1/signer"
-    import { signPdf } from "@signature-kit/pdf/sign"
+    ```ts title="sign-batch.ts"
+    import { signBrowserPdfBatch } from "@signature-kit/react/browser-pdf"
+    import { a1SignaturesLayer } from "@signature-kit/a1/signer"
     import { Effect, Redacted } from "effect"
 
-    const signaturesLayer = a1SignaturesLayerFromUrl({
-      url: presignedPfxUrl,                 // e.g. an S3 GET URL with a token
-      password: Redacted.make(pfxPassword),
-      // headers: { Authorization: `Bearer ${token}` }, // if not baked into the URL
-    })
-
-    const signedPdf: Uint8Array = await Effect.runPromise(
-      signPdf({
-        pdf: stampedPdf,
-        appearance,                 // marked field OR auto placement, from step 3
-        reason: "Assinatura da proposta",
-        name: "Maria Auxiliadora Costa",
-        policy: "pades-ades",       // local PAdES — no network policy fetch
-      }).pipe(Effect.provide(signaturesLayer)),
+    // `items` = one { id, input } per uploaded document, built with the step above.
+    const results = await Effect.runPromise(
+      signBrowserPdfBatch(items, {
+        onItemSettled: (result, index, total) => {
+          if (result.ok) attachToBid(result.id, result.signedPdf)
+          else markFailed(result.id, result.error.message)
+        },
+      }).pipe(
+        // The certificate is provided ONCE, for the whole batch, and never leaves the tab.
+        Effect.provide(a1SignaturesLayer({ pfx, password: Redacted.make(password) })),
+      ),
     )
     ```
-
-    ```ts
-    a1SignaturesLayerFromUrl(
-      source: A1RemoteSource,
-    ): Layer.Layer<Signatures, SignatureKitError>
-
-    signPdf(
-      input: PdfSigningRequest,
-    ): Effect.Effect<Uint8Array, PdfError | CmsError | SignatureKitError, Signatures>
-    ```
-
-    <Callout type="info" title="Need the raw bytes first?">
-      To inspect or reuse the container before signing, `fetchA1Pkcs12({ url, headers? })` returns the `.pfx` bytes as
-      `Effect.Effect<Uint8Array, SignatureKitError>`. `a1SignaturesLayerFromUrl` is built on top of it.
-    </Callout>
   </Step>
 </Steps>
 
-## End to end
+That is the whole thing: dozens of documents, one certificate, one pass — and not a single byte sent to a server.
 
-The four steps as one Effect program. The marked field is preferred; auto-placement is the fallback when the template
-carries no signature field.
-
-```ts title="sign-licitei-document.ts"
-import { renderReactSignatureTemplatePdf } from "@signature-kit/react/react-pdf"
-import { pdfSignatureAppearanceFromField } from "@signature-kit/react/builder"
-import { stampPdfRubric } from "@signature-kit/pdf/stamp"
-import { signPdf } from "@signature-kit/pdf/sign"
-import { a1SignaturesLayerFromUrl } from "@signature-kit/a1/signer"
-import type { ReactSignatureTemplate } from "@signature-kit/react/config"
-import type { PdfSignatureAppearance } from "@signature-kit/pdf/config"
-import { Effect, Redacted } from "effect"
-
-type SignInput = {
-  readonly template: ReactSignatureTemplate
-  readonly signerName: string
-  readonly markedFieldId?: string // set by Licitei's signature component, if any
-  readonly presignedPfxUrl: string
-  readonly pfxPassword: string
-}
-
-const initials = (name: string) =>
-  name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => part[0]!.toUpperCase())
-    .join("")
-
-const signLiciteiDocument = (input: SignInput) =>
-  Effect.gen(function* () {
-    // 1. Render the React-PDF template Licitei assembled.
-    const pdfBytes = yield* renderReactSignatureTemplatePdf(input.template, {
-      title: "Edital — proposta",
-    })
-
-    // 2. Rubric on the left of every page (covered by the signature's byte range).
-    const stamped = yield* stampPdfRubric(pdfBytes, {
-      rect: [24, 24, 132, 78],
-      pages: "all",
-      lines: [initials(input.signerName)],
-      border: true,
-    })
-
-    // 3. Marked field when present, else auto-placement.
-    const appearance: PdfSignatureAppearance =
-      input.markedFieldId === undefined
-        ? { placement: { kind: "auto", page: "last", anchor: "bottom-right", width: 180, height: 54 } }
-        : yield* pdfSignatureAppearanceFromField(input.template, input.markedFieldId)
-
-    // 4. Provide the A1 boundary from the presigned URL and sign.
-    return yield* signPdf({
-      pdf: stamped,
-      appearance,
-      reason: "Assinatura da proposta",
-      name: input.signerName,
-      policy: "pades-ades",
-    }).pipe(
-      Effect.provide(
-        a1SignaturesLayerFromUrl({
-          url: input.presignedPfxUrl,
-          password: Redacted.make(input.pfxPassword),
-        }),
-      ),
-    )
-  })
-
-const signedPdf: Uint8Array = await Effect.runPromise(
-  signLiciteiDocument({
-    template,
-    signerName: "Maria Auxiliadora Costa",
-    markedFieldId: "field-signer-1", // omit for auto-placement
-    presignedPfxUrl: "https://storage.example.com/cert.pfx?token=…",
-    pfxPassword: "…",
-  }),
-)
-```
-
-## Why this works
-
-Step back and the four moving parts each solve a distinct piece of the Licitei problem:
-
-- **Agnostic to how the PDF was built.** `signPdf` takes bytes. It does not know or care that `@react-pdf/renderer`
-  produced them — the same signer works for templates, scanned documents, or anything else. Licitei keeps its authoring
-  stack untouched and gains PAdES signing.
-- **The marked position is honoured, with a safety net.** When Licitei's component drops a signature field,
-  `pdfSignatureAppearanceFromField` lands the visible signature on that exact rect. When it does not, `kind: "auto"`
-  finds a clean spot instead of failing. One code path covers both documents.
-- **A1 by presigned URL — the certificate never hits disk.** `a1SignaturesLayerFromUrl` streams the `.pfx` from object
-  storage straight into the `Signatures` boundary in memory. No temp files, no certificate checked into the server, and
-  the password stays `Redacted`. Rotating the certificate is just rotating the URL.
-- **One signature, rubric on every page.** Stamping before signing means a single CMS backs the rubric repeated across
-  all pages — not one signature per page — which is what the *rubrica em todas as páginas* requirement actually wants.
-
-<Callout type="warn" title="Keep it local: pades-ades">
-  This flow signs with `policy: "pades-ades"`, which is fully local. `pades-icp-brasil` fetches the ICP-Brasil policy
-  over the network — avoid it unless you specifically need the ICP-Brasil signature policy embedded.
+<Callout type="info" title="It still meets the Brazilian requirements">
+  The output is PAdES. Need the *rubrica em todas as páginas*? Stamp it before signing with `stampPdfRubric({ pages: "all" })`,
+  so a single signature's byte range covers every page. Need the ICP-Brasil policy embedded? Pass `icpBrasil` to the
+  signing input. None of it changes where the signing happens — still the browser.
 </Callout>
+
+## What this changed for Licitei
+
+- **Zero marginal cost per signature.** The expensive part was the server, and there is no server. Signing dozens of
+  documents per bid costs the same as signing one: nothing.
+- **The certificate never leaves the device.** The `.pfx` and its password stay in the tab, `Redacted` end to end.
+  That is the strongest possible answer to "where did my private key go?" — it didn't go anywhere.
+- **It stays in the flow.** The bidder never leaves Licitei. Upload, place, sign the batch, attach — inside the same
+  screen, against the same deadline.
+- **One bad document doesn't sink the batch.** A failed signature is a typed result, not an exception. The other
+  documents still sign; the failure surfaces with a code you can act on.
+
+The cryptography was never the hard part. Moving it off the server — and keeping it typed, batched, and in the browser —
+is what made digital-certificate signing something Licitei could simply *include*, rather than meter.
 
 ## Keep reading
 
@@ -292,7 +128,7 @@ Step back and the four moving parts each solve a distinct piece of the Licitei p
   <Card title="Browser signing (live demo)" href="/docs/components/browser-signing">
     The same primitives wired into an in-browser island: upload, place, add an A1 certificate, and sign a batch — bytes and password never leave the page.
   </Card>
-  <Card title="Render React-PDF" href="/docs/components/react-pdf">
-    More on renderReactSignatureTemplatePdf and how a field rect becomes a PAdES widgetRect.
+  <Card title="A1 certificates" href="/docs/certificates">
+    How the A1 / PKCS#12 container is read and turned into the Signatures boundary.
   </Card>
 </Cards>
