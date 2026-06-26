@@ -4,6 +4,7 @@ import {
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
   SignatureKitSchemaNameValue,
+  redactedStringSchema,
   remoteSignatureInputFromProps,
   validRemoteSignatureRequest,
 } from "@signature-kit/core/config";
@@ -21,7 +22,6 @@ import {
   decodeRemoteOptions,
   decodeRemoteShape,
   normalizedBaseUrl,
-  signatureHttpClientLive,
 } from "@signature-kit/core/http";
 import type { SignatureHttpClientService } from "@signature-kit/core/http";
 import { Resource } from "alchemy";
@@ -29,35 +29,39 @@ import * as Provider from "alchemy/Provider";
 import { Context, Effect, Layer, Redacted, Schema } from "effect";
 
 const PROVIDER: RemoteSignatureProvider = "assinafy";
+const ASSINAFY_SIGNATURE_REQUEST_TYPE = "SignatureKit.AssinafySignatureRequest";
+const ASSINAFY_PROVIDER_COLLECTION_ID = "SignatureKitAssinafy";
 const SANDBOX_BASE_URL = "https://sandbox.assinafy.com.br";
 const PRODUCTION_BASE_URL = "https://api.assinafy.com.br";
 
-const redactedString: Schema.ConstraintDecoder<Redacted.Redacted<string>> = Schema.Redacted(
-  Schema.String,
-);
-
 const AssinafyEnvironmentSchema = Schema.Literals(["production", "sandbox"]);
-export const assinafyEnvironmentSchema = AssinafyEnvironmentSchema;
-export type AssinafyEnvironment = (typeof assinafyEnvironmentSchema)["Type"];
+export type AssinafyEnvironment = (typeof AssinafyEnvironmentSchema)["Type"];
 
 export const AssinafyProviderOptionsSchema = Schema.Struct({
   accountId: Schema.NonEmptyString,
   environment: Schema.optional(AssinafyEnvironmentSchema),
   baseUrl: Schema.optional(Schema.NonEmptyString),
-  apiKey: Schema.optional(redactedString),
-  accessToken: Schema.optional(redactedString),
+  apiKey: Schema.optional(redactedStringSchema),
+  accessToken: Schema.optional(redactedStringSchema),
 });
 export type AssinafyProviderOptions = (typeof AssinafyProviderOptionsSchema)["Type"];
-export const assinafyProviderOptionsSchema = AssinafyProviderOptionsSchema;
-type AssinafyResolvedOptions =
-  | (Omit<AssinafyProviderOptions, "apiKey" | "accessToken"> & {
-      readonly apiKey: Redacted.Redacted<string>;
-      readonly accessToken?: never;
-    })
-  | (Omit<AssinafyProviderOptions, "apiKey" | "accessToken"> & {
-      readonly apiKey?: never;
-      readonly accessToken: Redacted.Redacted<string>;
-    });
+const AssinafyApiKeyOptionsSchema = Schema.Struct({
+  accountId: Schema.NonEmptyString,
+  environment: Schema.optional(AssinafyEnvironmentSchema),
+  baseUrl: Schema.optional(Schema.NonEmptyString),
+  apiKey: redactedStringSchema,
+});
+const AssinafyAccessTokenOptionsSchema = Schema.Struct({
+  accountId: Schema.NonEmptyString,
+  environment: Schema.optional(AssinafyEnvironmentSchema),
+  baseUrl: Schema.optional(Schema.NonEmptyString),
+  accessToken: redactedStringSchema,
+});
+const AssinafyResolvedOptionsSchema = Schema.Union([
+  AssinafyApiKeyOptionsSchema,
+  AssinafyAccessTokenOptionsSchema,
+]);
+type AssinafyResolvedOptions = (typeof AssinafyResolvedOptionsSchema)["Type"];
 
 const AssinafyDocumentResultSchema = Schema.Struct({
   data: Schema.Struct({
@@ -86,13 +90,13 @@ const AssinafyAssignmentResultSchema = Schema.Struct({
 });
 
 export type AssinafySignatureRequestResource = Resource<
-  "SignatureKit.AssinafySignatureRequest",
+  typeof ASSINAFY_SIGNATURE_REQUEST_TYPE,
   RemoteSignatureRequestProps,
   RemoteSignatureRequest
 >;
 
 export const AssinafySignatureRequest = Resource<AssinafySignatureRequestResource>(
-  "SignatureKit.AssinafySignatureRequest",
+  ASSINAFY_SIGNATURE_REQUEST_TYPE,
   { defaultRemovalPolicy: "retain" },
 );
 
@@ -107,7 +111,7 @@ export const assinafyCredentialsLayer = (
   Layer.effect(
     AssinafyCredentials,
     decodeRemoteOptions(
-      assinafyProviderOptionsSchema,
+      AssinafyProviderOptionsSchema,
       SignatureKitSchemaNameValue.assinafyProviderOptions,
       PROVIDER,
       options,
@@ -151,7 +155,7 @@ const assinafyBaseUrl = (options: AssinafyProviderOptions): string => {
 };
 
 const authHeaders = (options: AssinafyResolvedOptions): HeadersInit => {
-  if (options.apiKey !== undefined) {
+  if ("apiKey" in options) {
     return { "X-Api-Key": Redacted.value(options.apiKey) };
   }
   return { Authorization: bearerAuthorization(options.accessToken) };
@@ -339,14 +343,13 @@ export const AssinafySignatureRequestProvider = () =>
   );
 
 export class AssinafyProviders extends Provider.ProviderCollection<AssinafyProviders>()(
-  "SignatureKitAssinafy",
+  ASSINAFY_PROVIDER_COLLECTION_ID,
 ) {}
 
 export const providers = (options: AssinafyProviderOptions) =>
   Layer.effect(AssinafyProviders, Provider.collection([AssinafySignatureRequest])).pipe(
     Layer.provide(AssinafySignatureRequestProvider()),
     Layer.provide(assinafyCredentialsLayer(options)),
-    Layer.provide(signatureHttpClientLive),
   );
 
 export const createAssinafySignatureRequest = (
@@ -354,7 +357,7 @@ export const createAssinafySignatureRequest = (
   input: RemoteSignatureRequestInput,
 ): Effect.Effect<RemoteSignatureRequest, SignatureKitError, SignatureHttpClient> =>
   decodeRemoteOptions(
-    assinafyProviderOptionsSchema,
+    AssinafyProviderOptionsSchema,
     SignatureKitSchemaNameValue.assinafyProviderOptions,
     PROVIDER,
     options,

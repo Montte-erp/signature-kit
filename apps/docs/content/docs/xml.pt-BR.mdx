@@ -1,0 +1,133 @@
+---
+title: XML-DSig
+description: "Assine documentos XML com signXml e valide-os com verifyXml: referência enveloped, certificado X.509 embutido no KeyInfo e verificação fora da camada de assinatura."
+---
+
+**O que você vai fazer:** assinar uma string XML com `signXml` na camada do `Signatures`, depois validar o resultado com `verifyXml` — que não exige signatário e roda em qualquer lugar. O algoritmo padrão é `"rsa-sha256"`, e o certificado X.509 é colocado no `KeyInfo` automaticamente.
+
+<Steps>
+  <Step title="Instale o pacote">
+    O formato XML vive em `@signature-kit/xml`. Ele consome o serviço `Signatures` fornecido por um signatário.
+
+    ```package-install
+    @signature-kit/xml
+    ```
+  </Step>
+
+  <Step title="Assine um documento XML">
+    `signXml` recebe um `XmlSigningRequest` e retorna um `Effect<string, XmlError | SignatureKitError, Signatures>` — a saída é o XML assinado como string. O requisito `Signatures` é satisfeito com `Effect.provide(a1SignaturesLayer(...))`: o poder de assinatura vem do A1, e o módulo de formato só cuida da mutação do documento.
+
+    ```ts title="sign-xml.ts"
+    import { signXml } from "@signature-kit/xml/sign"
+    import { xmlRuntimeLayer } from "@signature-kit/xml/engine"
+    import { a1SignaturesLayer } from "@signature-kit/a1/signer"
+    import { Effect, Redacted } from "effect"
+
+    const layer = a1SignaturesLayer({
+      pfx,                                       // Uint8Array — bytes of the .pfx/.p12
+      password: Redacted.make(process.env.A1_PASSWORD ?? ""),
+    })
+
+    // signXml -> Effect<string, XmlError | SignatureKitError, Signatures | XmlRuntime>
+    const signed: string = yield* signXml({
+      xml,                                       // string — input document
+      referenceId: "nfe-1",
+    }).pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer))
+    // 'signed' is the signed XML, with the embedded <Signature>
+    ```
+
+    <Callout type="info">
+      `verifyXml` não tem requisito `Signatures` — apenas `signXml` precisa da camada de assinatura. Você
+      assina com a layer e verifica sem ela.
+    </Callout>
+  </Step>
+
+  <Step title="Reference and enveloped">
+    `referenceId` define o alvo da assinatura enveloped: passar `referenceId: "nfe-1"` produz uma `Reference` com URI `"#nfe-1"`, apontando para o elemento de mesmo `Id` dentro do próprio documento. Os demais campos de `XmlSigningRequest` são opcionais:
+
+    ```ts title="request-xml.ts"
+    // XmlSigningRequest — only 'xml' is required
+    const signed = yield* signXml({
+      xml,
+      algorithm: "rsa-sha256",                   // default; or "rsa-sha512"
+      referenceId: "nfe-1",                      // -> Reference URI "#nfe-1"
+      signatureId: "SignatureKit-NFe",              // id of the <Signature> element
+      signingTime: new Date(),
+    }).pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer))
+    ```
+
+    Sem `algorithm`, o padrão `"rsa-sha256"` é aplicado; a outra opção é `"rsa-sha512"`. O certificado X.509 do signatário é embutido no próprio `KeyInfo` da assinatura, então o verificador não precisa da chave por fora — a menos que você queira fixá-la (veja [verificação com uma chave explícita](#verification-with-an-explicit-key)).
+  </Step>
+
+  <Step title="NF-e framing">
+    A NF-e é um caso concreto típico: o `Id` de `infNFe` é a chave de acesso, e a assinatura aponta para ele. Use a chave de acesso como `referenceId` para que a URI fique `"#NFe35..."`.
+
+    ```ts title="sign-nfe.ts"
+    // NF-e: the id of <infNFe> is the target of the enveloped reference
+    const xml = `<NFe xmlns="http://www.portalfiscal.inf.br/nfe">
+      <infNFe Id="NFe35200114200166000187550010000000071234567890" versao="4.00">
+        <!-- ide, emit, dest, det, total, transp, ... -->
+      </infNFe>
+    </NFe>`
+
+    const signed = yield* signXml({
+      xml,
+      referenceId: "NFe35200114200166000187550010000000071234567890",
+    }).pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer))
+    // the <Signature> is inserted as a sibling of <infNFe>, pointing to "#NFe35..."
+    ```
+
+    <Callout type="info">
+      A string de saída é o XML pronto para enviar. Como `signXml` retorna `string`, você pode serializá-la
+      direto no payload da SEFAZ sem etapas intermediárias.
+    </Callout>
+  </Step>
+
+  <Step title="Verifique a assinatura">
+    `verifyXml` recebe um `XmlVerificationRequest` e retorna `Effect<XmlVerificationResult, XmlError>`. Não há requisito `Signatures`: a verificação usa o certificado embutido no `KeyInfo`. Use `requireReferenceUri` para exigir que uma URI específica esteja presente entre as referências assinadas.
+
+    ```ts title="verify-xml.ts"
+    import { verifyXml } from "@signature-kit/xml/verify"
+    import { xmlRuntimeLayer } from "@signature-kit/xml/engine"
+    import { Effect } from "effect"
+
+    // verifyXml -> Effect<XmlVerificationResult, XmlError, XmlRuntime>
+    // NO Signatures requirement: runs outside the signer boundary
+    const result = yield* verifyXml({
+      xml: signed,
+      requireReferenceUri: "#nfe-1",             // fails if the URI does not exist
+    }).pipe(Effect.provide(xmlRuntimeLayer))
+
+    // XmlVerificationResult
+    result.valid           // boolean
+    result.signatureCount  // number — how many <Signature> elements were verified
+    result.referenceUris   // readonly string[] — e.g. ["#nfe-1"]
+    ```
+
+    O resultado expõe `valid` (a assinatura confere), `signatureCount` (quantos elementos `<Signature>` foram verificados) e `referenceUris` (as URIs de referência encontradas, como `["#nfe-1"]`).
+  </Step>
+
+  <Step title="Verification with an explicit key">
+    Por padrão, a chave pública vem do certificado embutido. Para fixar a chave esperada — ignorando o que estiver no `KeyInfo` — passe `publicKeyDer` (o `SubjectPublicKeyInfo` em DER). Útil quando você já confia em uma chave específica e não quer aceitar a que veio no documento.
+
+    ```ts title="verify-key.ts"
+    // Verification with an explicit key (instead of the cert embedded in KeyInfo)
+    const result = yield* verifyXml({
+      xml: signed,
+      publicKeyDer,                              // Uint8Array — SubjectPublicKeyInfo DER
+      requireReferenceUri: "#nfe-1",
+    })
+    // result.valid: boolean
+    ```
+  </Step>
+</Steps>
+
+## Erros que você pode encontrar
+
+Toda falha de assinatura é um `SignatureKitError` tipado no canal de erro; falhas específicas de parsing/canonicalização de XML chegam como `XmlError`. As mais comuns:
+
+<Cards>
+  <Card title="signature-kit.INVALID_INPUT" href="/docs/errors#error-catalog">O XML não corresponde ao referenceId fornecido, ou não há elemento com esse Id.</Card>
+  <Card title="signature-kit.SIGN_FAILED" href="/docs/errors#error-catalog">A operação de assinatura sobre o digest não pôde ser concluída.</Card>
+  <Card title="signature-kit.VERIFY_FAILED" href="/docs/errors#error-catalog">A verificação não confere (result.valid seria false, ou a URI exigida não está presente).</Card>
+</Cards>

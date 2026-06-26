@@ -1,0 +1,55 @@
+---
+title: ZapSign
+description: "Create ZapSign documents with createZapSignSignatureRequest(...), a Redacted API token, and the official REST endpoint."
+---
+
+ZapSign is a remote signer that talks directly to `POST /api/v1/docs/`, with no intermediate gateway. Install the package and create the document in two steps.
+
+<Steps>
+  <Step title="Install">
+    Add the core runtime and the ZapSign provider package.
+
+    ```package-install
+    @signature-kit/core @signature-kit/zapsign
+    ```
+  </Step>
+
+  <Step title="Create the document">
+    The function sends `base64_pdf`, signers, and `Authorization: Bearer` authentication. The response normalizes `token`, `status`, and the first `sign_url` into a `RemoteSignatureRequest`.
+
+    ```ts title="zapsign.ts"
+    import { createZapSignSignatureRequest } from "@signature-kit/zapsign"
+    import { signatureHttpClientLive } from "@signature-kit/core/http"
+    import { Effect, Redacted } from "effect"
+
+    const request = yield* createZapSignSignatureRequest(
+      {
+        apiToken: Redacted.make(process.env.ZAPSIGN_API_TOKEN ?? ""),
+        environment: "sandbox",
+        locale: "pt-br",
+      },
+      {
+        title: "Contract",
+        message: "Sign to complete.",
+        documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
+        recipients: [{ name: "Davi Rocha", email: "davi@example.com", role: "signer" }],
+      },
+    ).pipe(Effect.provide(signatureHttpClientLive))
+
+    // request.provider === "zapsign"
+    // request.signingUrl holds the first signing link returned by ZapSign
+    ```
+  </Step>
+</Steps>
+
+## API limit
+
+The current implementation accepts a single PDF per request, aligned with ZapSign's documented upload flow.
+
+<Callout type="warn" title="One PDF per request">
+  Multiple documents or any other MIME type fail as `signature-kit.UNSUPPORTED_OPERATION`.
+</Callout>
+
+## Errors
+
+Input, HTTP, and response-shape failures use `SignatureKitError`, with `provider: "zapsign"` and structured metadata when available.

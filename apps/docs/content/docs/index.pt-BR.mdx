@@ -1,0 +1,78 @@
+---
+title: Introdução
+description: Uma única camada de assinatura para TypeScript — A1 no navegador ou no servidor, XML-DSig e PDF/PAdES sobre a mesma costura, provedores remotos como pacotes próprios.
+icon: Rocket
+---
+
+SignatureKit é uma biblioteca de assinatura nativa de Effect para TypeScript. Você define um único `SignerAdapter` — de onde vem o poder de assinar — e o resto se conecta a ele: XML-DSig, PDF/PAdES ICP-Brasil, uma demonstração de A1 no navegador e provedores remotos como o DocuSign. Trocar o backend por trás da camada nunca toca no seu código de assinatura, e toda falha é um `SignatureKitError` tipado, não uma exceção lançada.
+
+```text
+                        Application
+                            |
+                            v
+              +---------------------------+
+              |    Signatures service     |
+              |  inspect / sign / verify  |
+              +---------------------------+
+                            |
+              ---- one boundary: SignerAdapter ----
+              |             |             |
+              v             v             v
+         A1 / PKCS#12    Formats       Remote
+         (browser /      XML-DSig      providers
+          server)        PDF/PAdES     (DocuSign, ...)
+```
+
+Você fornece o signer como um `Layer`. O serviço `Signatures` expõe `inspect`, `sign` e `verify` — o programa abaixo nunca sabe se a chave veio do navegador, do servidor ou de qualquer outro lugar.
+
+```ts title="signature-kit.ts"
+import { a1SignaturesLayer } from "@signature-kit/a1/signer"
+import { signatures } from "@signature-kit/core/signatures"
+import { Effect, Redacted } from "effect"
+
+export const program = Effect.gen(function* () {
+  const identity = yield* signatures.inspect()
+  const artifact = yield* signatures.sign({ content, algorithm: "rsa-sha256" })
+  return { identity, artifact }
+}).pipe(
+  Effect.provide(
+    a1SignaturesLayer({
+      pfx,
+      password: Redacted.make("certificate-password"),
+    }),
+  ),
+)
+```
+
+## Por que SignatureKit
+
+- **Uma camada, muitos formatos.** `signatures.sign`, `signXml` e `signPdf` rodam todos sobre o mesmo `SignerAdapter`. Troque o argumento de `signaturesLayer` e o trabalho de assinatura permanece idêntico.
+- **A1 no navegador ou no servidor.** O mesmo signer PKCS#12 de e-CPF / e-CNPJ roda em um serviço Node ou diretamente no navegador — experimente o signer ao vivo no navegador na página de [assinatura no navegador](/docs/components/browser-signing).
+- **Sem gateway de provedores.** O SignatureKit não normaliza signers remotos em uma única interface. DocuSign, Clicksign, Assinafy, ZapSign, DocuSeal, Adobe Acrobat Sign, Dropbox Sign e Documenso são cada um seu próprio pacote e função, compartilhando apenas o formato do Effect.
+- **Um canal de erros tipado.** Um único `SignatureKitError` com dezoito códigos literais percorre cada chamada, então as falhas são valores que você trata com correspondência de padrões, nunca exceções que você captura por acidente.
+- **Nativo de Effect, segredos com Redacted.** Tudo é um `Effect`; senhas de certificado e chaves de provedores são `Redacted.make(...)`, de modo que segredos nunca aparecem em logs ou stack traces.
+
+## Comece por aqui
+
+<Cards>
+  <Card title="Início rápido" href="/docs/quickstart" description="Carregue um A1 e produza sua primeira assinatura, de ponta a ponta." />
+  <Card title="A camada de assinatura" href="/docs/signers" description="A costura do SignerAdapter: os seis membros de onde vem o poder de assinar." />
+  <Card title="XML-DSig & PDF/PAdES" href="/docs/xml" description="Formatos que se conectam à camada sem alterar o código de assinatura." />
+  <Card title="Componentes React" href="/docs/components" description="O builder type-safe, o canvas e a assinatura A1 no navegador." />
+  <Card title="Provedores remotos" href="/docs/providers" description="DocuSign, Clicksign, Assinafy, ZapSign, DocuSeal, Adobe Acrobat Sign, Dropbox Sign e Documenso — cada um seu próprio pacote." />
+  <Card title="Canal de erros tipado" href="/docs/errors" description="Um único SignatureKitError e seu catálogo de códigos literais." />
+</Cards>
+
+## O que não é
+
+O SignatureKit não é um SaaS hospedado de assinatura eletrônica, não é um gateway que normaliza provedores fingindo que todo signer remoto tem a mesma API, e não é uma PKI ou autoridade certificadora. É a camada de assinatura que as aplicações vivem reconstruindo — configuração do adapter, uma chamada consistente de `inspect` / `sign` / `verify`, formatos que a reutilizam, erros tipados e uma costura limpa onde você troca o backend sem reescrever a lógica do documento.
+
+```package-install
+@signature-kit/core @signature-kit/a1
+```
+
+<Callout type="warn" title="Verificações locais não são validade jurídica">
+  `verifyXml`, `verifyPdf` e `signatures.verify` confirmam a criptografia contra a chave presente no
+  documento — não a validade jurídica. Verifique com sua própria cadeia de confiança e política ICP-Brasil antes de
+  tratar um documento assinado como válido.
+</Callout>

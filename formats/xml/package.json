@@ -5,8 +5,6 @@
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
-  "main": "./dist/sign.js",
-  "types": "./dist/sign.d.ts",
   "exports": {
     "./config": {
       "types": "./dist/config.d.ts",
@@ -19,6 +17,10 @@
     "./verify": {
       "types": "./dist/verify.d.ts",
       "import": "./dist/verify.js"
+    },
+    "./engine": {
+      "types": "./dist/engine.d.ts",
+      "import": "./dist/engine.js"
     }
   },
   "scripts": {

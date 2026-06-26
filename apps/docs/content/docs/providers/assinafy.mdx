@@ -1,0 +1,61 @@
+---
+title: Assinafy
+description: "Create Assinafy requests with createAssinafySignatureRequest(...), SignatureHttpClient and Redacted credentials."
+---
+
+Assinafy is a direct remote signer on top of `SignatureHttpClient`. The function creates the document, registers the signers and creates the assignment in the Assinafy API, returning a normalized `RemoteSignatureRequest`.
+
+## Install
+
+Assinafy is a direct remote signer. There is no `integrations/*` layer.
+
+```package-install
+@signature-kit/core @signature-kit/assinafy
+```
+
+## Create signature
+
+The function creates the document, registers the signers and creates the assignment in the Assinafy API. The return value is the normalized `RemoteSignatureRequest`.
+
+```ts title="assinafy.ts"
+import { createAssinafySignatureRequest } from "@signature-kit/assinafy"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
+
+const request = yield* createAssinafySignatureRequest(
+  {
+    accountId: process.env.ASSINAFY_ACCOUNT_ID!,
+    apiKey: Redacted.make(process.env.ASSINAFY_API_KEY ?? ""),
+    environment: "sandbox",
+  },
+  {
+    title: "Contract",
+    message: "Sign to complete.",
+    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
+    recipients: [{ name: "Carla Nunes", email: "carla@example.com", role: "signer" }],
+  },
+).pipe(Effect.provide(signatureHttpClientLive))
+
+// request.provider === "assinafy"
+```
+
+## Credentials
+
+`accountId` is always required — it scopes the document, signer, and assignment endpoints. The auth secret is then either `apiKey` or `accessToken`: pick one to authenticate against the Assinafy API.
+
+<Callout type="error" title="Never expose the secret">
+  Both are `Redacted<string>` and are only unwrapped at the package's HTTP boundary. Keep the key in an environment variable and
+  never log it or expose it on the client.
+</Callout>
+
+## Errors
+
+Missing credential, validation, HTTP and response-shape failures all use `SignatureKitError`, with `provider: "assinafy"`.
+
+## See also
+
+<Cards>
+  <Card title="Clicksign" href="/docs/providers/clicksign">The Clicksign remote signer over the same boundary.</Card>
+  <Card title="ZapSign" href="/docs/providers/zapsign">The ZapSign remote signer over the same boundary.</Card>
+  <Card title="Typed error channel" href="/docs/errors">A single SignatureKitError and a catalog of literal codes.</Card>
+</Cards>

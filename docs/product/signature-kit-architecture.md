@@ -77,9 +77,8 @@ SignatureKit should copy the good parts of Better Auth:
 Benchmark against current docs:
 
 - Better Auth's installation flow creates one exported `auth = betterAuth({ ... })`
-  instance, then mounts framework handlers around it. SignatureKit should keep
-  `createSignatureKit({ signer })` as the equivalent root instance, not ask callers
-  to manually wire certificate parsing into every signing call.
+  instance. SignatureKit uses the Effect-native equivalent: a signer `Layer` that
+  provides the `Signatures` service, not a root facade object.
 - Better Auth keeps databases and ORMs behind adapters. SignatureKit should keep A1,
   future HSM/government signers, XML, PDF, and remote workflow vendors behind
   adapters or format modules.
@@ -98,8 +97,8 @@ Every public name should be guessable before reading docs.
 
 Good:
 
-- `createSignatureKit`
-- `createA1SignerAdapter`
+- `signaturesLayer`
+- `a1SignaturesLayer`
 - `createGovBrSignerAdapter`
 - `signatures.sign`
 - `certificates.inspect`
@@ -225,7 +224,7 @@ Every publishable package lives one level below them and owns its own `package.j
 Purpose:
 
 - own public runtime schemas, typed `SignatureKitError`, and signer contracts;
-- expose the `Signatures` service and `createSignatureKit` facade;
+- expose the `Signatures` service and `signaturesLayer` seam;
 - keep every package on the same `SignatureKitError` catalog;
 - expose remote signer request DTOs and the `SignatureHttpClient` seam without a
   separate contracts-only package.
@@ -261,7 +260,8 @@ This package is the first real backend, not the whole product.
 
 Purpose:
 
-- one package per provider: DocuSign, Clicksign, Assinafy, ZapSign;
+- one package per provider: DocuSign, Clicksign, Assinafy, ZapSign, DocuSeal,
+  Adobe Acrobat Sign, Dropbox Sign, Documenso;
 - expose direct `create*SignatureRequest(...)` functions over `SignatureHttpClient`;
 - keep provider HTTP protocol details inside that provider adapter;
 - let users install only the providers they use.
@@ -296,43 +296,44 @@ Its role is not generic signing logic. Its role is backend-specific protocol, au
 ### 6.1 Runtime surface
 
 ```ts
-import { createSignatureKit } from "@signature-kit/core/runtime";
-import { loadA1SignerAdapter } from "@signature-kit/a1/signer";
+import { a1SignaturesLayer } from "@signature-kit/a1/signer";
+import { signatures } from "@signature-kit/core/signatures";
 import { Effect, Redacted } from "effect";
 
 const program = Effect.gen(function* () {
-  const signer = yield* loadA1SignerAdapter({
-    pfx: certificateBytes,
-    password: Redacted.make("secret"),
-  });
-  const signatureKit = createSignatureKit({ signer });
-
-  const certificate = yield* signatureKit.certificates.inspect();
-  const signed = yield* signatureKit.signatures.sign({
+  const certificate = yield* signatures.inspect();
+  const signed = yield* signatures.sign({
     content: payloadBytes,
     algorithm: "rsa-sha256",
   });
 
   return { certificate, signed };
-});
+}).pipe(
+  Effect.provide(
+    a1SignaturesLayer({
+      pfx: certificateBytes,
+      password: Redacted.make("secret"),
+    }),
+  ),
+);
 ```
 
 ### 6.2 Stable namespaces
 
-The root runtime should expose small sub-APIs:
+The core exposes service accessors:
 
-- `certificates.inspect()`
+- `signatures.inspect()`
 - `signatures.sign()`
 - `signatures.verify()`
-- `xml.sign()` when the XML module is mounted
-- `xml.verify()` when the XML module is mounted
+- XML/PDF packages consume `Signatures` through `Effect.provide(layer)`.
 
 ### 6.3 Current runtime options
 
 ```ts
-type SignatureKitSetup = {
-  signer: SignerAdapter;
-};
+const layer = a1SignaturesLayer({
+  pfx: certificateBytes,
+  password: Redacted.make("secret"),
+});
 ```
 
 ---
@@ -450,10 +451,8 @@ A future government-facing package may fit one of two roles:
 If the government platform itself provides remote signing capability, model it as a signer adapter:
 
 ```ts
-const signatureKit = createSignatureKit({
-  signer: createGovBrSignerAdapter({
-    credential: "...",
-  }),
+const layer = govBrSignaturesLayer({
+  credential: "...",
 });
 ```
 
@@ -464,8 +463,8 @@ If SignatureKit signs locally and the government endpoint only receives the sign
 Example:
 
 ```ts
-const signedXml = await signatureKit.xml.sign({ ... });
-await govBrClient.submit(signedXml.signedXml);
+const signedXml = yield* signXml({ ... }).pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer));
+yield* govBrClient.submit(signedXml);
 ```
 
 This distinction prevents the core from collapsing backend concerns and transport concerns into one API.
@@ -497,7 +496,7 @@ The value should come from:
 
 ```txt
 core/
-  core/         # runtime schemas, errors, Signatures service, createSignatureKit facade
+  core/         # runtime schemas, errors, Signatures service
   certificates/ # PKCS#12/X.509 parse + identity normalization
 signers/
   a1/           # PKCS#12 signer adapter
@@ -519,17 +518,19 @@ shared/
 
 Use simple, stable names:
 
-- runtime factory: `createSignatureKit`
-- first adapter factory: `createA1SignerAdapter`
-- future adapter factory: `createGovBrSignerAdapter`
+- signing seam: `signaturesLayer`
+- first adapter layer: `a1SignaturesLayer`
+- future adapter layer: `govBrSignaturesLayer`
 - certificate API: `certificates.inspect`
 - bytes API: `signatures.sign`, `signatures.verify`
 - remote signer API: `createDocuSignSignatureRequest`, `createClicksignSignatureRequest`,
-  `createAssinafySignatureRequest`, `createZapSignSignatureRequest`
+  `createAssinafySignatureRequest`, `createZapSignSignatureRequest`,
+  `createDocuSealSignatureRequest`, `createAdobeSignSignatureRequest`,
+  `createDropboxSignSignatureRequest`, `createDocumensoSignatureRequest`
 
 Do not introduce synonyms for the same concept. Use `signer` for signing
 capability backends; use `provider` only for remote workflow vendors such as
-DocuSign, Clicksign, Assinafy, and ZapSign.
+DocuSign, Clicksign, Assinafy, ZapSign, DocuSeal, Adobe Acrobat Sign, Dropbox Sign, and Documenso.
 
 ---
 
@@ -540,7 +541,7 @@ SignatureKit now has:
 1. one lean signer runtime in `@signature-kit/core`;
 2. one real local backend in `@signature-kit/a1`;
 3. XML and PDF format modules that consume the same signing seam;
-4. direct remote signer packages for DocuSign, Clicksign, Assinafy, and ZapSign;
+4. direct remote signer packages for DocuSign, Clicksign, Assinafy, ZapSign, DocuSeal, Adobe Acrobat Sign, Dropbox Sign, and Documenso;
 5. OSS packaging and boring names.
 
 The architecture succeeds if A1 is only the first backend, not the product definition.

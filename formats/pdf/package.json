@@ -5,8 +5,6 @@
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
-  "main": "./dist/sign.js",
-  "types": "./dist/sign.d.ts",
   "exports": {
     "./config": {
       "types": "./dist/config.d.ts",
@@ -15,6 +13,10 @@
     "./sign": {
       "types": "./dist/sign.d.ts",
       "import": "./dist/sign.js"
+    },
+    "./stamp": {
+      "types": "./dist/stamp.d.ts",
+      "import": "./dist/stamp.js"
     },
     "./verify": {
       "types": "./dist/verify.d.ts",
@@ -30,10 +32,6 @@
     "@cantoo/pdf-lib": "2.7.1",
     "@signature-kit/cms": "workspace:*",
     "@signature-kit/core": "workspace:*",
-    "@signpdf/placeholder-pdf-lib": "3.3.0",
-    "@signpdf/placeholder-plain": "3.3.0",
-    "@signpdf/signpdf": "3.3.0",
-    "@signpdf/utils": "3.3.0",
     "effect": "4.0.0-beta.86"
   },
   "devDependencies": {

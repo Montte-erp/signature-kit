@@ -11,7 +11,7 @@ import {
   XmlErrorCodeValue,
   XmlOperationValue,
 } from "./config";
-import { ensureXmlRuntime, toBufferSource, xmlSignatureAlgorithm } from "./engine";
+import { ensureXmlRuntime, type XmlRuntime, toBufferSource, xmlSignatureAlgorithm } from "./engine";
 
 const XMLDSIG_NAMESPACE = "http://www.w3.org/2000/09/xmldsig#";
 
@@ -67,7 +67,7 @@ const embeddedVerificationKey = (
 
 export const verifyXml = (
   input: XmlVerificationRequest,
-): Effect.Effect<XmlVerificationResult, XmlError> =>
+): Effect.Effect<XmlVerificationResult, XmlError, XmlRuntime> =>
   Effect.gen(function* () {
     yield* ensureXmlRuntime();
     const algorithm = input.algorithm ?? "rsa-sha256";

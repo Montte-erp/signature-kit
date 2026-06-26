@@ -19,12 +19,24 @@ const collectFiles = (directory: string): readonly string[] =>
   });
 
 describe("browser integration test placement", () => {
-  it("keeps browser runtime coverage owned by the A1 signer package", () => {
+  it("keeps browser runtime coverage in packages that own browser-facing APIs", () => {
     const browserTests = collectFiles(process.cwd())
       .map((path) => relative(process.cwd(), path).replaceAll("\\", "/"))
       .filter((path) => path.endsWith(".browser.test.ts"))
       .sort();
 
-    expect(browserTests).toEqual(["signers/a1/__tests__/a1.browser.test.ts"]);
+    expect(browserTests).toEqual([
+      "formats/react/__tests__/react-a1.browser.test.ts",
+      "signers/a1/__tests__/a1.browser.test.ts",
+    ]);
+  });
+
+  it("keeps package behavior tests out of apps/web", () => {
+    const webTests = collectFiles(join(process.cwd(), "apps", "web"))
+      .map((path) => relative(process.cwd(), path).replaceAll("\\", "/"))
+      .filter((path) => path.includes("/__tests__/"))
+      .sort();
+
+    expect(webTests).toEqual([]);
   });
 });

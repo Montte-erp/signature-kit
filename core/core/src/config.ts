@@ -15,6 +15,9 @@ import type { Redacted, SchemaIssue } from "effect";
 // =============================================================================
 
 const nonEmptyString: Schema.ConstraintDecoder<string> = Schema.NonEmptyString;
+export const redactedStringSchema: Schema.ConstraintDecoder<Redacted.Redacted<string>> =
+  Schema.Redacted(Schema.String);
+
 const cnpjDigits: Schema.ConstraintDecoder<string> = Schema.String.check(
   Schema.isPattern(/^\d{14}$/),
 );
@@ -39,7 +42,6 @@ const redactedPrivateKeyPem: Schema.ConstraintDecoder<Redacted.Redacted<string>>
 
 export const SignatureAlgorithmSchema = Schema.Literals(["rsa-sha1", "rsa-sha256", "rsa-sha512"]);
 export type SignatureAlgorithm = (typeof SignatureAlgorithmSchema)["Type"];
-export const signatureAlgorithmSchema = SignatureAlgorithmSchema;
 export const SignatureAlgorithmValue = {
   rsaSha1: "rsa-sha1",
   rsaSha256: "rsa-sha256",
@@ -100,7 +102,6 @@ export const CertificateSchema = Schema.Struct({
   privateKeyPem: redactedPrivateKeyPem,
 });
 export type Certificate = (typeof CertificateSchema)["Type"];
-export const certificateSchema = CertificateSchema;
 
 // =============================================================================
 // Signer adapter contract
@@ -117,14 +118,12 @@ export const SignerIdentitySchema = Schema.Struct({
   document: Schema.optional(Schema.String),
 });
 export type SignerIdentity = (typeof SignerIdentitySchema)["Type"];
-export const signerIdentitySchema = SignerIdentitySchema;
 
 export const SignInputSchema = Schema.Struct({
   content: Schema.Uint8Array,
   algorithm: SignatureAlgorithmSchema,
 });
 export type SignInput = (typeof SignInputSchema)["Type"];
-export const signInputSchema = SignInputSchema;
 
 export const VerifyInputSchema = Schema.Struct({
   content: Schema.Uint8Array,
@@ -132,7 +131,6 @@ export const VerifyInputSchema = Schema.Struct({
   algorithm: SignatureAlgorithmSchema,
 });
 export type VerifyInput = (typeof VerifyInputSchema)["Type"];
-export const verifyInputSchema = VerifyInputSchema;
 
 export const SignatureArtifactSchema = Schema.Struct({
   algorithm: SignatureAlgorithmSchema,
@@ -155,6 +153,10 @@ export const RemoteSignatureProviderSchema = Schema.Literals([
   "clicksign",
   "assinafy",
   "zapsign",
+  "docuseal",
+  "adobe-sign",
+  "dropbox-sign",
+  "documenso",
 ]);
 export type RemoteSignatureProvider = (typeof RemoteSignatureProviderSchema)["Type"];
 
@@ -364,6 +366,16 @@ export const SignatureKitSchemaNameSchema = Schema.Literals([
   "AssinafyAssignmentResult",
   "ZapSignProviderOptions",
   "ZapSignDocumentResult",
+  "DocuSealProviderOptions",
+  "DocuSealSubmissionResult",
+  "AdobeSignProviderOptions",
+  "AdobeSignTransientDocumentResult",
+  "AdobeSignAgreementResult",
+  "DropboxSignProviderOptions",
+  "DropboxSignSignatureRequestResult",
+  "DocumensoProviderOptions",
+  "DocumensoCreateEnvelopeResult",
+  "DocumensoDistributeEnvelopeResult",
 ]);
 export type SignatureKitSchemaName = (typeof SignatureKitSchemaNameSchema)["Type"];
 export const SignatureKitSchemaNameValue = {
@@ -385,6 +397,16 @@ export const SignatureKitSchemaNameValue = {
   assinafyAssignmentResult: "AssinafyAssignmentResult",
   zapSignProviderOptions: "ZapSignProviderOptions",
   zapSignDocumentResult: "ZapSignDocumentResult",
+  docuSealProviderOptions: "DocuSealProviderOptions",
+  docuSealSubmissionResult: "DocuSealSubmissionResult",
+  adobeSignProviderOptions: "AdobeSignProviderOptions",
+  adobeSignTransientDocumentResult: "AdobeSignTransientDocumentResult",
+  adobeSignAgreementResult: "AdobeSignAgreementResult",
+  dropboxSignProviderOptions: "DropboxSignProviderOptions",
+  dropboxSignSignatureRequestResult: "DropboxSignSignatureRequestResult",
+  documensoProviderOptions: "DocumensoProviderOptions",
+  documensoCreateEnvelopeResult: "DocumensoCreateEnvelopeResult",
+  documensoDistributeEnvelopeResult: "DocumensoDistributeEnvelopeResult",
   a1SignerOptions: "A1SignerOptions",
 } satisfies Record<string, SignatureKitSchemaName>;
 

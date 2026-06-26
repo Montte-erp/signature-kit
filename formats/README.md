@@ -2,8 +2,9 @@
 
 Workspace group for signature format modules.
 
-Planned:
+Current:
 
 - `formats/xml` → `@signature-kit/xml`
-- later: `formats/cms` → `@signature-kit/cms`
-- later: `formats/pdf` → `@signature-kit/pdf`
+- `formats/pdf` → `@signature-kit/pdf`
+- `formats/react` → `@signature-kit/react`
+  - browser PDF loading/signing lives in `@signature-kit/react/browser-pdf`; A1 loading stays in `@signature-kit/a1`

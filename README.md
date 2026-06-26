@@ -13,6 +13,8 @@ comes from, while format modules own XML/PDF mutation.
 - Raw byte signing and verification.
 - XML-DSig enveloped signatures via `xmldsigjs`.
 - PDF detached CMS signatures via `@cantoo/pdf-lib` + `@signature-kit/cms`.
+- React builder package with Effect-typed template schemas, DocuSeal payload helpers,
+  browser A1 PDF signing helpers, React PDF rendering, and PAdES widget coordinate conversion.
 - Browser + server support: WebCrypto-first, no `Buffer` in library internals.
 - ICP-Brasil PAdES shape: supported when `policy: "pades-icp-brasil"` is used.
   This embeds `signing-certificate-v2` and `signature-policy-identifier`
@@ -33,13 +35,14 @@ certificate.
 
 ## DX benchmark
 
-- Better Auth centers usage on one exported instance (`betterAuth({ ... })`) with
-  adapters around it. SignatureKit mirrors that with `createSignatureKit({ signer })`,
-  while keeping Effect `Context.Service` / `Layer` APIs available for libraries.
+- SignatureKit centers usage on one Effect capability seam: `Signatures`
+  (`Context.Service` + `Layer`). Apps choose a signer layer once and all byte,
+  XML, PDF, and React flows consume that seam.
 - PayKit centers provider portability on one configured instance and separate
   provider packages. SignatureKit deliberately does not add a gateway: DocuSign,
-  Clicksign, Assinafy, and ZapSign expose direct `create*SignatureRequest(...)`
-  functions over `SignatureHttpClient`.
+  Clicksign, Assinafy, ZapSign, DocuSeal, Adobe Acrobat Sign, Dropbox Sign, and
+  Documenso expose direct `create*SignatureRequest(...)` functions and Alchemy provider
+  layers over `SignatureHttpClient`.
 - Deliberate difference: SignatureKit is a cryptographic runtime, not a SaaS
   workflow app. Core does not import XML, PDF, A1, or provider packages; each seam
   stays replaceable.
@@ -57,8 +60,13 @@ signers/docusign   @signature-kit/docusign            DocuSign remote signer
 signers/clicksign  @signature-kit/clicksign           Clicksign remote signer
 signers/assinafy   @signature-kit/assinafy            Assinafy remote signer
 signers/zapsign    @signature-kit/zapsign             ZapSign remote signer
+signers/docuseal   @signature-kit/docuseal            DocuSeal remote signer
+signers/adobe-sign @signature-kit/adobe-sign          Adobe Acrobat Sign remote signer
+signers/dropbox-sign @signature-kit/dropbox-sign      Dropbox Sign remote signer
+signers/documenso @signature-kit/documenso            Documenso remote signer
 formats/xml        @signature-kit/xml                 XML-DSig sign/verify
 formats/pdf        @signature-kit/pdf                 PDF detached CMS sign/verify
+formats/react      @signature-kit/react               React builder + browser A1 PDF signing
 ```
 
 ## Usage sketch
@@ -66,25 +74,26 @@ formats/pdf        @signature-kit/pdf                 PDF detached CMS sign/veri
 ### Local signing runtime
 
 ```ts
-import { createSignatureKit } from "@signature-kit/core/runtime";
-import { loadA1SignerAdapter } from "@signature-kit/a1/signer";
+import { a1SignaturesLayer } from "@signature-kit/a1/signer";
+import { signatures } from "@signature-kit/core/signatures";
 import { Effect, Redacted } from "effect";
 
 const program = Effect.gen(function* () {
-  const signer = yield* loadA1SignerAdapter({
-    pfx,
-    password: Redacted.make("secret"),
-  });
-  const signatureKit = createSignatureKit({ signer });
-
-  const identity = yield* signatureKit.certificates.inspect();
-  const artifact = yield* signatureKit.signatures.sign({
+  const identity = yield* signatures.inspect();
+  const artifact = yield* signatures.sign({
     content,
     algorithm: "rsa-sha256",
   });
 
   return { identity, artifact };
-});
+}).pipe(
+  Effect.provide(
+    a1SignaturesLayer({
+      pfx,
+      password: Redacted.make("secret"),
+    }),
+  ),
+);
 ```
 
 ### XML/PDF formats over the same signer
@@ -94,6 +103,7 @@ import { signaturesLayer } from "@signature-kit/core/signatures";
 import { signPdf } from "@signature-kit/pdf/sign";
 import { verifyPdf } from "@signature-kit/pdf/verify";
 import { signXml } from "@signature-kit/xml/sign";
+import { xmlRuntimeLayer } from "@signature-kit/xml/engine";
 import { verifyXml } from "@signature-kit/xml/verify";
 import { Effect } from "effect";
 
@@ -101,7 +111,7 @@ import { Effect } from "effect";
 const documentProgram = Effect.gen(function* () {
   const layer = signaturesLayer(signer);
 
-  const signedXml = yield* signXml({ xml, referenceId: "doc-1" }).pipe(Effect.provide(layer));
+  const signedXml = yield* signXml({ xml, referenceId: "doc-1" }).pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer));
   const signedPdf = yield* signPdf({
     pdf,
     policy: "pades-icp-brasil",
@@ -109,7 +119,7 @@ const documentProgram = Effect.gen(function* () {
     location: "BR",
   }).pipe(Effect.provide(layer));
 
-  const xmlResult = yield* verifyXml({ xml: signedXml, requireReferenceUri: "#doc-1" });
+  const xmlResult = yield* verifyXml({ xml: signedXml, requireReferenceUri: "#doc-1" }).pipe(Effect.provide(xmlRuntimeLayer));
   const pdfResult = yield* verifyPdf({ pdf: signedPdf });
 
   return { signedXml, signedPdf, xmlResult, pdfResult };

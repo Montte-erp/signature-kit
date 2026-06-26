@@ -1,0 +1,67 @@
+---
+title: Signatários Remotos
+description: "Use DocuSign, Clicksign, Assinafy, ZapSign, DocuSeal, Adobe Acrobat Sign, Dropbox Sign e Documenso por meio de funções create*SignatureRequest(...) diretas."
+---
+
+## Sem gateway
+
+O SignatureKit não tem um pacote que normalize provedores. Cada signatário remoto vive em `signers/*`, expõe sua própria função `create*SignatureRequest(...)` e usa o mesmo `SignatureHttpClient` de `@signature-kit/core/http`. Isso mantém as opções específicas de cada provedor no pacote certo e evita um despachante central.
+
+```package-install
+@signature-kit/core @signature-kit/docusign @signature-kit/clicksign @signature-kit/assinafy @signature-kit/zapsign @signature-kit/docuseal @signature-kit/adobe-sign @signature-kit/dropbox-sign @signature-kit/documenso
+```
+
+<Cards>
+  <Card title="DocuSign" href="/docs/providers/docusign">Envelopes na REST API com bearer token, baseUrl e accountId.</Card>
+  <Card title="Clicksign" href="/docs/providers/clicksign">Um documento por requisição na API v1, com token protegido.</Card>
+  <Card title="Assinafy" href="/docs/providers/assinafy">Documento, signatário e atribuição via API key ou access token.</Card>
+  <Card title="ZapSign" href="/docs/providers/zapsign">Documento PDF com bearer token e link de assinatura.</Card>
+  <Card title="DocuSeal" href="/docs/providers/docuseal">Envios de PDF open-source com X-Auth-Token e links de signatário.</Card>
+  <Card title="Adobe Acrobat Sign" href="/docs/providers/adobe-sign">Uploads de documentos transitórios seguidos de um agreement na REST v6.</Card>
+  <Card title="Dropbox Sign" href="/docs/providers/dropbox-sign">signature_request/send multipart com autenticação Basic por API key.</Card>
+  <Card title="Documenso" href="/docs/providers/documenso">Envelopes open-source sobre a API de create/distribute v2.</Card>
+</Cards>
+
+<Callout type="error" title="Segredos protegidos com Redacted">
+  Todos os tokens e API keys são passados envolvidos em `Redacted.make(...)`. Isso evita que credenciais vazem para logs,
+  mensagens de erro ou stack traces — nunca passe o segredo em texto puro nem o registre em log fora de `Redacted`.
+</Callout>
+
+## Mesmo formato de entrada, protocolo de responsabilidade do provedor
+
+Todos os pacotes remotos consomem um `RemoteSignatureRequestInput`: `title`, `documents`, `recipients`, e opcionalmente `subject`, `message`, `send`, `expiresAt` e `redirectUrl`. O pacote do provedor é responsável pela tradução específica do protocolo.
+
+```ts title="remote-provider.ts"
+import { createDocumensoSignatureRequest } from "@signature-kit/documenso"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
+
+const request = yield* createDocumensoSignatureRequest(
+  {
+    apiKey: Redacted.make(process.env.DOCUMENSO_API_KEY ?? ""),
+  },
+  {
+    title: "Service agreement",
+    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content }],
+    recipients: [{ name: "Ana Souza", email: "ana@example.com", role: "signer" }],
+    send: true,
+  },
+).pipe(Effect.provide(signatureHttpClientLive))
+```
+
+## Matriz de provedores
+
+| Provedor | Pacote | Chamada de API principal | Suporte a rascunho |
+| --- | --- | --- | --- |
+| DocuSign | `@signature-kit/docusign` | `POST /v2.1/accounts/{accountId}/envelopes` | sim |
+| Clicksign | `@signature-kit/clicksign` | fluxo v1 de documento + signatário + notificação | sim |
+| Assinafy | `@signature-kit/assinafy` | fluxo de documento + signatário + atribuição na conta | sim |
+| ZapSign | `@signature-kit/zapsign` | `POST /docs` | sim |
+| DocuSeal | `@signature-kit/docuseal` | `POST /submissions/pdf` | sim |
+| Adobe Acrobat Sign | `@signature-kit/adobe-sign` | upload de documento transitório + `POST /agreements` | sim |
+| Dropbox Sign | `@signature-kit/dropbox-sign` | `POST /signature_request/send` | não |
+| Documenso | `@signature-kit/documenso` | `POST /envelope/create` + `POST /envelope/distribute` opcional | sim |
+
+## Erros tipados
+
+Todas as funções retornam `Effect.Effect<RemoteSignatureRequest, SignatureKitError, SignatureHttpClient>`. Falhas de entrada, de HTTP, de operação não suportada e de formato de resposta permanecem no canal tipado do Effect, com `provider`, `operation`, `schemaName` e `status` sempre que esses dados existirem.

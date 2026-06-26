@@ -43,10 +43,14 @@ describe("CMS contracts", () => {
       signingTime: new Date("2026-01-02T03:04:05Z"),
     });
 
+    // Emitted in DER SET OF order (X.690 §11.6, ascending octet comparison of
+    // each member's encoding), NOT construction order. signingTime (shorter
+    // SEQUENCE) sorts before messageDigest. Strict ICP-Brasil/BouncyCastle
+    // validators re-canonicalize to this order before checking the RSA cipher.
     expect(attributes.map((attribute) => attribute.type)).toEqual([
       CmsOid.contentType,
-      CmsOid.messageDigest,
       CmsOid.signingTime,
+      CmsOid.messageDigest,
       CmsOid.signingCertificateV2,
     ]);
     const signingCertificate = attributes.find(

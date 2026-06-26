@@ -1,0 +1,176 @@
+---
+title: Reuso de slot
+description: "O posicionamento por best-guess reutiliza um slot de assinatura que o documento já carrega — seu app nunca envia coordenadas. O SignatureKit detecta um widget /Sig vazio e insere a assinatura nele."
+---
+
+O posicionamento por best-guess reutiliza um slot que o documento já carrega — sem coordenadas vindas do seu app. Quando um PDF chega com um **widget de assinatura vazio** (`/Subtype /Widget`, `/FT /Sig`, sem `/V`), o posicionamento automático reutiliza esse slot em vez de inventar um retângulo. Se nenhum slot existir, ele recorre à geometria de âncora.
+
+```package-install
+@signature-kit/pdf @signature-kit/a1
+```
+
+<Callout type="info" title="É assim que uma posição marcada viaja">
+  Um PDF "pré-marcado" é só um PDF normal cujo autor inseriu um widget `/Sig` vazio onde a
+  assinatura deve ficar. O componente personalizado da Licitei monta o documento com esse slot vazio;
+  o SignatureKit o detecta e o preenche. A posição é carregada **no PDF**, não em uma chamada de API.
+</Callout>
+
+## Demonstração ao vivo
+
+A island abaixo inicializa a partir de uma declaração gerada em runtime que já carrega três slots `/Sig` vazios — `Declarante`, `Testemunha` e `Responsável legal`. Escolha um slot de destino ou **Best guess (auto)**, adicione um certificado A1 e assine. O SignatureKit reutiliza o widget vazio; nada sai da página.
+
+<SlotReuseSigner />
+
+## Como um slot vazio é detectado
+
+O posicionamento automático varre as anotações da página em busca de um widget de assinatura que ainda não tem valor. O predicado é exato — um `/Widget` cujo tipo de campo é `/Sig` sem `/V`:
+
+```ts title="placement.ts (pageSignatureSlots)"
+const subtype = annotation?.lookupMaybe(PDFName.of("Subtype"), PDFName)?.asString();
+const fieldType = annotation?.lookupMaybe(PDFName.of("FT"), PDFName)?.asString();
+const rect = rectArray === undefined ? undefined : rectangleFromArray(rectArray);
+if (
+  object !== undefined &&
+  subtype === "/Widget" &&
+  fieldType === "/Sig" &&
+  annotation?.get(PDFName.of("V")) === undefined &&
+  rect !== undefined
+) {
+  slots.push({ object, rect });
+}
+```
+
+Um widget que já carrega um `/V` é um campo *assinado* e é ignorado — o reuso mira apenas slots vazios.
+
+## Escolhendo entre vários slots
+
+Um documento pode carregar mais de um slot vazio. A âncora decide qual vence: cada slot recebe uma pontuação pela distância ao quadrado entre seu ponto de âncora e o ponto de âncora dos limites da página, e o slot mais próximo é escolhido.
+
+```ts title="placement.ts (chooseExistingSignatureSlot)"
+const chooseExistingSignatureSlot = (
+  bounds: PdfRectangle,
+  slots: ReadonlyArray<ExistingSignatureSlot>,
+  anchor: PdfSignatureAnchor,
+): ExistingSignatureSlot | undefined => {
+  let bestSlot: ExistingSignatureSlot | undefined;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  for (const slot of slots) {
+    const score = squaredAnchorDistance(slot.rect, bounds, anchor);
+    if (score < bestScore) {
+      bestScore = score;
+      bestSlot = slot;
+    }
+  }
+
+  return bestSlot;
+};
+```
+
+Há nove âncoras — `bottom-left`, `bottom-center`, `bottom-right`, `middle-left`, `middle-center`, `middle-right`, `top-left`, `top-center`, `top-right`. O padrão é `bottom-right`. Na demonstração acima, `top-left` seleciona `Declarante`, `middle-center` seleciona `Testemunha` e `bottom-right` (o padrão, usado pelo **Best guess**) seleciona `Responsável legal`.
+
+## Assinando em um slot
+
+O reuso de slot vive em `resolveAutoPlacement`, que é alcançado **somente** por `appearance.placement.kind === "auto"`. Desça até o `signPdf` da camada de PDF e passe um posicionamento automático — omita a âncora para usar o padrão `bottom-right`:
+
+```ts title="sign.ts"
+import { signPdf } from "@signature-kit/pdf/sign"
+import { a1SignaturesLayer } from "@signature-kit/a1/signer"
+import { Effect, Redacted } from "effect"
+
+const signed = signPdf({
+  pdf: bytes,
+  reason: "Signed into a pre-marked slot",
+  name: "Maria de Souza",
+  signatureLength: 16384,
+  policy: "pades-ades",
+  appearance: {
+    placement: { kind: "auto", pageIndex: 0, anchor: "bottom-right" },
+  },
+}).pipe(
+  Effect.provide(a1SignaturesLayer({ pfx, password: Redacted.make(password) })),
+)
+```
+
+O widget vazio que a biblioteca escolhe é preenchido com o `/V` da assinatura. Ao ler a página de volta, exatamente um widget agora carrega um `/V` — no rect original do slot.
+
+<Callout type="warn" title="signBrowserPdf não consegue reutilizar um slot">
+  `signBrowserPdf` deriva um rect de widget **manual** a partir do campo do template, então nunca aciona
+  o reuso. Para reutilizar um slot `/Sig` existente, chame `signPdf` com `appearance.placement.kind: "auto"` —
+  esse é o único caminho que passa por `resolveAutoPlacement`.
+</Callout>
+
+## Fallback de geometria
+
+Se a página não tiver nenhum slot `/Sig` vazio, o posicionamento automático recorre a sintetizar um retângulo: ele dispõe posições candidatas dentro das margens da página, descarta qualquer uma que colida com anotações existentes e mantém a mais próxima da âncora.
+
+```ts title="placement.ts (resolveAutoPlacement)"
+const existingSlot = chooseExistingSignatureSlot(
+  bounds,
+  pageSignatureSlots(pdfDoc, annotations),
+  anchor,
+);
+if (existingSlot !== undefined) {
+  return Effect.succeed({
+    pageIndex,
+    widgetRect: tupleFromRectangle(existingSlot.rect),
+    existingWidgetObject: existingSlot.object,
+  });
+}
+// …no slot: search the margins for a non-colliding rectangle
+const obstacles = pageAnnotationRectangles(pdfDoc, annotations);
+const chosen = chooseAutoRect(bounds, obstacles, width, height, gap, anchor);
+```
+
+Então a mesma chamada funciona para os dois formatos de documento: reutiliza um slot marcado quando existe um, caso contrário escolhe um espaço vazio sensato.
+
+## Marcando um slot a partir do seu próprio app
+
+Para pré-marcar uma posição, monte o PDF com um widget `/Sig` vazio — o tipo de campo é `/Sig`, o subtype é `/Widget` e não há `/V`. Este é exatamente o formato que a demonstração gera:
+
+```ts title="mark-slot.ts"
+import { PDFArray, PDFDocument, PDFName, PDFNumber, PDFString } from "@cantoo/pdf-lib"
+
+const pdf = await PDFDocument.create()
+const page = pdf.addPage([320, 180])
+
+const annotations = pdf.context.obj([])
+const fields = pdf.context.obj([])
+for (const slot of [
+  { label: "Declarante", rect: [20, 118, 140, 158] },
+  { label: "Testemunha", rect: [100, 68, 220, 108] },
+  { label: "Responsável legal", rect: [180, 20, 300, 60] },
+]) {
+  const rect = PDFArray.withContext(pdf.context)
+  for (const n of slot.rect) rect.push(PDFNumber.of(n))
+  const widget = pdf.context.obj({
+    Type: "Annot",
+    Subtype: "Widget",
+    FT: "Sig",
+    Rect: rect,
+    T: PDFString.of(slot.label),
+    F: 4,
+    P: page.ref,
+  })
+  const widgetRef = pdf.context.register(widget)
+  annotations.push(widgetRef)
+  fields.push(widgetRef)
+}
+page.node.set(PDFName.of("Annots"), annotations)
+pdf.catalog.set(PDFName.of("AcroForm"), pdf.context.register(pdf.context.obj({ Fields: fields })))
+
+const bytes = await pdf.save({ useObjectStreams: false, updateFieldAppearances: false })
+```
+
+Entregue esses bytes ao `signPdf` com um posicionamento automático e o SignatureKit insere a assinatura no slot.
+
+## Veja também
+
+<Cards>
+  <Card title="Assinatura no navegador" href="/docs/components/browser-signing">
+    Faça upload, posicione e assine seus próprios PDFs no navegador.
+  </Card>
+  <Card title="React PDF" href="/docs/components/react-pdf">
+    A superfície de posicionamento orientada pelo builder e os helpers de posicionamento automático.
+  </Card>
+</Cards>

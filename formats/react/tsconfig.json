@@ -1,0 +1,18 @@
+{
+  "extends": "../../tooling/typescript/core.json",
+  "compilerOptions": {
+    "jsx": "react-jsx"
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "references": [
+    {
+      "path": "../../core/core"
+    },
+    {
+      "path": "../../shared/cms"
+    },
+    {
+      "path": "../pdf"
+    }
+  ]
+}

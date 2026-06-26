@@ -1,0 +1,20 @@
+{
+  "title": "Documentation",
+  "root": true,
+  "pages": [
+    "---GET STARTED---",
+    "index",
+    "installation",
+    "quickstart",
+    "---CONCEPTS---",
+    "signers",
+    "certificates",
+    "errors",
+    "---FORMATS---",
+    "xml",
+    "pdf",
+    "---INTEGRATIONS---",
+    "components",
+    "providers"
+  ]
+}

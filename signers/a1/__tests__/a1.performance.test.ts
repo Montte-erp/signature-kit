@@ -1,9 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import {
-  loadA1SignatureKit,
-  loadA1SignerAdapter,
-  parseA1CertificateProfile,
-} from "@signature-kit/a1/signer";
+import { loadA1SignerAdapter, parseA1CertificateProfile } from "@signature-kit/a1/signer";
 import { Effect, Redacted } from "effect";
 import { readA1Fixture } from "../../../tooling/testing/fixtures";
 
@@ -32,7 +28,7 @@ describe("A1 signer performance", () => {
   it.effect("reuses imported signing keys for repeated app-side signatures", () =>
     Effect.gen(function* () {
       const pfx = yield* readA1Fixture("ecpf");
-      const signatureKit = yield* loadA1SignatureKit({ pfx, password: PASSWORD });
+      const signer = yield* loadA1SignerAdapter({ pfx, password: PASSWORD });
       const payloads = Array.from({ length: 25 }, (_, index) =>
         textEncoder.encode(`SignatureKit performance payload ${index}`),
       );
@@ -40,9 +36,9 @@ describe("A1 signer performance", () => {
       const startedAt = performance.now();
       const artifacts = yield* Effect.all(
         payloads.map((content) =>
-          signatureKit.signatures.sign({ content, algorithm: "rsa-sha256" }).pipe(
+          signer.sign({ content, algorithm: "rsa-sha256" }).pipe(
             Effect.flatMap((artifact) =>
-              signatureKit.signatures
+              signer
                 .verify({
                   content,
                   signature: artifact.signature,

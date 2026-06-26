@@ -1,0 +1,75 @@
+---
+title: SignatureInkPad
+description: "O canvas de assinatura manuscrita do @signature-kit/react: o usuário desenha e você recebe um data URL PNG — sem dependência de segredo, com partes estilizáveis via data-slot."
+---
+
+`SignatureInkPad` é o canvas onde alguém desenha uma assinatura à mão (mouse, caneta ou toque). Ele captura os traços via Pointer Events, redesenha em alta resolução usando o `devicePixelRatio` e, ao final de cada traço, emite a imagem como um data URL PNG através de `onChangeDataUrl`. É um componente puramente visual: nunca toca em uma chave, nunca executa `Effect` e não depende de nenhum segredo.
+
+```package-install
+@signature-kit/react
+```
+
+## Anatomia
+
+O pad é composto por três partes — a raiz, o `<canvas>` e o botão de limpar — e cada uma expõe um `data-slot`, então você pode estilizá-lo por classe (`canvasClassName`, `clearButtonClassName`) ou por estilo inline sem alterar a lógica de desenho.
+
+```tsx title="DrawSignature.tsx"
+import { SignatureInkPad } from "@signature-kit/react/components"
+import { useState } from "react"
+
+function DrawSignature() {
+  const [dataUrl, setDataUrl] = useState<string | null>(null)
+
+  return (
+    <SignatureInkPad
+      width={420}
+      height={160}
+      onChangeDataUrl={setDataUrl}
+      onClear={() => setDataUrl(null)}
+    />
+  )
+}
+```
+
+| Slot | Elemento | Descrição |
+| ---- | ------- | ----------- |
+| `signature-ink-pad` | div | Raiz do pad; empilha o canvas e o botão de limpar (`display: grid`). |
+| `signature-ink-pad-canvas` | canvas | A superfície de desenho. Recebe os Pointer Events e gera o PNG via `toDataURL`. |
+| `signature-ink-pad-clear` | button | Botão que redefine o canvas para o `backgroundColor` e dispara `onClear`. |
+
+## Props
+
+<TypeTable
+  type={{
+    width: { type: "number", required: true, description: "Largura lógica do canvas em pixels (a resolução real é multiplicada pelo devicePixelRatio)." },
+    height: { type: "number", required: true, description: "Altura lógica do canvas em pixels." },
+    penColor: { type: "string", description: "Cor do traço. Padrão: \"#111827\"." },
+    backgroundColor: { type: "string", description: "Cor de fundo do canvas, também usada ao limpar. Padrão: \"#ffffff\"." },
+    lineWidth: { type: "number", description: "Espessura do traço. Padrão: 2.2." },
+    className: { type: "string", description: "Classe da raiz (data-slot=signature-ink-pad)." },
+    canvasClassName: { type: "string", description: "Classe do canvas (data-slot=signature-ink-pad-canvas)." },
+    clearButtonClassName: { type: "string", description: "Classe do botão de limpar (data-slot=signature-ink-pad-clear)." },
+    style: { type: "React.CSSProperties", description: "Estilo inline da raiz." },
+    canvasStyle: { type: "React.CSSProperties", description: "Estilo inline do canvas." },
+    clearButtonStyle: { type: "React.CSSProperties", description: "Estilo inline do botão de limpar." },
+    ariaLabel: { type: "string", description: "aria-label do canvas. Padrão: \"Draw signature\"." },
+    clearLabel: { type: "string", description: "Texto e aria do botão de limpar. Padrão: \"Clear signature\"." },
+    disabled: { type: "boolean", description: "Desabilita o desenho e o botão de limpar. Padrão: false." },
+    onChangeDataUrl: { type: "(dataUrl: string) => void", description: "Disparado ao final de cada traço, com o PNG do canvas (canvas.toDataURL(\"image/png\"))." },
+    onClear: { type: "() => void", description: "Disparado quando o canvas é limpo (botão ou reinicialização)." },
+  }}
+/>
+
+<Callout type="info" title="Data URL validado por schema — sem segredo">
+  `onChangeDataUrl` entrega um data URL PNG (`canvas.toDataURL("image/png")`). Esse é exatamente o formato que o builder
+  aceita em `imageDataUrl`, validado pelo schema `^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$`. O pad não assina
+  nada e não depende de nenhuma chave ou segredo: ele apenas captura o desenho. A assinatura criptográfica permanece na
+  camada de assinatura do `Signatures` — aqui você apenas coleta a _imagem_ da assinatura manuscrita.
+</Callout>
+
+## Notas de comportamento
+
+- O canvas é redimensionado pelo `devicePixelRatio` na montagem, então a assinatura permanece nítida em telas retina sem distorcer as coordenadas lógicas (`width`/`height`).
+- `touchAction: "none"` no canvas impede a rolagem enquanto se desenha por toque — o gesto vira um traço, não uma rolagem.
+- `onChangeDataUrl` dispara **ao soltar o ponteiro** (final de cada traço), não a cada `pointermove`; use o último valor recebido como a imagem atual.
+- Limpar reinicializa o canvas para o `backgroundColor` e dispara `onClear` (mas não `onChangeDataUrl`).

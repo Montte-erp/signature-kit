@@ -1,0 +1,73 @@
+---
+title: Dropbox Sign
+description: "Create Dropbox Sign requests with createDropboxSignSignatureRequest(...), API-key Basic auth, and typed SignatureKit errors."
+---
+
+Dropbox Sign is a remote signer adapter over the v3 `signature_request/send` endpoint. SignatureKit builds the multipart request directly and keeps the API key in `Redacted` until the HTTP boundary.
+
+## Install
+
+```package-install
+@signature-kit/core @signature-kit/dropbox-sign
+```
+
+## Send a signature request
+
+```ts title="dropbox-sign.ts"
+import { createDropboxSignSignatureRequest } from "@signature-kit/dropbox-sign"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
+
+const request = yield* createDropboxSignSignatureRequest(
+  {
+    apiKey: Redacted.make(process.env.DROPBOX_SIGN_API_KEY ?? ""),
+    testMode: true,
+  },
+  {
+    title: "Mutual NDA",
+    subject: "Please sign the NDA",
+    message: "Review and sign when ready.",
+    documents: [{ fileName: "nda.pdf", mimeType: "application/pdf", content: pdfBytes }],
+    recipients: [{ name: "Jill Example", email: "jill@example.com", routingOrder: 1 }],
+    redirectUrl: "https://app.example.com/after-sign",
+    expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+  },
+).pipe(Effect.provide(signatureHttpClientLive))
+
+// request.provider === "dropbox-sign"
+// request.state    === "sent"
+```
+
+## Request mapping
+
+- `documents[]` become multipart `files[index]` parts.
+- `recipients[]` become `signers[index][name]`, `signers[index][email_address]`, and optional `order`.
+- `subject`, `message`, `clientId`, `redirectUrl`, and `expiresAt` map to Dropbox Sign form fields.
+- `testMode: true` sends `test_mode=1`.
+
+<Callout type="warn" title="No draft endpoint">
+  Dropbox Sign's `signature_request/send` sends immediately. Passing `send: false` fails in the typed channel with
+  `signature-kit.UNSUPPORTED_OPERATION`.
+</Callout>
+
+## Alchemy
+
+```ts title="alchemy.ts"
+import * as DropboxSign from "@signature-kit/dropbox-sign"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Layer, Redacted } from "effect"
+
+export const providers = DropboxSign.providers({
+  apiKey: Redacted.make(process.env.DROPBOX_SIGN_API_KEY ?? ""),
+  testMode: true,
+}).pipe(Layer.provide(signatureHttpClientLive))
+```
+
+## Errors
+
+Invalid input, unsupported draft requests, remote HTTP, and response-shape failures all fail as `SignatureKitError`, with `provider: "dropbox-sign"`.
+
+<Cards>
+  <Card title="Adobe Acrobat Sign" href="/docs/providers/adobe-sign">Agreements through Adobe transient documents.</Card>
+  <Card title="Remote signers" href="/docs/providers">Back to every provider package.</Card>
+</Cards>

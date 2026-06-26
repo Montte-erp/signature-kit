@@ -1,0 +1,73 @@
+---
+title: Clicksign
+description: "Crie solicitações na Clicksign com createClicksignSignatureRequest(...), um signatário remoto diretamente sobre a API v1 — sem gateway de normalização."
+---
+
+A Clicksign é um signatário remoto que conversa diretamente com a API v1 — sem gateway intermediário.
+
+<Steps>
+  <Step>
+    ### Instalação
+
+    Adicione o runtime e o pacote do provedor.
+
+    ```package-install
+    @signature-kit/core @signature-kit/clicksign
+    ```
+  </Step>
+
+  <Step>
+    ### Criar documento
+
+    A função cria o documento, cria o signatário e, opcionalmente, notifica por e-mail. O token permanece em `Redacted` até a camada HTTP.
+
+    ```ts title="clicksign.ts"
+    import { createClicksignSignatureRequest } from "@signature-kit/clicksign"
+    import { signatureHttpClientLive } from "@signature-kit/core/http"
+    import { Effect, Redacted } from "effect"
+
+    const request = yield* createClicksignSignatureRequest(
+      {
+        accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
+        environment: "sandbox",
+        locale: "pt-BR",
+        autoClose: true,
+      },
+      {
+        title: "Membership agreement",
+        message: "Sign to continue.",
+        documents: [{ fileName: "agreement.pdf", mimeType: "application/pdf", content: pdfBytes }],
+        recipients: [{ name: "Bruno Lima", email: "bruno@example.com", role: "signer" }],
+      },
+    ).pipe(Effect.provide(signatureHttpClientLive))
+
+    // request.provider === "clicksign"
+    ```
+  </Step>
+</Steps>
+
+## Limite da API
+
+A implementação atual aceita um documento por solicitação, seguindo o fluxo da v1 da Clicksign.
+
+<Callout type="warn" title="Um documento por solicitação">
+  Solicitações com múltiplos documentos falham no canal tipado com `signature-kit.UNSUPPORTED_OPERATION`.
+</Callout>
+
+## Erros
+
+Entrada inválida, HTTP remoto e formato de resposta falham, todos, como `SignatureKitError`, com `provider: "clicksign"`.
+
+## Continue explorando
+
+<Cards>
+  <Card title="DocuSign" href="/docs/providers/docusign">
+    Envelopes da DocuSign com createDocuSignSignatureRequest(...).
+  </Card>
+  <Card title="Assinafy" href="/docs/providers/assinafy">
+    Signatário remoto da Assinafy sobre a mesma camada tipada.
+  </Card>
+  <Card title="Canal de erros tipado" href="/docs/errors">
+    O SignatureKitError e o catálogo de códigos literais.
+  </Card>
+</Cards>

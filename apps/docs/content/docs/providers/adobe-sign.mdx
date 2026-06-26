@@ -1,0 +1,71 @@
+---
+title: Adobe Acrobat Sign
+description: "Create Adobe Acrobat Sign agreements with createAdobeSignSignatureRequest(...), transientDocuments, and typed SignatureKit errors."
+---
+
+Adobe Acrobat Sign is a remote signer adapter over the REST v6 API. SignatureKit uploads every document as a transient document, then creates one agreement with those transient IDs.
+
+## Install
+
+```package-install
+@signature-kit/core @signature-kit/adobe-sign
+```
+
+## Create an agreement
+
+```ts title="adobe-sign.ts"
+import { createAdobeSignSignatureRequest } from "@signature-kit/adobe-sign"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
+
+const request = yield* createAdobeSignSignatureRequest(
+  {
+    accessToken: Redacted.make(process.env.ADOBE_SIGN_TOKEN ?? ""),
+    baseUrl: "https://api.na1.echosign.com",
+  },
+  {
+    title: "Service agreement",
+    message: "Please review and sign the attached document.",
+    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
+    recipients: [{ name: "Ana Souza", email: "ana@example.com", role: "signer" }],
+    send: true,
+    redirectUrl: "https://app.example.com/signed",
+  },
+).pipe(Effect.provide(signatureHttpClientLive))
+
+// request.provider === "adobe-sign"
+// request.state    === "sent" | "draft"
+```
+
+## Request mapping
+
+- Each document is uploaded to `/api/rest/v6/transientDocuments` as multipart `File`.
+- The agreement is created at `/api/rest/v6/agreements` with `fileInfos[]`.
+- `role: "approver"` maps to `APPROVER`; all other recipients map to `SIGNER`.
+- `send: false` maps to Adobe `DRAFT`; the default maps to `IN_PROCESS`.
+- `redirectUrl` maps to `postSignOption.redirectUrl`.
+
+<Callout type="warn" title="Subject and expiry">
+  The current adapter sends `message` and redirect options to Adobe. It does not map `subject` or `expiresAt` yet because those fields do not share the same shape across providers.
+</Callout>
+
+## Alchemy
+
+```ts title="alchemy.ts"
+import * as AdobeSign from "@signature-kit/adobe-sign"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Layer, Redacted } from "effect"
+
+export const providers = AdobeSign.providers({
+  accessToken: Redacted.make(process.env.ADOBE_SIGN_TOKEN ?? ""),
+}).pipe(Layer.provide(signatureHttpClientLive))
+```
+
+## Errors
+
+Invalid input, remote HTTP, and response-shape failures all fail as `SignatureKitError`, with `provider: "adobe-sign"` and structured metadata.
+
+<Cards>
+  <Card title="Dropbox Sign" href="/docs/providers/dropbox-sign">The Dropbox Sign adapter over signature_request/send.</Card>
+  <Card title="Remote signers" href="/docs/providers">Back to every provider package.</Card>
+</Cards>

@@ -1,0 +1,451 @@
+"use client";
+
+import {
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Loader2,
+  PenLine,
+  RotateCcw,
+  Wand2,
+} from "lucide-react";
+import * as React from "react";
+import { AsyncQueuer } from "@tanstack/react-pacer/async-queuer";
+// `@tanstack/react-store` re-exports `@tanstack/store`, so `Store`/`useStore` both
+// come through here; the bare `@tanstack/store` specifier isn't resolvable from
+// apps/docs.
+import { Store, useStore } from "@tanstack/react-store";
+
+import {
+  generateFormalContractPdf,
+  type SignatureVariant,
+  type SignedMark,
+} from "@/components/formal-contract-pdf";
+import { PdfPage, loadPdfjs, type PdfDocumentProxy } from "@/components/pdf-page";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+import { m } from "@/paraglide/messages";
+
+/*
+ * Auto-signature demo — heavy interactive body (loaded ssr:false from auto-sign.tsx
+ * so react-pdf never runs during the SSG prerender).
+ *
+ * GENERATION is react-pdf ("pdfx", the same engine @signature-kit/react renders
+ * signature templates with) via generateFormalContractPdf — a real A4 contract
+ * with a FORMAL signature field. "prepare" renders the empty field (preview);
+ * "sign" re-renders with the applied signature filling the field. The visible
+ * crypto/PAdES step is out of scope (it needs a real .pfx — that is the live
+ * <Signer /> section); "signed" here means the field is filled in the real bytes.
+ *
+ * STATE is idiomatic TanStack: a single module-level `Store` (the canonical
+ * pattern — "instantiate the store outside of React components") plus a
+ * module-level Pacer `AsyncQueuer`. React only SUBSCRIBES via `useStore(...)`;
+ * there is no `useRef`/`useState` store, no state mirror, and no mount effect —
+ * the preview pass is seeded once when this client module loads. The only React
+ * effect is the pdf.js page loader in AutoDocCanvas (an unavoidable resource load).
+ */
+
+// --- demo data -------------------------------------------------------------
+
+const LOREM = [
+  "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
+  "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.",
+  "Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.",
+  "Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt neque porro quisquam est.",
+  "Qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem.",
+];
+
+// Each document showcases a different signature COMPONENT variant, so the demo
+// walks through the range (line · field · witnessed · rubrica).
+const DEMO_DOCS: ReadonlyArray<{
+  readonly id: string;
+  readonly name: string;
+  readonly paragraphs: ReadonlyArray<string>;
+  readonly variant: SignatureVariant;
+  readonly variantLabel: string;
+}> = [
+  {
+    id: "doc-contrato",
+    name: "Contrato de prestação de serviços",
+    paragraphs: LOREM.slice(0, 5),
+    variant: "line",
+    variantLabel: "Linha de assinatura",
+  },
+  {
+    id: "doc-aditivo",
+    name: "Aditivo contratual",
+    paragraphs: LOREM.slice(0, 3),
+    variant: "field",
+    variantLabel: "Campo de assinatura",
+  },
+  {
+    id: "doc-procuracao",
+    name: "Procuração",
+    paragraphs: LOREM.slice(1, 5),
+    variant: "witnessed",
+    variantLabel: "Com testemunha",
+  },
+  {
+    id: "doc-adesao",
+    name: "Termo de adesão",
+    paragraphs: LOREM.slice(0, 4),
+    variant: "initials",
+    variantLabel: "Rubrica + assinatura",
+  },
+];
+
+const SIGNER: Omit<SignedMark, "date"> = {
+  name: "Maria A. Costa",
+  document: "CPF/CNPJ: 000.000.000-00",
+};
+
+// --- types -----------------------------------------------------------------
+
+type DocPhase = "queued" | "generating" | "ready" | "signing" | "signed";
+
+type AutoDoc = {
+  readonly id: string;
+  readonly name: string;
+  readonly variantLabel: string;
+  readonly pdfBytes?: Uint8Array; // current display bytes (empty field, then signed)
+  readonly signed?: boolean;
+};
+
+type AutoState = {
+  readonly docs: ReadonlyArray<AutoDoc>;
+  readonly status: Readonly<Record<string, DocPhase>>;
+  readonly activeIndex: number;
+};
+
+// A queue task: "prepare" renders the empty-field preview; "sign" re-renders with
+// the applied signature filling the field.
+type QueueItem = { readonly id: string; readonly name: string; readonly mode: "prepare" | "sign" };
+
+const initialState = (): AutoState => ({
+  docs: DEMO_DOCS.map((d) => ({ id: d.id, name: d.name, variantLabel: d.variantLabel })),
+  status: Object.fromEntries(DEMO_DOCS.map((d) => [d.id, "queued" as const])),
+  activeIndex: 0,
+});
+
+// --- module-level state (the idiomatic TanStack pattern) -------------------
+// The store and the Pacer queue live OUTSIDE React; the component only reads them
+// with useStore. No useRef, no useState, no mount effect.
+
+const store = new Store<AutoState>(initialState());
+
+const setPhase = (id: string, phase: DocPhase): void =>
+  store.setState((s) => ({ ...s, status: { ...s.status, [id]: phase } }));
+
+const patchDoc = (id: string, patch: Partial<AutoDoc>): void =>
+  store.setState((s) => ({
+    ...s,
+    docs: s.docs.map((d) => (d.id === id ? { ...d, ...patch } : d)),
+  }));
+
+const focusDoc = (index: number): void =>
+  store.setState((s) => ({ ...s, activeIndex: index }));
+
+// One document at a time. The worker writes directly into the store, so each step
+// paints live and the carousel snaps to the document being worked.
+const signQueuer = new AsyncQueuer<QueueItem>(
+  async (item) => {
+    focusDoc(DEMO_DOCS.findIndex((d) => d.id === item.id));
+    const demo = DEMO_DOCS.find((d) => d.id === item.id);
+    const paragraphs = demo ? [...demo.paragraphs] : [];
+    const variant: SignatureVariant = demo?.variant ?? "line";
+
+    if (item.mode === "prepare") {
+      setPhase(item.id, "generating");
+      const bytes = await generateFormalContractPdf({ title: item.name, paragraphs, variant });
+      patchDoc(item.id, { pdfBytes: bytes, signed: false });
+      setPhase(item.id, "ready");
+      return;
+    }
+
+    setPhase(item.id, "signing");
+    const signed: SignedMark = { ...SIGNER, date: new Date().toLocaleString("pt-BR") };
+    const bytes = await generateFormalContractPdf({ title: item.name, paragraphs, variant, signed });
+    patchDoc(item.id, { pdfBytes: bytes, signed: true });
+    setPhase(item.id, "signed");
+  },
+  { concurrency: 1, started: true },
+);
+
+// Seed the preview pass once, when this client module loads. `started: true`
+// auto-processes at concurrency 1, so the carousel fills with real pages with no
+// click and no React lifecycle.
+for (const demo of DEMO_DOCS) {
+  signQueuer.addItem({ id: demo.id, name: demo.name, mode: "prepare" });
+}
+
+const queueBusy = (): boolean => {
+  const s = signQueuer.store.state;
+  return s.activeItems.length > 0 || s.items.length > 0;
+};
+
+const go = (to: number): void => {
+  const n = DEMO_DOCS.length;
+  focusDoc(((to % n) + n) % n);
+};
+
+const autoSign = (): void => {
+  if (queueBusy()) return;
+  // Re-render every document with the signature filled. The worker regenerates
+  // from scratch, so it never depends on prior bytes.
+  store.setState((s) => ({
+    ...s,
+    docs: s.docs.map((d) => ({ ...d, signed: false })),
+    status: Object.fromEntries(
+      DEMO_DOCS.map((d) => {
+        const prepared = s.docs.find((x) => x.id === d.id)?.pdfBytes;
+        return [d.id, (prepared ? "ready" : "queued") as DocPhase];
+      }),
+    ),
+  }));
+  for (const demo of DEMO_DOCS) {
+    signQueuer.addItem({ id: demo.id, name: demo.name, mode: "sign" });
+  }
+};
+
+// Reset back to fresh previews. The store is module-level, so this — not a React
+// remount — is what clears the demo.
+const resetDemo = (): void => {
+  if (queueBusy()) return;
+  store.setState(() => initialState());
+  for (const demo of DEMO_DOCS) {
+    signQueuer.addItem({ id: demo.id, name: demo.name, mode: "prepare" });
+  }
+};
+
+function downloadDoc(doc: AutoDoc): void {
+  if (!doc.pdfBytes) return;
+  const url = URL.createObjectURL(
+    new Blob([new Uint8Array(doc.pdfBytes)], { type: "application/pdf" }),
+  );
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${doc.name}.pdf`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// --- per-document status badge --------------------------------------------
+
+function DocBadge({ phase }: { phase: DocPhase | undefined }) {
+  if (phase === "signed")
+    return (
+      <Badge variant="secondary" className="gap-1">
+        <CheckCircle2 /> {m.autosign_doc_signed()}
+      </Badge>
+    );
+  if (phase === "ready")
+    return (
+      <Badge variant="outline" className="gap-1 text-muted-foreground">
+        {m.autosign_doc_ready()}
+      </Badge>
+    );
+  if (phase === "generating")
+    return (
+      <Badge variant="outline" className="gap-1">
+        <Loader2 className="animate-spin" /> {m.autosign_doc_generating()}
+      </Badge>
+    );
+  if (phase === "signing")
+    return (
+      <Badge variant="outline" className="gap-1">
+        <Loader2 className="animate-spin" /> {m.autosign_doc_signing()}
+      </Badge>
+    );
+  if (phase === "queued")
+    return (
+      <Badge variant="outline" className="text-muted-foreground">
+        {m.autosign_doc_queued()}
+      </Badge>
+    );
+  return null;
+}
+
+// --- one rendered document -------------------------------------------------
+
+/**
+ * Rasterises the current bytes (empty-field preview, then signed) via the shared
+ * {@link PdfPage}. pdf.js detaches the buffer it is handed, so we pass a `.slice()`
+ * and keep the originals for download. The signature field is part of the PDF
+ * itself, so there is no overlay marker. The async pdf.js loader below is the ONLY
+ * React effect in this module — an unavoidable resource load with cancel cleanup.
+ */
+function AutoDocCanvas({ doc }: { doc: AutoDoc }) {
+  const [pdfDoc, setPdfDoc] = React.useState<PdfDocumentProxy | null>(null);
+  const bytes = doc.pdfBytes;
+
+  React.useEffect(() => {
+    if (!bytes) return;
+    let cancelled = false;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let task: any;
+    (async () => {
+      const pdfjs = await loadPdfjs();
+      task = pdfjs.getDocument({ data: bytes.slice() });
+      const loaded = await task.promise;
+      if (cancelled) {
+        await loaded.destroy?.();
+        return;
+      }
+      setPdfDoc(loaded);
+    })();
+    return () => {
+      cancelled = true;
+      task?.destroy?.();
+    };
+  }, [bytes]);
+
+  if (bytes && pdfDoc) {
+    return (
+      <PdfPage
+        doc={pdfDoc}
+        pageNumber={1}
+        widthPt={595.28}
+        heightPt={841.89}
+        onPlace={() => {}}
+      />
+    );
+  }
+
+  return (
+    <div className="flex aspect-[595/842] w-full items-center justify-center gap-2 rounded-md border border-border bg-muted/30 text-xs text-muted-foreground">
+      <Loader2 className="size-4 animate-spin" />
+      {m.autosign_doc_generating()}…
+    </div>
+  );
+}
+
+// --- interactive body ------------------------------------------------------
+
+export function AutoSignInner() {
+  const docs = useStore(store, (s) => s.docs);
+  const status = useStore(store, (s) => s.status);
+  const activeIndex = useStore(store, (s) => s.activeIndex);
+  // Busy is derived from the queue's OWN store (active + pending), never from
+  // `isRunning` (which stays true after start — the "never finishes" bug).
+  const busy = useStore(
+    signQueuer.store,
+    (s) => s.activeItems.length > 0 || s.items.length > 0,
+  );
+
+  const allSigned = DEMO_DOCS.every((d) => status[d.id] === "signed");
+  const count = docs.length;
+  const activeDoc = docs[activeIndex] ?? docs[0];
+
+  return (
+    <div className="mt-10 grid gap-6 lg:grid-cols-[1fr_22rem]">
+      {/* CAROUSEL — one real react-pdf page at a time; the worker snaps it to the
+          document it is signing so you watch each field fill in live. */}
+      <Card className="overflow-hidden p-0 shadow-none">
+        <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+            {activeDoc?.name}
+          </span>
+          {activeDoc?.variantLabel ? (
+            <Badge
+              variant="outline"
+              className="hidden shrink-0 font-mono text-[10px] font-normal text-muted-foreground sm:inline-flex"
+            >
+              {activeDoc.variantLabel}
+            </Badge>
+          ) : null}
+          <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/70">
+            {activeIndex + 1} / {count}
+          </span>
+          {activeDoc?.signed ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 px-2 text-xs"
+              onClick={() => activeDoc && downloadDoc(activeDoc)}
+            >
+              <Download className="size-3.5" />
+              {m.autosign_download()}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-7 rounded-full"
+            aria-label={m.autosign_prev()}
+            onClick={() => go(activeIndex - 1)}
+          >
+            <ChevronLeft />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-7 rounded-full"
+            aria-label={m.autosign_next()}
+            onClick={() => go(activeIndex + 1)}
+          >
+            <ChevronRight />
+          </Button>
+        </div>
+        <div className="bg-muted/30 p-4">
+          {activeDoc ? <AutoDocCanvas key={activeDoc.id} doc={activeDoc} /> : null}
+        </div>
+      </Card>
+
+      {/* Controls + per-document Pacer queue status. */}
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" onClick={autoSign} disabled={busy}>
+            {busy ? (
+              <Loader2 data-icon="inline-start" className="animate-spin" />
+            ) : (
+              <Wand2 data-icon="inline-start" />
+            )}
+            {busy ? m.autosign_running() : m.autosign_cta()}
+          </Button>
+          <Button type="button" variant="ghost" onClick={resetDemo} disabled={busy}>
+            <RotateCcw data-icon="inline-start" />
+            {m.autosign_reset()}
+          </Button>
+        </div>
+
+        <ul className="flex flex-col gap-1.5">
+          {docs.map((d, i) => (
+            <li key={d.id}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => go(i)}
+                aria-pressed={i === activeIndex}
+                className={cn(
+                  "h-auto w-full justify-start gap-2 rounded-md border px-2.5 py-2 text-left text-xs font-normal",
+                  i === activeIndex
+                    ? "border-foreground/30 bg-muted/40"
+                    : "border-border hover:bg-muted/30",
+                )}
+              >
+                <PenLine className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                  <span className="w-full truncate text-foreground">{d.name}</span>
+                  <span className="w-full truncate text-[10px] font-normal text-muted-foreground">
+                    {d.variantLabel}
+                  </span>
+                </span>
+                <DocBadge phase={status[d.id]} />
+              </Button>
+            </li>
+          ))}
+        </ul>
+
+        <p className="text-xs leading-relaxed text-muted-foreground" aria-live="polite">
+          {allSigned ? m.autosign_done() : m.autosign_note()}
+        </p>
+      </div>
+    </div>
+  );
+}

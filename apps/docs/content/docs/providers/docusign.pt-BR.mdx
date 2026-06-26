@@ -1,0 +1,77 @@
+---
+title: DocuSign
+description: "Crie envelopes do DocuSign com createDocuSignSignatureRequest(...), SignatureHttpClient e erros tipados do SignatureKit."
+---
+
+O DocuSign é um signatário remoto que roda diretamente sobre o `SignatureHttpClient`: você passa as credenciais e a requisição normalizada, e o pacote monta o payload do envelope e a chamada HTTP. Não há gateway intermediário.
+
+## Instalação
+
+O DocuSign é um signatário remoto direto. Não há gateway intermediário.
+
+```package-install
+@signature-kit/core @signature-kit/docusign
+```
+
+## Criar um envelope
+
+Passe as credenciais do DocuSign e a requisição normalizada. O pacote monta o payload do envelope e chama `/v2.1/accounts/{accountId}/envelopes`.
+
+```ts title="docusign.ts"
+import { createDocuSignSignatureRequest } from "@signature-kit/docusign"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
+
+const request = yield* createDocuSignSignatureRequest(
+  {
+    baseUrl: "https://demo.docusign.net/restapi",
+    accountId: process.env.DOCUSIGN_ACCOUNT_ID!,
+    accessToken: Redacted.make(process.env.DOCUSIGN_TOKEN ?? ""),
+  },
+  {
+    title: "Service agreement",
+    subject: "Signature for contract 2026/0042",
+    message: "Please review and sign the attached document.",
+    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
+    recipients: [{ name: "Ana Souza", email: "ana@example.com", role: "signer" }],
+    send: true,
+  },
+).pipe(Effect.provide(signatureHttpClientLive))
+
+// request.provider === "docusign"
+// request.state    === "sent" | "draft"
+```
+
+<Callout type="error" title="Credenciais">
+  Nunca deixe o `accessToken` ou o `accountId` fixos no código. Carregue-os a partir de variáveis de ambiente e envolva o token em
+  `Redacted.make(...)` — ele permanece oculto até a camada HTTP e nunca vaza para os logs.
+</Callout>
+
+## Alchemy
+
+Para stacks com Alchemy, o pacote exporta `providers(options)` como uma camada de provedores e mantém o `SignatureHttpClient` explícito.
+
+```ts title="alchemy.ts"
+import * as DocuSign from "@signature-kit/docusign"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Layer, Redacted } from "effect"
+
+export const providers = DocuSign.providers({
+  baseUrl: "https://demo.docusign.net/restapi",
+  accountId: process.env.DOCUSIGN_ACCOUNT_ID!,
+  accessToken: Redacted.make(process.env.DOCUSIGN_TOKEN ?? ""),
+}).pipe(Layer.provide(signatureHttpClientLive))
+```
+
+## Erros
+
+Entradas inválidas, falhas de HTTP remoto e formato de resposta inesperado falham todos como `SignatureKitError`, com `provider: "docusign"` e metadados estruturados.
+
+<Callout type="info" title="Canal de erros tipado">
+  Toda falha chega pelo canal tipado do Effect — nunca como exceção. Trate-a com `Effect.catchTag` ou `Effect.catchAll` e
+  inspecione o código literal para reagir por tipo de erro.
+</Callout>
+
+<Cards>
+  <Card title="Signatários remotos" href="/docs/providers">Volte ao hub e compare todos os pacotes de provedores.</Card>
+</Cards>

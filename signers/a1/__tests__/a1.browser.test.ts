@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { loadA1SignatureKit, parseA1CertificateProfile } from "@signature-kit/a1/signer";
+import { loadA1SignerAdapter, parseA1CertificateProfile } from "@signature-kit/a1/signer";
 import { Effect, Redacted } from "effect";
 
 const PASSWORD = Redacted.make("changeit");
@@ -33,27 +33,27 @@ if (typeof document === "undefined") {
         expect(ecpfProfile.daysUntilExpiry).toBeGreaterThan(0);
         expect(ecnpjProfile.daysUntilExpiry).toBeGreaterThan(0);
 
-        const signatureKit = yield* loadA1SignatureKit({ pfx: ecpf, password: PASSWORD });
+        const signer = yield* loadA1SignerAdapter({ pfx: ecpf, password: PASSWORD });
         const content = textEncoder.encode("SignatureKit A1 browser payload");
-        const sha1 = yield* signatureKit.signatures.sign({ content, algorithm: "rsa-sha1" });
-        const sha256 = yield* signatureKit.signatures.sign({ content, algorithm: "rsa-sha256" });
-        const sha512 = yield* signatureKit.signatures.sign({ content, algorithm: "rsa-sha512" });
-        const sha1Verification = yield* signatureKit.signatures.verify({
+        const sha1 = yield* signer.sign({ content, algorithm: "rsa-sha1" });
+        const sha256 = yield* signer.sign({ content, algorithm: "rsa-sha256" });
+        const sha512 = yield* signer.sign({ content, algorithm: "rsa-sha512" });
+        const sha1Verification = yield* signer.verify({
           content,
           signature: sha1.signature,
           algorithm: sha1.algorithm,
         });
-        const sha256Verification = yield* signatureKit.signatures.verify({
+        const sha256Verification = yield* signer.verify({
           content,
           signature: sha256.signature,
           algorithm: sha256.algorithm,
         });
-        const sha512Verification = yield* signatureKit.signatures.verify({
+        const sha512Verification = yield* signer.verify({
           content,
           signature: sha512.signature,
           algorithm: sha512.algorithm,
         });
-        const tampered = yield* signatureKit.signatures.verify({
+        const tampered = yield* signer.verify({
           content: textEncoder.encode("tampered"),
           signature: sha512.signature,
           algorithm: sha512.algorithm,

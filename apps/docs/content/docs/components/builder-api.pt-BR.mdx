@@ -1,0 +1,294 @@
+---
+title: Builder API
+description: "As funções Effect puras de @signature-kit/react que criam, validam e editam templates de assinatura — a lógica por trás da store e da surface."
+---
+
+A **Builder API** é o núcleo funcional de `@signature-kit/react`: um conjunto de funções `Effect` puras que decodificam entradas com `Schema`, validam o template inteiro e retornam um novo `ReactSignatureTemplate` a cada operação. Sem mutação, sem I/O — você executa o `Effect` na fronteira da aplicação. A [`SignatureBuilderStore`](/docs/components/signature-builder-surface) e os [hooks](/docs/components/hooks) são apenas uma camada reativa sobre essas funções.
+
+Todas falham com o mesmo erro com tag, `ReactIntegrationError`, que carrega `code`, `operation` e (quando vem de um decode) `schemaName`. Veja os [códigos de erro](/docs/errors) para o catálogo completo.
+
+```tsx title="builder.ts (imports)"
+import {
+  createReactSignatureTemplate,
+  validateReactSignatureTemplate,
+  createReactSignatureBuilderState,
+  placeReactSignatureField,
+  autoPlaceReactSignatureField,
+  addReactSignatureField,
+  replaceReactSignatureField,
+  removeReactSignatureField,
+  moveReactSignatureField,
+  assignReactSignatureFieldValue,
+  fieldFromPlacement,
+  groupReactSignatureFieldsByPage,
+} from "@signature-kit/react/builder"
+import { createSignatureBuilderStore } from "@signature-kit/react/components"
+```
+
+<Callout type="info" title="Sempre um Effect, nunca um throw">
+  Cada função retorna `Effect.Effect<T, ReactIntegrationError>`. Elas não executam sozinhas: chame `Effect.runPromise`
+  (ou `Effect.runSync`) no event handler, ou deixe a store fazer isso por você. É aí que a validação vira UX.
+</Callout>
+
+## Criar um template
+
+`createReactSignatureTemplate` decodifica um `ReactSignatureTemplateInput` (onde `fields` é opcional), preenche `fields: []` quando ausente e executa a validação completa. O resultado é um `ReactSignatureTemplate` garantidamente coerente.
+
+```ts title="create-template.ts"
+import { Effect } from "effect"
+import { createReactSignatureTemplate } from "@signature-kit/react/components"
+
+const program = createReactSignatureTemplate({
+  id: "contract-2026",
+  name: "Service Agreement",
+  documents: [
+    {
+      id: "doc-main",
+      name: "contract.pdf",
+      source: { type: "url", url: "https://example.com/contract.pdf" },
+      pages: [{ index: 0, width: 595, height: 842 }],
+    },
+  ],
+  roles: [{ id: "signer", label: "Client", required: true }],
+  // fields is optional — becomes [] automatically
+})
+
+const template = await Effect.runPromise(program)
+```
+
+<TypeTable
+  type={{
+    createReactSignatureTemplate: { type: "(input: ReactSignatureTemplateInput) => Effect.Effect<ReactSignatureTemplate, ReactIntegrationError>", description: "Decodifica a entrada, assume fields=[] por padrão e então valida. operation: react.builder.create." },
+    validateReactSignatureTemplate: { type: "(input: ReactSignatureTemplate) => Effect.Effect<ReactSignatureTemplate, ReactIntegrationError>", description: "Revalida um template já formado. operation: react.builder.validate." },
+  }}
+/>
+
+`validateReactSignatureTemplate` é a verificação que toda operação de campo executa antes de tudo. Ela checa, nesta ordem:
+
+- **schema** — o objeto corresponde a `ReactSignatureTemplateSchema` (`react.INVALID_BUILDER_INPUT`).
+- **não vazio** — pelo menos um documento e um papel (`react.EMPTY_TEMPLATE`).
+- **ids únicos** — nenhum `id` duplicado entre documentos, papéis ou campos (`react.DUPLICATE_ID`).
+- **cada campo** — referencia um `documentId`/`roleId`/`pageIndex` existente e cabe dentro da página; a imagem da assinatura, se houver, é uma data URL PNG/JPEG/WEBP.
+
+| Código | Elemento | Descrição |
+| ---- | ------- | ----------- |
+| `react.UNKNOWN_DOCUMENT` | documentId / pageIndex | Campo aponta para um documento ou página que o template não declara. |
+| `react.UNKNOWN_ROLE` | roleId | Campo aponta para um papel de signatário inexistente. |
+| `react.FIELD_OUT_OF_BOUNDS` | rect | width/height ≤ 0 ou o rect ultrapassa as dimensões da página. |
+| `react.INVALID_SIGNATURE_IMAGE` | value.imageDataUrl | imageDataUrl não é uma data URL PNG/JPEG/WEBP válida. |
+
+## Criar o state e a store
+
+`createReactSignatureBuilderState` envolve o template em um `ReactSignatureBuilderState` — com os opcionais `selectedFieldId` e `draft`. Internamente, ele reutiliza `createReactSignatureTemplate` e, além disso, verifica que o `selectedFieldId`, se informado, aponta para um campo existente.
+
+```ts title="create-state.ts"
+import { Effect } from "effect"
+import { createReactSignatureBuilderState } from "@signature-kit/react/builder"
+import { createSignatureBuilderStore } from "@signature-kit/react/components"
+
+const state = await Effect.runPromise(
+  createReactSignatureBuilderState({
+    template: {
+      id: "contract-2026",
+      name: "Service Agreement",
+      documents: [/* ... */],
+      roles: [{ id: "signer", label: "Client" }],
+    },
+    draft: { id: "sig-1", type: "signature", roleId: "signer", width: 180, height: 64 },
+  }),
+)
+
+// The store is the reactive layer: same ops, but with publish + selection
+const store = createSignatureBuilderStore(state)
+```
+
+<TypeTable
+  type={{
+    createReactSignatureBuilderState: { type: "(input: ReactSignatureBuilderStateInput) => Effect.Effect<ReactSignatureBuilderState, ReactIntegrationError>", description: "Decodifica a entrada, cria o template e valida o selectedFieldId. operation: react.builder.create-state." },
+    createSignatureBuilderStore: { type: "(initialState: ReactSignatureBuilderState) => SignatureBuilderStore", description: "Cria a store reativa do TanStack a partir de um state já validado. Síncrona — não retorna um Effect." },
+  }}
+/>
+
+A `SignatureBuilderStore` expõe as mesmas operações de campo desta página, mas vinculadas ao snapshot atual e publicando o novo state quando o `Effect` é executado. Os métodos que produzem um template — `addField`, `placeField`, `replaceField`, `removeField`, `moveField`, `assignValue`, `setState`, `setTemplate` — retornam `Effect`; já `setDraft` e `selectField` são síncronos.
+
+<Callout type="info" title="placeField faz um upsert">
+  Na store, `placeField` remove um campo com o mesmo `draft.id` antes de reposicionar — então arrastar um campo
+  já existente o reposiciona em vez de falhar com `react.DUPLICATE_ID`. As funções puras
+  `placeReactSignatureField` e `addReactSignatureField` rejeitam ids duplicados.
+</Callout>
+
+## Posicionar campos
+
+`fieldFromPlacement` converte um `ReactSignatureFieldPlacement` (uma coordenada `x`/`y` mais um `draft` com as dimensões) em um `ReactSignatureField` concreto, resolvendo o `anchor`: com `anchor: "center"`, o `x`/`y` informado é tratado como o centro do campo e convertido para o canto superior esquerdo. O padrão é `"top-left"`.
+
+```ts title="field-from-placement.ts"
+import { Effect } from "effect"
+import { fieldFromPlacement } from "@signature-kit/react/builder"
+
+const field = await Effect.runPromise(
+  fieldFromPlacement({
+    documentId: "doc-main",
+    pageIndex: 0,
+    x: 297,
+    y: 700,
+    anchor: "center", // x/y is the field's center
+    draft: { id: "sig-1", type: "signature", roleId: "signer", width: 180, height: 64 },
+  }),
+)
+// field.rect = { pageIndex: 0, x: 207, y: 668, width: 180, height: 64 }
+```
+
+`placeReactSignatureField` faz isso e adiciona o campo ao template em uma única operação: valida o template, converte o placement em um campo, recusa um `id` duplicado e **restringe** o rect aos limites da página antes de inserir.
+
+```ts title="place-field.ts"
+import { Effect } from "effect"
+import { placeReactSignatureField } from "@signature-kit/react/builder"
+
+const next = await Effect.runPromise(
+  placeReactSignatureField(template, {
+    documentId: "doc-main",
+    pageIndex: 0,
+    x: 40,
+    y: 720,
+    draft: { id: "sig-1", type: "signature", roleId: "signer", width: 180, height: 64 },
+  }),
+)
+```
+
+<TypeTable
+  type={{
+    fieldFromPlacement: { type: "(placement: ReactSignatureFieldPlacement) => Effect.Effect<ReactSignatureField, ReactIntegrationError>", description: "Converte placement → campo resolvendo o anchor. Não toca no template. operation: react.builder.add-field." },
+    placeReactSignatureField: { type: "(template: ReactSignatureTemplate, placement: ReactSignatureFieldPlacement) => Effect.Effect<ReactSignatureTemplate, ReactIntegrationError>", description: "fieldFromPlacement + insere no template, com o rect restringido à página." },
+  }}
+/>
+
+### Posicionamento automático
+
+`autoPlaceReactSignatureField` calcula o rect a partir de um `slot` nomeado (`top-left` … `bottom-right`, mais `center`), respeitando a `margin` da borda e escolhendo a página via `page: "first" | "last"` **ou** `pageIndex` — nunca os dois, nunca nenhum.
+
+Em caso de colisão com um campo já presente, `collision` decide: `"fail"` (padrão) aborta com `react.NO_AVAILABLE_PLACEMENT`; `"stack"` empilha o próximo campo na `stackDirection` informada (`up`/`down`/`left`/`right`) com um `gap`, tentando posições sucessivas até caber na página.
+
+```ts title="auto-place.ts"
+import { Effect } from "effect"
+import { autoPlaceReactSignatureField } from "@signature-kit/react/builder"
+
+const next = await Effect.runPromise(
+  autoPlaceReactSignatureField(template, {
+    documentId: "doc-main",
+    page: "last",
+    slot: "bottom-right",
+    margin: 24,
+    gap: 12,
+    collision: "stack",
+    stackDirection: "up",
+    draft: { id: "sig-2", type: "signature", roleId: "signer", width: 180, height: 64 },
+  }),
+)
+```
+
+<TypeTable
+  type={{
+    autoPlaceReactSignatureField: { type: "(template: ReactSignatureTemplate, placement: ReactSignatureAutoPlacementInput) => Effect.Effect<ReactSignatureTemplate, ReactIntegrationError>", description: "Resolve um slot nomeado em um rect e insere o campo. operation: react.builder.auto-place-field." },
+  }}
+/>
+
+<Callout type="warn" title="Regras de entrada do auto-place">
+  `page` e `pageIndex` são mutuamente exclusivos e pelo menos um é obrigatório. `stackDirection` só é válido com
+  `collision: "stack"` — e é obrigatório nesse caso. `margin`/`gap` não podem ser negativos, e o `draft` precisa de
+  `width`/`height` positivos. Qualquer violação falha com `react.INVALID_BUILDER_INPUT`.
+</Callout>
+
+## Editar campos
+
+As operações restantes recebem o template já formado, revalidam tudo e retornam uma nova cópia. Elas são imutáveis: o template de entrada nunca é alterado.
+
+```ts title="edit-fields.ts"
+import { Effect } from "effect"
+import {
+  addReactSignatureField,
+  moveReactSignatureField,
+  assignReactSignatureFieldValue,
+  removeReactSignatureField,
+} from "@signature-kit/react/builder"
+
+// Add an already-built ReactSignatureField
+const withField = await Effect.runPromise(
+  addReactSignatureField(template, {
+    id: "sig-1",
+    type: "signature",
+    documentId: "doc-main",
+    roleId: "signer",
+    rect: { pageIndex: 0, x: 40, y: 720, width: 180, height: 64 },
+  }),
+)
+
+// Reposition by id (the rect is revalidated against the page)
+const moved = await Effect.runPromise(
+  moveReactSignatureField(withField, "sig-1", {
+    pageIndex: 0,
+    x: 120,
+    y: 600,
+    width: 180,
+    height: 64,
+  }),
+)
+
+// Assign the signed value (image as data URL, text, checkbox, date)
+const filled = await Effect.runPromise(
+  assignReactSignatureFieldValue(moved, "sig-1", {
+    imageDataUrl: "data:image/png;base64,iVBORw0KGgo...",
+    signedAt: new Date(),
+  }),
+)
+
+// Remove by id
+const cleared = await Effect.runPromise(removeReactSignatureField(filled, "sig-1"))
+```
+
+<TypeTable
+  type={{
+    addReactSignatureField: { type: "(template: ReactSignatureTemplate, field: ReactSignatureField) => Effect.Effect<ReactSignatureTemplate, ReactIntegrationError>", description: "Decodifica e insere um campo completo; rejeita um id duplicado. operation: react.builder.add-field." },
+    replaceReactSignatureField: { type: "(template: ReactSignatureTemplate, field: ReactSignatureField) => Effect.Effect<ReactSignatureTemplate, ReactIntegrationError>", description: "Substitui o campo de mesmo id e revalida o template. unknownField se não existir. operation: react.builder.replace-field." },
+    moveReactSignatureField: { type: "(template: ReactSignatureTemplate, fieldId: string, rect: ReactSignatureRect) => Effect.Effect<ReactSignatureTemplate, ReactIntegrationError>", description: "Troca o rect de um campo existente (via replace). operation: react.builder.move-field." },
+    assignReactSignatureFieldValue: { type: "(template: ReactSignatureTemplate, fieldId: string, value: ReactSignatureFieldValue) => Effect.Effect<ReactSignatureTemplate, ReactIntegrationError>", description: "Define value (text / imageDataUrl / checked / signedAt). operation: react.builder.assign-value." },
+    removeReactSignatureField: { type: "(template: ReactSignatureTemplate, fieldId: string) => Effect.Effect<ReactSignatureTemplate, ReactIntegrationError>", description: "Remove o campo pelo id. unknownField se não existir. operation: react.builder.remove-field." },
+  }}
+/>
+
+<Callout type="info" title="moveField e assignValue passam pelo replace">
+  Ambos localizam o campo pelo `fieldId`, recompõem o objeto e delegam para `replaceReactSignatureField` — então
+  herdam a revalidação completa do template. Um `rect` fora dos limites em `moveReactSignatureField` falha com
+  `react.FIELD_OUT_OF_BOUNDS`, não de forma silenciosa.
+</Callout>
+
+## Agrupar por página
+
+Para renderizar os frames por página, `groupReactSignatureFieldsByPage` indexa um array de campos por `documentId:pageIndex`. É uma função pura síncrona (não retorna `Effect`) usada pela store para alimentar `fieldsForPage`.
+
+```ts title="group-by-page.ts"
+import { groupReactSignatureFieldsByPage } from "@signature-kit/react/builder"
+
+const byPage = groupReactSignatureFieldsByPage(template.fields)
+// ReadonlyMap<"doc-main:0", readonly ReactSignatureField[]>
+const onFirstPage = byPage.get("doc-main:0") ?? []
+```
+
+<TypeTable
+  type={{
+    groupReactSignatureFieldsByPage: { type: "(fields: readonly ReactSignatureField[]) => ReactSignatureFieldsByPage", description: "Agrupa os campos pela chave documentId:pageIndex. Síncrona — retorna um ReadonlyMap, não um Effect." },
+  }}
+/>
+
+## Próximos passos
+
+<Cards>
+  <Card title="SignatureBuilderSurface" href="/docs/components/signature-builder-surface">
+    A camada visual que renderiza a store: papéis, documentos, páginas e campos posicionáveis.
+  </Card>
+  <Card title="Hooks" href="/docs/components/hooks">
+    Leia fatias do builder de forma reativa com useSignatureBuilderSelector e signatureBuilderSelectors.
+  </Card>
+  <Card title="Códigos de erro" href="/docs/errors">
+    O catálogo completo de react.* carregado por ReactIntegrationError.
+  </Card>
+</Cards>

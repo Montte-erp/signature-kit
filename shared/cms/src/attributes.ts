@@ -90,6 +90,34 @@ const signaturePolicyAttribute = (policy: IcpBrasilPolicy): pkijs.Attribute => {
   });
 };
 
+/**
+ * DER SET OF ordering (X.690 §11.6): the SignerInfo `signedAttrs` is a SET OF
+ * that MUST be sorted by ascending octet-string comparison of each member's
+ * full DER encoding (shorter values padded with trailing 0-octets). pkijs keeps
+ * the insertion order verbatim — it signs and encodes the attributes exactly as
+ * given — so we must hand them over already sorted. OpenSSL verifies over the
+ * bytes as-encoded and is lenient, but BouncyCastle/Java validators (the
+ * ICP-Brasil ITI "Verificador de Conformidade" at validar.iti.gov.br)
+ * re-canonicalize to DER, which re-sorts the SET OF; an unsorted set then hashes
+ * to different bytes and the RSA "cifra assimétrica" check is REPROVADA even
+ * though messageDigest and the structure are valid.
+ */
+const compareDer = (a: Uint8Array, b: Uint8Array): number => {
+  const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index += 1) {
+    const left = index < a.length ? a[index]! : 0;
+    const right = index < b.length ? b[index]! : 0;
+    if (left !== right) return left - right;
+  }
+  return 0;
+};
+
+const sortAttributesDer = (attributes: readonly pkijs.Attribute[]): readonly pkijs.Attribute[] =>
+  [...attributes]
+    .map((attribute) => ({ attribute, der: new Uint8Array(attribute.toSchema().toBER()) }))
+    .sort((a, b) => compareDer(a.der, b.der))
+    .map((entry) => entry.attribute);
+
 export const buildSignedAttributes = (params: {
   readonly messageDigest: Uint8Array;
   readonly signingTime: Date;
@@ -105,5 +133,5 @@ export const buildSignedAttributes = (params: {
   if (params.icpBrasil !== undefined) {
     attributes.push(signaturePolicyAttribute(params.icpBrasil));
   }
-  return attributes;
+  return sortAttributesDer(attributes);
 };

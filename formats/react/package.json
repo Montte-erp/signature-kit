@@ -1,0 +1,57 @@
+{
+  "name": "@signature-kit/react",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
+    },
+    "./builder": {
+      "types": "./dist/builder.d.ts",
+      "import": "./dist/builder.js"
+    },
+    "./components": {
+      "types": "./dist/components.d.ts",
+      "import": "./dist/components.js"
+    },
+    "./browser-pdf": {
+      "types": "./dist/browser-pdf.d.ts",
+      "import": "./dist/browser-pdf.js"
+    },
+    "./react-pdf": {
+      "types": "./dist/react-pdf.d.ts",
+      "import": "./dist/react-pdf.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cantoo/pdf-lib": "2.7.1",
+    "@signature-kit/cms": "workspace:*",
+    "@signature-kit/core": "workspace:*",
+    "@signature-kit/pdf": "workspace:*",
+    "@tanstack/pacer": "0.21.1",
+    "@tanstack/react-pacer": "0.22.1",
+    "@tanstack/react-store": "0.11.0",
+    "@tanstack/store": "0.11.0",
+    "effect": "4.0.0-beta.86"
+  },
+  "devDependencies": {
+    "@react-pdf/renderer": "4.5.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "peerDependencies": {
+    "@react-pdf/renderer": ">=4.5.1",
+    "react": ">=19.0.0"
+  }
+}

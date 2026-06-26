@@ -5,6 +5,7 @@ import {
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
   SignatureKitSchemaNameValue,
+  redactedStringSchema,
   remoteSignatureInputFromProps,
   validRemoteSignatureRequest,
 } from "@signature-kit/core/config";
@@ -21,7 +22,6 @@ import {
   decodeRemoteOptions,
   decodeRemoteShape,
   normalizedBaseUrl,
-  signatureHttpClientLive,
 } from "@signature-kit/core/http";
 import type { SignatureHttpClientService } from "@signature-kit/core/http";
 import { Resource } from "alchemy";
@@ -29,30 +29,25 @@ import * as Provider from "alchemy/Provider";
 import { Context, Effect, Layer, Redacted, Schema } from "effect";
 
 const PROVIDER: RemoteSignatureProvider = "clicksign";
+const CLICKSIGN_SIGNATURE_REQUEST_TYPE = "SignatureKit.ClicksignSignatureRequest";
+const CLICKSIGN_PROVIDER_COLLECTION_ID = "SignatureKitClicksign";
 const SANDBOX_BASE_URL = "https://sandbox.clicksign.com/api/v1";
 const PRODUCTION_BASE_URL = "https://app.clicksign.com/api/v1";
 
-const redactedString: Schema.ConstraintDecoder<Redacted.Redacted<string>> = Schema.Redacted(
-  Schema.String,
-);
-
 const ClicksignEnvironmentSchema = Schema.Literals(["production", "sandbox"]);
-export const clicksignEnvironmentSchema = ClicksignEnvironmentSchema;
-export type ClicksignEnvironment = (typeof clicksignEnvironmentSchema)["Type"];
+export type ClicksignEnvironment = (typeof ClicksignEnvironmentSchema)["Type"];
 
 const ClicksignLocaleSchema = Schema.Literals(["en-US", "pt-BR"]);
-export const clicksignLocaleSchema = ClicksignLocaleSchema;
-export type ClicksignLocale = (typeof clicksignLocaleSchema)["Type"];
+export type ClicksignLocale = (typeof ClicksignLocaleSchema)["Type"];
 
 export const ClicksignProviderOptionsSchema = Schema.Struct({
-  accessToken: redactedString,
+  accessToken: redactedStringSchema,
   environment: Schema.optional(ClicksignEnvironmentSchema),
   baseUrl: Schema.optional(Schema.NonEmptyString),
   locale: Schema.optional(ClicksignLocaleSchema),
   autoClose: Schema.optional(Schema.Boolean),
 });
 export type ClicksignProviderOptions = (typeof ClicksignProviderOptionsSchema)["Type"];
-export const clicksignProviderOptionsSchema = ClicksignProviderOptionsSchema;
 
 const ClicksignDocumentResultSchema = Schema.Struct({
   document: Schema.Struct({
@@ -70,13 +65,13 @@ const ClicksignListResultSchema = Schema.Struct({
 });
 
 export type ClicksignSignatureRequestResource = Resource<
-  "SignatureKit.ClicksignSignatureRequest",
+  typeof CLICKSIGN_SIGNATURE_REQUEST_TYPE,
   RemoteSignatureRequestProps,
   RemoteSignatureRequest
 >;
 
 export const ClicksignSignatureRequest = Resource<ClicksignSignatureRequestResource>(
-  "SignatureKit.ClicksignSignatureRequest",
+  CLICKSIGN_SIGNATURE_REQUEST_TYPE,
   { defaultRemovalPolicy: "retain" },
 );
 
@@ -91,7 +86,7 @@ export const clicksignCredentialsLayer = (
   Layer.effect(
     ClicksignCredentials,
     decodeRemoteOptions(
-      clicksignProviderOptionsSchema,
+      ClicksignProviderOptionsSchema,
       SignatureKitSchemaNameValue.clicksignProviderOptions,
       PROVIDER,
       options,
@@ -334,14 +329,13 @@ export const ClicksignSignatureRequestProvider = () =>
   );
 
 export class ClicksignProviders extends Provider.ProviderCollection<ClicksignProviders>()(
-  "SignatureKitClicksign",
+  CLICKSIGN_PROVIDER_COLLECTION_ID,
 ) {}
 
 export const providers = (options: ClicksignProviderOptions) =>
   Layer.effect(ClicksignProviders, Provider.collection([ClicksignSignatureRequest])).pipe(
     Layer.provide(ClicksignSignatureRequestProvider()),
     Layer.provide(clicksignCredentialsLayer(options)),
-    Layer.provide(signatureHttpClientLive),
   );
 
 export const createClicksignSignatureRequest = (
@@ -349,7 +343,7 @@ export const createClicksignSignatureRequest = (
   input: RemoteSignatureRequestInput,
 ): Effect.Effect<RemoteSignatureRequest, SignatureKitError, SignatureHttpClient> =>
   decodeRemoteOptions(
-    clicksignProviderOptionsSchema,
+    ClicksignProviderOptionsSchema,
     SignatureKitSchemaNameValue.clicksignProviderOptions,
     PROVIDER,
     options,

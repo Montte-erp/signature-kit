@@ -1,0 +1,76 @@
+---
+title: SignatureBuilderSurface
+description: "The composite signature builder from @signature-kit/react: position fields over a document's pages, with parts styleable via data-slot."
+---
+
+`SignatureBuilderSurface` renders the entire builder from a `SignatureBuilderStore`: roles, documents, pages, and the positionable fields. It draws the signing _intent_ — who signs what and where — and never touches the key. The signing itself stays at the `Signatures` boundary.
+
+```package-install
+@signature-kit/react @signature-kit/pdf @signature-kit/a1
+```
+
+## Anatomy
+
+The surface is composite: you can render it whole or assemble the parts by hand to control the layout. Each part exposes a `data-slot`, so you style by class without swapping the logic.
+
+```tsx title="ContractBuilder.tsx"
+import { Effect } from "effect"
+import {
+  SignatureBuilderSurface,
+  useSignatureBuilderStore,
+} from "@signature-kit/react/components"
+
+function ContractBuilder({ initialState }) {
+  const store = useSignatureBuilderStore(initialState)
+
+  return (
+    <SignatureBuilderSurface
+      store={store}
+      onFieldPlacement={(placement) => void Effect.runPromise(store.placeField(placement))}
+    />
+  )
+}
+```
+
+| Slot | Element | Description |
+| ---- | ------- | ----------- |
+| `signature-builder-surface` | div | The surface root; wraps roles and documents. |
+| `signature-builder-roles` | div | List of the template's roles (signers). |
+| `signature-builder-role` | button | A selectable role. |
+| `signature-builder-document` | div | A document of the template. |
+| `signature-builder-document-header` | div | Header with the document name. |
+| `signature-builder-page` | div | A rendered page of the document. |
+| `signature-builder-page-label` | span | Page label (index / name). |
+| `signature-builder-field-frame` | div | Clickable frame where a field is positioned. |
+| `signature-builder-field` | button | An already-positioned signature field (clickable). |
+
+## Props
+
+<TypeTable
+  type={{
+    store: { type: "SignatureBuilderStore", required: true, description: "Store created by useSignatureBuilderStore / createSignatureBuilderStore." },
+    onFieldPlacement: { type: "(placement: ReactSignatureFieldPlacement) => void", description: "Fired when the user positions a field. Run the returned Effect here (the app boundary)." },
+    onFieldSelect: { type: "(field: ReactSignatureField) => void", description: "Fired when selecting an already-positioned field." },
+    className: { type: "string", description: "Root class (data-slot=signature-builder-surface)." },
+    style: { type: "React.CSSProperties", description: "Inline style of the root." },
+  }}
+/>
+
+<Callout type="info" title="The boundary is yours">
+  The surface does not run `Effect` behind your back. Each interaction returns an `Effect` (e.g. `store.placeField(...)`); the app decides
+  when to run it with `Effect.runPromise` — typically in the React event handler. That's where errors become UX.
+</Callout>
+
+## Composite parts
+
+When you need your own layout, build it from the subparts instead of the whole surface. They all receive the same `store`:
+
+- `SignatureBuilderRoles` — just the roles strip.
+- `SignatureBuilderDocument` — a single document (`documentId`), with its header.
+- `SignatureBuilderPage` — a single page (`documentId`, `pageIndex`) with its field frames.
+- `SignatureBuilderField` — an individual positioned field.
+
+<Callout type="info" title="State and selection">
+  Read slices of the builder with [the hooks](/docs/components/hooks) (`useSignatureBuilderSelector`, `signatureBuilderSelectors`)
+  and manipulate fields with the [Builder API](/docs/components/builder-api). The surface is only the visual layer over that store.
+</Callout>

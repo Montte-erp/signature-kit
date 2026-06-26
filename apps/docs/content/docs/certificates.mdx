@@ -1,0 +1,200 @@
+---
+title: A1 Certificates
+description: "Read the holder identity of an A1 certificate (e-CPF / e-CNPJ), inspect the full certificate, and verify validity and ICP-Brasil fields."
+---
+
+**What you will do:** read the holder identity of an A1 certificate (e-CPF or e-CNPJ), inspect the full certificate, and check validity and ICP-Brasil fields. An A1 is a PKCS#12 file (`.pfx`/`.p12`) loaded by `@signature-kit/a1`; the runtime exposes two independent reads of the signing material.
+
+<Steps>
+  <Step title="Read the identity">
+    ### Read the identity
+
+    `signatures.inspect()` returns an `Effect<SignerIdentity, SignatureKitError>` with the holder's essential fields. This is the cheap read: subject, issuer, serial number, thumbprint, validity window, and the optional `document`. Provide a `Signatures` layer (here `a1SignaturesLayer`) so the accessor can resolve the loaded material.
+
+    ```ts title="read-identity.ts"
+    import { a1SignaturesLayer } from "@signature-kit/a1/signer"
+    import { signatures } from "@signature-kit/core/signatures"
+    import { Effect, Redacted } from "effect"
+
+    const layer = a1SignaturesLayer({
+      pfx,                                          // Uint8Array — bytes of the .pfx/.p12
+      password: Redacted.make(process.env.A1_PASSWORD ?? ""),
+    })
+
+    export const readIdentity = Effect.gen(function* () {
+      const identity = yield* signatures.inspect()
+
+      console.log(identity.subject)       // certificate holder
+      console.log(identity.issuer)        // issuing CA (ICP-Brasil chain)
+      console.log(identity.serialNumber)  // serial number
+      console.log(identity.thumbprint)    // thumbprint
+      console.log(identity.validFrom, identity.validTo)
+
+      // e-CPF -> CPF; e-CNPJ -> CNPJ; absent if the OID is not recognized
+      if (identity.document !== undefined) {
+        console.log("document:", identity.document)
+      }
+    }).pipe(Effect.provide(layer))
+    ```
+
+    <Callout type="info">
+      `document` is only populated when the certificate carries a recognized
+      ICP-Brasil OID (e-CPF or e-CNPJ). For other profiles the field is absent — always test `!== undefined`.
+    </Callout>
+  </Step>
+
+  <Step title="The SignerIdentity type">
+    ### The SignerIdentity type
+
+    The exact shape of what `inspect` returns. `validFrom` and `validTo` are `Date`; `document` is the only optional field.
+
+    ```ts title="signer-identity.ts"
+    // return of signatures.inspect()
+    type SignerIdentity = {
+      subject: string
+      issuer: string
+      serialNumber: string
+      thumbprint: string
+      validFrom: Date
+      validTo: Date
+      document?: string   // CPF (e-CPF) or CNPJ (e-CNPJ), when recognized
+    }
+    ```
+  </Step>
+
+  <Step title="Inspect the certificate">
+    ### Inspect the certificate
+
+    When you need more than the identity, `signatures.certificate()` returns an `Effect<Certificate, SignatureKitError>` with the whole certificate: PEM, DER, public key, precomputed validity (`isValid`), SANs, and the `brazilian` block with the ICP-Brasil fields.
+
+    <Callout type="error" title="Caution">
+      the accessor is `signatures.certificate()` — the full certificate read on the
+      same `Signatures` service as `inspect()`. The
+      `privateKeyPem` field is `Redacted<string>`: it does not appear in logs, in `console.log`,
+      nor in `JSON.stringify`. To obtain the PEM you must explicitly call `Redacted.value(...)`,
+      and only at the boundary where the key is actually consumed.
+    </Callout>
+
+    ```ts title="inspect.ts"
+    import { signatures } from "@signature-kit/core/signatures"
+    import { Effect, Redacted } from "effect"
+
+    // provide the same a1SignaturesLayer({ pfx, password }) as above
+    export const inspectCertificate = Effect.gen(function* () {
+      const cert = yield* signatures.certificate()
+
+      console.log(cert.isValid)        // boolean already computed by the chain
+      console.log(cert.fingerprint)    // SHA-256 fingerprint (hex)
+      console.log(cert.subjectAltName) // subject alternative name (string | null)
+      console.log(cert.brazilian)      // { cnpj, cpf } — ICP-Brasil fields
+
+      // the private key is Redacted: it does not appear in logs nor in JSON.stringify
+      const pem = Redacted.value(cert.privateKeyPem) // only at the point of use
+    }).pipe(Effect.provide(layer))
+    ```
+  </Step>
+
+  <Step title="The Certificate type">
+    ### The Certificate type
+
+    The full shape of what `signatures.certificate()` returns. Note the three certificate encodings (`certPem`, `certificateDer`, `publicKeyDer`) and the private key protected by `Redacted`.
+
+    ```ts title="certificate.ts"
+    // return of signatures.certificate()
+    type Certificate = {
+      serialNumber: string
+      subject: {
+        commonName: string | null
+        organization: string | null
+        organizationalUnit: string | null
+        country: string | null
+        state: string | null
+        locality: string | null
+        raw: string
+      }
+      issuer: {
+        commonName: string | null
+        organization: string | null
+        country: string | null
+        raw: string
+      }
+      validity: { notBefore: Date; notAfter: Date }
+      fingerprint: string
+      subjectAltName: string | null
+      isValid: boolean
+      brazilian: { cnpj: string | null; cpf: string | null }
+      certPem: string
+      certificateDer: Uint8Array
+      publicKeyDer: Uint8Array
+      privateKeyPem: Redacted<string>   // secret, never printed
+    }
+    ```
+  </Step>
+
+  <Step title="Validity and ICP-Brasil">
+    ### Validity and ICP-Brasil
+
+    Install the low-level package to work directly with PKCS#12/X.509:
+
+    ```package-install
+    @signature-kit/certificates
+    ```
+
+    `@signature-kit/certificates` exposes pure utilities over the certificate:
+    `toSignerIdentity(cert)` reduces a `Certificate` to the same `SignerIdentity` as
+    `inspect`; `isCertificateValid(cert)` returns a `boolean` and
+    `daysUntilExpiry(cert)`, a `number`. For raw DER bytes, `parseX509(der)` returns
+    an `X509Info`.
+
+    ```ts title="validity.ts"
+    import { toSignerIdentity, isCertificateValid, daysUntilExpiry } from "@signature-kit/certificates"
+    import { signatures } from "@signature-kit/core/signatures"
+    import { Effect } from "effect"
+
+    // provide the same a1SignaturesLayer({ pfx, password }) as above
+    export const checkValidity = Effect.gen(function* () {
+      // cert: Certificate coming from signatures.certificate()
+      const cert = yield* signatures.certificate()
+
+      // identity derived from the certificate (same shape as inspect())
+      const identity = toSignerIdentity(cert)
+      // identity.document is populated by the ICP-Brasil OIDs:
+      //   2.16.76.1.3.1 -> e-CPF   (document = CPF)
+      //   2.16.76.1.3.3 -> e-CNPJ  (document = CNPJ)
+
+      // temporal validity and expiry window
+      const valid = isCertificateValid(cert)   // boolean
+      const days = daysUntilExpiry(cert)       // number
+
+      if (!valid) {
+        yield* Effect.logWarning("certificate out of validity")
+      } else if (days < 30) {
+        yield* Effect.logWarning(`certificate expires in ${days} day(s)`)
+      }
+    }).pipe(Effect.provide(layer))
+    ```
+
+    <Callout type="info">
+      the ICP-Brasil OIDs populate the `document` field:
+      `2.16.76.1.3.1` identifies the e-CPF (the document is the holder's CPF) and `2.16.76.1.3.3`
+      identifies the e-CNPJ (the document is the CNPJ). Extracting these fields is done by
+      `extractBrazilianFields` internally and already appears ready in `identity.document` and in
+      `cert.brazilian`.
+    </Callout>
+  </Step>
+</Steps>
+
+## Errors you may see
+
+Every read failure is a typed `SignatureKitError` in the error channel. The most common ones when reading certificates:
+
+- [`signature-kit.NO_CERTIFICATE`](/docs/errors#error-catalog) — the loaded material does not contain a certificate.
+- [`signature-kit.X509_PARSE_FAILED`](/docs/errors#error-catalog) — the DER could not be parsed by `parseX509`.
+- [`signature-kit.PEM_EXTRACTION_FAILED`](/docs/errors#error-catalog) — failed to extract the PEM from the certificate.
+
+## See also
+
+<Cards>
+  <Card title="The signing boundary" href="/docs/signers">The SignerAdapter that loads the A1 and exposes the signing material.</Card>
+  <Card title="Typed error channel" href="/docs/errors">NO_CERTIFICATE, X509_PARSE_FAILED and the other SignatureKitError.</Card>
+</Cards>

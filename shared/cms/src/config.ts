@@ -65,7 +65,6 @@ export const CmsOperationValue = {
 
 export const CmsHashAlgorithmSchema = Schema.Literals(["sha256", "sha1", "sha384", "sha512"]);
 export type CmsHashAlgorithm = (typeof CmsHashAlgorithmSchema)["Type"];
-export const cmsHashAlgorithmSchema = CmsHashAlgorithmSchema;
 export const CmsHashAlgorithmValue = {
   sha256: "sha256",
   sha1: "sha1",

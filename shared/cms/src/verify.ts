@@ -7,7 +7,7 @@
  * When `trustedRoots` is supplied, the signer chain is validated too.
  */
 
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import * as pkijs from "pkijs";
 import {
   type CmsVerifyResult,
@@ -21,21 +21,10 @@ import { toArrayBuffer } from "./engine";
 const isUint8Array = (value: unknown): value is Uint8Array =>
   Object.prototype.toString.call(value) === "[object Uint8Array]";
 
-const constructorName = (value: unknown): string | undefined => {
-  if (value === null || typeof value !== "object") return undefined;
-  const constructor = Reflect.get(value, "constructor");
-  if (
-    constructor === null ||
-    (typeof constructor !== "object" && typeof constructor !== "function")
-  ) {
-    return undefined;
-  }
-  const name = Reflect.get(constructor, "name");
-  return typeof name === "string" ? name : undefined;
-};
-
-const isSignedDataVerifyMismatch = (cause: unknown): boolean =>
-  constructorName(cause) === "SignedDataVerifyError";
+const SignedDataVerifyErrorSchema = Schema.Struct({
+  name: Schema.Literals(["SignedDataVerifyError"]),
+  code: Schema.Number,
+});
 
 const signerSerialHex = (signed: pkijs.SignedData): string | null => {
   const sid = signed.signerInfos[0]?.sid;
@@ -89,18 +78,22 @@ export const verifyDetachedSignedData = (
           trustedCerts,
           extendedMode: true,
         }),
-      catch: (cause) =>
-        isSignedDataVerifyMismatch(cause)
-          ? new CmsError({
-              code: CmsErrorCodeValue.digestMismatch,
-              operation: CmsOperationValue.verify,
-            })
-          : new CmsError({
-              code: CmsErrorCodeValue.verifyError,
-              reason: "CMS verification failed.",
-              operation: CmsOperationValue.verify,
-            }),
+      catch: (cause) => cause,
     }).pipe(
+      Effect.catch((cause: unknown) =>
+        Schema.decodeUnknownEffect(SignedDataVerifyErrorSchema)(cause).pipe(
+          Effect.matchEffect({
+            onFailure: () => Effect.die(cause),
+            onSuccess: () =>
+              Effect.fail(
+                new CmsError({
+                  code: CmsErrorCodeValue.digestMismatch,
+                  operation: CmsOperationValue.verify,
+                }),
+              ),
+          }),
+        ),
+      ),
       Effect.map((result) => ({
         valid: result.signatureVerified === true,
         chainValid: checkChain ? result.signerCertificateVerified === true : true,

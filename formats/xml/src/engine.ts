@@ -1,14 +1,21 @@
 import { DOMImplementation, DOMParser, XMLSerializer } from "@xmldom/xmldom";
 import { Application } from "xmldsigjs";
 import { setNodeDependencies } from "xml-core";
-import { Effect } from "effect";
+import { Context, Effect, Layer } from "effect";
 import type { SignatureAlgorithm } from "@signature-kit/core/config";
 import { XmlError, XmlErrorCodeValue, XmlOperationValue } from "./config";
 
 const XML_RSA_ALGORITHM_NAME = "RSASSA-PKCS1-v1_5";
-let runtimeConfigured = false;
 
-export const ensureXmlRuntime = (): Effect.Effect<void, XmlError> => {
+export type XmlRuntimeService = {
+  readonly ensure: Effect.Effect<void, XmlError>;
+};
+
+export class XmlRuntime extends Context.Service<XmlRuntime, XmlRuntimeService>()(
+  "@signature-kit/xml/Runtime",
+) {}
+
+const configureXmlRuntime: Effect.Effect<void, XmlError> = Effect.suspend(() => {
   if (globalThis.crypto === undefined) {
     return Effect.fail(
       new XmlError({
@@ -20,14 +27,18 @@ export const ensureXmlRuntime = (): Effect.Effect<void, XmlError> => {
     );
   }
 
-  if (!runtimeConfigured) {
-    Application.setEngine("signature-kit", globalThis.crypto);
-    setNodeDependencies({ DOMImplementation, DOMParser, XMLSerializer });
-    runtimeConfigured = true;
-  }
-
+  Application.setEngine("signature-kit", globalThis.crypto);
+  setNodeDependencies({ DOMImplementation, DOMParser, XMLSerializer });
   return Effect.void;
-};
+});
+
+export const xmlRuntimeLayer: Layer.Layer<XmlRuntime, XmlError> = Layer.effect(
+  XmlRuntime,
+  Effect.cached(configureXmlRuntime).pipe(Effect.map((ensure) => ({ ensure }))),
+);
+
+export const ensureXmlRuntime = (): Effect.Effect<void, XmlError, XmlRuntime> =>
+  XmlRuntime.use((runtime) => runtime.ensure);
 
 export const xmlSignatureAlgorithm = (algorithm: SignatureAlgorithm): RsaHashedImportParams => ({
   name: XML_RSA_ALGORITHM_NAME,

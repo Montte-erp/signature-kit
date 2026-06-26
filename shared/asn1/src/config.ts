@@ -34,11 +34,6 @@ export type Asn1Constructed = {
 
 export type Asn1Node = Asn1Primitive | Asn1Constructed;
 
-/** Internal step type shared with the no-throw decoder/oid modules. */
-export type Asn1Step<A> =
-  | { readonly _tag: "ok"; readonly value: A }
-  | { readonly _tag: "fail"; readonly reason: string };
-
 // =============================================================================
 // Error catalog
 // =============================================================================
@@ -76,12 +71,7 @@ export class Asn1Error extends Schema.TaggedErrorClass<Asn1Error>()("Asn1Error",
 // =============================================================================
 
 /** Decode the first complete TLV from DER bytes. */
-export const decode = (data: Uint8Array): Effect.Effect<Asn1Node, Asn1Error> => {
-  const step = decodeRoot(data);
-  return step._tag === "ok"
-    ? Effect.succeed(step.value)
-    : Effect.fail(new Asn1Error({ code: Asn1ErrorCodeValue.decodeError, reason: step.reason }));
-};
+export const decode = (data: Uint8Array): Effect.Effect<Asn1Node, Asn1Error> => decodeRoot(data);
 
 /** Re-encode a node to DER. Total for nodes produced by `decode`. */
 export const encode = (node: Asn1Node): Uint8Array => encodeNode(node);
@@ -111,12 +101,7 @@ export const bytesOf = (node: Asn1Node): Effect.Effect<Uint8Array, Asn1Error> =>
       );
 
 export const oidString = (node: Asn1Node): Effect.Effect<string, Asn1Error> =>
-  Effect.flatMap(bytesOf(node), (bytes) => {
-    const step = decodeOidBytes(bytes);
-    return step._tag === "ok"
-      ? Effect.succeed(step.value)
-      : Effect.fail(new Asn1Error({ code: Asn1ErrorCodeValue.oidError, reason: step.reason }));
-  });
+  Effect.flatMap(bytesOf(node), decodeOidBytes);
 
 /** Read a DER INTEGER (two's complement) as a bigint. */
 export const integerBigInt = (node: Asn1Node): Effect.Effect<bigint, Asn1Error> =>

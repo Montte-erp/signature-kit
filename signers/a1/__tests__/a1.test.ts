@@ -1,9 +1,15 @@
 import { describe, expect, it } from "@effect/vitest";
-import { createSignatureKit } from "@signature-kit/core/runtime";
 import { signatures } from "@signature-kit/core/signatures";
 import { Effect, Redacted, Result } from "effect";
 import { readA1Fixture } from "../../../tooling/testing/fixtures";
-import { a1SignaturesLayer, loadA1SignerAdapter } from "@signature-kit/a1/signer";
+import {
+  a1SignaturesLayer,
+  a1SignaturesLayerFromUrl,
+  fetchA1Pkcs12,
+  loadA1SignerAdapter,
+  parseA1CertificateProfileFromUrl,
+} from "@signature-kit/a1/signer";
+import { SignatureKitErrorCodeValue } from "@signature-kit/core/config";
 
 const PASSWORD = Redacted.make("changeit");
 const textEncoder = new TextEncoder();
@@ -135,25 +141,27 @@ describe("A1 signatures", () => {
     }),
   );
 
-  it.effect("creates a PayKit-style SignatureKit runtime from an A1 signer", () =>
+  it.effect("exposes an A1 signer through the Signatures service", () =>
     Effect.gen(function* () {
       const pfx = yield* readA1Fixture("ecpf");
-      const signer = yield* loadA1SignerAdapter({ pfx, password: PASSWORD });
-      const signatureKit = createSignatureKit({ signer });
       const content = textEncoder.encode("signature-kit runtime payload");
+      const layer = a1SignaturesLayer({ pfx, password: PASSWORD });
 
-      const identity = yield* signatureKit.certificates.inspect();
-      const certificate = yield* signatureKit.certificates.get();
-      const artifact = yield* signatureKit.signatures.sign({ content, algorithm: "rsa-sha256" });
-      const verification = yield* signatureKit.signatures.verify({
-        content,
-        signature: artifact.signature,
-        algorithm: artifact.algorithm,
-      });
+      const result = yield* Effect.gen(function* () {
+        const identity = yield* signatures.inspect();
+        const certificate = yield* signatures.certificate();
+        const artifact = yield* signatures.sign({ content, algorithm: "rsa-sha256" });
+        const verification = yield* signatures.verify({
+          content,
+          signature: artifact.signature,
+          algorithm: artifact.algorithm,
+        });
+        return { identity, certificate, verification };
+      }).pipe(Effect.provide(layer));
 
-      expect(identity.document).toBe("12345678901");
-      expect(certificate.serialNumber).not.toBe("");
-      expect(verification.valid).toBe(true);
+      expect(result.identity.document).toBe("12345678901");
+      expect(result.certificate.serialNumber).not.toBe("");
+      expect(result.verification.valid).toBe(true);
     }),
   );
 
@@ -170,6 +178,39 @@ describe("A1 signatures", () => {
 
       expect(result.first).toBe(result.second);
       expect(result.first).not.toBe(result.sha512);
+    }),
+  );
+
+  it.effect("loads an A1 certificate from a (presigned) URL and signs through the service", () =>
+    Effect.gen(function* () {
+      const pfx = yield* readA1Fixture("ecnpj");
+      // A data: URL stands in for a presigned URL so the test stays offline; the
+      // fetch path is identical (GET -> arrayBuffer).
+      const url = `data:application/x-pkcs12;base64,${Buffer.from(pfx).toString("base64")}`;
+
+      const fetched = yield* fetchA1Pkcs12({ url });
+      expect(fetched.byteLength).toBe(pfx.byteLength);
+
+      const profile = yield* parseA1CertificateProfileFromUrl({ url, password: PASSWORD });
+      expect(profile.document.length).toBeGreaterThan(0);
+
+      const content = textEncoder.encode("signature-kit remote A1 payload");
+      const artifact = yield* signatures
+        .sign({ content, algorithm: "rsa-sha256" })
+        .pipe(Effect.provide(a1SignaturesLayerFromUrl({ url, password: PASSWORD })));
+      expect(artifact.signature.byteLength).toBeGreaterThan(0);
+    }),
+  );
+
+  it.effect("fails with EMPTY_FILE when the remote A1 has no body", () =>
+    Effect.gen(function* () {
+      const result = yield* Effect.result(
+        fetchA1Pkcs12({ url: "data:application/x-pkcs12;base64," }),
+      );
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe(SignatureKitErrorCodeValue.emptyFile);
+      }
     }),
   );
 });

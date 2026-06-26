@@ -5,6 +5,7 @@ import { readA1Fixture } from "../../../tooling/testing/fixtures";
 import { a1SignaturesLayer } from "@signature-kit/a1/signer";
 import { signXml } from "@signature-kit/xml/sign";
 import { verifyXml } from "@signature-kit/xml/verify";
+import { xmlRuntimeLayer } from "@signature-kit/xml/engine";
 
 const PASSWORD = Redacted.make("changeit");
 
@@ -32,22 +33,28 @@ describe("XML-DSig", () => {
       const xml = '<invoice Id="invoice-1"><amount>100.00</amount></invoice>';
       const layer = a1SignaturesLayer({ pfx, password: PASSWORD });
 
-      const signed = yield* signXml({ xml, referenceId: "invoice-1" }).pipe(Effect.provide(layer));
+      const signed = yield* signXml({ xml, referenceId: "invoice-1" }).pipe(
+        Effect.provide(layer),
+        Effect.provide(xmlRuntimeLayer),
+      );
       const publicKeyDer = yield* signatures.certificate().pipe(
         Effect.map((certificate) => certificate.publicKeyDer),
         Effect.provide(layer),
       );
-      const embeddedKey = yield* verifyXml({ xml: signed, requireReferenceUri: "#invoice-1" });
+      const embeddedKey = yield* verifyXml({
+        xml: signed,
+        requireReferenceUri: "#invoice-1",
+      }).pipe(Effect.provide(xmlRuntimeLayer));
       const explicitKey = yield* verifyXml({
         xml: signed,
         publicKeyDer,
         requireReferenceUri: "#invoice-1",
-      });
+      }).pipe(Effect.provide(xmlRuntimeLayer));
       const tampered = yield* verifyXml({
         xml: signed.replace("100.00", "999.00"),
         publicKeyDer,
         requireReferenceUri: "#invoice-1",
-      });
+      }).pipe(Effect.provide(xmlRuntimeLayer));
 
       expect(signed).toContain("<ds:Signature");
       expect(signed).toContain("<ds:X509Certificate>");
@@ -68,7 +75,7 @@ describe("XML-DSig", () => {
         referenceId: "nfse_123",
         algorithm: "rsa-sha512",
         signatureId: "signature-1",
-      }).pipe(Effect.provide(layer));
+      }).pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer));
 
       expect(signed).toContain("<ds:Signature");
       expect(signed).toContain('Id="signature-1"');
@@ -84,7 +91,7 @@ describe("XML-DSig", () => {
         xml: sampleNfse,
         referenceId: "nfse_123",
         algorithm: "rsa-sha1",
-      }).pipe(Effect.provide(layer));
+      }).pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer));
       expect(sha1).toContain("rsa-sha1");
       expect(sha1).toContain("xmldsig#sha1");
     }),
@@ -99,12 +106,15 @@ describe("XML-DSig", () => {
 
       const signedNfse = yield* signXml({ xml: sampleNfse, referenceId: "nfse_123" }).pipe(
         Effect.provide(layer),
+        Effect.provide(xmlRuntimeLayer),
       );
       const signedFirst = yield* signXml({ xml: firstXml, referenceId: "a" }).pipe(
         Effect.provide(layer),
+        Effect.provide(xmlRuntimeLayer),
       );
       const signedSecond = yield* signXml({ xml: secondXml, referenceId: "a" }).pipe(
         Effect.provide(layer),
+        Effect.provide(xmlRuntimeLayer),
       );
       const firstDigest = signedFirst.match(/<ds:DigestValue>([^<]+)<\/ds:DigestValue>/)?.[1];
       const secondDigest = signedSecond.match(/<ds:DigestValue>([^<]+)<\/ds:DigestValue>/)?.[1];
@@ -124,6 +134,7 @@ describe("XML-DSig", () => {
       const result = yield* Effect.result(
         signXml({ xml: sampleNfse, referenceId: "nonexistent" }).pipe(
           Effect.provide(a1SignaturesLayer({ pfx, password: PASSWORD })),
+          Effect.provide(xmlRuntimeLayer),
         ),
       );
 

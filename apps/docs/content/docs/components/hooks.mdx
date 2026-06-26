@@ -1,0 +1,182 @@
+---
+title: Hooks
+description: "Hooks and selectors from @signature-kit/react to read slices of the SignatureBuilderStore with minimal re-renders."
+---
+
+The `@signature-kit/react` hooks connect your components to the `SignatureBuilderStore` without subscribing to the entire store. Each hook reads a _slice_ of the state and only re-renders when that slice changes — the equality comparison is configurable. They are built on top of `@tanstack/react-store` and never touch the key: signing stays at the `Signatures` boundary.
+
+## useSignatureBuilderStore
+
+Creates (once) and keeps the `SignatureBuilderStore` stable throughout the component's lifecycle. Use it in the component that owns the builder and pass the `store` down to the subparts and other hooks.
+
+```ts title="Signature"
+function useSignatureBuilderStore(
+  initialState: ReactSignatureBuilderState,
+): SignatureBuilderStore
+```
+
+```tsx title="ContractBuilder.tsx"
+import { useSignatureBuilderStore } from "@signature-kit/react/components"
+
+function ContractBuilder({ initialState }) {
+  const store = useSignatureBuilderStore(initialState)
+  // store is stable across renders; pass it down to components and selectors
+  return <SignatureBuilderSurface store={store} />
+}
+```
+
+<Callout type="info" title="Stable store per instance">
+  The store is created once (via `React.useRef`) and never recreated when `initialState` changes. To swap the state at
+  runtime, use the store's own commands (`store.setState`, `store.setTemplate`), which return `Effect`.
+</Callout>
+
+## useSignatureBuilderSelector
+
+Reads a derived slice of the `ReactSignatureBuilderState` and re-renders only when the selected value changes. The `isEqual` function controls the comparison — defaults to `Object.is`.
+
+```ts title="Signature"
+function useSignatureBuilderSelector<Selected>(
+  store: SignatureBuilderStore,
+  selector: (state: ReactSignatureBuilderState) => Selected,
+  isEqual?: SelectionEqual<Selected>,
+): Selected
+```
+
+<TypeTable
+  type={{
+    store: { type: "SignatureBuilderStore", required: true, description: "Store created by useSignatureBuilderStore / createSignatureBuilderStore." },
+    selector: { type: "(state: ReactSignatureBuilderState) => Selected", required: true, description: "Projects the builder state into the slice the component consumes." },
+    isEqual: { type: "SelectionEqual<Selected>", description: "Compares the previous and next value to decide whether to re-render. Default: Object.is." },
+  }}
+/>
+
+```tsx title="Reading a slice of the store"
+import {
+  useSignatureBuilderSelector,
+  signatureBuilderSelectors,
+} from "@signature-kit/react/components"
+
+function SelectedFieldLabel({ store }) {
+  // re-renders only when the selected field changes
+  const selected = useSignatureBuilderSelector(
+    store,
+    signatureBuilderSelectors.selectedField,
+  )
+
+  if (selected === undefined) return <p>No field selected</p>
+  return <p>Field: {selected.type}</p>
+}
+```
+
+<Callout type="info" title="Select the minimum">
+  Select the smallest possible slice of the state. Reading `signatureBuilderSelectors.selectedFieldId` instead of the
+  whole template avoids re-renders when unrelated parts (roles, documents) change.
+</Callout>
+
+`SelectionEqual<Selected>` has the shape `(previous: Selected, next: Selected) => boolean`. Use it to compare structural slices — for example, lists — without reacting to new references that hold the same content.
+
+```tsx title="Custom equality"
+const roles = useSignatureBuilderSelector(
+  store,
+  signatureBuilderSelectors.roles,
+  (previous, next) =>
+    previous.length === next.length &&
+    previous.every((role, index) => role.id === next[index]?.id),
+)
+```
+
+## useSignatureBuilderFieldsForPage
+
+A shortcut that returns, memoized, the fields placed on a specific page. Internally it calls `useSignatureBuilderSelector` with an item-by-item reference comparison, so the list only changes when the fields on that page actually change.
+
+```ts title="Signature"
+function useSignatureBuilderFieldsForPage(
+  store: SignatureBuilderStore,
+  documentId: string,
+  pageIndex: number,
+): readonly ReactSignatureField[]
+```
+
+<TypeTable
+  type={{
+    store: { type: "SignatureBuilderStore", required: true, description: "The builder store." },
+    documentId: { type: "string", required: true, description: "Id of the document whose fields will be read." },
+    pageIndex: { type: "number", required: true, description: "Index (0-based) of the page within the document." },
+  }}
+/>
+
+```tsx title="Rendering the fields of a page"
+import { useSignatureBuilderFieldsForPage } from "@signature-kit/react/components"
+
+function PageFields({ store, documentId, pageIndex }) {
+  const fields = useSignatureBuilderFieldsForPage(store, documentId, pageIndex)
+
+  return (
+    <ul>
+      {fields.map((field) => (
+        <li key={field.id}>{field.type}</li>
+      ))}
+    </ul>
+  )
+}
+```
+
+## signatureBuilderSelectors
+
+A set of ready-made selectors for the most common slices of the `ReactSignatureBuilderState`. Pass any of them as the `selector` to `useSignatureBuilderSelector`.
+
+```ts title="Available selectors"
+const signatureBuilderSelectors: {
+  template: (state: ReactSignatureBuilderState) => ReactSignatureTemplate
+  roles: (state: ReactSignatureBuilderState) => /* ReactSignatureTemplate["roles"] */
+  documents: (state: ReactSignatureBuilderState) => /* ReactSignatureTemplate["documents"] */
+  draft: (state: ReactSignatureBuilderState) => ReactSignatureFieldDraft | undefined
+  selectedFieldId: (state: ReactSignatureBuilderState) => string | undefined
+  selectedField: (state: ReactSignatureBuilderState) => ReactSignatureField | undefined
+}
+```
+
+<TypeTable
+  type={{
+    template: { type: "(state) => ReactSignatureTemplate", description: "The complete builder template." },
+    roles: { type: "(state) => template.roles", description: "Roles (signers) of the template." },
+    documents: { type: "(state) => template.documents", description: "Documents of the template." },
+    draft: { type: "(state) => ReactSignatureFieldDraft | undefined", description: "Field draft being placed, if any." },
+    selectedFieldId: { type: "(state) => string | undefined", description: "Id of the currently selected field." },
+    selectedField: { type: "(state) => ReactSignatureField | undefined", description: "Selected field resolved from the template; undefined if none." },
+  }}
+/>
+
+```tsx title="Combining selectors"
+import {
+  useSignatureBuilderSelector,
+  signatureBuilderSelectors,
+} from "@signature-kit/react/components"
+
+function BuilderSummary({ store }) {
+  const documents = useSignatureBuilderSelector(store, signatureBuilderSelectors.documents)
+  const roles = useSignatureBuilderSelector(store, signatureBuilderSelectors.roles)
+
+  return (
+    <p>
+      {documents.length} document(s) · {roles.length} role(s)
+    </p>
+  )
+}
+```
+
+<Callout type="info" title="selectedField already resolves the field">
+  `signatureBuilderSelectors.selectedField` looks up the field inside `state.template.fields` from
+  `selectedFieldId` and returns `undefined` when none is selected — you don't need to cross-reference the id manually.
+</Callout>
+
+## See also
+
+<Cards>
+  <Card title="SignatureBuilderSurface" href="/docs/components/signature-builder-surface">
+    The composed visual layer over the store, with parts styleable via data-slot.
+  </Card>
+  <Card title="Builder API" href="/docs/components/builder-api">
+    The commands that mutate the template and return Effect (placeField, moveField, removeField…).
+  </Card>
+</Cards>

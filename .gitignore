@@ -7,3 +7,6 @@ apps/web/dist/
 .env.*
 coverage/
 .DS_Store
+
+# vitest browser screenshot attachments
+.vitest-attachments/

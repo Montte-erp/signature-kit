@@ -1,0 +1,139 @@
+---
+title: Render React-PDF
+description: "Render a visual draft of the signature template with @react-pdf/renderer and derive the PAdES widgetRect for each field."
+---
+
+The `react-pdf` module of `@signature-kit/react` draws a **visual draft** of the template — the pages, the labels, and each positioned field — using `@react-pdf/renderer`. It is a preview of what will be signed, not the signed PDF: no cryptographic byte passes through here. The actual signature lives at the `Signatures` boundary (`@signature-kit/pdf`).
+
+```package-install
+@signature-kit/react @signature-kit/pdf @react-pdf/renderer
+```
+
+## `renderReactSignatureTemplatePdf`
+
+Validates the template and the render options, then produces the draft PDF bytes as an `Effect`.
+
+```ts title="render-draft.ts"
+import { renderReactSignatureTemplatePdf } from "@signature-kit/react/react-pdf"
+import { Effect } from "effect"
+
+const bytes: Uint8Array = await Effect.runPromise(
+  renderReactSignatureTemplatePdf(template, { title: "Contract (draft)" }),
+)
+```
+
+The signature is:
+
+```ts
+renderReactSignatureTemplatePdf(
+  template: ReactSignatureTemplate,
+  options?: ReactPdfRenderOptions,
+): Effect.Effect<Uint8Array, ReactIntegrationError>
+```
+
+The pipeline decodes `ReactPdfRenderOptionsSchema`, decodes `ReactSignatureTemplateSchema`, runs `validateReactSignatureTemplate`, and only then calls `pdf(...).toBlob()`. Each step fails with a typed `ReactIntegrationError`.
+
+### `ReactPdfRenderOptions`
+
+The metadata for the `@react-pdf/renderer` `<Document>`. All optional; `title` falls back to `template.name` when absent.
+
+<TypeTable
+  type={{
+    title: { type: "string", description: "PDF document title. Default: template.name." },
+    author: { type: "string", description: "Author in the PDF metadata." },
+    subject: { type: "string", description: "Subject in the PDF metadata." },
+    keywords: { type: "string", description: "Keywords in the PDF metadata." },
+    language: { type: "string", description: "Language declared in the PDF." },
+    creator: { type: "string", description: "Creator application in the metadata." },
+    producer: { type: "string", description: "Producer in the PDF metadata." },
+  }}
+/>
+
+<Callout type="warn" title="Typed failures">
+  Options outside the schema fail with `code: react.INVALID_BUILDER_INPUT` and `schemaName: ReactPdfRenderOptions`; an
+  invalid template fails with `schemaName: ReactSignatureTemplate`; and if `@react-pdf/renderer` does not produce the blob, the error is
+  `code: react.RENDER_FAILED`. All with `operation: react.pdf.render`.
+</Callout>
+
+## `ReactPdfSignatureTemplateDocument`
+
+The React element behind the render. Useful when you already have your own `@react-pdf/renderer` runner (`pdf(...)`, `renderToStream`, `<PDFViewer>`) and want just the component.
+
+```tsx title="DraftPreview.tsx"
+import { ReactPdfSignatureTemplateDocument } from "@signature-kit/react/react-pdf"
+import { PDFViewer } from "@react-pdf/renderer"
+
+function DraftPreview({ template }: { template: ReactSignatureTemplate }) {
+  return (
+    <PDFViewer>
+      <ReactPdfSignatureTemplateDocument template={template} title="Draft" />
+    </PDFViewer>
+  )
+}
+```
+
+### Props
+
+`ReactPdfSignatureTemplateDocumentProps` is `ReactPdfRenderOptions & { readonly template: ReactSignatureTemplate }`.
+
+<TypeTable
+  type={{
+    template: { type: "ReactSignatureTemplate", required: true, description: "Template to draw. Grouped by page via groupReactSignatureFieldsByPage." },
+    title: { type: "string", description: "Title of the <Document>. Default: template.name." },
+    author: { type: "string", description: "Author — passed to the <Document> only when defined." },
+    subject: { type: "string", description: "Subject — passed only when defined." },
+    keywords: { type: "string", description: "Keywords — passed only when defined." },
+    language: { type: "string", description: "Language — passed only when defined." },
+    creator: { type: "string", description: "Creator — passed only when defined." },
+    producer: { type: "string", description: "Producer — passed only when defined." },
+  }}
+/>
+
+Each `<Page>` uses `size={{ width: page.width, height: page.height }}` and positions the fields absolutely from `field.rect` (`left/top/width/height`). A field with `value.imageDataUrl` is drawn as `<Image>`; otherwise it shows a label derived from `field.value?.text ?? field.label ?? role?.label ?? field.type`.
+
+## `pdfSignatureAppearanceFromField`
+
+Converts a field's `rect` (**top-left** coordinates, as in the builder and the draft) into the `widgetRect` that the PAdES signer expects (**bottom-left** PDF coordinates). It is the bridge between where the field was drawn and where the visible signature will appear.
+
+```ts title="appearance.ts"
+import { pdfSignatureAppearanceFromField } from "@signature-kit/react/builder"
+import { Effect } from "effect"
+
+const appearance = await Effect.runPromise(
+  pdfSignatureAppearanceFromField(template, "field-signer-1"),
+)
+// → { pageIndex, widgetRect: [x1, y1, x2, y2] }  (bottom-left origin)
+```
+
+```ts
+pdfSignatureAppearanceFromField(
+  template: ReactSignatureTemplate,
+  fieldId: string,
+): Effect.Effect<PdfSignatureAppearance, ReactIntegrationError>
+```
+
+<Callout type="info" title="top-left → bottom-left">
+  The builder and `@react-pdf/renderer` use an origin at the **top-left corner** (`y` grows downward). The PAdES widget
+  of the PDF uses an origin at the **bottom-left corner** (`y` grows upward). The conversion is exactly:
+
+  ```ts
+  const bottom = page.height - field.rect.y - field.rect.height
+  const top = page.height - field.rect.y
+  const widgetRect = [field.rect.x, bottom, field.rect.x + field.rect.width, top]
+  ```
+
+  The result (`{ pageIndex, widgetRect }`) is a `PdfSignatureAppearance` ready for the `appearance` option of the PDF signature.
+</Callout>
+
+The Effect validates the template, requires that `fieldId` exist (otherwise `react.UNKNOWN_FIELD`) and that the field point to a declared page (otherwise `react.UNKNOWN_DOCUMENT`) — both with `operation: react.pdf.appearance`.
+
+## See also
+
+<Cards>
+  <Card title="SignatureBuilderSurface" href="/docs/components/signature-builder-surface">
+    The visual layer that positions the fields whose rect feeds the draft and the widgetRect.
+  </Card>
+  <Card title="Builder API" href="/docs/components/builder-api">
+    createReactSignatureTemplate, placeReactSignatureField, and the rest of the API that assembles the template.
+  </Card>
+</Cards>

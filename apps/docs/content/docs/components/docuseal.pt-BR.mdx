@@ -1,0 +1,102 @@
+---
+title: DocuSeal Bridge
+description: "Monte o payload do token para o builder embutido do DocuSeal a partir de uma entrada tipada — o JWT HS256 e o segredo permanecem no backend."
+---
+
+`createDocuSealBuilderTokenPayload` traduz uma entrada tipada (`DocuSealBuilderInput`) no payload em _snake_case_ que o builder embutido do DocuSeal espera dentro do seu token de sessão. Ele valida a entrada, garante que você passou um template **ou** ao menos um documento, e retorna um objeto pronto para se tornar o `payload` de um JWT — sem nunca tocar no segredo de assinatura.
+
+```ts title="docuseal-token.ts"
+import { createDocuSealBuilderTokenPayload } from "@signature-kit/react/builder"
+import { Effect } from "effect"
+
+const payload = await Effect.runPromise(
+  createDocuSealBuilderTokenPayload({
+    userEmail: "signer@example.com",
+    templateId: 1000001,
+    externalId: "contract-42",
+    extractFields: true,
+  }),
+)
+// → { user_email: "signer@example.com", template_id: 1000001, external_id: "contract-42", extract_fields: true }
+```
+
+<Callout type="error" title="O segredo nunca chega ao navegador">
+  `createDocuSealBuilderTokenPayload` apenas monta o **payload**. Assinar o JWT (HS256, com a `DOCUSEAL_API_KEY`) é
+  responsabilidade do seu backend. O pacote `@signature-kit/react` nunca serializa nem embute o segredo no bundle do
+  navegador — gere o token no servidor e envie ao cliente somente o JWT já assinado.
+</Callout>
+
+## Entrada
+
+A função decodifica o argumento contra `DocuSealBuilderInputSchema`. Campos opcionais ausentes simplesmente não aparecem no payload final.
+
+<TypeTable
+  type={{
+    userEmail: { type: "string", required: true, description: "Email of the DocuSeal user owning the builder session. Becomes user_email." },
+    integrationEmail: { type: "string", description: "Integration email to assign the submission to. Becomes integration_email." },
+    templateId: { type: "number", description: "Id of an existing DocuSeal template to open in the builder. Becomes template_id." },
+    externalId: { type: "string", description: "Your external reference to correlate the submission. Becomes external_id." },
+    folderName: { type: "string", description: "DocuSeal folder where the document will be created. Becomes folder_name." },
+    documentUrls: { type: "readonly string[]", description: "URLs of documents to load when there is no templateId. Becomes document_urls." },
+    name: { type: "string", description: "Name of the created template/document. Becomes name." },
+    extractFields: { type: "boolean", description: "Asks DocuSeal to automatically extract fields from the documents. Becomes extract_fields." },
+  }}
+/>
+
+<Callout type="info" title="templateId ou documentUrls">
+  O payload precisa de ao menos uma fonte: ou você passa `templateId`, ou um `documentUrls` não vazio. Sem nenhum
+  dos dois, o `Effect` falha com `ReactIntegrationError` (código `invalidBuilderInput`,
+  operação `react.docuseal.payload`).
+</Callout>
+
+## Payload de saída
+
+O sucesso é um `DocuSealBuilderTokenPayload` com as chaves em _snake_case_ exigidas pelo builder do DocuSeal. Apenas `user_email` está sempre presente; o restante aparece quando o campo de entrada correspondente foi informado.
+
+<TypeTable
+  type={{
+    user_email: { type: "string", required: true, description: "Comes from userEmail." },
+    integration_email: { type: "string", description: "Comes from integrationEmail." },
+    template_id: { type: "number", description: "Comes from templateId." },
+    external_id: { type: "string", description: "Comes from externalId." },
+    folder_name: { type: "string", description: "Comes from folderName." },
+    document_urls: { type: "readonly string[]", description: "Comes from documentUrls." },
+    name: { type: "string", description: "Comes from name." },
+    extract_fields: { type: "boolean", description: "Comes from extractFields." },
+  }}
+/>
+
+## Assinando o token no backend
+
+Monte o payload, adicione as claims do JWT e assine com HS256 no servidor. Apenas o token resultante vai para o cliente, que o repassa ao componente do builder embutido do DocuSeal.
+
+```ts title="api/docuseal-token.ts"
+import { createDocuSealBuilderTokenPayload } from "@signature-kit/react/builder"
+import { Effect } from "effect"
+import jwt from "jsonwebtoken"
+
+export async function issueBuilderToken() {
+  const payload = await Effect.runPromise(
+    createDocuSealBuilderTokenPayload({
+      userEmail: "signer@example.com",
+      name: "Service Agreement",
+      documentUrls: ["https://files.example.com/contract.pdf"],
+      extractFields: true,
+    }),
+  )
+
+  // HS256 + secret: backend only, never in the browser bundle.
+  return jwt.sign(payload, process.env.DOCUSEAL_API_KEY!, { algorithm: "HS256" })
+}
+```
+
+## Veja também
+
+<Cards>
+  <Card title="SignatureBuilderSurface" href="/docs/components/signature-builder-surface">
+    O builder de assinatura nativo, quando você não está usando o bridge do DocuSeal.
+  </Card>
+  <Card title="DocuSign" href="/docs/providers/docusign">
+    Outro provedor de assinatura integrado ao SignatureKit.
+  </Card>
+</Cards>

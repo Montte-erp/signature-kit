@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:server": "vitest run __tests__/signature-kit.server.test.ts"
+    "test:server": "vitest run __tests__/signature-kit.server.test.ts __tests__/remote-signers.test.ts"
   },
   "dependencies": {
     "@effect/vitest": "4.0.0-beta.86",

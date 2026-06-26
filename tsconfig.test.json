@@ -6,6 +6,7 @@
     "declarationMap": false,
     "incremental": false,
     "emitDeclarationOnly": false,
+    "jsx": "react-jsx",
     "noEmit": true,
     "rootDir": ".",
     "types": ["bun"]
@@ -13,6 +14,7 @@
   "include": [
     "core/**/__tests__/**/*.ts",
     "formats/**/__tests__/**/*.ts",
+    "formats/**/__tests__/**/*.tsx",
     "shared/**/__tests__/**/*.ts",
     "signers/**/__tests__/**/*.ts",
     "tooling/integration-tests/**/*.ts",

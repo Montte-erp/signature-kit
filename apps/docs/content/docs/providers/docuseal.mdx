@@ -1,0 +1,75 @@
+---
+title: DocuSeal
+description: "Create DocuSeal PDF submissions with createDocuSealSignatureRequest(...), X-Auth-Token, and typed SignatureKit errors."
+---
+
+DocuSeal is an open-source remote signer adapter. SignatureKit sends the PDF bytes directly to DocuSeal's `/submissions/pdf` endpoint and returns the first submitter link as a `RemoteSignatureRequest`.
+
+## Install
+
+```package-install
+@signature-kit/core @signature-kit/docuseal
+```
+
+## Create a PDF submission
+
+`apiKey` stays `Redacted` until the HTTP boundary. `send: false` creates the submission without email delivery; otherwise DocuSeal emails the submitters.
+
+```ts title="docuseal.ts"
+import { createDocuSealSignatureRequest } from "@signature-kit/docuseal"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
+
+const request = yield* createDocuSealSignatureRequest(
+  {
+    apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
+    baseUrl: "https://api.docuseal.com",
+    sendSms: false,
+    submittersOrder: "preserved",
+  },
+  {
+    title: "Service agreement",
+    subject: "Please sign",
+    message: "Review and sign this agreement.",
+    documents: [{ fileName: "agreement.pdf", mimeType: "application/pdf", content: pdfBytes }],
+    recipients: [{ name: "Ana Silva", email: "ana@example.com", role: "signer" }],
+    redirectUrl: "https://app.example.com/signed",
+  },
+).pipe(Effect.provide(signatureHttpClientLive))
+
+// request.provider === "docuseal"
+// request.signingUrl is the first submitter's embed_src when DocuSeal returns one
+```
+
+## Request mapping
+
+- `documents[]` become `{ name, file, position }`, where `file` is base64 PDF content.
+- `recipients[]` become `submitters[]`; `routingOrder` maps to DocuSeal `order`.
+- `subject`, `message`, `redirectUrl`, and `expiresAt` map to DocuSeal's submission payload.
+- `submittersOrder` defaults to `"preserved"`; set `"random"` only when order is irrelevant.
+
+<Callout type="info" title="DocuSeal builder is separate">
+  This page covers the remote signing provider package. The React DocuSeal builder bridge lives at
+  [/docs/components/docuseal](/docs/components/docuseal).
+</Callout>
+
+## Alchemy
+
+```ts title="alchemy.ts"
+import * as DocuSeal from "@signature-kit/docuseal"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Layer, Redacted } from "effect"
+
+export const providers = DocuSeal.providers({
+  apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
+}).pipe(Layer.provide(signatureHttpClientLive))
+```
+
+## Errors
+
+Invalid input, remote HTTP, and response-shape failures all fail as `SignatureKitError`, with `provider: "docuseal"` and structured metadata.
+
+<Cards>
+  <Card title="Documenso" href="/docs/providers/documenso">The other open-source remote signer adapter.</Card>
+  <Card title="Remote signers" href="/docs/providers">Back to every provider package.</Card>
+</Cards>

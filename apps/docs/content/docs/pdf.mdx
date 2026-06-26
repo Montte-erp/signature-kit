@@ -1,0 +1,159 @@
+---
+title: PDF / PAdES
+description: "Sign PDFs with PAdES via signPdf, apply the ICP-Brasil policy (AD-RB), and verify with verifyPdf — everything about the Signatures seam."
+---
+
+**What you'll do:** sign PDF bytes in the PAdES standard with `signPdf`, choose between the `"pades-ades"` and `"pades-icp-brasil"` (AD-RB) policies, and check the result with `verifyPdf`. The signing power comes from the `Signatures` seam, provided by `a1SignaturesLayer` — the PDF module only handles mutating the document.
+
+## Install the package
+
+The PDF module is `@signature-kit/pdf`. It consumes the seam provided by the A1 signer.
+
+```package-install
+@signature-kit/pdf
+```
+
+<Callout type="info">
+  `signPdf` requires the `Signatures` service in the requirements channel; `verifyPdf` does not.
+</Callout>
+
+## Sign a PDF
+
+`signPdf(input: PdfSigningRequest)` returns an `Effect<Uint8Array, PdfError | CmsError | SignatureKitError, Signatures>` — the bytes of the signed PDF. Provide `Signatures` with `Effect.provide(a1SignaturesLayer(...))`.
+
+```ts title="sign-pdf.ts"
+import { signPdf } from "@signature-kit/pdf/sign"
+import { a1SignaturesLayer } from "@signature-kit/a1/signer"
+import { Effect, Redacted } from "effect"
+
+const program = signPdf({
+  pdf,                          // Uint8Array — bytes of the original PDF
+  reason: "Contract approval",
+  name: "Maria Souza",
+  location: "New York, US",
+  signatureLength: 16384,       // bytes reserved for the CMS /Contents
+}).pipe(
+  Effect.provide(
+    a1SignaturesLayer({
+      pfx,                                   // Uint8Array — PKCS#12 (.pfx/.p12)
+      password: Redacted.make(process.env.A1_PASSWORD ?? ""),
+    }),
+  ),
+)
+
+const signedPdf: Uint8Array = yield* program  // signed PDF, pades-ades policy
+```
+
+`signatureLength` reserves the space (in bytes) of the `/Contents` field that holds the CMS — a value that is too short makes the signature fail. Without `reason` and `name`, the defaults are `"Digital signature"` and `"SignatureKit signer"`. The remaining optional fields include `contactInfo`, `location`, `signingTime`, `timestamp`, and `appearance`.
+
+<Callout type="warn">
+  `hashAlgorithm` only accepts `"sha256"` (→ `rsa-sha256`) or `"sha512"` (→ `rsa-sha512`). Values like `sha1` or `sha384`
+  fail with `pdf.SIGN_FAILED`.
+</Callout>
+
+## Position a visual signature
+
+`appearance.placement.kind: "auto"` computes a visible rectangle on the chosen page, starts from the preferred anchor, and avoids collision with existing widgets/annotations. This replaces manually guessing coordinates when you just want a signature in the available footer/corner. Without `appearance`, the signature stays invisible for compatibility.
+
+```ts title="position-pdf-signature.ts"
+const signed = yield* signPdf({
+  pdf,
+  appearance: {
+    placement: {
+      kind: "auto",          // visible placement, computed by the PDF
+      page: "last",          // auto default; use pageIndex for an exact page
+      anchor: "bottom-right",
+      width: 180,
+      height: 54,
+      margin: 36,
+      gap: 8,                // clearance against existing widgets/annotations
+    },
+  },
+}).pipe(Effect.provide(layer))
+
+// Manual: PDF coordinates [left, bottom, right, top]
+const manual = { appearance: { placement: { kind: "manual", pageIndex: 0, widgetRect: [72, 72, 216, 108] } } }
+
+// Invisible: /Widget field without a visual area
+const invisible = { appearance: { placement: { kind: "invisible" } } }
+```
+
+Use `kind: "manual"` when your application already has reliable coordinates, and `kind: "invisible"` when the PDF should carry only the cryptographic signature. If auto can't find space within the margins, the effect fails with `pdf.SIGNATURE_PLACEMENT_FAILED` in the typed channel.
+
+## ICP-Brasil PAdES policy
+
+`PdfSignaturePolicy` has exactly two values: `"pades-ades"` (default) and `"pades-icp-brasil"`. When you choose `"pades-icp-brasil"` **without** the `icpBrasil` field, the module automatically fetches the AD-RB Signature Policy — control this remote fetch with `policyTimeoutMillis`. To avoid the network, pass the explicit `icpBrasil` object.
+
+```ts title="icp-brasil-policy.ts"
+// PdfSignaturePolicy = "pades-ades" | "pades-icp-brasil"
+// Signature default when policy is omitted: "pades-ades"
+
+// Automatic fetch of the AD-RB policy (without explicit icpBrasil)
+const auto = signPdf({
+  pdf,
+  policy: "pades-icp-brasil",
+  policyTimeoutMillis: 10_000,   // limit for the remote SP fetch
+}).pipe(Effect.provide(layer))
+
+// Explicit ICP-Brasil policy — you provide the identifiers
+const explicit = signPdf({
+  pdf,
+  policy: "pades-icp-brasil",
+  hashAlgorithm: "sha256",       // only "sha256" or "sha512"
+  icpBrasil: {
+    policyOid: "2.16.76.1.7.1.11.1.1",
+    policyHash: new Uint8Array(32),
+    policyHashAlgorithm: "sha256",
+    policyUri: "http://politicas.icpbrasil.gov.br/PA_PAdES_AD_RB_v1_1.der",
+  },
+}).pipe(Effect.provide(layer))
+```
+
+The explicit object carries `policyOid`, `policyHash`, `policyHashAlgorithm`, and `policyUri` — the same identifiers of the AD-RB SP that the automatic fetch would bring, now pinned in your code.
+
+<Callout type="warn" title="Remote SP fetch">
+  Without the explicit `icpBrasil` object, `"pades-icp-brasil"` performs a remote fetch of the AD-RB Signature Policy — subject to the
+  network and to `policyTimeoutMillis`. In environments without outbound access, provide the `icpBrasil` object to avoid the call.
+</Callout>
+
+<Callout type="info">
+  keep `policyHashAlgorithm` consistent with the signature's `hashAlgorithm` — use `"sha256"` or `"sha512"` in both.
+</Callout>
+
+## Verify with verifyPdf
+
+`verifyPdf(input: PdfVerificationRequest)` returns an `Effect<PdfVerificationResult, PdfError | CmsError>` — **without** a `Signatures` requirement, so there is no `Effect.provide(...)` here. Optionally pass `trustedRoots` (a list of `Uint8Array`) to validate the chain against your own roots.
+
+```ts title="verify-pdf.ts"
+import { verifyPdf } from "@signature-kit/pdf/verify"
+import { Effect } from "effect"
+
+// verifyPdf does NOT require the Signatures service — there is no .pipe(Effect.provide(...))
+const result = yield* verifyPdf({ pdf: signedPdf })
+
+result.valid             // boolean — CMS integrity over the byteRange
+result.chainValid        // boolean — signer chain verified
+result.signatureCount    // number  — signatures found in the PDF
+result.byteRange         // [number, number, number, number]
+result.signerSerialNumber // string | null — serial of the signer certificate
+```
+
+`byteRange` is the `[number, number, number, number]` quadruple covered by the signature, and `signerSerialNumber` is the serial of the signer certificate or `null` when there is no signature.
+
+## Errors you may see
+
+PDF signing and verification fail with codes from the `pdf.*` family (`PdfError`); failures from the A1 signer that provides `Signatures` arrive as `signature-kit.*`.
+
+- [`pdf.SIGN_FAILED`](/docs/errors) — unsupported `hashAlgorithm` (e.g. `sha1`/`sha384`).
+- [`pdf.SIGNATURE_TOO_LARGE`](/docs/errors) — the CMS exceeded the reserved space; increase `signatureLength`.
+- [`pdf.SIGNATURE_PLACEMENT_FAILED`](/docs/errors) — automatic placement found no space or received invalid dimensions.
+- [`pdf.INVALID_PDF`](/docs/errors) — the bytes don't form a valid PDF to sign or verify.
+- [`signature-kit.WRONG_PASSWORD`](/docs/errors) — wrong A1 password when providing the signatures service.
+
+## Continue from here
+
+<Cards>
+  <Card title="XML-DSig" href="/docs/xml">The other format over the same Signatures seam, for NF-e XML.</Card>
+  <Card title="Remote signers" href="/docs/providers">Provider packages for DocuSign, Clicksign, Assinafy, ZapSign, DocuSeal, Adobe Acrobat Sign, Dropbox Sign, and Documenso.</Card>
+  <Card title="Typed error channel" href="/docs/errors">The catalog of pdf.* and signature-kit.* codes that can fail.</Card>
+</Cards>

@@ -1,13 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
-import {
-  a1SignaturesLayer,
-  loadA1SignatureKit,
-  parseA1CertificateProfile,
-} from "@signature-kit/a1/signer";
+import { a1SignaturesLayer, parseA1CertificateProfile } from "@signature-kit/a1/signer";
 import { signPdf } from "@signature-kit/pdf/sign";
 import { verifyPdf } from "@signature-kit/pdf/verify";
 import { signXml } from "@signature-kit/xml/sign";
 import { verifyXml } from "@signature-kit/xml/verify";
+import { xmlRuntimeLayer } from "@signature-kit/xml/engine";
+import { signatures } from "@signature-kit/core/signatures";
 import { Effect, Redacted } from "effect";
 import { readA1Fixture } from "../../testing/fixtures";
 
@@ -30,25 +28,26 @@ describe("SignatureKit server integration", () => {
       expect(profile.subject.length).toBeGreaterThan(0);
       expect(profile.daysUntilExpiry).toBeGreaterThan(0);
 
-      const signatureKit = yield* loadA1SignatureKit({ pfx, password: PASSWORD });
+      const layer = a1SignaturesLayer({ pfx, password: PASSWORD });
       const content = textEncoder.encode("SignatureKit server integration payload");
-      const artifact = yield* signatureKit.signatures.sign({ content, algorithm: "rsa-sha256" });
-      const verification = yield* signatureKit.signatures.verify({
-        content,
-        signature: artifact.signature,
-        algorithm: artifact.algorithm,
-      });
+      const verification = yield* Effect.gen(function* () {
+        const artifact = yield* signatures.sign({ content, algorithm: "rsa-sha256" });
+        return yield* signatures.verify({
+          content,
+          signature: artifact.signature,
+          algorithm: artifact.algorithm,
+        });
+      }).pipe(Effect.provide(layer));
       expect(verification.valid).toBe(true);
 
-      const layer = a1SignaturesLayer({ pfx, password: PASSWORD });
       const signedXml = yield* signXml({
         xml: '<invoice Id="server-invoice"><amount>100.00</amount></invoice>',
         referenceId: "server-invoice",
-      }).pipe(Effect.provide(layer));
+      }).pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer));
       const xmlVerification = yield* verifyXml({
         xml: signedXml,
         requireReferenceUri: "#server-invoice",
-      });
+      }).pipe(Effect.provide(xmlRuntimeLayer));
       expect(xmlVerification.valid).toBe(true);
 
       const pdf = serverPdf();

@@ -5,6 +5,7 @@ import {
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
   SignatureKitSchemaNameValue,
+  redactedStringSchema,
   remoteSignatureInputFromProps,
   validRemoteSignatureRequest,
 } from "@signature-kit/core/config";
@@ -22,30 +23,26 @@ import {
   decodeRemoteOptions,
   decodeRemoteShape,
   normalizedBaseUrl,
-  signatureHttpClientLive,
 } from "@signature-kit/core/http";
 import type { SignatureHttpClientService } from "@signature-kit/core/http";
 import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
-import { Context, Effect, Layer, Redacted, Schema } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
 
 const PROVIDER: RemoteSignatureProvider = "zapsign";
+const ZAPSIGN_SIGNATURE_REQUEST_TYPE = "SignatureKit.ZapSignSignatureRequest";
+const ZAPSIGN_PROVIDER_COLLECTION_ID = "SignatureKitZapSign";
 const SANDBOX_BASE_URL = "https://sandbox.api.zapsign.com.br/api/v1";
 const PRODUCTION_BASE_URL = "https://api.zapsign.com.br/api/v1";
 const BRAZIL_BASE_URL = "https://br.api.zapsign.com.br/api/v1";
 
-const redactedString: Schema.ConstraintDecoder<Redacted.Redacted<string>> = Schema.Redacted(
-  Schema.String,
-);
 const publicIdentifier: Schema.ConstraintDecoder<string> = Schema.NonEmptyString;
 
 const ZapSignEnvironmentSchema = Schema.Literals(["production", "sandbox", "brazil"]);
-export const zapSignEnvironmentSchema = ZapSignEnvironmentSchema;
-export type ZapSignEnvironment = (typeof zapSignEnvironmentSchema)["Type"];
+export type ZapSignEnvironment = (typeof ZapSignEnvironmentSchema)["Type"];
 
 const ZapSignLocaleSchema = Schema.Literals(["pt-br", "es", "en"]);
-export const zapSignLocaleSchema = ZapSignLocaleSchema;
-export type ZapSignLocale = (typeof zapSignLocaleSchema)["Type"];
+export type ZapSignLocale = (typeof ZapSignLocaleSchema)["Type"];
 
 const ZapSignAuthModeSchema = Schema.Literals([
   "assinaturaTela",
@@ -57,11 +54,10 @@ const ZapSignAuthModeSchema = Schema.Literals([
   "assinaturaTela-tokenWhatsapp",
   "certificadoDigital",
 ]);
-export const zapSignAuthModeSchema = ZapSignAuthModeSchema;
-export type ZapSignAuthMode = (typeof zapSignAuthModeSchema)["Type"];
+export type ZapSignAuthMode = (typeof ZapSignAuthModeSchema)["Type"];
 
 export const ZapSignProviderOptionsSchema = Schema.Struct({
-  apiToken: redactedString,
+  apiToken: redactedStringSchema,
   environment: Schema.optional(ZapSignEnvironmentSchema),
   baseUrl: Schema.optional(Schema.NonEmptyString),
   locale: Schema.optional(ZapSignLocaleSchema),
@@ -69,7 +65,6 @@ export const ZapSignProviderOptionsSchema = Schema.Struct({
   disableSignerEmails: Schema.optional(Schema.Boolean),
 });
 export type ZapSignProviderOptions = (typeof ZapSignProviderOptionsSchema)["Type"];
-export const zapSignProviderOptionsSchema = ZapSignProviderOptionsSchema;
 
 const ZapSignSignerResultSchema = Schema.Struct({
   token: publicIdentifier,
@@ -84,13 +79,13 @@ const ZapSignDocumentResultSchema = Schema.Struct({
 });
 
 export type ZapSignSignatureRequestResource = Resource<
-  "SignatureKit.ZapSignSignatureRequest",
+  typeof ZAPSIGN_SIGNATURE_REQUEST_TYPE,
   RemoteSignatureRequestProps,
   RemoteSignatureRequest
 >;
 
 export const ZapSignSignatureRequest = Resource<ZapSignSignatureRequestResource>(
-  "SignatureKit.ZapSignSignatureRequest",
+  ZAPSIGN_SIGNATURE_REQUEST_TYPE,
   { defaultRemovalPolicy: "retain" },
 );
 
@@ -105,7 +100,7 @@ export const zapSignCredentialsLayer = (
   Layer.effect(
     ZapSignCredentials,
     decodeRemoteOptions(
-      zapSignProviderOptionsSchema,
+      ZapSignProviderOptionsSchema,
       SignatureKitSchemaNameValue.zapSignProviderOptions,
       PROVIDER,
       options,
@@ -235,14 +230,13 @@ export const ZapSignSignatureRequestProvider = () =>
   );
 
 export class ZapSignProviders extends Provider.ProviderCollection<ZapSignProviders>()(
-  "SignatureKitZapSign",
+  ZAPSIGN_PROVIDER_COLLECTION_ID,
 ) {}
 
 export const providers = (options: ZapSignProviderOptions) =>
   Layer.effect(ZapSignProviders, Provider.collection([ZapSignSignatureRequest])).pipe(
     Layer.provide(ZapSignSignatureRequestProvider()),
     Layer.provide(zapSignCredentialsLayer(options)),
-    Layer.provide(signatureHttpClientLive),
   );
 
 export const createZapSignSignatureRequest = (
@@ -250,7 +244,7 @@ export const createZapSignSignatureRequest = (
   input: RemoteSignatureRequestInput,
 ): Effect.Effect<RemoteSignatureRequest, SignatureKitError, SignatureHttpClient> =>
   decodeRemoteOptions(
-    zapSignProviderOptionsSchema,
+    ZapSignProviderOptionsSchema,
     SignatureKitSchemaNameValue.zapSignProviderOptions,
     PROVIDER,
     options,

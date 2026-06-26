@@ -7,7 +7,7 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
 
 - Code identifiers, file names, and public API names are English only.
 - Keep APIs boring, typed, explicit, KISS. One clear Schema over clever wrappers.
-- Boring names win: `parseCertificate`, `createA1SignerAdapter`, `signatures.sign`.
+- Boring names win: `parseCertificate`, `a1SignaturesLayer`, `signatures.sign`.
 
 ## Effect-native rules
 
@@ -20,11 +20,14 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
   (`Context.Tag` is the Effect 3 API and does not exist in Effect 4; Alchemy v2
   code uses `Context.Service` + `Layer` for portable seams.)
 - Do not hide requirements with `Effect.provide` deep inside library code.
-  `Effect.provide` is allowed in tests, runtime boundaries, or small convenience
-  factories with an explicit `// effect-boundary: <reason> [allow-provide]` marker.
+  `Effect.provide` is allowed in tests, application/runtime boundaries, and docs;
+  package internals should expose requirements in the Effect environment.
 - Timeout/retry policy uses `Duration` and `Schedule`. Retry must be classified.
 - Secrets stay `Redacted` until the explicit serialization/import boundary.
 - No `runSync` / `runPromise` / `runFork` / `Schema.decodeUnknownSync` in library internals.
+- Stateful/global setup is a service dependency. Example: XML-DSig requires
+  `XmlRuntime`/`xmlRuntimeLayer`; callers provide it explicitly instead of relying
+  on import-time mutation or hidden module flags.
 
 ## Error rules
 
@@ -43,10 +46,22 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
   known protocol facts (HTTP `status`, schema issue fields), and no generic
   unknown-cause metadata wrapper. If the cause has no real contract, let it be
   a defect instead of pretending it is typed.
+- Do not add parallel internal error/result channels next to an existing
+  `TaggedErrorClass`. Low-level parsers and decoders should return typed
+  `Effect` failures directly; only total pure primitives may stay plain values.
+- When a foreign SDK rejects with a documented structural error, validate that
+  shape with `Schema.decodeUnknownEffect` before mapping it. If the rejected
+  cause does not match a documented shape, let it remain a defect.
 - Preserve structured origin metadata only when the source is typed or
   protocol-defined (`operation`, `phase`, `schemaName`, `issuePath`,
   `issueMessage`, HTTP `status`, upstream tagged-error `_tag`/`code`).
   Do not use `String(error)` as the only data.
+- Do not hand-roll schema-issue metadata extractors — a recursive
+  `schemaIssueLeafMetadata` / `schemaErrorMetadata(error)` that walks a `ParseError`
+  cause is exactly the wrapper to delete. Effect already formats decode failures:
+  use `ParseResult.TreeFormatter` (human text) or `ArrayFormatter` (structured
+  issues) and keep only the typed fields you need (`issuePath`, `issueMessage`).
+  A cause with no decoded contract is a defect, not metadata to launder.
 
 ## Schema and type rules
 
@@ -57,11 +72,12 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
   unions so reads narrow without assertions.
 - No manual interfaces for config/data contracts when `Schema` can derive the type.
 
-## Effect 4 idioms (aligned with Alchemy v2)
+## Effect 4 idioms
 
-- Wrap an external library/SDK as a `Context.Service` that exposes typed `Effect`
-  methods plus a `raw` escape hatch to the underlying client. Construct it via
-  `Layer`; keep secrets `Redacted` and unwrap only at the SDK call.
+- Wrap an external library/SDK or stateful runtime as a `Context.Service` that
+  exposes typed `Effect` methods plus a `raw` escape hatch only when the SDK has a
+  useful underlying client contract. Construct it via `Layer`; keep secrets
+  `Redacted` and unwrap only at the SDK call.
 - Adapt SDK promises with `Effect.tryPromise`; in `catch`, construct the tagged
   error directly with explicit operation/reason/status metadata. Do not add error
   wrapper helpers, `safeCauseMetadata`/`toCauseMetadata`, or `instanceof` branches.
@@ -69,18 +85,54 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
 - Effect 4 renamed `Either` → `Result`: use `Effect.result` + `Result.isSuccess/`
   `isFailure`, not `Effect.either` / `effect/Either` (removed).
 - `Effect.fnUntraced(function* () { ... })` defines an effectful function;
-  `Match.value(x).pipe(Match.when(...), Match.exhaustive)` for total branching.
-- Alchemy v2 patterns apply to this repo's seams: resource/provider modules use
-  `Resource<T>(type)` as the constructor/tag, providers use `Provider.effect`,
-  provider bundles expose a `providers()` layer, runtime seams are
-  `Context.Service` contracts implemented by `Layer.effect`, and expensive or
-  stateful initialization is deferred/cached instead of running at import time.
+  `Effect.fn(function* (args) { ... })` defines a service method that preserves
+  argument inference; `Match.value(x).pipe(Match.when(...), Match.exhaustive)` for
+  total branching.
+
+## Alchemy v2 — a core architecture primitive
+
+Alchemy v2 is not an optional integration package; it is the seam every
+declarable, reconcilable, or persisted contract passes through. If something must
+be declared, reconciled, or stored, it takes Alchemy's shape — never a bespoke
+wrapper. The signer adapters are already modeled this way (each is a `Resource`
+with a `Provider.effect` and a collection layer); follow that shape.
+
+- **The resource constructor is the tag.** One named string literal is the
+  resource type, repeated identically in the type alias, the constructor const,
+  and the export name — never derived, never repeated raw at call sites:
+  `export type X = Resource<"Vendor.Thing", XProps, XAttributes>` and
+  `export const X = Resource<X>("Vendor.Thing")`. Alchemy resolves providers by
+  that literal at plan time.
+- **One `reconcile`, plus `delete` — never separate create/update.** A provider is
+  `Provider.effect(X, Effect.gen(/* acquire shared deps once */) → X.Provider.of({ reconcile, delete }))`.
+  `reconcile` covers create AND update and decides which by inspecting
+  `output`/`olds` (both `undefined` ⇒ greenfield create); `delete` returns void.
+  Both are idempotent and treat a missing remote (404) as success. Build the
+  service through the typed `X.Provider.of({ ... })` constructor.
+- **Wire by visibility.** `Layer.provide` for private resource providers;
+  `Layer.provideMerge` for public credential/auth machinery a consumer also needs.
+  Bundle a provider collection as a `providers()` layer.
+- **Infrastructure is layered: Service → Layer → Binding → Runtime.** A runtime
+  contract is a `Context.Service`; a
+  `Layer.effect(Service, Effect.gen(function* () { const r = yield* ResourceDecl; const client = yield* Binding(r); return { ...methods } }))`
+  implements it over concrete resources; the consumption boundary `yield*`s the
+  Service and never touches resources directly. Swappable backends are separate
+  layers of the SAME service, named by suffix (`XServiceKv`, `XServiceR2`), so a
+  backend swap is a one-line `Layer.provide` change. Resources carry stable logical
+  ids, so two consumers providing the same layer collapse to one shared resource.
+- **State stores are Effect layers too.** A custom store is a `Layer` providing a
+  lazily-built `StateService` (defer init with `Effect.cached`; own a connection
+  with `Layer.scoped` + `Effect.acquireRelease`). `set` is an idempotent upsert
+  keyed on `(stack, stage, fqn)`; a missing `get` returns `undefined`, never an
+  error; serialize only through `encodeState`/`reviveState` (they handle
+  `Redacted`/`Date` — do not hand-roll JSON); reserve `StateStoreError` for
+  transport faults, and let any other cause be a defect.
 
 ## Architecture taste
 
 - No barrel files that only re-export. Package exports point at the real module
-  (`@signature-kit/pdf/sign`, `@signature-kit/core/runtime`, etc.) unless the
-  package has one genuine root module.
+  (`@signature-kit/pdf/sign`, `@signature-kit/core/signatures`,
+  `@signature-kit/xml/engine`) unless the package has one genuine root module.
 - Avoid `types.ts`. Keep schemas, `Schema.TaggedErrorClass` catalogs, and config
   together in `config.ts` when they belong to the same package.
 - The signer backend is not the document format. A `SignerAdapter` owns "where the
@@ -88,6 +140,61 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
 - `shared/*` packages are internal-only and unpublished (`@signature-kit/asn1`,
   `@signature-kit/crypto`, `@signature-kit/cms`). Public packages live in `core/`,
   `signers/`, and `formats/`; there is no `integrations/*` layer.
+- Tests live with the package that owns the behavior. Browser-facing React tests
+  belong in `formats/react/__tests__`; app packages keep only page/app smoke tests.
+- No super-atomic files. Split a module only when it owns a genuinely separate
+  concern; do not spawn one-symbol files or files that exist only to hold a single
+  trivial helper. Code-split when it clarifies, not by reflex.
+- No anxiety helpers. A helper earns its name by removing real duplication or
+  naming a real concept. A function that only wraps a cause, renames a value, or
+  re-guards something readable inline (a `toSafeMetadata`-style wrapper) just adds
+  a reading hop and hides intent — inline it. With Effect + Alchemy the failure
+  surface is known; an unexpected cause is a defect/panic, not a value to launder.
+
+## React and TanStack
+
+React package APIs are headless and data-first: build validated builder state with
+Effect/Schema, keep explicit stores outside render hot paths, read with selector
+hooks, and expose `data-slot` anatomy plus class/style seams.
+
+- **The store lives outside React.** Create it as a module-level singleton —
+  `const store = new Store(initial)` (TanStack's own guidance: *"instantiate the
+  store outside of React components"*) — never with `useRef`/`useState`/`useMemo`
+  in render. The component only SUBSCRIBES via `useStore(store, selector)`;
+  module-level functions write with `store.setState((s) => ({ ... }))`. Page-
+  singleton demo state and its Pacer `AsyncQueuer` are module-level too, seeded
+  once at module load — no mount effect. Never mirror store/queue state into
+  `useState`, never add a finalize `useEffect`.
+- **Pacer queues: derive busy from the queue, not a flag.** Busy is
+  `activeItems.length + items.length > 0`; never gate on `isRunning` (it stays true
+  after auto-start — the "never finishes" bug). Run the worker at
+  `{ concurrency, started: true }` so `addItem()` auto-processes; the worker writes
+  store state directly (focus / patch / phase) so each step paints live.
+- **Effects are a last resort.** Use a `useEffect` only for an unavoidable resource
+  load (e.g. pdf.js `getDocument`/`render`) with a `cancelled` flag and a
+  `cancel()`/`destroy()` cleanup; a single `[]`-deps mount seed that enqueues work
+  counts as resource-init, not a state mirror. Otherwise prefer callback refs,
+  `useSyncExternalStore`, TanStack stores/pacer, and event-boundary execution.
+  Create and revoke object URLs inside the action that needs them.
+- **Compose shadcn, not raw chrome.** Build UI from `components/ui/*` primitives
+  (`Button` / `Badge` / `Card` / `Dialog` / `ScrollArea`); never hand-style a raw
+  `<button>`/`<div>`. Merge classes with `cn`.
+- **Server by default; isolate heavy client libs.** Sections are server components
+  unless they need interactivity; async server work (shiki highlight) runs on the
+  server and is handed to clients as pre-rendered nodes. Load heavy client-only
+  libs (pdf-lib, pdf.js) via `dynamic(() => import(...), { ssr: false })` so they
+  never run during SSG prerender.
+- **i18n is request-scoped and canonical.** Call `setServerLocale(lang)` at the top
+  of EVERY server segment that renders translated chrome (layout and each page
+  render independently). Locales are canonical and case-sensitive (`en-US`,
+  `pt-BR`), shared verbatim by URL, router, message catalog, and content suffix —
+  never a casing map (lowercasing triggers a redirect loop).
+- **Effect runs at the boundary only.** `runPromise` belongs in event handlers and
+  queue workers; provide layers at that call site with `.pipe(Effect.provide(...))`.
+  Never hide `runPromise` or `Effect.provide` in package internals — return the
+  `Effect` and let the app boundary run it.
+- Use external apps (e.g. `app-licitei-next`) only to discover product needs; never
+  copy their hook shapes, hardcoded options, or state leakage into public packages.
 
 ## Packages
 
@@ -104,11 +211,12 @@ signers/assinafy  @signature-kit/assinafy   Assinafy remote signer
 signers/zapsign    @signature-kit/zapsign    ZapSign remote signer
 formats/xml       @signature-kit/xml        XML-DSig document mutation
 formats/pdf       @signature-kit/pdf        PDF/PAdES detached-signature adapter
+formats/react     @signature-kit/react      React builder state, browser PDF signing, and react-pdf bridge
 ```
 
 ## Validation
 
-- Run `bun run check` (or `bun run check:static`) at the repo root.
+- Run `bun run check` at the repo root for all non-trivial changes.
 - Prefer static checks over ad-hoc review:
   - no `runSync`/`runPromise`/`runFork`
   - no `as` casts (`as Foo`/`as any`/`as unknown as`/`as const`)

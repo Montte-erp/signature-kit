@@ -1,45 +1,25 @@
 import { Context, Layer } from "effect";
 import type { Effect } from "effect";
+import type { SignerAdapter } from "./config";
 import type {
   Certificate,
   SignatureAlgorithm,
   SignatureArtifact,
   SignInput,
-  SignerAdapter,
   SignerIdentity,
   SignatureKitError,
   VerificationResult,
   VerifyInput,
 } from "./config";
 
-export type SignaturesService = {
-  readonly inspect: () => Effect.Effect<SignerIdentity, SignatureKitError>;
-  readonly certificate: () => Effect.Effect<Certificate, SignatureKitError>;
-  readonly importSigningKey: (
-    algorithm: SignatureAlgorithm,
-  ) => Effect.Effect<CryptoKey, SignatureKitError>;
-  readonly sign: (input: SignInput) => Effect.Effect<SignatureArtifact, SignatureKitError>;
-  readonly verify: (input: VerifyInput) => Effect.Effect<VerificationResult, SignatureKitError>;
-  readonly raw: {
-    readonly signer: SignerAdapter;
-  };
-};
+export type SignaturesService = SignerAdapter;
 
 export class Signatures extends Context.Service<Signatures, SignaturesService>()(
   "@signature-kit/core/Signatures",
 ) {}
 
-export const createSignaturesService = (signer: SignerAdapter): SignaturesService => ({
-  inspect: () => signer.inspect(),
-  certificate: () => signer.certificate(),
-  importSigningKey: (algorithm) => signer.importSigningKey(algorithm),
-  sign: (input) => signer.sign(input),
-  verify: (input) => signer.verify(input),
-  raw: { signer },
-});
-
 export const signaturesLayer = (signer: SignerAdapter): Layer.Layer<Signatures> =>
-  Layer.succeed(Signatures, createSignaturesService(signer));
+  Layer.succeed(Signatures, signer);
 
 export const signatures = {
   inspect: (): Effect.Effect<SignerIdentity, SignatureKitError, Signatures> =>

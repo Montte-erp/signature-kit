@@ -1,0 +1,61 @@
+---
+title: Assinafy
+description: "Crie requisições da Assinafy com createAssinafySignatureRequest(...), SignatureHttpClient e credenciais Redacted."
+---
+
+A Assinafy é um signatário remoto direto construído sobre o `SignatureHttpClient`. A função cria o documento, registra os signatários e cria a atribuição na API da Assinafy, retornando um `RemoteSignatureRequest` normalizado.
+
+## Install
+
+A Assinafy é um signatário remoto direto. Não há camada `integrations/*`.
+
+```package-install
+@signature-kit/core @signature-kit/assinafy
+```
+
+## Create signature
+
+A função cria o documento, registra os signatários e cria a atribuição na API da Assinafy. O valor de retorno é o `RemoteSignatureRequest` normalizado.
+
+```ts title="assinafy.ts"
+import { createAssinafySignatureRequest } from "@signature-kit/assinafy"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
+
+const request = yield* createAssinafySignatureRequest(
+  {
+    accountId: process.env.ASSINAFY_ACCOUNT_ID!,
+    apiKey: Redacted.make(process.env.ASSINAFY_API_KEY ?? ""),
+    environment: "sandbox",
+  },
+  {
+    title: "Contract",
+    message: "Sign to complete.",
+    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
+    recipients: [{ name: "Carla Nunes", email: "carla@example.com", role: "signer" }],
+  },
+).pipe(Effect.provide(signatureHttpClientLive))
+
+// request.provider === "assinafy"
+```
+
+## Credentials
+
+O `accountId` é sempre obrigatório — ele delimita o escopo dos endpoints de documento, signatário e atribuição. O segredo de autenticação é, então, `apiKey` ou `accessToken`: escolha um para se autenticar na API da Assinafy.
+
+<Callout type="error" title="Nunca exponha o segredo">
+  Ambos são `Redacted<string>` e só são revelados na camada HTTP do pacote. Mantenha a chave em uma variável de ambiente e
+  nunca a registre em log nem a exponha no cliente.
+</Callout>
+
+## Errors
+
+Falhas de credencial ausente, validação, HTTP e formato de resposta usam todas o `SignatureKitError`, com `provider: "assinafy"`.
+
+## See also
+
+<Cards>
+  <Card title="Clicksign" href="/docs/providers/clicksign">O signatário remoto da Clicksign sobre a mesma camada.</Card>
+  <Card title="ZapSign" href="/docs/providers/zapsign">O signatário remoto da ZapSign sobre a mesma camada.</Card>
+  <Card title="Canal de erro tipado" href="/docs/errors">Um único SignatureKitError e um catálogo de códigos literais.</Card>
+</Cards>

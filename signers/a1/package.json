@@ -5,8 +5,6 @@
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
-  "main": "./dist/create-a1-signer-adapter.js",
-  "types": "./dist/create-a1-signer-adapter.d.ts",
   "exports": {
     "./config": {
       "types": "./dist/config.d.ts",
@@ -15,10 +13,6 @@
     "./signer": {
       "types": "./dist/create-a1-signer-adapter.d.ts",
       "import": "./dist/create-a1-signer-adapter.js"
-    },
-    "./web-crypto": {
-      "types": "./dist/web-crypto.d.ts",
-      "import": "./dist/web-crypto.js"
     }
   },
   "scripts": {

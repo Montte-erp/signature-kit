@@ -32,10 +32,25 @@
       "path": "signers/zapsign"
     },
     {
+      "path": "signers/docuseal"
+    },
+    {
+      "path": "signers/adobe-sign"
+    },
+    {
+      "path": "signers/dropbox-sign"
+    },
+    {
+      "path": "signers/documenso"
+    },
+    {
       "path": "formats/xml"
     },
     {
       "path": "formats/pdf"
+    },
+    {
+      "path": "formats/react"
     }
   ]
 }

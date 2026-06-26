@@ -3,6 +3,7 @@ import {
   RemoteSignatureRequestPropsSchema,
   SignatureKitError,
   SignatureKitSchemaNameValue,
+  redactedStringSchema,
   remoteSignatureInputFromProps,
   validRemoteSignatureRequest,
 } from "@signature-kit/core/config";
@@ -18,27 +19,22 @@ import {
   decodeRemoteOptions,
   decodeRemoteShape,
   normalizedBaseUrl,
-  signatureHttpClientLive,
 } from "@signature-kit/core/http";
 import type { SignatureHttpClientService } from "@signature-kit/core/http";
 import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
 import { Context, Effect, Layer, Schema } from "effect";
-import type { Redacted } from "effect";
 
 const PROVIDER: RemoteSignatureProvider = "docusign";
-
-const redactedString: Schema.ConstraintDecoder<Redacted.Redacted<string>> = Schema.Redacted(
-  Schema.String,
-);
+const DOCUSIGN_SIGNATURE_REQUEST_TYPE = "SignatureKit.DocuSignSignatureRequest";
+const DOCUSIGN_PROVIDER_COLLECTION_ID = "SignatureKitDocuSign";
 
 export const DocuSignProviderOptionsSchema = Schema.Struct({
   baseUrl: Schema.NonEmptyString,
   accountId: Schema.NonEmptyString,
-  accessToken: redactedString,
+  accessToken: redactedStringSchema,
 });
 export type DocuSignProviderOptions = (typeof DocuSignProviderOptionsSchema)["Type"];
-export const docuSignProviderOptionsSchema = DocuSignProviderOptionsSchema;
 
 const DocuSignEnvelopeResultSchema = Schema.Struct({
   envelopeId: Schema.NonEmptyString,
@@ -47,13 +43,13 @@ const DocuSignEnvelopeResultSchema = Schema.Struct({
 });
 
 export type DocuSignSignatureRequestResource = Resource<
-  "SignatureKit.DocuSignSignatureRequest",
+  typeof DOCUSIGN_SIGNATURE_REQUEST_TYPE,
   RemoteSignatureRequestProps,
   RemoteSignatureRequest
 >;
 
 export const DocuSignSignatureRequest = Resource<DocuSignSignatureRequestResource>(
-  "SignatureKit.DocuSignSignatureRequest",
+  DOCUSIGN_SIGNATURE_REQUEST_TYPE,
   { defaultRemovalPolicy: "retain" },
 );
 
@@ -68,7 +64,7 @@ export const docuSignCredentialsLayer = (
   Layer.effect(
     DocuSignCredentials,
     decodeRemoteOptions(
-      docuSignProviderOptionsSchema,
+      DocuSignProviderOptionsSchema,
       SignatureKitSchemaNameValue.docuSignProviderOptions,
       PROVIDER,
       options,
@@ -175,14 +171,13 @@ export const DocuSignSignatureRequestProvider = () =>
   );
 
 export class DocuSignProviders extends Provider.ProviderCollection<DocuSignProviders>()(
-  "SignatureKitDocuSign",
+  DOCUSIGN_PROVIDER_COLLECTION_ID,
 ) {}
 
 export const providers = (options: DocuSignProviderOptions) =>
   Layer.effect(DocuSignProviders, Provider.collection([DocuSignSignatureRequest])).pipe(
     Layer.provide(DocuSignSignatureRequestProvider()),
     Layer.provide(docuSignCredentialsLayer(options)),
-    Layer.provide(signatureHttpClientLive),
   );
 
 export const createDocuSignSignatureRequest = (
@@ -190,7 +185,7 @@ export const createDocuSignSignatureRequest = (
   input: RemoteSignatureRequestInput,
 ): Effect.Effect<RemoteSignatureRequest, SignatureKitError, SignatureHttpClient> =>
   decodeRemoteOptions(
-    docuSignProviderOptionsSchema,
+    DocuSignProviderOptionsSchema,
     SignatureKitSchemaNameValue.docuSignProviderOptions,
     PROVIDER,
     options,

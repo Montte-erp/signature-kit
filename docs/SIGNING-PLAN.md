@@ -30,14 +30,12 @@ and call the same `Signatures` service.
 
 - `SignatureKitError`, signature schemas, `SignerAdapter`, and remote signer request DTOs live in `@signature-kit/core/config`.
 - `SignatureHttpClient` lives in `@signature-kit/core/http`.
-- `createSignatureKit({ signer }) → SignatureKitRuntime`
-- `createSignaturesService(signer) → SignaturesService`
 - `signaturesLayer(signer) → Layer<Signatures>`
 - `signatures.inspect/sign/verify` require the `Signatures` service and stay
   backend-agnostic.
 
-`@signature-kit/core` is the small root runtime facade plus the shared contract surface;
-there is no separate contracts-only package.
+`@signature-kit/core` is the shared contract surface plus the `Signatures` service;
+there is no root runtime facade and no separate contracts-only package.
 
 ### `@signature-kit/certificates`
 
@@ -53,7 +51,8 @@ there is no separate contracts-only package.
 ### Remote signer packages
 
 - `@signature-kit/docusign`, `@signature-kit/clicksign`, `@signature-kit/assinafy`,
-  and `@signature-kit/zapsign` each own one remote signing protocol adapter.
+  `@signature-kit/zapsign`, `@signature-kit/docuseal`, `@signature-kit/adobe-sign`,
+  `@signature-kit/dropbox-sign`, and `@signature-kit/documenso` each own one remote signing protocol adapter.
 - Remote signers expose direct `create*SignatureRequest(...)` functions over the
   `SignatureHttpClient` service; there is no provider-neutral gateway package.
 

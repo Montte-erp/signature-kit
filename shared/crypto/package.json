@@ -5,8 +5,6 @@
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
-  "main": "./dist/config.js",
-  "types": "./dist/config.d.ts",
   "exports": {
     "./base64": {
       "types": "./dist/base64.d.ts",
@@ -15,10 +13,6 @@
     "./config": {
       "types": "./dist/config.d.ts",
       "import": "./dist/config.js"
-    },
-    "./hash": {
-      "types": "./dist/hash.d.ts",
-      "import": "./dist/hash.js"
     },
     "./pem": {
       "types": "./dist/pem.d.ts",

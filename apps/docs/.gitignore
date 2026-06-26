@@ -1,0 +1,27 @@
+# deps
+/node_modules
+
+# generated content
+.source
+
+# paraglide (generated i18n runtime + inlang cache)
+/paraglide
+/project.inlang/cache
+
+# test & build
+/coverage
+/.next/
+/out/
+/build
+*.tsbuildinfo
+
+# misc
+.DS_Store
+*.pem
+/.pnp
+.pnp.js
+
+# others
+.env*.local
+.vercel
+next-env.d.ts

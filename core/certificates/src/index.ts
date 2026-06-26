@@ -231,16 +231,6 @@ const extractCpf = (raw: string): string | null => {
   return labelled?.[1] ?? null;
 };
 
-const failX = (reason: string): Effect.Effect<never, SignatureKitError> =>
-  Effect.fail(
-    new SignatureKitError({
-      code: SignatureKitErrorCodeValue.x509ParseFailed,
-      retryable: false,
-      reason,
-      operation: SignatureKitOperationValue.x509Parse,
-    }),
-  );
-
 const fromAsn1 = <A>(effect: Effect.Effect<A, Asn1Error>): Effect.Effect<A, SignatureKitError> =>
   Effect.mapError(
     effect,
@@ -306,7 +296,16 @@ const parseName = (nameNode: Asn1Node): Effect.Effect<Record<string, string>, Si
   });
 
 const parseTime = (node: Asn1Node): Effect.Effect<Date, SignatureKitError> => {
-  if (node.kind !== "primitive") return failX("Expected a primitive time node.");
+  if (node.kind !== "primitive") {
+    return Effect.fail(
+      new SignatureKitError({
+        code: SignatureKitErrorCodeValue.x509ParseFailed,
+        retryable: false,
+        reason: "Expected a primitive time node.",
+        operation: SignatureKitOperationValue.x509Parse,
+      }),
+    );
+  }
   const text = decodeText(node.bytes);
   const num = (start: number, end: number): number =>
     Number.parseInt(text.substring(start, end), 10);
@@ -323,7 +322,14 @@ const parseTime = (node: Asn1Node): Effect.Effect<Date, SignatureKitError> => {
       new Date(Date.UTC(num(0, 4), num(4, 6) - 1, num(6, 8), num(8, 10), num(10, 12), num(12, 14))),
     );
   }
-  return failX(`Unsupported time format: tag ${node.tag}.`);
+  return Effect.fail(
+    new SignatureKitError({
+      code: SignatureKitErrorCodeValue.x509ParseFailed,
+      retryable: false,
+      reason: `Unsupported time format: tag ${node.tag}.`,
+      operation: SignatureKitOperationValue.x509Parse,
+    }),
+  );
 };
 
 const parseValidity = (
@@ -331,11 +337,27 @@ const parseValidity = (
 ): Effect.Effect<{ readonly notBefore: Date; readonly notAfter: Date }, SignatureKitError> =>
   Effect.gen(function* () {
     if (node.kind !== "constructed" || node.children.length < 2) {
-      return yield* failX("Invalid Validity structure.");
+      return yield* Effect.fail(
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.x509ParseFailed,
+          retryable: false,
+          reason: "Invalid Validity structure.",
+          operation: SignatureKitOperationValue.x509Parse,
+        }),
+      );
     }
     const before = node.children[0];
     const after = node.children[1];
-    if (before === undefined || after === undefined) return yield* failX("Missing validity dates.");
+    if (before === undefined || after === undefined) {
+      return yield* Effect.fail(
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.x509ParseFailed,
+          retryable: false,
+          reason: "Missing validity dates.",
+          operation: SignatureKitOperationValue.x509Parse,
+        }),
+      );
+    }
     return { notBefore: yield* parseTime(before), notAfter: yield* parseTime(after) };
   });
 
@@ -421,11 +443,25 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
   Effect.gen(function* () {
     const cert = yield* fromAsn1(decode(der));
     if (cert.kind !== "constructed" || cert.children.length < 3) {
-      return yield* failX("Invalid X.509 certificate: expected SEQUENCE.");
+      return yield* Effect.fail(
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.x509ParseFailed,
+          retryable: false,
+          reason: "Invalid X.509 certificate: expected SEQUENCE.",
+          operation: SignatureKitOperationValue.x509Parse,
+        }),
+      );
     }
     const tbsCert = cert.children[0];
     if (tbsCert === undefined || tbsCert.kind !== "constructed") {
-      return yield* failX("Invalid TBSCertificate.");
+      return yield* Effect.fail(
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.x509ParseFailed,
+          retryable: false,
+          reason: "Invalid TBSCertificate.",
+          operation: SignatureKitOperationValue.x509Parse,
+        }),
+      );
     }
     const tbs = tbsCert.children;
     let idx = 0;
@@ -436,7 +472,14 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
     const serialNode = tbs[idx];
     idx++;
     if (serialNode === undefined || serialNode.kind !== "primitive" || serialNode.tag !== 0x02) {
-      return yield* failX("Missing or invalid serial number.");
+      return yield* Effect.fail(
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.x509ParseFailed,
+          retryable: false,
+          reason: "Missing or invalid serial number.",
+          operation: SignatureKitOperationValue.x509Parse,
+        }),
+      );
     }
     const serialNumber = bytesToHex(serialNode.bytes);
 
@@ -444,22 +487,58 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
 
     const issuerNode = tbs[idx];
     idx++;
-    if (issuerNode === undefined) return yield* failX("Missing issuer.");
+    if (issuerNode === undefined) {
+      return yield* Effect.fail(
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.x509ParseFailed,
+          retryable: false,
+          reason: "Missing issuer.",
+          operation: SignatureKitOperationValue.x509Parse,
+        }),
+      );
+    }
     const issuer = yield* parseName(issuerNode);
 
     const validityNode = tbs[idx];
     idx++;
-    if (validityNode === undefined) return yield* failX("Missing validity.");
+    if (validityNode === undefined) {
+      return yield* Effect.fail(
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.x509ParseFailed,
+          retryable: false,
+          reason: "Missing validity.",
+          operation: SignatureKitOperationValue.x509Parse,
+        }),
+      );
+    }
     const validity = yield* parseValidity(validityNode);
 
     const subjectNode = tbs[idx];
     idx++;
-    if (subjectNode === undefined) return yield* failX("Missing subject.");
+    if (subjectNode === undefined) {
+      return yield* Effect.fail(
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.x509ParseFailed,
+          retryable: false,
+          reason: "Missing subject.",
+          operation: SignatureKitOperationValue.x509Parse,
+        }),
+      );
+    }
     const subject = yield* parseName(subjectNode);
 
     const spkiNode = tbs[idx];
     idx++;
-    if (spkiNode === undefined) return yield* failX("Missing SubjectPublicKeyInfo.");
+    if (spkiNode === undefined) {
+      return yield* Effect.fail(
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.x509ParseFailed,
+          retryable: false,
+          reason: "Missing SubjectPublicKeyInfo.",
+          operation: SignatureKitOperationValue.x509Parse,
+        }),
+      );
+    }
     const publicKeyDer = encode(spkiNode);
 
     let subjectAltName: string | null = null;

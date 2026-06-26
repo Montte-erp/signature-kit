@@ -1,0 +1,74 @@
+---
+title: Documenso
+description: "Create Documenso envelopes with createDocumensoSignatureRequest(...), multipart uploads, and typed SignatureKit errors."
+---
+
+Documenso is the open-source remote signer adapter. SignatureKit creates a v2 envelope with PDF files, then distributes it when `send !== false`.
+
+## Install
+
+```package-install
+@signature-kit/core @signature-kit/documenso
+```
+
+## Create and distribute an envelope
+
+Documenso's public examples use the API token directly in `Authorization`. That is SignatureKit's default. If your deployment expects `Bearer <token>`, set `authorizationScheme: "bearer"`.
+
+```ts title="documenso.ts"
+import { createDocumensoSignatureRequest } from "@signature-kit/documenso"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Effect, Redacted } from "effect"
+
+const request = yield* createDocumensoSignatureRequest(
+  {
+    apiKey: Redacted.make(process.env.DOCUMENSO_API_KEY ?? ""),
+    baseUrl: "https://app.documenso.com/api/v2",
+  },
+  {
+    title: "Service agreement",
+    subject: "Please sign",
+    message: "Review and sign this agreement.",
+    documents: [{ fileName: "agreement.pdf", mimeType: "application/pdf", content: pdfBytes }],
+    recipients: [{ name: "Ana Silva", email: "ana@example.com", role: "approver", routingOrder: 1 }],
+    redirectUrl: "https://app.example.com/done",
+  },
+).pipe(Effect.provide(signatureHttpClientLive))
+
+// request.provider === "documenso"
+// request.state    === "sent" | "draft"
+```
+
+## Request mapping
+
+- `POST /envelope/create` receives multipart `payload` plus one `files` part per document.
+- Recipients map to Documenso roles: `approver` becomes `APPROVER`; the default becomes `SIGNER`.
+- `routingOrder` maps to `signingOrder`.
+- `subject`, `message`, and `redirectUrl` map to Documenso `meta`.
+- When `send` is omitted or true, SignatureKit calls `POST /envelope/distribute` and returns the first `signingUrl`.
+- When `send: false`, SignatureKit stops after creation and returns a draft request.
+
+<Callout type="info" title="Expiration shape">
+  Documenso models expiry as an envelope expiration period. The current adapter does not map `expiresAt`; keep expiry policy in Documenso or extend the provider options when you need exact control.
+</Callout>
+
+## Alchemy
+
+```ts title="alchemy.ts"
+import * as Documenso from "@signature-kit/documenso"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { Layer, Redacted } from "effect"
+
+export const providers = Documenso.providers({
+  apiKey: Redacted.make(process.env.DOCUMENSO_API_KEY ?? ""),
+}).pipe(Layer.provide(signatureHttpClientLive))
+```
+
+## Errors
+
+Invalid input, remote HTTP, and response-shape failures all fail as `SignatureKitError`, with `provider: "documenso"` and structured metadata.
+
+<Cards>
+  <Card title="DocuSeal" href="/docs/providers/docuseal">The DocuSeal open-source remote signer adapter.</Card>
+  <Card title="Remote signers" href="/docs/providers">Back to every provider package.</Card>
+</Cards>

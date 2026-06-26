@@ -1,0 +1,15 @@
+{
+  "title": "Providers",
+  "icon": "Cloud",
+  "pages": [
+    "index",
+    "docusign",
+    "clicksign",
+    "assinafy",
+    "zapsign",
+    "docuseal",
+    "adobe-sign",
+    "dropbox-sign",
+    "documenso"
+  ]
+}

@@ -1,0 +1,73 @@
+---
+title: Clicksign
+description: "Create Clicksign requests with createClicksignSignatureRequest(...), a remote signer straight on top of the v1 API — no normalizing gateway."
+---
+
+Clicksign is a remote signer that talks straight to the v1 API — no intermediary gateway.
+
+<Steps>
+  <Step>
+    ### Install
+
+    Add the runtime and the provider package.
+
+    ```package-install
+    @signature-kit/core @signature-kit/clicksign
+    ```
+  </Step>
+
+  <Step>
+    ### Create document
+
+    The function creates the document, creates the signer, and optionally notifies by email. The token stays in `Redacted` until the HTTP boundary.
+
+    ```ts title="clicksign.ts"
+    import { createClicksignSignatureRequest } from "@signature-kit/clicksign"
+    import { signatureHttpClientLive } from "@signature-kit/core/http"
+    import { Effect, Redacted } from "effect"
+
+    const request = yield* createClicksignSignatureRequest(
+      {
+        accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
+        environment: "sandbox",
+        locale: "pt-BR",
+        autoClose: true,
+      },
+      {
+        title: "Membership agreement",
+        message: "Sign to continue.",
+        documents: [{ fileName: "agreement.pdf", mimeType: "application/pdf", content: pdfBytes }],
+        recipients: [{ name: "Bruno Lima", email: "bruno@example.com", role: "signer" }],
+      },
+    ).pipe(Effect.provide(signatureHttpClientLive))
+
+    // request.provider === "clicksign"
+    ```
+  </Step>
+</Steps>
+
+## API limit
+
+The current implementation accepts one document per request, following Clicksign's v1 flow.
+
+<Callout type="warn" title="One document per request">
+  Requests with multiple documents fail on the typed channel with `signature-kit.UNSUPPORTED_OPERATION`.
+</Callout>
+
+## Errors
+
+Invalid input, remote HTTP, and response shape all fail as `SignatureKitError`, with `provider: "clicksign"`.
+
+## Keep exploring
+
+<Cards>
+  <Card title="DocuSign" href="/docs/providers/docusign">
+    DocuSign envelopes with createDocuSignSignatureRequest(...).
+  </Card>
+  <Card title="Assinafy" href="/docs/providers/assinafy">
+    Assinafy remote signer over the same typed boundary.
+  </Card>
+  <Card title="Typed error channel" href="/docs/errors">
+    The SignatureKitError and the catalog of literal codes.
+  </Card>
+</Cards>

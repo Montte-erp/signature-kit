@@ -2,24 +2,31 @@
  * The first e-signature adapter: A1 / PKCS#12.
  */
 
-import { createSignatureKit } from "@signature-kit/core/runtime";
-import type { SignatureKitRuntime } from "@signature-kit/core/runtime";
-import { createSignaturesService, Signatures } from "@signature-kit/core/signatures";
+import { Signatures } from "@signature-kit/core/signatures";
 import type { Certificate, SignatureAlgorithm, SignerAdapter } from "@signature-kit/core/config";
 import {
   SignatureKitError,
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
   SignatureKitSchemaNameValue,
+  SignInputSchema,
+  VerifyInputSchema,
   schemaErrorMetadata,
-  signInputSchema,
-  verifyInputSchema,
 } from "@signature-kit/core/config";
 import { daysUntilExpiry, parseCertificate, toSignerIdentity } from "@signature-kit/certificates";
-import { Effect, Layer, Schema } from "effect";
-import type { A1CertificateProfile, A1SignerOptions } from "./config";
-import { a1SignerOptionsSchema } from "./config";
+import { Context, Effect, Layer, Schema } from "effect";
+import { A1SignerOptionsSchema, type A1CertificateProfile, type A1SignerOptions } from "./config";
 import { importPrivateKey, importPublicKey, signWithKey, verifyWithKey } from "./web-crypto";
+
+export type A1SignerMaterial = {
+  readonly certificate: Certificate;
+  readonly profile: A1CertificateProfile;
+  readonly signer: SignerAdapter;
+};
+
+export class A1Signer extends Context.Service<A1Signer, A1SignerMaterial>()(
+  "@signature-kit/a1/Signer",
+) {}
 
 /** Cache WebCrypto imports per adapter and algorithm. */
 const cachedKey = (
@@ -35,7 +42,7 @@ const cachedKey = (
 const decodeA1SignerOptions = (
   options: A1SignerOptions,
 ): Effect.Effect<A1SignerOptions, SignatureKitError> =>
-  Schema.decodeUnknownEffect(a1SignerOptionsSchema)(options).pipe(
+  Schema.decodeUnknownEffect(A1SignerOptionsSchema)(options).pipe(
     Effect.mapError(
       (error) =>
         new SignatureKitError({
@@ -47,6 +54,13 @@ const decodeA1SignerOptions = (
           ...schemaErrorMetadata(error),
         }),
     ),
+  );
+
+const loadA1Certificate = (
+  options: A1SignerOptions,
+): Effect.Effect<Certificate, SignatureKitError> =>
+  decodeA1SignerOptions(options).pipe(
+    Effect.flatMap((valid) => parseCertificate(valid.pfx, valid.password)),
   );
 
 const certificateProfile = (
@@ -108,7 +122,7 @@ export const createA1SignerAdapter = (certificate: Certificate): SignerAdapter =
     certificate: () => Effect.succeed(certificate),
     importSigningKey: signingKey,
     sign: (input) =>
-      Schema.decodeUnknownEffect(signInputSchema)(input).pipe(
+      Schema.decodeUnknownEffect(SignInputSchema)(input).pipe(
         Effect.mapError(
           (error) =>
             new SignatureKitError({
@@ -128,7 +142,7 @@ export const createA1SignerAdapter = (certificate: Certificate): SignerAdapter =
         ),
       ),
     verify: (input) =>
-      Schema.decodeUnknownEffect(verifyInputSchema)(input).pipe(
+      Schema.decodeUnknownEffect(VerifyInputSchema)(input).pipe(
         Effect.mapError(
           (error) =>
             new SignatureKitError({
@@ -152,35 +166,136 @@ export const createA1SignerAdapter = (certificate: Certificate): SignerAdapter =
   };
 };
 
+const loadA1SignerMaterial = (
+  options: A1SignerOptions,
+): Effect.Effect<A1SignerMaterial, SignatureKitError> =>
+  loadA1Certificate(options).pipe(
+    Effect.flatMap((certificate) =>
+      certificateProfile(certificate).pipe(
+        Effect.map((profile) => ({
+          certificate,
+          profile,
+          signer: createA1SignerAdapter(certificate),
+        })),
+      ),
+    ),
+  );
+
+/** Load an A1 container and expose its parsed certificate, profile, and signer. */
+export const a1SignerLayer = (options: A1SignerOptions): Layer.Layer<A1Signer, SignatureKitError> =>
+  Layer.effect(A1Signer, loadA1SignerMaterial(options));
+
 /** Load an A1 container and build the adapter in one Effect. */
 export const loadA1SignerAdapter = (
   options: A1SignerOptions,
 ): Effect.Effect<SignerAdapter, SignatureKitError> =>
-  decodeA1SignerOptions(options).pipe(
-    Effect.flatMap((valid) => parseCertificate(valid.pfx, valid.password)),
-    Effect.map(createA1SignerAdapter),
-  );
-
-/** Load an A1 container and return the small runtime facade used by apps. */
-export const loadA1SignatureKit = (
-  options: A1SignerOptions,
-): Effect.Effect<SignatureKitRuntime, SignatureKitError> =>
-  loadA1SignerAdapter(options).pipe(Effect.map((signer) => createSignatureKit({ signer })));
+  loadA1Certificate(options).pipe(Effect.map(createA1SignerAdapter));
 
 /** Parse and validate the certificate metadata most app integrations store. */
 export const parseA1CertificateProfile = (
   options: A1SignerOptions,
 ): Effect.Effect<A1CertificateProfile, SignatureKitError> =>
-  decodeA1SignerOptions(options).pipe(
-    Effect.flatMap((valid) => parseCertificate(valid.pfx, valid.password)),
-    Effect.flatMap(certificateProfile),
-  );
+  loadA1Certificate(options).pipe(Effect.flatMap(certificateProfile));
 
 /** Load an A1 container and provide the agnostic core Signatures service. */
 export const a1SignaturesLayer = (
   options: A1SignerOptions,
 ): Layer.Layer<Signatures, SignatureKitError> =>
+  Layer.effect(Signatures, loadA1Certificate(options).pipe(Effect.map(createA1SignerAdapter)));
+
+// ---------------------------------------------------------------------------
+// Remote A1 material — fetch the PKCS#12 (.pfx) from a (presigned) URL.
+//
+// The A1 container usually lives in object storage (e.g. S3) and is handed to
+// the signer as a short-lived presigned URL. Fetching is the ONLY thing that
+// changes versus the local-bytes path: the fetched bytes flow into exactly the
+// same loadA1Certificate -> createA1SignerAdapter pipeline, so the signer, the
+// profile, and the Signatures layer behave identically. The private key never
+// leaves this process — only the encrypted PKCS#12 is fetched, then decrypted
+// locally with the Redacted password.
+// ---------------------------------------------------------------------------
+
+export type A1RemoteFetch = {
+  /** The (presigned) URL the PKCS#12 bytes are fetched from with a GET. */
+  readonly url: string;
+  /** Extra request headers (for auth not already baked into the URL). */
+  readonly headers?: Record<string, string>;
+  /** Abort signal to cancel the request. */
+  readonly signal?: AbortSignal;
+};
+
+export type A1RemoteSource = A1RemoteFetch & {
+  readonly password: A1SignerOptions["password"];
+};
+
+/** Fetch the A1 PKCS#12 (.pfx) bytes from a (presigned) URL via a GET. */
+export const fetchA1Pkcs12 = (
+  source: A1RemoteFetch,
+): Effect.Effect<Uint8Array, SignatureKitError> =>
+  Effect.tryPromise({
+    try: (abort) =>
+      fetch(source.url, {
+        ...(source.headers === undefined ? {} : { headers: source.headers }),
+        signal: source.signal ?? abort,
+      }),
+    catch: () =>
+      new SignatureKitError({
+        code: SignatureKitErrorCodeValue.http,
+        retryable: true,
+        reason: "Failed to fetch the A1 certificate.",
+        operation: SignatureKitOperationValue.httpRequest,
+      }),
+  }).pipe(
+    Effect.flatMap((response) =>
+      response.ok
+        ? Effect.tryPromise({
+            try: async () => new Uint8Array(await response.arrayBuffer()),
+            catch: () =>
+              new SignatureKitError({
+                code: SignatureKitErrorCodeValue.corruptedFile,
+                retryable: false,
+                reason: "The fetched A1 certificate response body could not be read.",
+                operation: SignatureKitOperationValue.httpDecode,
+              }),
+          })
+        : Effect.fail(
+            new SignatureKitError({
+              code: SignatureKitErrorCodeValue.http,
+              retryable: response.status >= 500 || response.status === 429,
+              reason: `The A1 certificate request failed with HTTP ${response.status} ${response.statusText}.`,
+              operation: SignatureKitOperationValue.httpRequest,
+            }),
+          ),
+    ),
+    Effect.flatMap((bytes) =>
+      bytes.byteLength === 0
+        ? Effect.fail(
+            new SignatureKitError({
+              code: SignatureKitErrorCodeValue.emptyFile,
+              retryable: false,
+              reason: "The fetched A1 certificate is empty.",
+            }),
+          )
+        : Effect.succeed(bytes),
+    ),
+  );
+
+/** Provide the agnostic core Signatures service from a remote (URL) A1 container. */
+export const a1SignaturesLayerFromUrl = (
+  source: A1RemoteSource,
+): Layer.Layer<Signatures, SignatureKitError> =>
   Layer.effect(
     Signatures,
-    loadA1SignerAdapter(options).pipe(Effect.map((signer) => createSignaturesService(signer))),
+    fetchA1Pkcs12(source).pipe(
+      Effect.flatMap((pfx) => loadA1Certificate({ pfx, password: source.password })),
+      Effect.map(createA1SignerAdapter),
+    ),
+  );
+
+/** Parse and validate the A1 certificate metadata from a remote (URL) container. */
+export const parseA1CertificateProfileFromUrl = (
+  source: A1RemoteSource,
+): Effect.Effect<A1CertificateProfile, SignatureKitError> =>
+  fetchA1Pkcs12(source).pipe(
+    Effect.flatMap((pfx) => parseA1CertificateProfile({ pfx, password: source.password })),
   );
