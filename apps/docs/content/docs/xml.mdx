@@ -1,13 +1,13 @@
 ---
 title: XML-DSig
-description: "Sign XML documents with signXml and validate them with verifyXml: enveloped reference, X.509 certificate embedded in KeyInfo, and verification outside the signer boundary."
+description: "Sign XML with signXml and validate with verifyXml: enveloped reference, X.509 in KeyInfo, verification needs no signer."
 ---
 
-**What you'll do:** sign an XML string with `signXml` over the `Signatures` boundary, then validate the result with `verifyXml` — which requires no signer and runs anywhere. The default algorithm is `"rsa-sha256"`, and the X.509 certificate is placed into `KeyInfo` automatically.
+**What you'll do:** sign an XML string with `signXml` over the `Signatures` boundary, then validate with `verifyXml` — which needs no signer and runs anywhere.
 
 <Steps>
   <Step title="Install the package">
-    The XML format lives in `@signature-kit/xml`. It consumes the `Signatures` service provided by a signer.
+    The XML format lives in `@signature-kit/xml` and consumes the `Signatures` service provided by a signer.
 
     ```package-install
     @signature-kit/xml
@@ -15,7 +15,7 @@ description: "Sign XML documents with signXml and validate them with verifyXml: 
   </Step>
 
   <Step title="Sign an XML document">
-    `signXml` takes an `XmlSigningRequest` and returns an `Effect<string, XmlError | SignatureKitError, Signatures>` — the output is the signed XML as a string. The `Signatures` requirement is satisfied with `Effect.provide(a1SignaturesLayer(...))`: the signing power comes from A1, and the format module only handles document mutation.
+    `signXml` takes an `XmlSigningRequest` and returns `Effect<string, XmlError | SignatureKitError, Signatures>` — the signed XML as a string. Satisfy the `Signatures` requirement with `Effect.provide(a1SignaturesLayer(...))`: A1 provides the signing power, the format module only mutates the document.
 
     ```ts title="sign-xml.ts"
     import { signXml } from "@signature-kit/xml/sign"
@@ -37,13 +37,12 @@ description: "Sign XML documents with signXml and validate them with verifyXml: 
     ```
 
     <Callout type="info">
-      `verifyXml` has no `Signatures` requirement — only `signXml` needs the signer boundary. You
-      sign with the layer and verify without it.
+      `verifyXml` has no `Signatures` requirement — only `signXml` needs the signer boundary.
     </Callout>
   </Step>
 
   <Step title="Reference and enveloped">
-    `referenceId` sets the target of the enveloped signature: passing `referenceId: "nfe-1"` produces a `Reference` with URI `"#nfe-1"`, pointing to the element with the same `Id` inside the document itself. The remaining fields of `XmlSigningRequest` are optional:
+    `referenceId` sets the target of the enveloped signature: passing `referenceId: "nfe-1"` produces a `Reference` with URI `"#nfe-1"`, pointing to the element with the same `Id` in the document. The remaining `XmlSigningRequest` fields are optional:
 
     ```ts title="request-xml.ts"
     // XmlSigningRequest — only 'xml' is required
@@ -56,11 +55,11 @@ description: "Sign XML documents with signXml and validate them with verifyXml: 
     }).pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer))
     ```
 
-    Without `algorithm`, the default `"rsa-sha256"` applies; the other option is `"rsa-sha512"`. The signer's X.509 certificate is embedded in the signature's own `KeyInfo`, so the verifier doesn't need the key out of band — unless you want to pin it (see [verification with an explicit key](#verification-with-an-explicit-key)).
+    Without `algorithm`, the default `"rsa-sha256"` applies; the other option is `"rsa-sha512"`. The signer's X.509 certificate is embedded in the signature's `KeyInfo`, so the verifier needs no key out of band — unless you want to pin it, which the last step below covers.
   </Step>
 
   <Step title="NF-e framing">
-    The NF-e is a typical concrete case: the `Id` of `infNFe` is the access key, and the signature points to it. Use the access key as `referenceId` so the URI becomes `"#NFe35..."`.
+    The NF-e is a common case: the `Id` of `infNFe` is the access key, and the signature points to it. Use the access key as `referenceId` so the URI becomes `"#NFe35..."`.
 
     ```ts title="sign-nfe.ts"
     // NF-e: the id of <infNFe> is the target of the enveloped reference
@@ -78,13 +77,13 @@ description: "Sign XML documents with signXml and validate them with verifyXml: 
     ```
 
     <Callout type="info">
-      The output string is the XML ready to send. Since `signXml` returns `string`, you can serialize
-      it straight into the SEFAZ payload with no intermediate steps.
+      The output string is the XML ready to send. Since `signXml` returns `string`, drop it straight
+      into the SEFAZ payload.
     </Callout>
   </Step>
 
   <Step title="Verify the signature">
-    `verifyXml` takes an `XmlVerificationRequest` and returns `Effect<XmlVerificationResult, XmlError>`. There is no `Signatures` requirement: verification uses the certificate embedded in `KeyInfo`. Use `requireReferenceUri` to require that a specific URI be present among the signed references.
+    `verifyXml` takes an `XmlVerificationRequest` and returns `Effect<XmlVerificationResult, XmlError>`. There is no `Signatures` requirement: verification uses the certificate embedded in `KeyInfo`. Use `requireReferenceUri` to require a specific URI among the signed references.
 
     ```ts title="verify-xml.ts"
     import { verifyXml } from "@signature-kit/xml/verify"
@@ -103,12 +102,10 @@ description: "Sign XML documents with signXml and validate them with verifyXml: 
     result.signatureCount  // number — how many <Signature> elements were verified
     result.referenceUris   // readonly string[] — e.g. ["#nfe-1"]
     ```
-
-    The result exposes `valid` (the signature checks out), `signatureCount` (how many `<Signature>` elements were verified), and `referenceUris` (the reference URIs found, such as `["#nfe-1"]`).
   </Step>
 
   <Step title="Verification with an explicit key">
-    By default the public key comes from the embedded certificate. To pin the expected key — ignoring whatever is in `KeyInfo` — pass `publicKeyDer` (the `SubjectPublicKeyInfo` in DER). Useful when you already trust a specific key and don't want to accept the one shipped in the document.
+    By default the public key comes from the embedded certificate. To pin the expected key — ignoring `KeyInfo` — pass `publicKeyDer` (the `SubjectPublicKeyInfo` in DER). Useful when you already trust a specific key and won't accept the one in the document.
 
     ```ts title="verify-key.ts"
     // Verification with an explicit key (instead of the cert embedded in KeyInfo)
@@ -124,7 +121,7 @@ description: "Sign XML documents with signXml and validate them with verifyXml: 
 
 ## Errors you might see
 
-Every signing failure is a typed `SignatureKitError` on the error channel; failures specific to XML parsing/canonicalization arrive as `XmlError`. The most common ones:
+Every signing failure is a typed `SignatureKitError` on the error channel; XML parsing or canonicalization failures arrive as `XmlError`. The most common:
 
 <Cards>
   <Card title="signature-kit.INVALID_INPUT" href="/docs/errors#error-catalog">The XML does not match the provided referenceId, or there is no element with that Id.</Card>

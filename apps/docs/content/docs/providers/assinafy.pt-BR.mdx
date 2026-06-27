@@ -3,11 +3,11 @@ title: Assinafy
 description: "Crie requisições da Assinafy com createAssinafySignatureRequest(...), SignatureHttpClient e credenciais Redacted."
 ---
 
-A Assinafy é um signatário remoto direto construído sobre o `SignatureHttpClient`. A função cria o documento, registra os signatários e cria a atribuição na API da Assinafy, retornando um `RemoteSignatureRequest` normalizado.
+`createAssinafySignatureRequest` é um signatário remoto direto sobre o `SignatureHttpClient`. Ele cria o documento, registra os signatários e cria a atribuição na API da Assinafy, retornando um `RemoteSignatureRequest` normalizado.
 
 ## Install
 
-A Assinafy é um signatário remoto direto. Não há camada `integrations/*`.
+Não há camada `integrations/*`.
 
 ```package-install
 @signature-kit/core @signature-kit/assinafy
@@ -15,7 +15,7 @@ A Assinafy é um signatário remoto direto. Não há camada `integrations/*`.
 
 ## Create signature
 
-A função cria o documento, registra os signatários e cria a atribuição na API da Assinafy. O valor de retorno é o `RemoteSignatureRequest` normalizado.
+Passe as credenciais e o formato de requisição compartilhado; a chamada retorna o `RemoteSignatureRequest` normalizado.
 
 ```ts title="assinafy.ts"
 import { createAssinafySignatureRequest } from "@signature-kit/assinafy"
@@ -41,7 +41,7 @@ const request = yield* createAssinafySignatureRequest(
 
 ## Credentials
 
-O `accountId` é sempre obrigatório — ele delimita o escopo dos endpoints de documento, signatário e atribuição. O segredo de autenticação é, então, `apiKey` ou `accessToken`: escolha um para se autenticar na API da Assinafy.
+O `accountId` é obrigatório — ele delimita o escopo dos endpoints de documento, signatário e atribuição. Autentique com `apiKey` ou `accessToken`.
 
 <Callout type="error" title="Nunca exponha o segredo">
   Ambos são `Redacted<string>` e só são revelados na camada HTTP do pacote. Mantenha a chave em uma variável de ambiente e

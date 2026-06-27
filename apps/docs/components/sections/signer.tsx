@@ -1,6 +1,6 @@
 import { FileUp, Lock, MousePointerClick, PenLine, ShieldCheck } from "lucide-react";
 
-import { PdfSignerDialog } from "@/components/pdf-signer";
+import { PdfSignerDialog } from "@/components/pdf-signer-islands";
 import { Button } from "@/components/ui/button";
 import {
   Card,

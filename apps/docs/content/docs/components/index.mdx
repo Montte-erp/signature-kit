@@ -1,108 +1,46 @@
 ---
-title: Overview
-description: "Overview of @signature-kit/react: the five entry points, the template → roles → fields → store model, and the Effect boundary your app runs inside the handlers."
+title: React A1 browser signing
+description: "The lean @signature-kit/react surface: Effect-first A1 PDF signing in the browser."
 ---
 
-`@signature-kit/react` is the React layer of SignatureKit. It draws the signing _intent_ — who signs, what, and where — and prepares the document for the signing boundary. The key never passes through here: the cryptographic signing happens in `@signature-kit/pdf` / `@signature-kit/a1`, behind `Signatures`. This page is the map of the package; each component, hook, and function has its own reference page.
+`@signature-kit/react` is now a thin browser/React layer over SignatureKit's Effect runtime. The launch scope is intentionally narrow: **PDF signing with an A1 / PKCS#12 certificate in the browser**. Remote providers, DocuSeal builder bridges, generic field types, queue hooks, and `react-pdf` rendering are outside this React package surface.
 
 ```package-install
-@signature-kit/react @signature-kit/pdf @signature-kit/a1
+@signature-kit/react @signature-kit/a1 @signature-kit/pdf
 ```
 
-## The five entry points
+## Public shape
 
-The package has no single barrel: each file is its own import path, so you only load what you use (and the `@react-pdf/renderer` renderer, for example, stays isolated in `react-pdf`).
+| Import | Use |
+| --- | --- |
+| `@signature-kit/react/browser-pdf` | Read a browser `File`, derive PDF page geometry, build an A1 signature placement, and sign one or more PDFs with PAdES. |
+| `@signature-kit/react/components` | Headless placement UI (`SignatureBuilderSurface`) plus store/selectors for the A1 demo. Store writes that change templates return `Effect`. |
+| `@signature-kit/react/builder` | Pure Effect functions for the A1 signature template: validate, place/move/remove one `signature` field, and derive the PDF widget appearance. |
+| `@signature-kit/react/config` | Schemas, derived types, and `ReactIntegrationError`. |
 
-| Entry point | Import | What it delivers |
-| ----------- | ------ | ---------------- |
-| `config` | `@signature-kit/react/config` | Effect schemas and types (`ReactSignatureTemplate`, `ReactSignatureField`, `ReactSignatureFieldDraft`, `ReactSignatureFieldPlacement`…), the literal `*Value` helpers, and the `ReactIntegrationError` class. |
-| `builder` | `@signature-kit/react/builder` | Pure functions over a template: `createReactSignatureTemplate`, `placeReactSignatureField`, `autoPlaceReactSignatureField`, `moveReactSignatureField`, `removeReactSignatureField`, `assignReactSignatureFieldValue`, and the like — all return `Effect`. |
-| `components` | `@signature-kit/react/components` | UI: `SignatureBuilderSurface` (+ subparts), `SignatureInkPad`, the store (`createSignatureBuilderStore` / `useSignatureBuilderStore`), and the selection hooks. |
-| `browser-pdf` | `@signature-kit/react/browser-pdf` | Browser signing flow: `loadBrowserPdfDocument`, `createBrowserPdfSignatureBuilderState`, `signBrowserPdf`, and the `useBrowserPdfSigningQueue` queue. |
-| `react-pdf` | `@signature-kit/react/react-pdf` | `ReactPdfSignatureTemplateDocument` and `renderReactSignatureTemplatePdf` to rasterize a template into PDF bytes via `@react-pdf/renderer`. |
+## Runtime rule
 
-## The model: template → roles → fields → store
+React does not own signing. Browser code reads files and handles events; Effect owns the workflow; the A1 signer is provided at the app boundary:
 
-Everything in the package revolves around a `ReactSignatureTemplate`. It is the immutable source of truth, and the four levels fit together like this:
+```ts title="sign.ts"
+import { a1SignaturesLayer } from "@signature-kit/a1/signer"
+import { signBrowserPdf } from "@signature-kit/react/browser-pdf"
+import { Effect, Redacted } from "effect"
 
-- **template** — `id`, `name`, plus `documents`, `roles`, and `fields`. Each document has `pages` with `width`/`height` in PDF points.
-- **roles** — the `ReactSignerRole` (signers): `id`, `label`, `email?`, `required?`. Every field points to a `roleId`.
-- **fields** — the positioned `ReactSignatureField`: `type` (`signature` | `initials` | `text` | `date` | `checkbox`), `documentId`, `roleId`, a `rect` (`pageIndex`, `x`, `y`, `width`, `height`), and an optional `value?`. To _create_ a field you pass a `ReactSignatureFieldDraft` (without `rect`, with `width`/`height`) inside a `ReactSignatureFieldPlacement`.
-- **store** — the `SignatureBuilderStore` (TanStack Store) wraps the template with UI state (`selectedFieldId`, `draft`) and exposes operations that return `Effect`: `placeField`, `moveField`, `removeField`, `assignValue`, `selectField`, `setDraft`.
-
-```tsx title="ContractBuilder.tsx"
-import { Effect } from "effect"
-import {
-  SignatureBuilderSurface,
-  useSignatureBuilderStore,
-} from "@signature-kit/react/components"
-import type { ReactSignatureBuilderState } from "@signature-kit/react/config"
-
-function ContractBuilder({ initialState }: { initialState: ReactSignatureBuilderState }) {
-  const store = useSignatureBuilderStore(initialState)
-
-  return (
-    <SignatureBuilderSurface
-      store={store}
-      onFieldPlacement={(placement) => void Effect.runPromise(store.placeField(placement))}
-    />
-  )
-}
+const signed = await Effect.runPromise(
+  signBrowserPdf({ pdf, template, fieldId: "sig" }).pipe(
+    Effect.provide(a1SignaturesLayer({ pfx, password: Redacted.make(password) })),
+  ),
+)
 ```
 
-<Callout type="info" title="Why a draft, not a field">
-  The surface delivers a `ReactSignatureFieldPlacement` (document, page, `x`/`y` point, `draft`, and `anchor`). The builder
-  resolves the final `rect` from the `anchor` and _clamps_ the field to the page bounds before validating. You describe the
-  intent; the builder produces the `ReactSignatureField`.
-</Callout>
-
-## The Effect boundary
-
-No function in the package runs `Effect` under the hood. Every operation — validating a template, placing a field, loading a PDF, signing — returns an `Effect.Effect<…, ReactIntegrationError, …>`, and **it is your app that decides when to run it**, typically with `Effect.runPromise` in the React event handler. That is the point where an error becomes UX.
-
-```tsx title="handler.tsx"
-import { Effect } from "effect"
-
-const onPlace = async (placement: ReactSignatureFieldPlacement) => {
-  const result = await Effect.runPromiseExit(store.placeField(placement))
-  if (result._tag === "Failure") {
-    // ReactIntegrationError: code (e.g. "react.FIELD_OUT_OF_BOUNDS"), reason, retryable
-    return showPlacementError(result.cause)
-  }
-}
-```
-
-Every error in the package is a single `ReactIntegrationError` (tagged error) with `code` (`react.INVALID_BUILDER_INPUT`, `react.FIELD_OUT_OF_BOUNDS`, `react.NO_AVAILABLE_PLACEMENT`, `react.PDF_LOAD_FAILED`, `react.QUEUE_REJECTED`…), `retryable: boolean`, and a readable `reason`. `signBrowserPdf` is the only one whose `Effect` requires the `Signatures` service in context — everything else runs without dependencies.
-
-<Callout type="info" title="runPromise vs runPromiseExit">
-  Use `Effect.runPromiseExit` when you want to read `code` and `retryable` to build the right message; `Effect.runPromise`
-  rejects the Promise with the error and is enough when a `try/catch` already does the job.
-</Callout>
-
-## The data-slot style
-
-The visual components (`SignatureBuilderSurface` and subparts, `SignatureInkPad`) follow the data-slot pattern: each element exposes a stable `data-slot="…"` and minimal inline styles. You style by attribute, without changing the logic or forking the component:
-
-```css title="builder.css"
-[data-slot="signature-builder-page"] {
-  box-shadow: var(--shadow-md);
-}
-[data-slot="signature-builder-field"][aria-pressed="true"] {
-  outline: 2px solid var(--ring);
-}
-```
-
-Each component also accepts `className` / `style` on the root and on the relevant parts, so utility classes coexist with slot-based styling. The full slot anatomy of each component lives on its own page.
-
-## Continue from here
+No hidden `runPromise`, no hidden `Effect.provide`, no generic signer UX in the React package.
 
 <Cards>
-  <Card title="SignatureBuilderSurface" href="/docs/components/signature-builder-surface">The composed builder surface: roles, documents, pages, and fields positionable by data-slot.</Card>
-  <Card title="SignatureInkPad" href="/docs/components/signature-ink-pad">Signature drawing canvas that emits a PNG data URL via onChangeDataUrl.</Card>
-  <Card title="Hooks" href="/docs/components/hooks">useSignatureBuilderStore, useSignatureBuilderSelector, and signatureBuilderSelectors to read slices of the store.</Card>
-  <Card title="Builder API" href="/docs/components/builder-api">The pure functions of @signature-kit/react/builder: create, place, move, and validate fields.</Card>
-  <Card title="Browser signing" href="/docs/components/browser-signing">loadBrowserPdfDocument, signBrowserPdf, and the useBrowserPdfSigningQueue queue to sign PDFs on the client.</Card>
-  <Card title="react-pdf" href="/docs/components/react-pdf">renderReactSignatureTemplatePdf and ReactPdfSignatureTemplateDocument to generate PDF bytes.</Card>
-  <Card title="DocuSeal" href="/docs/components/docuseal">createDocuSealBuilderTokenPayload to integrate the DocuSeal hosted builder.</Card>
-  <Card title="Schemas" href="/docs/components/schemas">The Effect schemas and types of @signature-kit/react/config, including ReactIntegrationError.</Card>
+  <Card title="A1 browser signing" href="/docs/components/browser-signing">
+    Upload PDFs, place one A1 signature field, provide `a1SignaturesLayer`, and download signed PDFs without sending bytes to a server.
+  </Card>
+  <Card title="A1 signer" href="/docs/signers">
+    Parse and provide the PKCS#12 certificate behind the React browser flow.
+  </Card>
 </Cards>

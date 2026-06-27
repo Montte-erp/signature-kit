@@ -1,8 +1,9 @@
 import * as React from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { describe, expect, it } from "vitest";
 
 import { makeDummyPdf, A4 } from "./helpers/dummy-pdf";
+import type { PdfDocumentProxy, PdfPageProps } from "../components/pdf-page";
 
 /**
  * Browser-mode placement test (run via apps/docs/vitest.browser.config.ts). The
@@ -30,7 +31,7 @@ async function waitForFrames(
     if (predicate()) return;
     await rafTick();
   }
-  throw new Error(`Timed out waiting for: ${label}`);
+  return Promise.reject(new Error(`Timed out waiting for: ${label}`));
 }
 
 if (typeof document === "undefined") {
@@ -39,21 +40,17 @@ if (typeof document === "undefined") {
   });
 } else {
   describe("PdfPage (browser render)", () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let doc: any;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let PdfPage: any;
+    let doc: PdfDocumentProxy | undefined;
+    let PdfPage: React.ComponentType<PdfPageProps> | undefined;
     let container: HTMLDivElement | undefined;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let root: any;
+    let root: Root | undefined;
 
     const ensureLoaded = async () => {
       if (doc) return;
       const pdfjs = await import("pdfjs-dist");
       // Vite serves the worker as a LOCAL asset (no CDN / network in the headless
       // browser), so the real rasteriser runs against our dummy PDF.
-      const workerUrl = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url"))
-        .default as string;
+      const workerUrl = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url")).default;
       pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
       PdfPage = (await import("../components/pdf-page")).PdfPage;
       const bytes = await makeDummyPdf({ pages: 1, size: A4, label: "Browser dummy" });
@@ -77,12 +74,27 @@ if (typeof document === "undefined") {
       container = undefined;
     };
 
+    const currentContainer = (): HTMLDivElement => {
+      if (container !== undefined) return container;
+      expect.fail("missing test container");
+    };
+
+    const currentPdfPage = (): React.ComponentType<PdfPageProps> => {
+      if (PdfPage !== undefined) return PdfPage;
+      expect.fail("PdfPage was not loaded");
+    };
+
+    const currentDoc = (): PdfDocumentProxy => {
+      if (doc !== undefined) return doc;
+      expect.fail("pdf.js document was not loaded");
+    };
+
     it("rasterises a real dummy PDF page onto the canvas and reports click fractions", async () => {
       await ensureLoaded();
       const placements: Array<[number, number]> = [];
       mount(
-        React.createElement(PdfPage, {
-          doc,
+        React.createElement(currentPdfPage(), {
+          doc: currentDoc(),
           pageNumber: 1,
           widthPt: A4.width,
           heightPt: A4.height,
@@ -90,22 +102,26 @@ if (typeof document === "undefined") {
         }),
       );
 
-      const canvas = () => container!.querySelector("canvas");
+      const canvas = () => currentContainer().querySelector("canvas");
       // scale = 2 in PdfPage → a finished render sizes the canvas WELL past the
       // default 300×150; wait for the real painted size, not just non-zero.
       await waitForFrames(
-        () => !!canvas() && canvas()!.width > A4.width && canvas()!.height > A4.height,
+        () => {
+          const c = canvas();
+          return c !== null && c.width > A4.width && c.height > A4.height;
+        },
         "the pdf.js canvas to finish painting at render scale",
       );
 
-      const c = canvas()!;
+      const c = canvas();
+      if (c === null) expect.fail("canvas missing after render");
       expect(c.width).toBeGreaterThan(A4.width); // ~1190
       expect(c.height).toBeGreaterThan(A4.height); // ~1684
       expect(c.width / c.height).toBeCloseTo(A4.width / A4.height, 1);
 
       // The placement layer reports clicks as page fractions (0..1).
-      const layer = container!.querySelector('[role="button"]') as HTMLElement;
-      expect(layer).toBeTruthy();
+      const layer = currentContainer().querySelector<HTMLElement>('[role="button"]');
+      if (layer === null) expect.fail("placement layer missing");
       layer.getBoundingClientRect();
       layer.dispatchEvent(
         new PointerEvent("pointerdown", { bubbles: true, clientX: 0, clientY: 0 }),
@@ -129,8 +145,8 @@ if (typeof document === "undefined") {
         height: 48,
       };
       mount(
-        React.createElement(PdfPage, {
-          doc,
+        React.createElement(currentPdfPage(), {
+          doc: currentDoc(),
           pageNumber: 1,
           widthPt: A4.width,
           heightPt: A4.height,
@@ -141,18 +157,18 @@ if (typeof document === "undefined") {
 
       await waitForFrames(
         () => {
-          const c = container!.querySelector("canvas");
-          return !!c && c.width > A4.width;
+          const c = currentContainer().querySelector("canvas");
+          return c !== null && c.width > A4.width;
         },
         "the pdf.js canvas to finish painting at render scale",
       );
 
       // The marker badge text ("signature") proves the overlay rendered.
       await waitForFrames(
-        () => (container!.textContent ?? "").includes("signature"),
+        () => currentContainer().textContent?.includes("signature") ?? false,
         "the signature marker overlay",
       );
-      expect(container!.textContent).toContain("signature");
+      expect(currentContainer().textContent).toContain("signature");
 
       cleanup();
     });

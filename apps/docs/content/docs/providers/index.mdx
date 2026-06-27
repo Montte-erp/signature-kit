@@ -1,30 +1,27 @@
 ---
 title: Overview
-description: "Use DocuSign, Clicksign, Assinafy, ZapSign, DocuSeal, Adobe Acrobat Sign, Dropbox Sign, and Documenso through direct create*SignatureRequest(...) functions."
+description: "Use Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso via direct create*SignatureRequest(...) functions."
 ---
 
 ## No gateway
 
-SignatureKit has no provider-normalizing package. Each remote signer lives in `signers/*`, exposes its own `create*SignatureRequest(...)` function, and uses the same `SignatureHttpClient` from `@signature-kit/core/http`. This keeps provider-specific options in the right package and avoids a central dispatcher.
+SignatureKit has no provider-normalizing package. Each remote signer lives in `signers/*`, exposes its own `create*SignatureRequest(...)` function, and shares the `SignatureHttpClient` from `@signature-kit/core/http`. Provider-specific options stay in their own package; there's no central dispatcher.
 
 ```package-install
-@signature-kit/core @signature-kit/docusign @signature-kit/clicksign @signature-kit/assinafy @signature-kit/zapsign @signature-kit/docuseal @signature-kit/adobe-sign @signature-kit/dropbox-sign @signature-kit/documenso
+@signature-kit/core @signature-kit/clicksign @signature-kit/assinafy @signature-kit/zapsign @signature-kit/docuseal @signature-kit/documenso
 ```
 
 <Cards>
-  <Card title="DocuSign" href="/docs/providers/docusign">Envelopes on the REST API with bearer token, baseUrl, and accountId.</Card>
   <Card title="Clicksign" href="/docs/providers/clicksign">One document per request on the v1 API, with a redacted token.</Card>
   <Card title="Assinafy" href="/docs/providers/assinafy">Document, signer, and assignment via API key or access token.</Card>
   <Card title="ZapSign" href="/docs/providers/zapsign">PDF document with bearer token and signing link.</Card>
   <Card title="DocuSeal" href="/docs/providers/docuseal">Open-source PDF submissions with X-Auth-Token and submitter links.</Card>
-  <Card title="Adobe Acrobat Sign" href="/docs/providers/adobe-sign">Transient document uploads followed by a REST v6 agreement.</Card>
-  <Card title="Dropbox Sign" href="/docs/providers/dropbox-sign">Multipart signature_request/send with API-key Basic auth.</Card>
   <Card title="Documenso" href="/docs/providers/documenso">Open-source envelopes over the v2 create/distribute API.</Card>
 </Cards>
 
 <Callout type="error" title="Redacted secrets">
-  All tokens and API keys are passed wrapped in `Redacted.make(...)`. This prevents credentials from leaking into logs,
-  error messages, or stack traces — never pass the secret in plain text nor log it outside of `Redacted`.
+  Wrap every token and API key in `Redacted.make(...)`. This keeps credentials out of logs, error messages, and
+  stack traces. Never pass a secret in plain text or log it outside `Redacted`.
 </Callout>
 
 ## Same input shape, provider-owned protocol
@@ -53,13 +50,10 @@ const request = yield* createDocumensoSignatureRequest(
 
 | Provider | Package | Primary API call | Draft support |
 | --- | --- | --- | --- |
-| DocuSign | `@signature-kit/docusign` | `POST /v2.1/accounts/{accountId}/envelopes` | yes |
 | Clicksign | `@signature-kit/clicksign` | v1 document + signer + notify flow | yes |
 | Assinafy | `@signature-kit/assinafy` | account document + signer + assignment flow | yes |
 | ZapSign | `@signature-kit/zapsign` | `POST /docs` | yes |
 | DocuSeal | `@signature-kit/docuseal` | `POST /submissions/pdf` | yes |
-| Adobe Acrobat Sign | `@signature-kit/adobe-sign` | transient document upload + `POST /agreements` | yes |
-| Dropbox Sign | `@signature-kit/dropbox-sign` | `POST /signature_request/send` | no |
 | Documenso | `@signature-kit/documenso` | `POST /envelope/create` + optional `POST /envelope/distribute` | yes |
 
 ## Typed errors

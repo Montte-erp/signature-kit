@@ -84,6 +84,28 @@ describe("SignatureHttpClient", () => {
     }),
   );
 
+  it.effect("uses diagnostic URLs in typed HTTP errors", () =>
+    Effect.gen(function* () {
+      const local = yield* startServer();
+      const result = yield* Effect.result(
+        SignatureHttpClient.use((http) =>
+          http.requestJson({
+            method: "GET",
+            url: `${local.baseUrl}/status?access_token=clicksign-secret`,
+            diagnosticUrl: `${local.baseUrl}/status?access_token=<redacted>`,
+          }),
+        ).pipe(Effect.provide(signatureHttpClientLive)),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.reason).toContain("access_token=<redacted>");
+        expect(result.failure.reason).not.toContain("clicksign-secret");
+      }
+      yield* closeServer(local.server);
+    }),
+  );
+
   it.effect("maps malformed JSON into response-shape errors", () =>
     Effect.gen(function* () {
       const local = yield* startServer();

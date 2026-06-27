@@ -3,7 +3,7 @@ title: Clicksign
 description: "Crie solicitações na Clicksign com createClicksignSignatureRequest(...), um signatário remoto diretamente sobre a API v1 — sem gateway de normalização."
 ---
 
-A Clicksign é um signatário remoto que conversa diretamente com a API v1 — sem gateway intermediário.
+A Clicksign é um signatário remoto sobre a API v1 — sem gateway intermediário.
 
 <Steps>
   <Step>
@@ -19,7 +19,7 @@ A Clicksign é um signatário remoto que conversa diretamente com a API v1 — s
   <Step>
     ### Criar documento
 
-    A função cria o documento, cria o signatário e, opcionalmente, notifica por e-mail. O token permanece em `Redacted` até a camada HTTP.
+    A função cria o documento e o signatário e, opcionalmente, notifica por e-mail. O token permanece em `Redacted` até a camada HTTP.
 
     ```ts title="clicksign.ts"
     import { createClicksignSignatureRequest } from "@signature-kit/clicksign"
@@ -48,7 +48,7 @@ A Clicksign é um signatário remoto que conversa diretamente com a API v1 — s
 
 ## Limite da API
 
-A implementação atual aceita um documento por solicitação, seguindo o fluxo da v1 da Clicksign.
+Cada solicitação aceita um documento, seguindo o fluxo v1 da Clicksign.
 
 <Callout type="warn" title="Um documento por solicitação">
   Solicitações com múltiplos documentos falham no canal tipado com `signature-kit.UNSUPPORTED_OPERATION`.
@@ -56,13 +56,13 @@ A implementação atual aceita um documento por solicitação, seguindo o fluxo 
 
 ## Erros
 
-Entrada inválida, HTTP remoto e formato de resposta falham, todos, como `SignatureKitError`, com `provider: "clicksign"`.
+Entrada inválida, HTTP remoto e formato de resposta falham como `SignatureKitError`, com `provider: "clicksign"`.
 
 ## Continue explorando
 
 <Cards>
-  <Card title="DocuSign" href="/docs/providers/docusign">
-    Envelopes da DocuSign com createDocuSignSignatureRequest(...).
+  <Card title="ZapSign" href="/docs/providers/zapsign">
+    PDFs da ZapSign com createZapSignSignatureRequest(...).
   </Card>
   <Card title="Assinafy" href="/docs/providers/assinafy">
     Signatário remoto da Assinafy sobre a mesma camada tipada.

@@ -9,12 +9,8 @@ import {
   PDFString,
 } from "@cantoo/pdf-lib";
 import { Effect } from "effect";
-import {
-  type PdfSignatureAppearance,
-  PdfError,
-  PdfErrorCodeValue,
-  PdfOperationValue,
-} from "./config";
+import { PdfError, PdfErrorCodeValue, PdfOperationValue } from "./config";
+import type { PdfSigningRequest } from "./config";
 import { resolveSignatureWidgetPlacement } from "./placement";
 
 export const DEFAULT_SIGNATURE_LENGTH = 16384;
@@ -23,22 +19,11 @@ const SIGNATURES_EXIST = 0x01;
 const APPEND_ONLY = 0x02;
 const PRINT_ANNOTATION = 0x04;
 
-type PlaceholderOptions = {
-  readonly reason: string;
-  readonly contactInfo: string;
-  readonly name: string;
-  readonly location: string;
-  readonly signingTime: Date;
-  readonly signatureLength: number;
-  readonly appearance: PdfSignatureAppearance;
-};
-
 export const addSignaturePlaceholder = (
-  pdf: Uint8Array,
-  options: PlaceholderOptions,
+  input: PdfSigningRequest,
 ): Effect.Effect<Uint8Array, PdfError> =>
   Effect.tryPromise({
-    try: () => PDFDocument.load(pdf),
+    try: () => PDFDocument.load(input.pdf),
     catch: () =>
       new PdfError({
         code: PdfErrorCodeValue.invalidPdf,
@@ -47,7 +32,7 @@ export const addSignaturePlaceholder = (
       }),
   }).pipe(
     Effect.flatMap((pdfDoc) =>
-      resolveSignatureWidgetPlacement(pdfDoc, options.appearance).pipe(
+      resolveSignatureWidgetPlacement(pdfDoc, input.appearance ?? {}).pipe(
         Effect.flatMap((placement) => {
           const page = pdfDoc.getPages()[placement.pageIndex];
           if (page === undefined) {
@@ -70,7 +55,7 @@ export const addSignaturePlaceholder = (
               byteRange.push(PDFName.of(BYTE_RANGE_PLACEHOLDER));
 
               const placeholder = PDFHexString.of(
-                String.fromCharCode(0).repeat(options.signatureLength),
+                String.fromCharCode(0).repeat(input.signatureLength ?? DEFAULT_SIGNATURE_LENGTH),
               );
               const signatureDict = pdfDoc.context.obj({
                 Type: "Sig",
@@ -78,11 +63,11 @@ export const addSignaturePlaceholder = (
                 SubFilter: "adbe.pkcs7.detached",
                 ByteRange: byteRange,
                 Contents: placeholder,
-                Reason: PDFString.of(options.reason),
-                M: PDFString.fromDate(options.signingTime),
-                ContactInfo: PDFString.of(options.contactInfo),
-                Name: PDFString.of(options.name),
-                Location: PDFString.of(options.location),
+                Reason: PDFString.of(input.reason ?? "Digital signature"),
+                M: PDFString.fromDate(input.signingTime ?? new Date()),
+                ContactInfo: PDFString.of(input.contactInfo ?? ""),
+                Name: PDFString.of(input.name ?? "SignatureKit signer"),
+                Location: PDFString.of(input.location ?? ""),
                 Prop_Build: { Filter: { Name: "Adobe.PPKLite" }, App: { Name: "SignatureKit" } },
               });
               const signatureBuffer = new Uint8Array(signatureDict.sizeInBytes());

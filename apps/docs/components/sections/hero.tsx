@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { localePath } from "@/lib/links";
 import { m } from "@/paraglide/messages";
 
-const EASE = [0.23, 1, 0.32, 1] as const;
+type CubicBezier = readonly [number, number, number, number];
+const EASE: CubicBezier = [0.23, 1, 0.32, 1];
 
 /**
  * Landing hero. Centered column, monochrome rhythm: a generic open-source pill,

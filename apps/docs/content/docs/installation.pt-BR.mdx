@@ -23,7 +23,7 @@ description: "Instale o core e o signer A1, forneça a layer Signatures e assine
     import { Effect, Redacted } from "effect"
 
     export const layer = a1SignaturesLayer({
-      pfx,                                          // Uint8Array — bytes of the .pfx/.p12
+      pfx,                                          // Uint8Array — bytes do .pfx/.p12
       password: Redacted.make(process.env.A1_PASSWORD ?? ""),
     })
     ```
@@ -56,7 +56,7 @@ description: "Instale o core e o signer A1, forneça a layer Signatures e assine
   </Step>
 
   <Step title="Adicione XML e PDF">
-    O PDF consome a mesma camada de assinatura via `Effect.provide(layer)`. O XML também declara o `xmlRuntimeLayer`, porque instalar o runtime de XML é uma dependência explícita.
+    O PDF reaproveita a mesma fronteira via `Effect.provide(layer)`. O XML também declara o `xmlRuntimeLayer`, uma dependência de runtime explícita.
 
     ```package-install
     @signature-kit/xml @signature-kit/pdf

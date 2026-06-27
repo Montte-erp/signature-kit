@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import {
   asciiSlice,
   concatBytes,
@@ -17,23 +17,31 @@ const LEFT_ANGLE = 0x3c;
 const RIGHT_ANGLE = 0x3e;
 const RIGHT_BRACKET = 0x5d;
 
-export type PdfByteRange = readonly [number, number, number, number];
+export const PdfByteRangeSchema = Schema.Tuple([
+  Schema.Number,
+  Schema.Number,
+  Schema.Number,
+  Schema.Number,
+]);
+export type PdfByteRange = (typeof PdfByteRangeSchema)["Type"];
 
-export type PreparedPdfSignature = {
-  readonly pdf: Uint8Array;
-  readonly byteRange: PdfByteRange;
-  readonly signedData: Uint8Array;
-  readonly contentsStart: number;
-  readonly contentsEnd: number;
-  readonly placeholderLength: number;
-};
+export const PreparedPdfSignatureSchema = Schema.Struct({
+  pdf: Schema.Uint8Array,
+  byteRange: PdfByteRangeSchema,
+  signedData: Schema.Uint8Array,
+  contentsStart: Schema.Number,
+  contentsEnd: Schema.Number,
+  placeholderLength: Schema.Number,
+});
+export type PreparedPdfSignature = (typeof PreparedPdfSignatureSchema)["Type"];
 
-export type ExtractedPdfSignature = {
-  readonly byteRange: PdfByteRange;
-  readonly signedData: Uint8Array;
-  readonly signature: Uint8Array;
-  readonly signatureCount: number;
-};
+export const ExtractedPdfSignatureSchema = Schema.Struct({
+  byteRange: PdfByteRangeSchema,
+  signedData: Schema.Uint8Array,
+  signature: Schema.Uint8Array,
+  signatureCount: Schema.Number,
+});
+export type ExtractedPdfSignature = (typeof ExtractedPdfSignatureSchema)["Type"];
 
 const countByteRanges = (pdf: Uint8Array): number => {
   let count = 0;

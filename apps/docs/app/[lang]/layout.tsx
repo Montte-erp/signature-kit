@@ -2,11 +2,12 @@ import "../global.css";
 import { RootProvider } from "fumadocs-ui/provider/next";
 import { Inter, Geist_Mono } from "next/font/google";
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { LocaleProvider } from "@/components/locale-provider";
 import { setServerLocale } from "@/lib/server-locale";
 import { i18n, provider } from "@/lib/i18n";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
-import type { Lang } from "@/lib/locale";
+import { parseLocale } from "@/lib/locale";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -42,17 +43,19 @@ export function generateStaticParams() {
  */
 export default async function Layout({ params, children }: LayoutProps<"/[lang]">) {
   const { lang } = await params;
-  const locale = setServerLocale(lang as Lang);
+  const parsed = parseLocale(lang);
+  if (parsed === undefined) notFound();
+  const locale = setServerLocale(parsed);
 
   return (
     <html
-      lang={lang}
+      lang={locale}
       className={`${inter.variable} ${geistMono.variable}`}
       suppressHydrationWarning
     >
       <body className="flex flex-col min-h-screen font-sans antialiased">
         <LocaleProvider locale={locale}>
-          <RootProvider i18n={provider(lang)}>{children}</RootProvider>
+          <RootProvider i18n={provider(locale)}>{children}</RootProvider>
         </LocaleProvider>
       </body>
     </html>

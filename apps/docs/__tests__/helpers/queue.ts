@@ -24,7 +24,7 @@ export async function waitFor(
   const start = Date.now();
   while (!predicate()) {
     if (Date.now() - start > timeout) {
-      throw new Error(`Timed out after ${timeout}ms waiting for: ${label}`);
+      return Promise.reject(new Error(`Timed out after ${timeout}ms waiting for: ${label}`));
     }
     await new Promise<void>((resolve) => setTimeout(resolve, interval));
   }
@@ -35,16 +35,14 @@ export async function waitFor(
  * as the queuer has an active or pending item. We NEVER look at `isRunning`
  * (which stays true after `start()` — the "never finishes" trap).
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function queuerBusy(queuer: AsyncQueuer<any>): boolean {
+export function queuerBusy(queuer: AsyncQueuer<unknown>): boolean {
   const s = queuer.store.state;
-  return s.activeItems.length > 0 || s.items.length > 0;
+  return s.activeItems.length + s.items.length > 0;
 }
 
 /** Wait until the queuer has fully drained (busy → false). */
 export async function waitForDrain(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  queuer: AsyncQueuer<any>,
+  queuer: AsyncQueuer<unknown>,
   timeout: number,
 ): Promise<void> {
   await waitFor(() => !queuerBusy(queuer), {

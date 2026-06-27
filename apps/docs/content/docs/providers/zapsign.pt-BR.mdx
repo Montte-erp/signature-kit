@@ -3,10 +3,10 @@ title: ZapSign
 description: "Crie documentos no ZapSign com createZapSignSignatureRequest(...), um token de API Redacted e o endpoint REST oficial."
 ---
 
-O ZapSign é um provedor remoto que conversa diretamente com `POST /api/v1/docs/`, sem nenhum gateway intermediário. Instale o pacote e crie o documento em dois passos.
+O ZapSign é um provedor remoto que chama `POST /api/v1/docs/` sem gateway intermediário. Instale o pacote e crie o documento em dois passos.
 
 <Steps>
-  <Step title="Instalar">
+  <Step title="Instale">
     Adicione o runtime principal e o pacote do provedor ZapSign.
 
     ```package-install
@@ -15,7 +15,7 @@ O ZapSign é um provedor remoto que conversa diretamente com `POST /api/v1/docs/
   </Step>
 
   <Step title="Crie o documento">
-    A função envia `base64_pdf`, os signatários e a autenticação `Authorization: Bearer`. A resposta normaliza `token`, `status` e a primeira `sign_url` em um `RemoteSignatureRequest`.
+    A função envia `base64_pdf`, os signatários e um cabeçalho `Authorization: Bearer`. A resposta normaliza `token`, `status` e a primeira `sign_url` em um `RemoteSignatureRequest`.
 
     ```ts title="zapsign.ts"
     import { createZapSignSignatureRequest } from "@signature-kit/zapsign"
@@ -37,14 +37,14 @@ O ZapSign é um provedor remoto que conversa diretamente com `POST /api/v1/docs/
     ).pipe(Effect.provide(signatureHttpClientLive))
 
     // request.provider === "zapsign"
-    // request.signingUrl holds the first signing link returned by ZapSign
+    // request.signingUrl guarda o primeiro link de assinatura retornado pelo ZapSign
     ```
   </Step>
 </Steps>
 
 ## Limite da API
 
-A implementação atual aceita um único PDF por requisição, alinhada ao fluxo de upload documentado pelo ZapSign.
+Aceita um único PDF por requisição, conforme o fluxo de upload documentado pelo ZapSign.
 
 <Callout type="warn" title="Um PDF por requisição">
   Vários documentos ou qualquer outro tipo MIME falham como `signature-kit.UNSUPPORTED_OPERATION`.

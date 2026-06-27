@@ -7,18 +7,14 @@ import { Parse, SignedXml } from "xmldsigjs";
 import type { OptionsSignReference } from "xmldsigjs";
 import { XmlError, XmlErrorCodeValue, XmlOperationValue } from "./config";
 import type { XmlSigningRequest } from "./config";
-import {
-  ensureXmlRuntime,
-  type XmlRuntime,
-  xmlDigestAlgorithm,
-  xmlSignatureAlgorithm,
-} from "./engine";
+import { XmlRuntime, xmlDigestAlgorithm, xmlSignatureAlgorithm } from "./engine";
 
 export const signXml = (
   input: XmlSigningRequest,
 ): Effect.Effect<string, XmlError | SignatureKitError, Signatures | XmlRuntime> =>
   Effect.gen(function* () {
-    yield* ensureXmlRuntime();
+    const xmlRuntime = yield* XmlRuntime;
+    yield* xmlRuntime.ensure;
     const algorithm = input.algorithm ?? "rsa-sha256";
     const certificate = yield* signatures.certificate();
     const signingKey = yield* signatures.importSigningKey(algorithm);

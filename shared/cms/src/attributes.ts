@@ -11,7 +11,8 @@ import { ESSCertIDv2, SigningCertificateV2 } from "@peculiar/asn1-ess";
 import { AsnConvert, OctetString } from "@peculiar/asn1-schema";
 import * as asn1js from "asn1js";
 import * as pkijs from "pkijs";
-import { type IcpBrasilPolicy, CmsOid, hashAlgorithmOid } from "./config";
+import { Schema } from "effect";
+import { type IcpBrasilPolicy, IcpBrasilPolicySchema, CmsOid, hashAlgorithmOid } from "./config";
 import { toArrayBuffer } from "./engine";
 
 const contentTypeAttribute = (): pkijs.Attribute =>
@@ -117,13 +118,17 @@ const sortAttributesDer = (attributes: readonly pkijs.Attribute[]): readonly pki
     .map((attribute) => ({ attribute, der: new Uint8Array(attribute.toSchema().toBER()) }))
     .sort((a, b) => compareDer(a.der, b.der))
     .map((entry) => entry.attribute);
+const BuildSignedAttributesParamsSchema = Schema.Struct({
+  messageDigest: Schema.Uint8Array,
+  signingTime: Schema.Date,
+  certificateSha256: Schema.Uint8Array,
+  icpBrasil: Schema.optional(IcpBrasilPolicySchema),
+});
+type BuildSignedAttributesParams = (typeof BuildSignedAttributesParamsSchema)["Type"];
 
-export const buildSignedAttributes = (params: {
-  readonly messageDigest: Uint8Array;
-  readonly signingTime: Date;
-  readonly certificateSha256: Uint8Array;
-  readonly icpBrasil?: IcpBrasilPolicy | undefined;
-}): readonly pkijs.Attribute[] => {
+export const buildSignedAttributes = (
+  params: BuildSignedAttributesParams,
+): readonly pkijs.Attribute[] => {
   const attributes = [
     contentTypeAttribute(),
     messageDigestAttribute(params.messageDigest),

@@ -9,32 +9,17 @@ import { PdfError, PdfSignaturePolicySchema } from "@signature-kit/pdf/config";
 import { Schema } from "effect";
 
 const nonEmptyString: Schema.ConstraintDecoder<string> = Schema.NonEmptyString;
-const imageDataUrl: Schema.ConstraintDecoder<string> = Schema.String.check(
-  Schema.isPattern(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/),
-);
 
-export const ReactSignatureFieldTypeSchema = Schema.Literals([
-  "signature",
-  "initials",
-  "text",
-  "date",
-  "checkbox",
-]);
+export const ReactSignatureFieldTypeSchema = Schema.Literals(["signature"]);
 export type ReactSignatureFieldType = (typeof ReactSignatureFieldTypeSchema)["Type"];
 export const ReactSignatureFieldTypeValue = {
   signature: "signature",
-  initials: "initials",
-  text: "text",
-  date: "date",
-  checkbox: "checkbox",
 } satisfies Record<string, ReactSignatureFieldType>;
 
-export const ReactDocumentSourceTypeSchema = Schema.Literals(["url", "uploaded", "generated"]);
+export const ReactDocumentSourceTypeSchema = Schema.Literals(["uploaded"]);
 export type ReactDocumentSourceType = (typeof ReactDocumentSourceTypeSchema)["Type"];
 export const ReactDocumentSourceTypeValue = {
-  url: "url",
   uploaded: "uploaded",
-  generated: "generated",
 } satisfies Record<string, ReactDocumentSourceType>;
 
 export const ReactSignaturePlacementAnchorSchema = Schema.Literals(["top-left", "center"]);
@@ -119,7 +104,6 @@ export type ReactSignaturePage = (typeof ReactSignaturePageSchema)["Type"];
 
 export const ReactDocumentSourceSchema = Schema.Struct({
   type: ReactDocumentSourceTypeSchema,
-  url: Schema.optional(Schema.String),
   bytes: Schema.optional(Schema.Uint8Array),
 });
 export type ReactDocumentSource = (typeof ReactDocumentSourceSchema)["Type"];
@@ -140,14 +124,6 @@ export const ReactSignerRoleSchema = Schema.Struct({
 });
 export type ReactSignerRole = (typeof ReactSignerRoleSchema)["Type"];
 
-export const ReactSignatureFieldValueSchema = Schema.Struct({
-  text: Schema.optional(Schema.String),
-  imageDataUrl: Schema.optional(imageDataUrl),
-  checked: Schema.optional(Schema.Boolean),
-  signedAt: Schema.optional(Schema.Date),
-});
-export type ReactSignatureFieldValue = (typeof ReactSignatureFieldValueSchema)["Type"];
-
 export const ReactSignatureFieldSchema = Schema.Struct({
   id: nonEmptyString,
   type: ReactSignatureFieldTypeSchema,
@@ -156,7 +132,6 @@ export const ReactSignatureFieldSchema = Schema.Struct({
   rect: ReactSignatureRectSchema,
   label: Schema.optional(Schema.String),
   required: Schema.optional(Schema.Boolean),
-  value: Schema.optional(ReactSignatureFieldValueSchema),
 });
 export type ReactSignatureField = (typeof ReactSignatureFieldSchema)["Type"];
 
@@ -227,30 +202,6 @@ export const ReactSignatureBuilderStateInputSchema = Schema.Struct({
 });
 export type ReactSignatureBuilderStateInput =
   (typeof ReactSignatureBuilderStateInputSchema)["Type"];
-
-export const DocuSealBuilderInputSchema = Schema.Struct({
-  userEmail: nonEmptyString,
-  integrationEmail: Schema.optional(Schema.String),
-  templateId: Schema.optional(Schema.Number),
-  externalId: Schema.optional(Schema.String),
-  folderName: Schema.optional(Schema.String),
-  documentUrls: Schema.optional(Schema.Array(Schema.String)),
-  name: Schema.optional(Schema.String),
-  extractFields: Schema.optional(Schema.Boolean),
-});
-export type DocuSealBuilderInput = (typeof DocuSealBuilderInputSchema)["Type"];
-
-export const DocuSealBuilderTokenPayloadSchema = Schema.Struct({
-  user_email: nonEmptyString,
-  integration_email: Schema.optional(Schema.String),
-  template_id: Schema.optional(Schema.Number),
-  external_id: Schema.optional(Schema.String),
-  folder_name: Schema.optional(Schema.String),
-  document_urls: Schema.optional(Schema.Array(Schema.String)),
-  name: Schema.optional(Schema.String),
-  extract_fields: Schema.optional(Schema.Boolean),
-});
-export type DocuSealBuilderTokenPayload = (typeof DocuSealBuilderTokenPayloadSchema)["Type"];
 
 export const BrowserPdfDocumentInputSchema = Schema.Struct({
   id: nonEmptyString,
@@ -324,50 +275,11 @@ export const BrowserPdfSigningInputSchema = Schema.Struct({
 });
 export type BrowserPdfSigningInput = (typeof BrowserPdfSigningInputSchema)["Type"];
 
-export const BrowserPdfSigningQueueItemSchema = Schema.Struct({
+export const BrowserPdfSigningBatchItemSchema = Schema.Struct({
   id: nonEmptyString,
   input: BrowserPdfSigningInputSchema,
 });
-export type BrowserPdfSigningQueueItem = (typeof BrowserPdfSigningQueueItemSchema)["Type"];
-
-export const BrowserPdfSigningQueueOptionsSchema = Schema.Struct({
-  concurrency: Schema.optional(Schema.Number),
-  waitMillis: Schema.optional(Schema.Number),
-  maxSize: Schema.optional(Schema.Number),
-  started: Schema.optional(Schema.Boolean),
-});
-export type BrowserPdfSigningQueueOptions = (typeof BrowserPdfSigningQueueOptionsSchema)["Type"];
-
-export const BrowserPdfSigningQueueSuccessSchema = Schema.Struct({
-  id: nonEmptyString,
-  signedPdf: Schema.Uint8Array,
-});
-export type BrowserPdfSigningQueueSuccess = (typeof BrowserPdfSigningQueueSuccessSchema)["Type"];
-export const browserPdfSigningQueueSuccessSchema = BrowserPdfSigningQueueSuccessSchema;
-
-export const BrowserPdfSigningQueueSnapshotSchema = Schema.Struct({
-  status: Schema.Literals(["idle", "running", "stopped"]),
-  pendingCount: Schema.Number,
-  activeCount: Schema.Number,
-  successCount: Schema.Number,
-  errorCount: Schema.Number,
-  settledCount: Schema.Number,
-  rejectionCount: Schema.Number,
-});
-export type BrowserPdfSigningQueueSnapshot = (typeof BrowserPdfSigningQueueSnapshotSchema)["Type"];
-export const browserPdfSigningQueueSnapshotSchema = BrowserPdfSigningQueueSnapshotSchema;
-
-export const ReactPdfRenderOptionsSchema = Schema.Struct({
-  title: Schema.optional(nonEmptyString),
-  author: Schema.optional(Schema.String),
-  subject: Schema.optional(Schema.String),
-  keywords: Schema.optional(Schema.String),
-  language: Schema.optional(Schema.String),
-  creator: Schema.optional(Schema.String),
-  producer: Schema.optional(Schema.String),
-});
-export type ReactPdfRenderOptions = (typeof ReactPdfRenderOptionsSchema)["Type"];
-export const reactPdfRenderOptionsSchema = ReactPdfRenderOptionsSchema;
+export type BrowserPdfSigningBatchItem = (typeof BrowserPdfSigningBatchItemSchema)["Type"];
 
 export const ReactIntegrationErrorCodeSchema = Schema.Literals([
   "react.INVALID_BUILDER_INPUT",
@@ -378,11 +290,8 @@ export const ReactIntegrationErrorCodeSchema = Schema.Literals([
   "react.UNKNOWN_FIELD",
   "react.FIELD_OUT_OF_BOUNDS",
   "react.NO_AVAILABLE_PLACEMENT",
-  "react.INVALID_SIGNATURE_IMAGE",
   "react.FILE_READ_FAILED",
   "react.PDF_LOAD_FAILED",
-  "react.RENDER_FAILED",
-  "react.QUEUE_REJECTED",
 ]);
 export type ReactIntegrationErrorCode = (typeof ReactIntegrationErrorCodeSchema)["Type"];
 export const ReactIntegrationErrorCodeValue = {
@@ -394,11 +303,8 @@ export const ReactIntegrationErrorCodeValue = {
   unknownField: "react.UNKNOWN_FIELD",
   fieldOutOfBounds: "react.FIELD_OUT_OF_BOUNDS",
   noAvailablePlacement: "react.NO_AVAILABLE_PLACEMENT",
-  invalidSignatureImage: "react.INVALID_SIGNATURE_IMAGE",
   fileReadFailed: "react.FILE_READ_FAILED",
   pdfLoadFailed: "react.PDF_LOAD_FAILED",
-  renderFailed: "react.RENDER_FAILED",
-  queueRejected: "react.QUEUE_REJECTED",
 } satisfies Record<string, ReactIntegrationErrorCode>;
 
 export const ReactIntegrationOperationSchema = Schema.Literals([
@@ -409,16 +315,12 @@ export const ReactIntegrationOperationSchema = Schema.Literals([
   "react.builder.replace-field",
   "react.builder.remove-field",
   "react.builder.move-field",
-  "react.builder.assign-value",
   "react.builder.auto-place-field",
-  "react.docuseal.payload",
   "react.pdf.appearance",
-  "react.pdf.render",
   "react.browser.file.read",
   "react.browser.pdf.load",
   "react.browser.pdf.sign",
   "react.browser.pdf.create-builder-state",
-  "react.browser.pdf.queue-add",
 ]);
 export type ReactIntegrationOperation = (typeof ReactIntegrationOperationSchema)["Type"];
 export const ReactIntegrationOperationValue = {
@@ -430,15 +332,11 @@ export const ReactIntegrationOperationValue = {
   removeField: "react.builder.remove-field",
   moveField: "react.builder.move-field",
   autoPlaceField: "react.builder.auto-place-field",
-  assignValue: "react.builder.assign-value",
-  docuSealPayload: "react.docuseal.payload",
   pdfAppearance: "react.pdf.appearance",
-  renderPdf: "react.pdf.render",
   readBrowserFile: "react.browser.file.read",
   loadBrowserPdf: "react.browser.pdf.load",
   signBrowserPdf: "react.browser.pdf.sign",
   createBrowserPdfBuilderState: "react.browser.pdf.create-builder-state",
-  addBrowserPdfSigningQueueItem: "react.browser.pdf.queue-add",
 } satisfies Record<string, ReactIntegrationOperation>;
 
 export const ReactIntegrationSchemaNameSchema = Schema.Literals([
@@ -449,14 +347,10 @@ export const ReactIntegrationSchemaNameSchema = Schema.Literals([
   "ReactSignatureRect",
   "ReactSignatureFieldPlacement",
   "ReactSignatureAutoPlacementInput",
-  "ReactPdfRenderOptions",
-  "DocuSealBuilderInput",
   "BrowserPdfDocumentInput",
   "BrowserPdfTemplateInput",
   "BrowserPdfSigningInput",
   "BrowserPdfSignatureBuilderInput",
-  "BrowserPdfSigningQueueItem",
-  "BrowserPdfSigningQueueOptions",
 ]);
 export type ReactIntegrationSchemaName = (typeof ReactIntegrationSchemaNameSchema)["Type"];
 export const ReactIntegrationSchemaNameValue = {
@@ -467,14 +361,10 @@ export const ReactIntegrationSchemaNameValue = {
   reactSignatureRect: "ReactSignatureRect",
   reactSignatureAutoPlacementInput: "ReactSignatureAutoPlacementInput",
   reactSignatureFieldPlacement: "ReactSignatureFieldPlacement",
-  reactPdfRenderOptions: "ReactPdfRenderOptions",
-  docuSealBuilderInput: "DocuSealBuilderInput",
   browserPdfDocumentInput: "BrowserPdfDocumentInput",
   browserPdfTemplateInput: "BrowserPdfTemplateInput",
   browserPdfSigningInput: "BrowserPdfSigningInput",
   browserPdfSignatureBuilderInput: "BrowserPdfSignatureBuilderInput",
-  browserPdfSigningQueueItem: "BrowserPdfSigningQueueItem",
-  browserPdfSigningQueueOptions: "BrowserPdfSigningQueueOptions",
 } satisfies Record<string, ReactIntegrationSchemaName>;
 
 export class ReactIntegrationError extends Schema.TaggedErrorClass<ReactIntegrationError>()(
@@ -485,8 +375,6 @@ export class ReactIntegrationError extends Schema.TaggedErrorClass<ReactIntegrat
     reason: Schema.optional(Schema.String),
     operation: Schema.optional(ReactIntegrationOperationSchema),
     schemaName: Schema.optional(ReactIntegrationSchemaNameSchema),
-    issuePath: Schema.optional(Schema.String),
-    issueMessage: Schema.optional(Schema.String),
   },
 ) {
   get message(): string {

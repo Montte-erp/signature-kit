@@ -1,9 +1,9 @@
 ---
 title: PDF / PAdES
-description: "Sign PDFs with PAdES via signPdf, apply the ICP-Brasil policy (AD-RB), and verify with verifyPdf — everything about the Signatures seam."
+description: "Sign PDFs with PAdES via signPdf, apply the ICP-Brasil policy (AD-RB), and verify with verifyPdf."
 ---
 
-**What you'll do:** sign PDF bytes in the PAdES standard with `signPdf`, choose between the `"pades-ades"` and `"pades-icp-brasil"` (AD-RB) policies, and check the result with `verifyPdf`. The signing power comes from the `Signatures` seam, provided by `a1SignaturesLayer` — the PDF module only handles mutating the document.
+**What you'll do:** sign PDF bytes in PAdES with `signPdf`, choose the `"pades-ades"` or `"pades-icp-brasil"` (AD-RB) policy, and verify the result with `verifyPdf`. The `Signatures` seam, provided by `a1SignaturesLayer`, does the signing; the PDF module only mutates the document.
 
 ## Install the package
 
@@ -44,7 +44,7 @@ const program = signPdf({
 const signedPdf: Uint8Array = yield* program  // signed PDF, pades-ades policy
 ```
 
-`signatureLength` reserves the space (in bytes) of the `/Contents` field that holds the CMS — a value that is too short makes the signature fail. Without `reason` and `name`, the defaults are `"Digital signature"` and `"SignatureKit signer"`. The remaining optional fields include `contactInfo`, `location`, `signingTime`, `timestamp`, and `appearance`.
+`signatureLength` reserves the bytes of the `/Contents` field that holds the CMS — too small a value fails the signature. `reason` and `name` default to `"Digital signature"` and `"SignatureKit signer"`. Other optional fields: `contactInfo`, `location`, `signingTime`, `timestamp`, and `appearance`.
 
 <Callout type="warn">
   `hashAlgorithm` only accepts `"sha256"` (→ `rsa-sha256`) or `"sha512"` (→ `rsa-sha512`). Values like `sha1` or `sha384`
@@ -53,7 +53,7 @@ const signedPdf: Uint8Array = yield* program  // signed PDF, pades-ades policy
 
 ## Position a visual signature
 
-`appearance.placement.kind: "auto"` computes a visible rectangle on the chosen page, starts from the preferred anchor, and avoids collision with existing widgets/annotations. This replaces manually guessing coordinates when you just want a signature in the available footer/corner. Without `appearance`, the signature stays invisible for compatibility.
+`appearance.placement.kind: "auto"` computes a visible rectangle on the chosen page from the preferred anchor, avoiding collision with existing widgets/annotations — no manual coordinates when you just want a signature in the footer/corner. Without `appearance`, the signature stays invisible for compatibility.
 
 ```ts title="position-pdf-signature.ts"
 const signed = yield* signPdf({
@@ -109,7 +109,7 @@ const explicit = signPdf({
 }).pipe(Effect.provide(layer))
 ```
 
-The explicit object carries `policyOid`, `policyHash`, `policyHashAlgorithm`, and `policyUri` — the same identifiers of the AD-RB SP that the automatic fetch would bring, now pinned in your code.
+The explicit object carries `policyOid`, `policyHash`, `policyHashAlgorithm`, and `policyUri` — the same AD-RB SP identifiers the automatic fetch would bring, now pinned in your code.
 
 <Callout type="warn" title="Remote SP fetch">
   Without the explicit `icpBrasil` object, `"pades-icp-brasil"` performs a remote fetch of the AD-RB Signature Policy — subject to the
@@ -138,7 +138,7 @@ result.byteRange         // [number, number, number, number]
 result.signerSerialNumber // string | null — serial of the signer certificate
 ```
 
-`byteRange` is the `[number, number, number, number]` quadruple covered by the signature, and `signerSerialNumber` is the serial of the signer certificate or `null` when there is no signature.
+`byteRange` is the quadruple covered by the signature; `signerSerialNumber` is `null` when the PDF has no signature.
 
 ## Errors you may see
 
@@ -154,6 +154,6 @@ PDF signing and verification fail with codes from the `pdf.*` family (`PdfError`
 
 <Cards>
   <Card title="XML-DSig" href="/docs/xml">The other format over the same Signatures seam, for NF-e XML.</Card>
-  <Card title="Remote signers" href="/docs/providers">Provider packages for DocuSign, Clicksign, Assinafy, ZapSign, DocuSeal, Adobe Acrobat Sign, Dropbox Sign, and Documenso.</Card>
+  <Card title="Remote signers" href="/docs/providers">Provider packages for Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso.</Card>
   <Card title="Typed error channel" href="/docs/errors">The catalog of pdf.* and signature-kit.* codes that can fail.</Card>
 </Cards>

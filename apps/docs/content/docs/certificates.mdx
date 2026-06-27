@@ -9,7 +9,7 @@ description: "Read the holder identity of an A1 certificate (e-CPF / e-CNPJ), in
   <Step title="Read the identity">
     ### Read the identity
 
-    `signatures.inspect()` returns an `Effect<SignerIdentity, SignatureKitError>` with the holder's essential fields. This is the cheap read: subject, issuer, serial number, thumbprint, validity window, and the optional `document`. Provide a `Signatures` layer (here `a1SignaturesLayer`) so the accessor can resolve the loaded material.
+    `signatures.inspect()` returns an `Effect<SignerIdentity, SignatureKitError>` with the holder's essential fields — the cheap read: subject, issuer, serial number, thumbprint, validity window, and the optional `document`. Provide a `Signatures` layer (here `a1SignaturesLayer`) so the accessor can resolve the loaded material.
 
     ```ts title="read-identity.ts"
     import { a1SignaturesLayer } from "@signature-kit/a1/signer"
@@ -68,11 +68,10 @@ description: "Read the holder identity of an A1 certificate (e-CPF / e-CNPJ), in
     When you need more than the identity, `signatures.certificate()` returns an `Effect<Certificate, SignatureKitError>` with the whole certificate: PEM, DER, public key, precomputed validity (`isValid`), SANs, and the `brazilian` block with the ICP-Brasil fields.
 
     <Callout type="error" title="Caution">
-      the accessor is `signatures.certificate()` — the full certificate read on the
-      same `Signatures` service as `inspect()`. The
-      `privateKeyPem` field is `Redacted<string>`: it does not appear in logs, in `console.log`,
-      nor in `JSON.stringify`. To obtain the PEM you must explicitly call `Redacted.value(...)`,
-      and only at the boundary where the key is actually consumed.
+      the accessor is `signatures.certificate()` — the full read on the
+      same `Signatures` service as `inspect()`. `privateKeyPem` is `Redacted<string>`:
+      it never appears in logs, `console.log`, or `JSON.stringify`. To get the PEM, call
+      `Redacted.value(...)` explicitly, only at the boundary where the key is consumed.
     </Callout>
 
     ```ts title="inspect.ts"
@@ -176,17 +175,16 @@ description: "Read the holder identity of an A1 certificate (e-CPF / e-CNPJ), in
 
     <Callout type="info">
       the ICP-Brasil OIDs populate the `document` field:
-      `2.16.76.1.3.1` identifies the e-CPF (the document is the holder's CPF) and `2.16.76.1.3.3`
-      identifies the e-CNPJ (the document is the CNPJ). Extracting these fields is done by
-      `extractBrazilianFields` internally and already appears ready in `identity.document` and in
-      `cert.brazilian`.
+      `2.16.76.1.3.1` identifies the e-CPF (document = CPF) and `2.16.76.1.3.3`
+      the e-CNPJ (document = CNPJ). `extractBrazilianFields` reads them internally; the
+      values arrive ready in `identity.document` and `cert.brazilian`.
     </Callout>
   </Step>
 </Steps>
 
 ## Errors you may see
 
-Every read failure is a typed `SignatureKitError` in the error channel. The most common ones when reading certificates:
+Every read failure is a typed `SignatureKitError` in the error channel. The most common when reading certificates:
 
 - [`signature-kit.NO_CERTIFICATE`](/docs/errors#error-catalog) — the loaded material does not contain a certificate.
 - [`signature-kit.X509_PARSE_FAILED`](/docs/errors#error-catalog) — the DER could not be parsed by `parseX509`.

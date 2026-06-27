@@ -3,7 +3,7 @@
  * server and browser runtimes.
  */
 
-import { Asn1Error, decode, encode, oidString } from "@signature-kit/asn1";
+import { decode, encode, oidString } from "@signature-kit/asn1";
 import type { Asn1Node } from "@signature-kit/asn1";
 import type { CryptoError } from "@signature-kit/crypto/config";
 import { derToPem } from "@signature-kit/crypto/pem";
@@ -231,18 +231,6 @@ const extractCpf = (raw: string): string | null => {
   return labelled?.[1] ?? null;
 };
 
-const fromAsn1 = <A>(effect: Effect.Effect<A, Asn1Error>): Effect.Effect<A, SignatureKitError> =>
-  Effect.mapError(
-    effect,
-    (error) =>
-      new SignatureKitError({
-        code: SignatureKitErrorCodeValue.x509ParseFailed,
-        retryable: false,
-        reason: error.message,
-        operation: SignatureKitOperationValue.x509Parse,
-      }),
-  );
-
 const decodeText = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
 
 const bytesToHex = (bytes: Uint8Array): string =>
@@ -287,7 +275,17 @@ const parseName = (nameNode: Asn1Node): Effect.Effect<Record<string, string>, Si
         const valueNode = atav.children[1];
         if (oidNode === undefined || oidNode.kind !== "primitive") continue;
         if (valueNode === undefined || valueNode.kind !== "primitive") continue;
-        const oid = yield* fromAsn1(oidString(oidNode));
+        const oid = yield* oidString(oidNode).pipe(
+          Effect.mapError(
+            (error) =>
+              new SignatureKitError({
+                code: SignatureKitErrorCodeValue.x509ParseFailed,
+                retryable: false,
+                reason: error.message,
+                operation: SignatureKitOperationValue.x509Parse,
+              }),
+          ),
+        );
         const short = oidToShortName(oid);
         if (short !== null) result[short] = decodeText(valueNode.bytes);
       }
@@ -367,7 +365,6 @@ const normalizeIcpOtherName = (oid: string, value: string): string => {
   if (oid === "2.16.76.1.3.3" && digits.length >= 14) return digits.slice(0, 14);
   return value;
 };
-
 const parseOtherName = (node: Asn1Node): Effect.Effect<string | null, SignatureKitError> =>
   Effect.gen(function* () {
     if (node.kind !== "constructed") return null;
@@ -376,7 +373,17 @@ const parseOtherName = (node: Asn1Node): Effect.Effect<string | null, SignatureK
     if (oidNode === undefined || oidNode.kind !== "primitive" || valueWrapper === undefined) {
       return null;
     }
-    const oid = yield* fromAsn1(oidString(oidNode));
+    const oid = yield* oidString(oidNode).pipe(
+      Effect.mapError(
+        (error) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.x509ParseFailed,
+            retryable: false,
+            reason: error.message,
+            operation: SignatureKitOperationValue.x509Parse,
+          }),
+      ),
+    );
     const label = ICP_BRASIL_OID_LABELS[oid] ?? oid;
     const inner = valueWrapper.kind === "constructed" ? valueWrapper.children[0] : valueWrapper;
     const value = inner !== undefined && inner.kind === "primitive" ? decodeText(inner.bytes) : "";
@@ -417,11 +424,31 @@ const parseSan = (extensionsNode: Asn1Node): Effect.Effect<string | null, Signat
       const extnValue = ext.children[ext.children.length - 1];
       if (oidNode === undefined || oidNode.kind !== "primitive" || extnValue === undefined)
         continue;
-      const oid = yield* fromAsn1(oidString(oidNode));
+      const oid = yield* oidString(oidNode).pipe(
+        Effect.mapError(
+          (error) =>
+            new SignatureKitError({
+              code: SignatureKitErrorCodeValue.x509ParseFailed,
+              retryable: false,
+              reason: error.message,
+              operation: SignatureKitOperationValue.x509Parse,
+            }),
+        ),
+      );
       if (oid !== OID_SUBJECT_ALT_NAME) continue;
       if (extnValue.kind !== "primitive") continue;
 
-      const sanSeq = yield* fromAsn1(decode(extnValue.bytes));
+      const sanSeq = yield* decode(extnValue.bytes).pipe(
+        Effect.mapError(
+          (error) =>
+            new SignatureKitError({
+              code: SignatureKitErrorCodeValue.x509ParseFailed,
+              retryable: false,
+              reason: error.message,
+              operation: SignatureKitOperationValue.x509Parse,
+            }),
+        ),
+      );
       if (sanSeq.kind !== "constructed") return null;
       const names: string[] = [];
       for (const gn of sanSeq.children) {
@@ -441,7 +468,17 @@ const nameField = (fields: Record<string, string>, key: string): string | null =
 /** Parse an X.509 certificate from DER bytes. */
 export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKitError> =>
   Effect.gen(function* () {
-    const cert = yield* fromAsn1(decode(der));
+    const cert = yield* decode(der).pipe(
+      Effect.mapError(
+        (error) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.x509ParseFailed,
+            retryable: false,
+            reason: error.message,
+            operation: SignatureKitOperationValue.x509Parse,
+          }),
+      ),
+    );
     if (cert.kind !== "constructed" || cert.children.length < 3) {
       return yield* Effect.fail(
         new SignatureKitError({

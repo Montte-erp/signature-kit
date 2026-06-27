@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { ArrowRight, Rss } from "lucide-react";
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 
 import { i18n } from "@/lib/i18n";
 import { setServerLocale } from "@/lib/server-locale";
 import { OG_LOCALE, SITE_NAME, absoluteUrl } from "@/lib/site";
 import { blogPostPath, readingMinutes, sortedPosts } from "@/lib/blog";
-import type { Lang } from "@/lib/locale";
+import { parseLocale, type Lang } from "@/lib/locale";
 import {
   Card,
   CardDescription,
@@ -58,7 +59,8 @@ function formatDate(date: string, lang: Lang): string {
 
 export default async function BlogIndex({ params }: PageProps<"/[lang]/blog">) {
   const { lang } = await params;
-  const locale = lang as Lang;
+  const locale = parseLocale(lang);
+  if (locale === undefined) notFound();
   // Prime the request locale for this segment (Next renders segments
   // independently from the `(home)` layout).
   setServerLocale(locale);
@@ -136,11 +138,17 @@ export async function generateMetadata({
   params,
 }: PageProps<"/[lang]/blog">): Promise<Metadata> {
   const { lang } = await params;
-  const locale = lang as Lang;
+  const locale = parseLocale(lang);
+  if (locale === undefined) notFound();
   const copy = COPY[locale];
   const url = absoluteUrl(`/${locale}/blog`);
   const languages = Object.fromEntries(
-    i18n.languages.map((l) => [l, absoluteUrl(`/${l}/blog`)]),
+    i18n.languages.flatMap((language) => {
+      const languageLocale = parseLocale(language);
+      return languageLocale === undefined
+        ? []
+        : [[languageLocale, absoluteUrl(`/${languageLocale}/blog`)]];
+    }),
   );
 
   return {

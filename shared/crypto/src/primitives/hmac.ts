@@ -5,12 +5,13 @@
  * Zero runtime dependencies. Works in any JS environment.
  */
 
+import { Schema } from "effect";
 import { sha1 } from "./sha1";
 import { sha256, sha256ProcessBlock, sha256WithState } from "./sha256";
 import { sha384, sha512 } from "./sha512";
 
-export type HmacHashAlgorithm = "sha1" | "sha256" | "sha384" | "sha512";
-
+export const HmacHashAlgorithmSchema = Schema.Literals(["sha1", "sha256", "sha384", "sha512"]);
+export type HmacHashAlgorithm = (typeof HmacHashAlgorithmSchema)["Type"];
 /**
  * Returns the block size (in bytes) for the given hash algorithm.
  * SHA-1/SHA-256: 64 bytes; SHA-384/SHA-512: 128 bytes.
@@ -86,11 +87,11 @@ export function hmac(alg: HmacHashAlgorithm, key: Uint8Array, data: Uint8Array):
  * Currently optimized for SHA-256 (the most common PBKDF2 PRF).
  * Falls back to the standard hmac() for other algorithms.
  */
+// Runtime helper with executable behavior, not schema-serializable data.
 export type HmacContext = {
   /** Compute HMAC for the given message data */
   readonly compute: (data: Uint8Array) => Uint8Array;
 };
-
 /**
  * Create a precomputed HMAC context for SHA-256 with a fixed key.
  *

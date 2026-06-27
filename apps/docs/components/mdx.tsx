@@ -7,8 +7,7 @@ import { File, Files, Folder } from "fumadocs-ui/components/files";
 import { Callout } from "fumadocs-ui/components/callout";
 import { Card, Cards } from "fumadocs-ui/components/card";
 import type { MDXComponents } from "mdx/types";
-import { PdfSigner } from "./pdf-signer";
-import { SlotReuseSigner } from "./slot-reuse-signer";
+import { PdfSigner } from "./pdf-signer-islands";
 import { ErrorCatalog } from "./error-catalog";
 
 export function getMDXComponents(components?: MDXComponents): MDXComponents {
@@ -28,7 +27,6 @@ export function getMDXComponents(components?: MDXComponents): MDXComponents {
     Card,
     Cards,
     PdfSigner,
-    SlotReuseSigner,
     ErrorCatalog,
     ...components,
   };

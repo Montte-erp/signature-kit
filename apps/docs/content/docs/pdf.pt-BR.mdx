@@ -1,9 +1,9 @@
 ---
 title: PDF / PAdES
-description: "Assine PDFs com PAdES via signPdf, aplique a política ICP-Brasil (AD-RB) e verifique com verifyPdf — tudo sobre a camada Signatures."
+description: "Assine PDFs com PAdES via signPdf, aplique a política ICP-Brasil (AD-RB) e verifique com verifyPdf."
 ---
 
-**O que você vai fazer:** assinar os bytes de um PDF no padrão PAdES com `signPdf`, escolher entre as políticas `"pades-ades"` e `"pades-icp-brasil"` (AD-RB) e conferir o resultado com `verifyPdf`. O poder de assinar vem da camada `Signatures`, fornecida pelo `a1SignaturesLayer` — o módulo de PDF cuida apenas de modificar o documento.
+**O que você vai fazer:** assinar os bytes de um PDF em PAdES com `signPdf`, escolher a política `"pades-ades"` ou `"pades-icp-brasil"` (AD-RB) e verificar o resultado com `verifyPdf`. A camada `Signatures`, fornecida pelo `a1SignaturesLayer`, faz a assinatura; o módulo de PDF apenas modifica o documento.
 
 ## Instale o pacote
 
@@ -44,7 +44,7 @@ const program = signPdf({
 const signedPdf: Uint8Array = yield* program  // signed PDF, pades-ades policy
 ```
 
-`signatureLength` reserva o espaço (em bytes) do campo `/Contents` que guarda o CMS — um valor curto demais faz a assinatura falhar. Sem `reason` e `name`, os padrões são `"Digital signature"` e `"SignatureKit signer"`. Os demais campos opcionais incluem `contactInfo`, `location`, `signingTime`, `timestamp` e `appearance`.
+`signatureLength` reserva os bytes do campo `/Contents` que guarda o CMS — um valor curto demais faz a assinatura falhar. `reason` e `name` têm como padrão `"Digital signature"` e `"SignatureKit signer"`. Outros campos opcionais: `contactInfo`, `location`, `signingTime`, `timestamp` e `appearance`.
 
 <Callout type="warn">
   `hashAlgorithm` aceita apenas `"sha256"` (→ `rsa-sha256`) ou `"sha512"` (→ `rsa-sha512`). Valores como `sha1` ou `sha384`
@@ -53,7 +53,7 @@ const signedPdf: Uint8Array = yield* program  // signed PDF, pades-ades policy
 
 ## Posicione uma assinatura visual
 
-`appearance.placement.kind: "auto"` calcula um retângulo visível na página escolhida, parte da âncora preferida e evita colisão com widgets/anotações existentes. Isso substitui o trabalho de adivinhar coordenadas manualmente quando você só quer uma assinatura no rodapé/canto disponível. Sem `appearance`, a assinatura permanece invisível por compatibilidade.
+`appearance.placement.kind: "auto"` calcula um retângulo visível na página escolhida a partir da âncora preferida, evitando colisão com widgets/anotações existentes — sem coordenadas manuais quando você só quer uma assinatura no rodapé/canto. Sem `appearance`, a assinatura permanece invisível por compatibilidade.
 
 ```ts title="position-pdf-signature.ts"
 const signed = yield* signPdf({
@@ -109,7 +109,7 @@ const explicit = signPdf({
 }).pipe(Effect.provide(layer))
 ```
 
-O objeto explícito carrega `policyOid`, `policyHash`, `policyHashAlgorithm` e `policyUri` — os mesmos identificadores da SP AD-RB que a busca automática traria, agora fixados no seu código.
+O objeto explícito carrega `policyOid`, `policyHash`, `policyHashAlgorithm` e `policyUri` — os mesmos identificadores da SP AD-RB que a busca automática traria, agora fixos no seu código.
 
 <Callout type="warn" title="Busca remota da SP">
   Sem o objeto `icpBrasil` explícito, `"pades-icp-brasil"` faz uma busca remota da Signature Policy AD-RB — sujeita à
@@ -138,7 +138,7 @@ result.byteRange         // [number, number, number, number]
 result.signerSerialNumber // string | null — serial of the signer certificate
 ```
 
-`byteRange` é a quádrupla `[number, number, number, number]` coberta pela assinatura, e `signerSerialNumber` é o serial do certificado do signatário ou `null` quando não há assinatura.
+`byteRange` é a quádrupla coberta pela assinatura; `signerSerialNumber` é `null` quando o PDF não tem assinatura.
 
 ## Erros que você pode encontrar
 
@@ -154,6 +154,6 @@ A assinatura e a verificação de PDF falham com códigos da família `pdf.*` (`
 
 <Cards>
   <Card title="XML-DSig" href="/docs/xml">O outro formato sobre a mesma camada Signatures, para XML de NF-e.</Card>
-  <Card title="Signatários remotos" href="/docs/providers">Pacotes de provedores para DocuSign, Clicksign, Assinafy, ZapSign, DocuSeal, Adobe Acrobat Sign, Dropbox Sign e Documenso.</Card>
+  <Card title="Signatários remotos" href="/docs/providers">Pacotes de provedores para Clicksign, Assinafy, ZapSign, DocuSeal e Documenso.</Card>
   <Card title="Canal de erros tipados" href="/docs/errors">O catálogo de códigos pdf.* e signature-kit.* que podem falhar.</Card>
 </Cards>

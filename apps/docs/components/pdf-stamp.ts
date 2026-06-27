@@ -50,7 +50,7 @@ export const bakeStamp = async (pdfBytes: Uint8Array, opts: StampOptions): Promi
 
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-  // hairline frame — dropped for the DocuSign "Signed by" look (border === false)
+  // Hairline frame is dropped for the compact "Signed by" look (border === false).
   if (opts.border !== false) {
     page.drawRectangle({
       x,
@@ -79,7 +79,7 @@ export const bakeStamp = async (pdfBytes: Uint8Array, opts: StampOptions): Promi
     textTop = bottom + height - drawH - pad - 1;
   }
 
-  // DocuSign polish: one hairline rule between the mark and the caption.
+  // One hairline rule between the mark and the caption.
   if (opts.border === false && opts.inkDataUrl && opts.lines.length > 0) {
     page.drawLine({
       start: { x: x + pad, y: textTop },

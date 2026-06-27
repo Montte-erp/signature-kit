@@ -1,9 +1,9 @@
 ---
 title: Documenso
-description: "Create Documenso envelopes with createDocumensoSignatureRequest(...), multipart uploads, and typed SignatureKit errors."
+description: "Create Documenso v2 envelopes with createDocumensoSignatureRequest and multipart PDF uploads."
 ---
 
-Documenso is the open-source remote signer adapter. SignatureKit creates a v2 envelope with PDF files, then distributes it when `send !== false`.
+Documenso is an open-source signing platform. `createDocumensoSignatureRequest` builds a v2 envelope from your PDF files, then distributes it when `send !== false`.
 
 ## Install
 
@@ -13,7 +13,7 @@ Documenso is the open-source remote signer adapter. SignatureKit creates a v2 en
 
 ## Create and distribute an envelope
 
-Documenso's public examples use the API token directly in `Authorization`. That is SignatureKit's default. If your deployment expects `Bearer <token>`, set `authorizationScheme: "bearer"`.
+Documenso's public examples pass the API token directly in `Authorization`, which is the SignatureKit default. For a deployment that expects `Bearer <token>`, set `authorizationScheme: "bearer"`.
 
 ```ts title="documenso.ts"
 import { createDocumensoSignatureRequest } from "@signature-kit/documenso"
@@ -49,24 +49,23 @@ const request = yield* createDocumensoSignatureRequest(
 - When `send: false`, SignatureKit stops after creation and returns a draft request.
 
 <Callout type="info" title="Expiration shape">
-  Documenso models expiry as an envelope expiration period. The current adapter does not map `expiresAt`; keep expiry policy in Documenso or extend the provider options when you need exact control.
+  Documenso models expiry as an envelope expiration period. The adapter does not map `expiresAt` — set expiry in Documenso or extend the provider options for exact control.
 </Callout>
 
 ## Alchemy
 
 ```ts title="alchemy.ts"
 import * as Documenso from "@signature-kit/documenso"
-import { signatureHttpClientLive } from "@signature-kit/core/http"
-import { Layer, Redacted } from "effect"
+import { Redacted } from "effect"
 
 export const providers = Documenso.providers({
   apiKey: Redacted.make(process.env.DOCUMENSO_API_KEY ?? ""),
-}).pipe(Layer.provide(signatureHttpClientLive))
+})
 ```
 
 ## Errors
 
-Invalid input, remote HTTP, and response-shape failures all fail as `SignatureKitError`, with `provider: "documenso"` and structured metadata.
+Invalid input, remote HTTP, and response-shape failures all surface as `SignatureKitError` with `provider: "documenso"` and structured metadata.
 
 <Cards>
   <Card title="DocuSeal" href="/docs/providers/docuseal">The DocuSeal open-source remote signer adapter.</Card>

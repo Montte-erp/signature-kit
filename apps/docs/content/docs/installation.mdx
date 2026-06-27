@@ -56,7 +56,7 @@ description: "Install the core and the A1 signer, provide the Signatures layer, 
   </Step>
 
   <Step title="Add XML and PDF">
-    PDF consumes the same boundary via `Effect.provide(layer)`. XML also declares the `xmlRuntimeLayer`, because installing the XML runtime is an explicit dependency.
+    PDF reuses the same boundary via `Effect.provide(layer)`. XML also declares `xmlRuntimeLayer`, an explicit runtime dependency.
 
     ```package-install
     @signature-kit/xml @signature-kit/pdf

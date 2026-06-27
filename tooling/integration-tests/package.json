@@ -12,7 +12,6 @@
     "@signature-kit/assinafy": "workspace:*",
     "@signature-kit/clicksign": "workspace:*",
     "@signature-kit/core": "workspace:*",
-    "@signature-kit/docusign": "workspace:*",
     "@signature-kit/pdf": "workspace:*",
     "@signature-kit/xml": "workspace:*",
     "@signature-kit/zapsign": "workspace:*",

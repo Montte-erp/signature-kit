@@ -1,6 +1,6 @@
 ---
 title: "SignatureKit × Licitei: assinar com A1 no navegador, sem cobrar por assinatura"
-description: "A Licitei é uma das maiores plataformas de licitação do Brasil. Cada disputa exige assinar dezenas de propostas e declarações de habilitação com certificado A1 — e as APIs de assinatura pagas cobram por assinatura, por documento ou por envelope. Veja como a Montte e a Licitei levaram a assinatura para o navegador, onde o custo marginal é zero, o fluxo não quebra e a chave privada nunca sai do dispositivo."
+description: "Como a Montte e a Licitei levaram a assinatura A1 para o navegador: custo marginal zero, fluxo intacto e a chave privada nunca sai do dispositivo."
 date: "2026-06-26"
 author: "Montte"
 ---
@@ -13,7 +13,7 @@ Parece um problema resolvido — é só plugar uma API de assinatura e seguir. S
 
 Os serviços de assinatura pagos cobram **por documento, por envelope ou por assinatura**. Para um documento, tudo bem. Mas uma licitação nunca é um documento só: o licitante assina **dezenas de documentos de uma vez**, toda vez que entra numa disputa. E o modelo de preço é, por construção, indexado a essa contagem.
 
-Não é especulação, é o que as tabelas dizem. A Clicksign tem uma base mensal a partir de R$39/mês e cobra cada documento que estoura a franquia — de R$2,40 a R$6,90 por documento, sendo que o plano com mais recursos chega a custar *mais* caro por documento na franquia de entrada (R$3,00 no Start contra R$6,90 no Automação, a 20 documentos) ([Clicksign, preços](https://www.clicksign.com/preco)). A ZapSign cobra um adicional explícito de R$0,50 por assinatura com certificado digital, que se soma ao limite de documentos do plano ([ZapSign, tabela de funcionalidades](https://zapsign.com.br/tabela-funcionalidades-v2)). A DocuSign trabalha por envelope: os planos pagos travam em cerca de 100 envelopes por usuário por ano, e cada acordo enviado consome um envelope independentemente de quantos signatários tenha ([DocuSign, planos e preços](https://ecom.docusign.com/plans-and-pricing/esignature)).
+Não é especulação, é o que as tabelas dizem. A Clicksign tem uma base mensal a partir de R$39/mês e cobra cada documento que estoura a franquia — de R$2,40 a R$6,90 por documento, sendo que o plano com mais recursos chega a custar *mais* caro por documento na franquia de entrada (R$3,00 no Start contra R$6,90 no Automação, a 20 documentos) ([Clicksign, preços](https://www.clicksign.com/preco)). A ZapSign cobra um adicional explícito de R$0,50 por assinatura com certificado digital, que se soma ao limite de documentos do plano ([ZapSign, tabela de funcionalidades](https://zapsign.com.br/tabela-funcionalidades-v2)).
 
 Multiplique qualquer um desses por dezenas de documentos, por milhares de licitantes, por cada disputa que eles entram, e aquele item de custo deixa de ser o custo de uma funcionalidade — vira o custo do produto.
 
@@ -29,7 +29,7 @@ O que distingue o A1 dos outros é onde a chave mora. O A1 é um certificado **e
 
 Aqui está a parte fácil de não enxergar. A maioria dos serviços que *aceitam* certificado A1 ainda cobra caro por isso, e o motivo é arquitetural: eles assinam **no servidor**. O usuário entrega o `.pfx` (ou um cofre de chaves gerenciado o guarda) junto com o documento; o serviço assina no servidor e devolve o resultado.
 
-O preço por assinatura não está pagando a criptografia. A operação criptográfica em si é barata e rápida: toda assinatura de chave pública é calculada sobre um **hash de tamanho fixo** do documento, não sobre o documento inteiro — é o que torna a assinatura rápida ([MDN, SubtleCrypto.sign()](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/sign)). O que custa é o *servidor* e, principalmente, a **guarda da chave** que ele implica.
+O preço por assinatura não está pagando a criptografia. A operação criptográfica em si é barata: toda assinatura de chave pública é calculada sobre um **hash de tamanho fixo** do documento, não sobre o documento inteiro — é o que a torna rápida ([MDN, SubtleCrypto.sign()](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/sign)). O que custa é o *servidor* e, principalmente, a **guarda da chave** que ele implica.
 
 E essa guarda é cara de verdade. Assinar no servidor com custódia gerenciada significa pagar por operação: no AWS KMS, assinatura assimétrica custa US$0,15 a cada 10.000 requisições, está explicitamente **fora** da franquia gratuita, e cada chave ainda custa US$1/mês ([AWS KMS, preços](https://aws.amazon.com/kms/pricing/)). Querer custódia em hardware piora: um *custom key store* com CloudHSM cobra US$1,60 por HSM por hora, e a AWS recomenda no mínimo dois para disponibilidade — cerca de US$2.380/mês só de cluster, antes de qualquer assinatura ([AWS KMS, preços](https://aws.amazon.com/kms/pricing/)).
 
@@ -138,7 +138,7 @@ A escolha de PAdES não é casual: é o padrão **ETSI EN 319 142** para assinat
   documentos continuam assinando; a falha aparece com um código que dá para tratar.
 
 A criptografia nunca foi a parte difícil — é um hash assinado em microssegundos. Tirar isso do servidor — e manter tipado, em lote e no navegador — é o que
-tornou a assinatura com certificado digital algo que a Licitei pôde simplesmente *incluir*, em vez de tarifar.
+tornou a assinatura com certificado digital algo que a Licitei pôde *incluir*, em vez de tarifar.
 
 ## Continue lendo
 

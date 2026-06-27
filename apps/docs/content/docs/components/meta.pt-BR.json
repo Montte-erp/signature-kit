@@ -1,18 +1,5 @@
 {
   "title": "Componentes",
   "icon": "Blocks",
-  "pages": [
-    "index",
-    "---Superfícies---",
-    "signature-builder-surface",
-    "signature-ink-pad",
-    "browser-signing",
-    "slot-reuse",
-    "react-pdf",
-    "docuseal",
-    "---API---",
-    "builder-api",
-    "hooks",
-    "schemas"
-  ]
+  "pages": ["index", "browser-signing"]
 }

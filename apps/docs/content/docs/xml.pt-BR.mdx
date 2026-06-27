@@ -1,13 +1,13 @@
 ---
 title: XML-DSig
-description: "Assine documentos XML com signXml e valide-os com verifyXml: referência enveloped, certificado X.509 embutido no KeyInfo e verificação fora da camada de assinatura."
+description: "Assine XML com signXml e valide com verifyXml: referência enveloped, X.509 no KeyInfo, verificação sem signatário."
 ---
 
-**O que você vai fazer:** assinar uma string XML com `signXml` na camada do `Signatures`, depois validar o resultado com `verifyXml` — que não exige signatário e roda em qualquer lugar. O algoritmo padrão é `"rsa-sha256"`, e o certificado X.509 é colocado no `KeyInfo` automaticamente.
+**O que você vai fazer:** assinar uma string XML com `signXml` na camada do `Signatures`, depois validar com `verifyXml` — que não exige signatário e roda em qualquer lugar.
 
 <Steps>
   <Step title="Instale o pacote">
-    O formato XML vive em `@signature-kit/xml`. Ele consome o serviço `Signatures` fornecido por um signatário.
+    O formato XML vive em `@signature-kit/xml` e consome o serviço `Signatures` fornecido por um signatário.
 
     ```package-install
     @signature-kit/xml
@@ -15,7 +15,7 @@ description: "Assine documentos XML com signXml e valide-os com verifyXml: refer
   </Step>
 
   <Step title="Assine um documento XML">
-    `signXml` recebe um `XmlSigningRequest` e retorna um `Effect<string, XmlError | SignatureKitError, Signatures>` — a saída é o XML assinado como string. O requisito `Signatures` é satisfeito com `Effect.provide(a1SignaturesLayer(...))`: o poder de assinatura vem do A1, e o módulo de formato só cuida da mutação do documento.
+    `signXml` recebe um `XmlSigningRequest` e retorna `Effect<string, XmlError | SignatureKitError, Signatures>` — o XML assinado como string. Satisfaça o requisito `Signatures` com `Effect.provide(a1SignaturesLayer(...))`: o A1 fornece o poder de assinatura, o módulo de formato só altera o documento.
 
     ```ts title="sign-xml.ts"
     import { signXml } from "@signature-kit/xml/sign"
@@ -37,13 +37,12 @@ description: "Assine documentos XML com signXml e valide-os com verifyXml: refer
     ```
 
     <Callout type="info">
-      `verifyXml` não tem requisito `Signatures` — apenas `signXml` precisa da camada de assinatura. Você
-      assina com a layer e verifica sem ela.
+      `verifyXml` não tem requisito `Signatures` — apenas `signXml` precisa da camada de assinatura.
     </Callout>
   </Step>
 
-  <Step title="Reference and enveloped">
-    `referenceId` define o alvo da assinatura enveloped: passar `referenceId: "nfe-1"` produz uma `Reference` com URI `"#nfe-1"`, apontando para o elemento de mesmo `Id` dentro do próprio documento. Os demais campos de `XmlSigningRequest` são opcionais:
+  <Step title="Referência e enveloped">
+    `referenceId` define o alvo da assinatura enveloped: passar `referenceId: "nfe-1"` produz uma `Reference` com URI `"#nfe-1"`, apontando para o elemento de mesmo `Id` no próprio documento. Os demais campos de `XmlSigningRequest` são opcionais:
 
     ```ts title="request-xml.ts"
     // XmlSigningRequest — only 'xml' is required
@@ -56,11 +55,11 @@ description: "Assine documentos XML com signXml e valide-os com verifyXml: refer
     }).pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer))
     ```
 
-    Sem `algorithm`, o padrão `"rsa-sha256"` é aplicado; a outra opção é `"rsa-sha512"`. O certificado X.509 do signatário é embutido no próprio `KeyInfo` da assinatura, então o verificador não precisa da chave por fora — a menos que você queira fixá-la (veja [verificação com uma chave explícita](#verification-with-an-explicit-key)).
+    Sem `algorithm`, vale o padrão `"rsa-sha256"`; a outra opção é `"rsa-sha512"`. O certificado X.509 do signatário é embutido no `KeyInfo` da assinatura, então o verificador não precisa da chave por fora — a menos que você queira fixá-la, o que o último passo abaixo cobre.
   </Step>
 
-  <Step title="NF-e framing">
-    A NF-e é um caso concreto típico: o `Id` de `infNFe` é a chave de acesso, e a assinatura aponta para ele. Use a chave de acesso como `referenceId` para que a URI fique `"#NFe35..."`.
+  <Step title="Estrutura da NF-e">
+    A NF-e é um caso comum: o `Id` de `infNFe` é a chave de acesso, e a assinatura aponta para ele. Use a chave de acesso como `referenceId` para que a URI fique `"#NFe35..."`.
 
     ```ts title="sign-nfe.ts"
     // NF-e: the id of <infNFe> is the target of the enveloped reference
@@ -78,13 +77,13 @@ description: "Assine documentos XML com signXml e valide-os com verifyXml: refer
     ```
 
     <Callout type="info">
-      A string de saída é o XML pronto para enviar. Como `signXml` retorna `string`, você pode serializá-la
-      direto no payload da SEFAZ sem etapas intermediárias.
+      A string de saída é o XML pronto para enviar. Como `signXml` retorna `string`, jogue-a
+      direto no payload da SEFAZ.
     </Callout>
   </Step>
 
   <Step title="Verifique a assinatura">
-    `verifyXml` recebe um `XmlVerificationRequest` e retorna `Effect<XmlVerificationResult, XmlError>`. Não há requisito `Signatures`: a verificação usa o certificado embutido no `KeyInfo`. Use `requireReferenceUri` para exigir que uma URI específica esteja presente entre as referências assinadas.
+    `verifyXml` recebe um `XmlVerificationRequest` e retorna `Effect<XmlVerificationResult, XmlError>`. Não há requisito `Signatures`: a verificação usa o certificado embutido no `KeyInfo`. Use `requireReferenceUri` para exigir uma URI específica entre as referências assinadas.
 
     ```ts title="verify-xml.ts"
     import { verifyXml } from "@signature-kit/xml/verify"
@@ -103,12 +102,10 @@ description: "Assine documentos XML com signXml e valide-os com verifyXml: refer
     result.signatureCount  // number — how many <Signature> elements were verified
     result.referenceUris   // readonly string[] — e.g. ["#nfe-1"]
     ```
-
-    O resultado expõe `valid` (a assinatura confere), `signatureCount` (quantos elementos `<Signature>` foram verificados) e `referenceUris` (as URIs de referência encontradas, como `["#nfe-1"]`).
   </Step>
 
-  <Step title="Verification with an explicit key">
-    Por padrão, a chave pública vem do certificado embutido. Para fixar a chave esperada — ignorando o que estiver no `KeyInfo` — passe `publicKeyDer` (o `SubjectPublicKeyInfo` em DER). Útil quando você já confia em uma chave específica e não quer aceitar a que veio no documento.
+  <Step title="Verificação com chave explícita">
+    Por padrão, a chave pública vem do certificado embutido. Para fixar a chave esperada — ignorando o `KeyInfo` — passe `publicKeyDer` (o `SubjectPublicKeyInfo` em DER). Útil quando você já confia em uma chave específica e não aceita a que veio no documento.
 
     ```ts title="verify-key.ts"
     // Verification with an explicit key (instead of the cert embedded in KeyInfo)
@@ -124,7 +121,7 @@ description: "Assine documentos XML com signXml e valide-os com verifyXml: refer
 
 ## Erros que você pode encontrar
 
-Toda falha de assinatura é um `SignatureKitError` tipado no canal de erro; falhas específicas de parsing/canonicalização de XML chegam como `XmlError`. As mais comuns:
+Toda falha de assinatura é um `SignatureKitError` tipado no canal de erro; falhas de parsing ou canonicalização de XML chegam como `XmlError`. As mais comuns:
 
 <Cards>
   <Card title="signature-kit.INVALID_INPUT" href="/docs/errors#error-catalog">O XML não corresponde ao referenceId fornecido, ou não há elemento com esse Id.</Card>

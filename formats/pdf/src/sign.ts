@@ -9,7 +9,7 @@ import { PdfError, PdfErrorCodeValue, PdfOperationValue } from "./config";
 import type { PdfSigningRequest } from "./config";
 import { bytesToHex, encodeAscii, replaceRange } from "./bytes";
 import { preparePdfByteRange } from "./byte-range";
-import { addSignaturePlaceholder, DEFAULT_SIGNATURE_LENGTH } from "./placeholder";
+import { addSignaturePlaceholder } from "./placeholder";
 
 const signatureAlgorithmForHash = (
   hashAlgorithm: "sha256" | "sha1" | "sha384" | "sha512",
@@ -39,15 +39,7 @@ export const signPdf = (
   Effect.gen(function* () {
     const hashAlgorithm = input.hashAlgorithm ?? "sha256";
     const signatureAlgorithm = yield* signatureAlgorithmForHash(hashAlgorithm);
-    const placeholderPdf = yield* addSignaturePlaceholder(input.pdf, {
-      reason: input.reason ?? "Digital signature",
-      contactInfo: input.contactInfo ?? "",
-      name: input.name ?? "SignatureKit signer",
-      location: input.location ?? "",
-      signingTime: input.signingTime ?? new Date(),
-      signatureLength: input.signatureLength ?? DEFAULT_SIGNATURE_LENGTH,
-      appearance: input.appearance ?? {},
-    });
+    const placeholderPdf = yield* addSignaturePlaceholder(input);
     const prepared = yield* preparePdfByteRange(placeholderPdf);
     const certificate = yield* signatures.certificate();
     const signingKey = yield* signatures.importSigningKey(signatureAlgorithm);

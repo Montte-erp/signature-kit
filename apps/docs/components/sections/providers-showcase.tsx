@@ -39,33 +39,11 @@ interface ProviderShowcase {
 }
 
 /**
- * The eight remote providers, in display order. Every snippet is the SAME
+ * The five remote providers, in display order. Every snippet is the SAME
  * request shape (title / documents / recipients) — only the `create*SignatureRequest`
  * call and its config change, which is the whole point of the section.
  */
 const PROVIDERS_SHOWCASE: readonly ProviderShowcase[] = [
-  {
-    name: "DocuSign",
-    domain: "docusign.com",
-    filename: "docusign.ts",
-    code: `import { createDocuSignSignatureRequest } from "@signature-kit/docusign"
-import { signatureHttpClientLive } from "@signature-kit/core/http"
-import { Effect, Redacted } from "effect"
-
-const request = yield* createDocuSignSignatureRequest(
-  {
-    baseUrl: "https://demo.docusign.net/restapi",
-    accountId: process.env.DOCUSIGN_ACCOUNT_ID!,
-    accessToken: Redacted.make(process.env.DOCUSIGN_TOKEN ?? ""),
-  },
-  {
-    title: "Service agreement",
-    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
-    recipients: [{ name: "Ana Souza", email: "ana@example.com", role: "signer" }],
-    send: true,
-  },
-).pipe(Effect.provide(signatureHttpClientLive))`,
-  },
   {
     name: "Clicksign",
     domain: "clicksign.com",
@@ -152,47 +130,6 @@ const request = yield* createDocuSealSignatureRequest(
 ).pipe(Effect.provide(signatureHttpClientLive))`,
   },
   {
-    name: "Adobe Acrobat Sign",
-    domain: "adobe.com",
-    filename: "adobe-sign.ts",
-    code: `import { createAdobeSignSignatureRequest } from "@signature-kit/adobe-sign"
-import { signatureHttpClientLive } from "@signature-kit/core/http"
-import { Effect, Redacted } from "effect"
-
-const request = yield* createAdobeSignSignatureRequest(
-  {
-    accessToken: Redacted.make(process.env.ADOBE_SIGN_TOKEN ?? ""),
-    baseUrl: "https://api.na1.echosign.com",
-  },
-  {
-    title: "Service agreement",
-    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
-    recipients: [{ name: "Ana Souza", email: "ana@example.com", role: "signer" }],
-    send: true,
-  },
-).pipe(Effect.provide(signatureHttpClientLive))`,
-  },
-  {
-    name: "Dropbox Sign",
-    domain: "dropboxsign.com",
-    filename: "dropbox-sign.ts",
-    code: `import { createDropboxSignSignatureRequest } from "@signature-kit/dropbox-sign"
-import { signatureHttpClientLive } from "@signature-kit/core/http"
-import { Effect, Redacted } from "effect"
-
-const request = yield* createDropboxSignSignatureRequest(
-  {
-    apiKey: Redacted.make(process.env.DROPBOX_SIGN_API_KEY ?? ""),
-    testMode: true,
-  },
-  {
-    title: "Mutual NDA",
-    documents: [{ fileName: "nda.pdf", mimeType: "application/pdf", content: pdfBytes }],
-    recipients: [{ name: "Jill Example", email: "jill@example.com", routingOrder: 1 }],
-  },
-).pipe(Effect.provide(signatureHttpClientLive))`,
-  },
-  {
     name: "Documenso",
     domain: "documenso.com",
     filename: "documenso.ts",
@@ -215,12 +152,12 @@ const request = yield* createDocumensoSignatureRequest(
 ];
 
 /** The four hairline label/desc rows under the CTAs. */
-const FEATURES = [
+const FEATURES: ReadonlyArray<{ readonly label: () => string; readonly desc: () => string }> = [
   { label: m.showcase_feature_adapters_label, desc: m.showcase_feature_adapters_desc },
   { label: m.showcase_feature_errors_label, desc: m.showcase_feature_errors_desc },
   { label: m.showcase_feature_redacted_label, desc: m.showcase_feature_redacted_desc },
   { label: m.showcase_feature_shape_label, desc: m.showcase_feature_shape_desc },
-] as const;
+];
 
 export function ProvidersShowcase() {
   // Build the plain-data items for the client carousel and the server-highlighted

@@ -53,15 +53,19 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
   shape with `Schema.decodeUnknownEffect` before mapping it. If the rejected
   cause does not match a documented shape, let it remain a defect.
 - Preserve structured origin metadata only when the source is typed or
-  protocol-defined (`operation`, `phase`, `schemaName`, `issuePath`,
-  `issueMessage`, HTTP `status`, upstream tagged-error `_tag`/`code`).
-  Do not use `String(error)` as the only data.
+  protocol-defined (`operation`, `phase`, `schemaName`, `issueMessage`, HTTP
+  `status`, upstream tagged-error `_tag`/`code`). Do not use `String(error)` as
+  the only data.
 - Do not hand-roll schema-issue metadata extractors — a recursive
-  `schemaIssueLeafMetadata` / `schemaErrorMetadata(error)` that walks a `ParseError`
-  cause is exactly the wrapper to delete. Effect already formats decode failures:
-  use `ParseResult.TreeFormatter` (human text) or `ArrayFormatter` (structured
-  issues) and keep only the typed fields you need (`issuePath`, `issueMessage`).
-  A cause with no decoded contract is a defect, not metadata to launder.
+  `schemaIssueLeafMetadata` / `schemaErrorMetadata(error)` that walks a schema
+  issue is exactly the wrapper to delete. Effect already formats decode failures:
+  use `String(issue)` for human text, or `SchemaIssue.makeFormatterStandardSchemaV1`
+  only when callers genuinely need structured Standard Schema issues. Keep only
+  the typed fields you use (usually `schemaName` + `issueMessage`). A cause with
+  no decoded contract is a defect, not metadata to launder.
+- HTTP errors must never serialize secrets. If an upstream forces credentials into
+  a URL query string, carry the real transport URL separately from a redacted
+  diagnostic URL and use only the diagnostic URL in `SignatureKitError.reason`.
 
 ## Schema and type rules
 
@@ -84,10 +88,10 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
   Push typing down to the wrapper so consumers only ever see tagged errors.
 - Effect 4 renamed `Either` → `Result`: use `Effect.result` + `Result.isSuccess/`
   `isFailure`, not `Effect.either` / `effect/Either` (removed).
-- `Effect.fnUntraced(function* () { ... })` defines an effectful function;
-  `Effect.fn(function* (args) { ... })` defines a service method that preserves
-  argument inference; `Match.value(x).pipe(Match.when(...), Match.exhaustive)` for
-  total branching.
+- Use `Effect.fn(function* (args) { ... })` for service and provider methods so
+  argument inference is preserved. Reserve `Effect.fnUntraced` for deliberately
+  untraced leaf helpers, not lifecycle methods.
+- Use `Match.value(x).pipe(Match.when(...), Match.exhaustive)` for total branching.
 
 ## Alchemy v2 — a core architecture primitive
 
@@ -112,6 +116,12 @@ with a `Provider.effect` and a collection layer); follow that shape.
 - **Wire by visibility.** `Layer.provide` for private resource providers;
   `Layer.provideMerge` for public credential/auth machinery a consumer also needs.
   Bundle a provider collection as a `providers()` layer.
+- **Retained remote-signature requests are immutable.** If the upstream workflow
+  cannot be safely updated or deleted after creation, say so in the provider:
+  `reconcile` may return the cached `output`, `delete` may retain, and `diff`
+  must not advertise replacement semantics it cannot execute. For those resources,
+  return `noop` once `olds` exists instead of pretending a changed prop can be
+  replaced.
 - **Infrastructure is layered: Service → Layer → Binding → Runtime.** A runtime
   contract is a `Context.Service`; a
   `Layer.effect(Service, Effect.gen(function* () { const r = yield* ResourceDecl; const client = yield* Binding(r); return { ...methods } }))`
@@ -156,6 +166,13 @@ with a `Provider.effect` and a collection layer); follow that shape.
 React package APIs are headless and data-first: build validated builder state with
 Effect/Schema, keep explicit stores outside render hot paths, read with selector
 hooks, and expose `data-slot` anatomy plus class/style seams.
+
+- **React stays intentionally narrow.** `@signature-kit/react` exposes only
+  `config`, `builder`, `components`, and `browser-pdf` for browser A1 signing.
+  Do not add provider-specific bridges, queues, or rendering adapters
+  (`react-pdf`, DocuSeal, remote signer flows) to this package; apps own those.
+  Future browser PDF/XML work extends through core document seams, not new
+  package-level state machines.
 
 - **The store lives outside React.** Create it as a module-level singleton —
   `const store = new Store(initial)` (TanStack's own guidance: *"instantiate the
@@ -205,18 +222,21 @@ shared/cms        @signature-kit/cms        CMS/PKCS#7 and RFC 3161 timestamping
 core/core         @signature-kit/core       runtime schemas, typed errors, Signatures service
 core/certificates @signature-kit/certificates Effect-safe PKCS#12/X.509 certificate API
 signers/a1        @signature-kit/a1         A1 / PKCS#12 local signer adapter
-signers/docusign  @signature-kit/docusign   DocuSign remote signer
 signers/clicksign @signature-kit/clicksign  Clicksign remote signer
 signers/assinafy  @signature-kit/assinafy   Assinafy remote signer
-signers/zapsign    @signature-kit/zapsign    ZapSign remote signer
+signers/docuseal  @signature-kit/docuseal   DocuSeal remote signer
+signers/documenso @signature-kit/documenso  Documenso remote signer
+signers/zapsign   @signature-kit/zapsign    ZapSign remote signer
 formats/xml       @signature-kit/xml        XML-DSig document mutation
 formats/pdf       @signature-kit/pdf        PDF/PAdES detached-signature adapter
-formats/react     @signature-kit/react      React builder state, browser PDF signing, and react-pdf bridge
+formats/react     @signature-kit/react      React builder state and browser A1 PDF signing helpers
 ```
 
 ## Validation
 
 - Run `bun run check` at the repo root for all non-trivial changes.
+- Generated `dist/` artifacts must mirror current package exports; delete stale
+  generated files when a source/export is removed.
 - Prefer static checks over ad-hoc review:
   - no `runSync`/`runPromise`/`runFork`
   - no `as` casts (`as Foo`/`as any`/`as unknown as`/`as const`)

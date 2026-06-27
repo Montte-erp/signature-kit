@@ -3,7 +3,7 @@ title: Clicksign
 description: "Create Clicksign requests with createClicksignSignatureRequest(...), a remote signer straight on top of the v1 API — no normalizing gateway."
 ---
 
-Clicksign is a remote signer that talks straight to the v1 API — no intermediary gateway.
+Clicksign is a remote signer over the v1 API — no intermediary gateway.
 
 <Steps>
   <Step>
@@ -19,7 +19,7 @@ Clicksign is a remote signer that talks straight to the v1 API — no intermedia
   <Step>
     ### Create document
 
-    The function creates the document, creates the signer, and optionally notifies by email. The token stays in `Redacted` until the HTTP boundary.
+    The function creates the document and signer, then optionally notifies by email. The token stays in `Redacted` until the HTTP boundary.
 
     ```ts title="clicksign.ts"
     import { createClicksignSignatureRequest } from "@signature-kit/clicksign"
@@ -48,7 +48,7 @@ Clicksign is a remote signer that talks straight to the v1 API — no intermedia
 
 ## API limit
 
-The current implementation accepts one document per request, following Clicksign's v1 flow.
+Each request accepts one document, following Clicksign's v1 flow.
 
 <Callout type="warn" title="One document per request">
   Requests with multiple documents fail on the typed channel with `signature-kit.UNSUPPORTED_OPERATION`.
@@ -61,8 +61,8 @@ Invalid input, remote HTTP, and response shape all fail as `SignatureKitError`, 
 ## Keep exploring
 
 <Cards>
-  <Card title="DocuSign" href="/docs/providers/docusign">
-    DocuSign envelopes with createDocuSignSignatureRequest(...).
+  <Card title="ZapSign" href="/docs/providers/zapsign">
+    ZapSign PDFs with createZapSignSignatureRequest(...).
   </Card>
   <Card title="Assinafy" href="/docs/providers/assinafy">
     Assinafy remote signer over the same typed boundary.

@@ -1,10 +1,10 @@
 ---
 title: Introduction
-description: One signing boundary for TypeScript — A1 in the browser or server, XML-DSig and PDF/PAdES over the same seam, remote providers as their own packages.
+description: One signing boundary for TypeScript — A1 in the browser or server, XML-DSig, PDF/PAdES, and remote providers behind a single SignerAdapter.
 icon: Rocket
 ---
 
-SignatureKit is an Effect-native signing library for TypeScript. You define one `SignerAdapter` — where the power to sign comes in — and the rest plugs into it: XML-DSig, PDF/PAdES ICP-Brasil, an in-browser A1 demo, and remote providers like DocuSign. Swapping the backend behind the boundary never touches your signing code, and every failure is a typed `SignatureKitError`, not a thrown exception.
+SignatureKit is an Effect-native signing library for TypeScript. You define one `SignerAdapter`, and XML-DSig, PDF/PAdES ICP-Brasil, an in-browser A1 demo, and remote providers like Clicksign all plug into it — swap the backend without touching your signing code, and every failure is a typed `SignatureKitError` instead of a thrown exception.
 
 ```text
                         Application
@@ -20,10 +20,10 @@ SignatureKit is an Effect-native signing library for TypeScript. You define one 
               v             v             v
          A1 / PKCS#12    Formats       Remote
          (browser /      XML-DSig      providers
-          server)        PDF/PAdES     (DocuSign, ...)
+          server)        PDF/PAdES     (Clicksign, ...)
 ```
 
-You provide the signer as a `Layer`. The `Signatures` service exposes `inspect`, `sign`, and `verify` — the program below never knows whether the key came from the browser, the server, or anywhere else.
+You provide the signer as a `Layer`. The `Signatures` service exposes `inspect`, `sign`, and `verify`; the program below never knows whether the key came from the browser or the server.
 
 ```ts title="signature-kit.ts"
 import { a1SignaturesLayer } from "@signature-kit/a1/signer"
@@ -46,26 +46,26 @@ export const program = Effect.gen(function* () {
 
 ## Why SignatureKit
 
-- **One boundary, many formats.** `signatures.sign`, `signXml`, and `signPdf` all run over the same `SignerAdapter`. Swap the argument of `signaturesLayer` and the signing job stays identical.
-- **A1 in the browser or on the server.** The same e-CPF / e-CNPJ PKCS#12 signer runs in a Node service or directly in the browser — try the live in-browser signer on the [browser signing](/docs/components/browser-signing) page.
-- **No provider gateway.** SignatureKit does not normalize remote signers into one interface. DocuSign, Clicksign, Assinafy, ZapSign, DocuSeal, Adobe Acrobat Sign, Dropbox Sign, and Documenso are each their own package and function, sharing only the Effect shape.
-- **A typed error channel.** One `SignatureKitError` with eighteen literal codes flows through every call, so failures are values you match on, never exceptions you catch by accident.
+- **One boundary, many formats.** `signatures.sign`, `signXml`, and `signPdf` run over the same `SignerAdapter`. Swap the argument to `signaturesLayer` and the signing job stays identical.
+- **A1 in the browser or on the server.** The same e-CPF / e-CNPJ PKCS#12 signer runs in a Node service or in the browser — try the live signer on the [browser signing](/docs/components/browser-signing) page.
+- **No provider gateway.** SignatureKit does not normalize remote signers into one interface. Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso are each their own package and function, sharing only the Effect shape.
+- **A typed error channel.** One `SignatureKitError` with eighteen literal codes flows through every call, so failures are values you match on, not exceptions you catch by accident.
 - **Effect-native, Redacted secrets.** Everything is an `Effect`; certificate passwords and provider keys are `Redacted.make(...)`, so secrets never land in logs or stack traces.
 
 ## Start here
 
 <Cards>
   <Card title="Quickstart" href="/docs/quickstart" description="Load an A1 and produce your first signature, end to end." />
-  <Card title="The signing boundary" href="/docs/signers" description="The SignerAdapter seam: the six members where the power to sign comes in." />
+  <Card title="The signing boundary" href="/docs/signers" description="The SignerAdapter seam and its six members." />
   <Card title="XML-DSig & PDF/PAdES" href="/docs/xml" description="Formats that plug into the boundary without changing the signing code." />
   <Card title="React components" href="/docs/components" description="The type-safe builder, canvas, and in-browser A1 signing." />
-  <Card title="Remote providers" href="/docs/providers" description="DocuSign, Clicksign, Assinafy, ZapSign, DocuSeal, Adobe Acrobat Sign, Dropbox Sign, and Documenso — each one its own package." />
+  <Card title="Remote providers" href="/docs/providers" description="Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso — each one its own package." />
   <Card title="Typed error channel" href="/docs/errors" description="A single SignatureKitError and its catalog of literal codes." />
 </Cards>
 
 ## What it is not
 
-SignatureKit is not a hosted e-signature SaaS, not a provider-normalizing gateway that pretends every remote signer has the same API, and not a PKI or certificate authority. It is the signing boundary apps keep rebuilding — adapter setup, one consistent `inspect` / `sign` / `verify` call, formats that reuse it, typed errors, and a clean seam where you swap the backend without rewriting the document logic.
+SignatureKit is not a hosted e-signature SaaS, not a gateway that pretends every remote signer has the same API, and not a PKI or certificate authority. It is the signing boundary apps keep rebuilding — adapter setup, one consistent `inspect` / `sign` / `verify` call, formats that reuse it, typed errors, and a clean seam where you swap the backend without rewriting document logic.
 
 ```package-install
 @signature-kit/core @signature-kit/a1

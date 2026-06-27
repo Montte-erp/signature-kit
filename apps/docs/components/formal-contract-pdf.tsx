@@ -353,8 +353,8 @@ function FormalContract({ title, paragraphs, variant, signed }: FormalContractOp
         <Text style={styles.meta}>SIGNATUREKIT · DOCUMENTO DEMO</Text>
         <View style={styles.rule} />
 
-        {paragraphs.map((paragraph, index) => (
-          <Text key={index} style={styles.body}>
+        {paragraphs.map((paragraph) => (
+          <Text key={paragraph} style={styles.body}>
             {paragraph}
           </Text>
         ))}

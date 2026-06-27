@@ -1,285 +1,121 @@
 ---
-title: Browser signing
-description: "Load, place, queue and sign PDFs with A1 entirely in the browser, via @signature-kit/react/browser-pdf — bytes and password never leave the device."
+title: Browser A1 signing
+description: "Read, place and sign PDFs with an A1 certificate in the browser via @signature-kit/react/browser-pdf."
 ---
 
-The `@signature-kit/react/browser-pdf` subpath gathers the functions that run the **entire signing flow in the browser**: reading a `File`/`Blob`, assembling the builder from a loaded PDF, signing with PAdES, and queuing signatures with TanStack Pacer. Each function returns a typed `Effect` — the app decides when to run it and where to provide the `Signatures` boundary (e.g. `a1SignaturesLayer`).
+`@signature-kit/react/browser-pdf` is the A1 browser seam: read a `File`/`Blob`, derive PDF page dimensions, place one `signature` field, and sign with PAdES under `a1SignaturesLayer`. The PDF bytes, `.p12`/`.pfx`, and password stay in browser memory.
 
 ```package-install
-@signature-kit/react @signature-kit/pdf @signature-kit/a1
+@signature-kit/react @signature-kit/a1 @signature-kit/pdf
 ```
 
-<Callout type="error" title="Everything happens in the browser — nothing goes to the server">
-  The PDF bytes, the A1 `.p12`/`.pfx` container and the password stay in the browser's local memory. The password is wrapped as
-  `Redacted` before reaching `a1SignaturesLayer`, so it never leaks into logs or error messages. None of these functions
-  make a network request: the private key and the document never leave the signer's device.
+<Callout type="error" title="Nothing leaves the device">
+  `readBrowserFileBytes`, `createBrowserPdfSignatureBuilderState`, `signBrowserPdf`, and `signBrowserPdfBatch` do not upload the document or the certificate. Wrap the password with `Redacted` before providing the A1 layer.
 </Callout>
 
 ## Live demo
 
-The React island below runs the full flow in your browser: upload one or more PDFs, place each signature, add your A1 certificate with its password, and sign the whole batch with PAdES — optionally repeating the rubric on every page. It signs sequentially with [`signBrowserPdfBatch`](#signbrowserpdfbatch) under a single `Signatures` layer; the bytes and password never leave the page.
+The React island below is the supported component path today: upload PDFs, place an A1 signature rectangle, load the A1 certificate, sign locally, and download the signed PDFs.
 
 <PdfSigner />
 
-## Flow
+## Minimal flow
 
-<Steps>
-  <Step title="Read the file as bytes">
-    `readBrowserFileBytes` takes a `Blob` (or `File`) and returns a `Uint8Array`. On failure, the error is
-    `ReactIntegrationError` with code `react.FILE_READ_FAILED` (retryable).
+```ts title="a1-browser-signing.ts"
+import { a1SignaturesLayer } from "@signature-kit/a1/signer"
+import {
+  createBrowserPdfSignatureBuilderState,
+  readBrowserFileBytes,
+  signBrowserPdf,
+} from "@signature-kit/react/browser-pdf"
+import { Effect, Redacted } from "effect"
 
-    ```ts title="read.ts"
-    import { readBrowserFileBytes } from "@signature-kit/react/browser-pdf"
-    import { Effect } from "effect"
+const bytes = await Effect.runPromise(readBrowserFileBytes(file))
 
-    const onFile = (file: File) =>
-      Effect.runPromise(readBrowserFileBytes(file))
-    ```
-  </Step>
+const state = await Effect.runPromise(
+  createBrowserPdfSignatureBuilderState({
+    id: "contract-a1",
+    name: file.name,
+    documentId: "contract",
+    documentName: file.name,
+    pdf: bytes,
+    role: { id: "signer", label: "A1 signer", required: true },
+    draft: { id: "sig", type: "signature", roleId: "signer", width: 156, height: 42 },
+    autoPlacement: { page: "last", slot: "bottom-right", margin: 24 },
+  }),
+)
 
-  <Step title="Assemble the builder from the loaded PDF">
-    `createBrowserPdfSignatureBuilderState` validates the input, loads the PDF pages (`loadBrowserPdfDocument`), creates the
-    template and — optionally — places the field (`placement`) or auto-places it (`autoPlacement`). It accepts **one or the other**,
-    never both (otherwise it fails with `react.INVALID_BUILDER_INPUT`). The result is a `ReactSignatureBuilderState` ready for
-    `builderStore.setState(...)`.
-
-    ```ts title="builder.ts"
-    import { createBrowserPdfSignatureBuilderState } from "@signature-kit/react/browser-pdf"
-
-    const state = createBrowserPdfSignatureBuilderState({
-      id: "uploaded-template",
-      name: file.name,
-      documentId: "uploaded-pdf",
-      documentName: file.name,
-      pdf: bytes,
-      role: { id: "signer-1", label: "A1 signer", required: true },
-      draft: { id: "sig", type: "signature", roleId: "signer-1", width: 156, height: 42 },
-    })
-    ```
-  </Step>
-
-  <Step title="Sign with PAdES">
-    `signBrowserPdf` validates the `BrowserPdfSigningInput`, derives the appearance from the `fieldId` in the `template` and calls
-    `signPdf`. It requires the `Signatures` boundary in the `Effect` context — provide it with `a1SignaturesLayer({ pfx, password })`.
-
-    ```ts title="sign.ts"
-    import { signBrowserPdf } from "@signature-kit/react/browser-pdf"
-    import { a1SignaturesLayer } from "@signature-kit/a1/signer"
-    import { Effect, Redacted } from "effect"
-
-    const signed = signBrowserPdf({
-      pdf: bytes,
-      template,
-      fieldId: "sig",
-      name: "Maria de Souza",
-      location: "Browser",
-      signatureLength: 16384,
-    }).pipe(
-      Effect.provide(a1SignaturesLayer({ pfx, password: Redacted.make(password) })),
-    )
-    ```
-  </Step>
-
-  <Step title="Sign a batch sequentially">
-    `signBrowserPdfBatch` is the batch primitive the demo above uses. Pass an array of
-    `{ id, input }` items and provide **one** `Signatures` layer for the whole run. It signs strictly
-    one-by-one (`concurrency: 1`), and a document that fails is captured as `{ ok: false, error }`
-    — it never aborts the rest, so you always get one result per input, in order. No `start()`/`flush()`.
-
-    ```ts title="batch.ts"
-    import { signBrowserPdfBatch } from "@signature-kit/react/browser-pdf"
-    import { a1SignaturesLayer } from "@signature-kit/a1/signer"
-    import { Effect, Redacted } from "effect"
-
-    const results = await Effect.runPromise(
-      signBrowserPdfBatch(
-        [
-          { id: "contract.pdf", input: contractInput },
-          { id: "annex.pdf", input: annexInput },
-        ],
-        {
-          onItemSettled: (result, index, total) => {
-            if (result.ok) download(result.id, result.signedPdf)
-            else console.error(result.id, result.error.message)
-          },
-        },
-      ).pipe(
-        Effect.provide(a1SignaturesLayer({ pfx, password: Redacted.make(password) })),
-      ),
-    )
-    ```
-  </Step>
-</Steps>
-
-<Callout type="info" title="Alternative: a streaming queue">
-  Prefer a long-lived, push-as-you-go queue over a one-shot array? `createBrowserPdfSigningQueue`
-  (and the `useBrowserPdfSigningQueue` hook) wrap `AsyncQueuer` (TanStack Pacer) with a reactive
-  snapshot — see [createBrowserPdfSigningQueue](#createbrowserpdfsigningqueue) below. For "load several
-  documents and sign them all", `signBrowserPdfBatch` is simpler and needs no `start()`/`flush()`.
-</Callout>
+const signed = await Effect.runPromise(
+  signBrowserPdf({
+    pdf: bytes,
+    template: state.template,
+    fieldId: "sig",
+    reason: "Signed locally with A1",
+    signatureLength: 16384,
+    policy: "pades-ades",
+  }).pipe(
+    Effect.provide(a1SignaturesLayer({ pfx, password: Redacted.make(password) })),
+  ),
+)
+```
 
 ## API
 
-### readBrowserFileBytes
-
-Reads a `Blob`/`File` as a `Uint8Array`.
+### `readBrowserFileBytes`
 
 ```ts
-readBrowserFileBytes(
-  file: Blob,
-): Effect.Effect<Uint8Array, ReactIntegrationError>
+readBrowserFileBytes(file: Blob): Effect.Effect<Uint8Array, ReactIntegrationError>
 ```
 
-### loadBrowserPdfDocument
+Reads a browser file/blob into bytes. Fails with `react.FILE_READ_FAILED`.
 
-Decodes a `BrowserPdfDocumentInput`, opens the PDF with `pdf-lib` and returns a `ReactSignatureDocument` with its pages (dimensions and label). Fails with `react.EMPTY_TEMPLATE` if the PDF has no pages, or `react.PDF_LOAD_FAILED` if it cannot be parsed.
+### `createBrowserPdfSignatureBuilderState`
 
 ```ts
-loadBrowserPdfDocument(
-  input: BrowserPdfDocumentInput,
-): Effect.Effect<ReactSignatureDocument, ReactIntegrationError>
+createBrowserPdfSignatureBuilderState(input): Effect.Effect<ReactSignatureBuilderState, ReactIntegrationError>
 ```
+
+Loads the PDF with `pdf-lib`, creates a template with one signer role, and optionally places the signature. Pass either `placement` or `autoPlacement`, never both.
 
 <TypeTable
   type={{
-    id: { type: "string", required: true, description: "Document identifier (non-empty)." },
-    name: { type: "string", required: true, description: "Document name (non-empty)." },
-    pdf: { type: "Uint8Array", required: true, description: "Bytes of the PDF to load." },
-    source: { type: "ReactDocumentSource", description: "Document source. Default: { type: \"uploaded\" }." },
+    id: { type: "string", required: true, description: "Template id." },
+    name: { type: "string", required: true, description: "Template name." },
+    documentId: { type: "string", required: true, description: "Document id." },
+    documentName: { type: "string", required: true, description: "Document name." },
+    pdf: { type: "Uint8Array", required: true, description: "PDF bytes." },
+    role: { type: "ReactSignerRole", required: true, description: "The A1 signer role." },
+    draft: { type: "ReactSignatureFieldDraft", required: true, description: "Must use `type: \"signature\"`." },
+    placement: { type: "{ pageIndex; x; y; anchor? }", description: "Manual placement in PDF points." },
+    autoPlacement: { type: "{ slot; page?; pageIndex?; margin? }", description: "Automatic placement for the initial field." },
   }}
 />
 
-### createBrowserPdfSignatureBuilderState
-
-Loads the PDF, creates the template and produces a `ReactSignatureBuilderState`. Accepts `placement` **or** `autoPlacement` (mutually exclusive).
+### `signBrowserPdf`
 
 ```ts
-createBrowserPdfSignatureBuilderState(
-  input: BrowserPdfSignatureBuilderInput,
-): Effect.Effect<ReactSignatureBuilderState, ReactIntegrationError>
+signBrowserPdf(input): Effect.Effect<Uint8Array, ReactIntegrationError | PdfError | CmsError | SignatureKitError, Signatures>
 ```
 
-<TypeTable
-  type={{
-    id: { type: "string", required: true, description: "Template id (non-empty)." },
-    name: { type: "string", required: true, description: "Template name (non-empty)." },
-    documentId: { type: "string", required: true, description: "Document id (non-empty)." },
-    documentName: { type: "string", required: true, description: "Document name (non-empty)." },
-    pdf: { type: "Uint8Array", required: true, description: "Bytes of the loaded PDF." },
-    role: { type: "ReactSignerRole", required: true, description: "Template signer role." },
-    draft: { type: "ReactSignatureFieldDraft", required: true, description: "Signature field draft." },
-    selectedFieldId: { type: "string", description: "Initially selected field." },
-    placement: { type: "BrowserPdfSignaturePlacementInput", description: "Explicit position ({ pageIndex, x, y, anchor? }). Do not combine with autoPlacement." },
-    autoPlacement: { type: "BrowserPdfSignatureAutoPlacementInput", description: "Automatic placement ({ slot, page?, pageIndex?, margin?, gap?, collision?, stackDirection? }). Do not combine with placement." },
-  }}
-/>
+Validates `BrowserPdfSigningInput`, derives the PDF widget rectangle from `template + fieldId`, and calls `signPdf`. It requires `Signatures`; for the React package, provide `a1SignaturesLayer` at the app boundary.
 
-### signBrowserPdf
-
-Validates the input, derives the appearance from the `fieldId` in the `template` and signs with PAdES via `signPdf`. Requires `Signatures` in the context.
-
-```ts
-signBrowserPdf(
-  input: BrowserPdfSigningInput,
-): Effect.Effect<
-  Uint8Array,
-  ReactIntegrationError | PdfError | CmsError | SignatureKitError,
-  Signatures
->
-```
-
-<TypeTable
-  type={{
-    pdf: { type: "Uint8Array", required: true, description: "Bytes of the PDF to sign." },
-    template: { type: "ReactSignatureTemplate", required: true, description: "Template that contains the field." },
-    fieldId: { type: "string", required: true, description: "Signature field id (non-empty)." },
-    reason: { type: "string", default: "\"SignatureKit browser PDF signature\"", description: "Signing reason." },
-    contactInfo: { type: "string", description: "Signer contact information." },
-    name: { type: "string", description: "Signer name in the appearance." },
-    location: { type: "string", description: "Signing location." },
-    signingTime: { type: "Date", description: "Signing time." },
-    signatureLength: { type: "number", description: "Reserved signature length (bytes)." },
-    hashAlgorithm: { type: "CmsHashAlgorithm", description: "CMS hash algorithm." },
-    policy: { type: "PdfSignaturePolicy", description: "PDF signature policy." },
-    icpBrasil: { type: "IcpBrasilPolicy", description: "ICP-Brasil policy (PAdES)." },
-    policyTimeoutMillis: { type: "number", description: "Timeout for policy resolution." },
-    timestamp: { type: "TimestampOptions", description: "Timestamp options." },
-  }}
-/>
-
-### signBrowserPdfBatch
-
-Signs many PDFs one-by-one under a single provided `Signatures` layer — the demo's batch path. Each item runs through `signBrowserPdf`; a failure is captured as `{ ok: false, error }` and never aborts the run, so the result array holds exactly one entry per input, in order.
+### `signBrowserPdfBatch`
 
 ```ts
 signBrowserPdfBatch(
-  items: ReadonlyArray<{ id: string; input: BrowserPdfSigningInput }>,
+  items: ReadonlyArray<BrowserPdfSigningBatchItem>,
   callbacks?: { onItemSettled?: (result: BrowserPdfBatchResult, index: number, total: number) => void },
 ): Effect.Effect<ReadonlyArray<BrowserPdfBatchResult>, never, Signatures>
 ```
 
-`BrowserPdfBatchResult` is `{ id; ok: true; signedPdf: Uint8Array }` or `{ id; ok: false; error }`. Provide the layer once for the whole batch: `.pipe(Effect.provide(a1SignaturesLayer({ pfx, password })))`.
-
-### createBrowserPdfSigningQueue
-
-Creates a signing queue backed by `AsyncQueuer` (TanStack Pacer). An alternative to `signBrowserPdfBatch` for streaming, push-as-you-go signing.
-
-```ts
-createBrowserPdfSigningQueue(
-  executor: BrowserPdfSigningQueueExecutor,
-  options?: BrowserPdfSigningQueueOptions,
-  callbacks?: BrowserPdfSigningQueueCallbacks,
-): Effect.Effect<BrowserPdfSigningQueue, ReactIntegrationError>
-```
-
-`executor` is `(input: BrowserPdfSigningInput) => Promise<Uint8Array>`.
-
-`options` — `BrowserPdfSigningQueueOptions`:
-
-<TypeTable
-  type={{
-    concurrency: { type: "number", description: "Concurrent signatures." },
-    waitMillis: { type: "number", description: "Wait between processings (maps to Pacer's wait)." },
-    maxSize: { type: "number", description: "Maximum queue capacity; items beyond it are rejected." },
-    started: { type: "boolean", description: "Starts the queue already processing." },
-  }}
-/>
-
-`callbacks` — `BrowserPdfSigningQueueCallbacks`:
-
-<TypeTable
-  type={{
-    onSuccess: { type: "(success: BrowserPdfSigningQueueSuccess, item: BrowserPdfSigningQueueItem) => void", description: "Item signed successfully. success = { id, signedPdf }." },
-    onError: { type: "(error: Error, item: BrowserPdfSigningQueueItem) => void", description: "Failed to sign the item." },
-  }}
-/>
-
-The returned `BrowserPdfSigningQueue` exposes `getSnapshot`, `subscribe`, `add`, `start`, `stop`, `clear`, `flush` and `abort`. `add(item: BrowserPdfSigningQueueItem)` validates the item and returns an `Effect` that fails with `react.QUEUE_REJECTED` when the queue does not accept the item.
-
-<Callout type="info" title="In React, use the hook">
-  `useBrowserPdfSigningQueue(executor, options?, callbacks?)` returns a `BrowserPdfSigningQueueController` — the same API
-  plus `snapshot`, a reactive `BrowserPdfSigningQueueSnapshot` (`status`, `pendingCount`, `activeCount`,
-  `successCount`, `errorCount`, `settledCount`, `rejectionCount`). Reach for the queue when you need a long-lived,
-  streaming pipeline; the demo above instead uses [`signBrowserPdfBatch`](#signbrowserpdfbatch) to sign a fixed set of documents in one pass.
-</Callout>
+Signs sequentially under one provided A1 layer. Each item returns `{ ok: true, signedPdf }` or `{ ok: false, error }`; one failed document does not abort the rest.
 
 ## Errors
 
-All functions fail with `ReactIntegrationError` in the `Effect` error channel — never a loose exception. Relevant codes for this subpath:
-
-- [`react.FILE_READ_FAILED`](/docs/errors) — the `Blob`/`File` could not be read as an `ArrayBuffer` (retryable).
-- [`react.PDF_LOAD_FAILED`](/docs/errors) — the loaded PDF could not be parsed.
-- [`react.EMPTY_TEMPLATE`](/docs/errors) — the PDF has no pages to place the signature on.
-- [`react.INVALID_BUILDER_INPUT`](/docs/errors) — input failed schema validation (e.g. `placement` and `autoPlacement` together).
-- [`react.QUEUE_REJECTED`](/docs/errors) — the queue refused the item (e.g. `maxSize` reached; retryable).
-
-## See also
+`ReactIntegrationError` is a typed Effect error. Common codes here: `react.INVALID_BUILDER_INPUT`, `react.EMPTY_TEMPLATE`, `react.UNKNOWN_FIELD`, `react.FIELD_OUT_OF_BOUNDS`, `react.NO_AVAILABLE_PLACEMENT`, `react.FILE_READ_FAILED`, and `react.PDF_LOAD_FAILED`.
 
 <Cards>
-  <Card title="SignatureBuilderSurface" href="/docs/components/signature-builder-surface">
-    The visual surface that places fields over the pages.
-  </Card>
   <Card title="A1 signer" href="/docs/signers">
-    How a1SignaturesLayer provides the Signatures boundary with the .pfx.
+    How to load the PKCS#12 certificate and provide `a1SignaturesLayer`.
   </Card>
 </Cards>

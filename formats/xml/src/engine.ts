@@ -37,9 +37,6 @@ export const xmlRuntimeLayer: Layer.Layer<XmlRuntime, XmlError> = Layer.effect(
   Effect.cached(configureXmlRuntime).pipe(Effect.map((ensure) => ({ ensure }))),
 );
 
-export const ensureXmlRuntime = (): Effect.Effect<void, XmlError, XmlRuntime> =>
-  XmlRuntime.use((runtime) => runtime.ensure);
-
 export const xmlSignatureAlgorithm = (algorithm: SignatureAlgorithm): RsaHashedImportParams => ({
   name: XML_RSA_ALGORITHM_NAME,
   hash: algorithm === "rsa-sha1" ? "SHA-1" : algorithm === "rsa-sha512" ? "SHA-512" : "SHA-256",

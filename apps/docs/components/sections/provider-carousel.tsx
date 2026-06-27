@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 export interface ProviderCarouselItem {
   /** Display name, also the logo fallback initial. */
   readonly name: string;
-  /** CodeBlock label shown in the panel header (e.g. "docusign.ts"). */
+  /** CodeBlock label shown in the panel header (e.g. "clicksign.ts"). */
   readonly filename: string;
   /** Pre-resolved (server-side) brand logo URL — a plain string. */
   readonly logo: string;

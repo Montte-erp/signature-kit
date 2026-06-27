@@ -3,11 +3,11 @@ title: Assinafy
 description: "Create Assinafy requests with createAssinafySignatureRequest(...), SignatureHttpClient and Redacted credentials."
 ---
 
-Assinafy is a direct remote signer on top of `SignatureHttpClient`. The function creates the document, registers the signers and creates the assignment in the Assinafy API, returning a normalized `RemoteSignatureRequest`.
+`createAssinafySignatureRequest` is a direct remote signer over `SignatureHttpClient`. It creates the document, registers the signers, and creates the assignment in the Assinafy API, then returns a normalized `RemoteSignatureRequest`.
 
 ## Install
 
-Assinafy is a direct remote signer. There is no `integrations/*` layer.
+No `integrations/*` layer.
 
 ```package-install
 @signature-kit/core @signature-kit/assinafy
@@ -15,7 +15,7 @@ Assinafy is a direct remote signer. There is no `integrations/*` layer.
 
 ## Create signature
 
-The function creates the document, registers the signers and creates the assignment in the Assinafy API. The return value is the normalized `RemoteSignatureRequest`.
+Pass the credentials and the shared request shape; the call returns the normalized `RemoteSignatureRequest`.
 
 ```ts title="assinafy.ts"
 import { createAssinafySignatureRequest } from "@signature-kit/assinafy"
@@ -41,7 +41,7 @@ const request = yield* createAssinafySignatureRequest(
 
 ## Credentials
 
-`accountId` is always required — it scopes the document, signer, and assignment endpoints. The auth secret is then either `apiKey` or `accessToken`: pick one to authenticate against the Assinafy API.
+`accountId` is required — it scopes the document, signer, and assignment endpoints. Authenticate with either `apiKey` or `accessToken`.
 
 <Callout type="error" title="Never expose the secret">
   Both are `Redacted<string>` and are only unwrapped at the package's HTTP boundary. Keep the key in an environment variable and

@@ -69,7 +69,7 @@ const CAPABILITIES: Capability[] = [
     title: m.cap5_title,
     description: m.cap5_desc,
     docHref: "/docs/providers",
-    code: `createDocuSignSignatureRequest(config, request)`,
+    code: `createClicksignSignatureRequest(config, request)`,
   },
   {
     title: m.cap6_title,
@@ -81,7 +81,7 @@ const CAPABILITIES: Capability[] = [
     title: m.cap7_title,
     description: m.cap7_desc,
     docHref: "/docs/components/browser-signing",
-    code: `import { SignatureInkPad } from "@signature-kit/react/components"`,
+    code: `import { SignatureBuilderSurface } from "@signature-kit/react/components"`,
     wide: true,
   },
 ];

@@ -1,6 +1,6 @@
 ---
 title: "SignatureKit × Licitei: signing in the browser, without per-signature fees"
-description: "Licitei is one of Brazil's largest procurement platforms. Every bid means signing dozens of proposals and qualification declarations with an A1 certificate — and the e-signature APIs that do this bill per document. Here's how Montte and Licitei moved signing into the browser, where the marginal cost is zero, it stays in the flow, and the private key never leaves the device."
+description: "How Montte and Licitei moved A1 signing into the browser: zero marginal cost, the flow unbroken, the private key never leaving the device."
 date: "2026-06-26"
 author: "Montte"
 ---
@@ -11,9 +11,9 @@ That sounds solved — plug in an e-signature API and move on. Except the econom
 
 ## The cost of a signature
 
-The major e-signature services bill against document or signature volume, so cost scales linearly with how much you sign. DocuSign caps its Standard and Business Pro plans at roughly 100 envelopes per user per year, with anything beyond billed as overage; the entry Personal plan allows just 5 envelopes a month ([DocuSign pricing](https://ecom.docusign.com/plans-and-pricing/esignature)). Clicksign sells a fixed monthly base — R$39/mo Start, R$59/mo Plus, R$85/mo Automação — bundled with a document allowance, and once you exceed it each additional document is billed individually, from R$2,40 up to R$6,90 depending on tier ([Clicksign pricing](https://www.clicksign.com/preco)). ZapSign is even more explicit: a digital-certificate signature is an add-on at R$0,50 *por assinatura*, layered on top of plan limits ([ZapSign pricing](https://zapsign.com.br/tabela-funcionalidades-v2)).
+The major e-signature services bill against document or signature volume, so cost scales linearly with how much you sign. Clicksign sells a fixed monthly base — R$39/mo Start, R$59/mo Plus, R$85/mo Automação — bundled with a document allowance, and once you exceed it each additional document is billed individually, from R$2,40 up to R$6,90 depending on tier ([Clicksign pricing](https://www.clicksign.com/preco)). ZapSign is even more explicit: a digital-certificate signature is an add-on at R$0,50 per signature on top of the plan's document limit ([ZapSign feature table](https://zapsign.com.br/tabela-funcionalidades-v2)).
 
-For one document that's fine. But a *licitação* is never one document: a bidder signs **dozens of documents at once**, every single time they enter a bid. Multiply per-document pricing by dozens of documents, by thousands of bidders, by every bid they file, and the line item stops being a feature cost — it becomes the product's cost. The per-document model penalizes exactly this usage; on Clicksign the per-doc overage rate actually *rises* with the higher-feature tiers at the entry allowance (R$3,00 on Start vs R$6,90 on Automação), only dropping if you pre-commit to a 200-document allowance ([Clicksign pricing](https://www.clicksign.com/preco)). Cost is fundamentally indexed to document count.
+For one document that's fine. But a *licitação* is never one document: a bidder signs **dozens of documents at once**, every time they enter a bid. Multiply per-document pricing by dozens of documents, by thousands of bidders, by every bid they file, and the line item stops being a feature cost — it becomes the product's cost. The per-document model penalizes exactly this usage; on Clicksign the per-doc overage rate actually *rises* with the higher-feature tiers at the entry allowance (R$3,00 on Start vs R$6,90 on Automação), only dropping if you pre-commit to a 200-document allowance ([Clicksign pricing](https://www.clicksign.com/preco)). Cost is indexed to document count.
 
 The obvious escape — "let the user sign somewhere else and upload the result" — is worse. A *licitação* under the Nova Lei de Licitações (Lei 14.133/2021) is conducted preferentially in electronic form, with the public session opening at the date and time fixed in the *edital* (art. 17, §2º) ([TCE-SP, art. 17](https://www.tce.sp.gov.br/legislacao-comentada/lei-14133-1o-abril-2021/17)). In the federal electronic *pregão*, bidders must submit the proposal and the *habilitação* documents together, exclusively through the system, and may only swap them out until the session opens; the dispute then runs on fixed timings — ten minutes in the open mode ([Portal de Compras / Decreto do Pregão Eletrônico](https://www.gov.br/compras/pt-br/acesso-a-informacao/perguntas-frequentes/novo-decreto-do-pregao-eletronico)). Sending the bidder out of Licitei to a second tool mid-bid, against a deadline measured in minutes, loses bids.
 
@@ -21,7 +21,7 @@ The obvious escape — "let the user sign somewhere else and upload the result" 
 
 The reason none of this can be faked with a drawn-on image: a *proposta* signed for a *licitação* needs to carry full legal weight. Brazilian law (Lei 14.063/2020) defines three tiers of electronic signature — simple, advanced, and qualified — and only the **qualified** tier uses an ICP-Brasil digital certificate, under §1 of art. 10 of MP 2.200-2/2001, the measure that created ICP-Brasil ([Governo Digital](https://www.gov.br/governodigital/pt-br/identidade/assinatura-eletronica/saiba-mais-sobre-a-assinatura-eletronica)). A document signed with an ICP-Brasil certificate carries the same legal validity as a paper document with a handwritten signature, per art. 10 of MP 2.200-2/2001 ([ITI](https://www.gov.br/iti/pt-br/acesso-a-informacao/perguntas-frequentes/certificacao-digital)).
 
-The A1 certificate is the software-based ICP-Brasil certificate: a file stored locally on the user's computer or phone, valid for one year — distinct from the A3, which lives on a smart card, token, or remote HSM and is valid for one to five years ([ITI](https://www.gov.br/iti/pt-br/acesso-a-informacao/perguntas-frequentes/certificacao-digital)). Because the A1 is just a file the bidder already holds, it's the natural fit for signing in software — and, as it turns out, in the browser.
+The A1 certificate is the software-based ICP-Brasil certificate: a file stored locally on the user's computer or phone, valid for one year — distinct from the A3, which lives on a smart card, token, or remote HSM and is valid for one to five years ([ITI](https://www.gov.br/iti/pt-br/acesso-a-informacao/perguntas-frequentes/certificacao-digital)). Because the A1 is just a file the bidder already holds, it's the natural fit for signing in software — and in the browser.
 
 ## Why "A1 signing" still costs so much
 
@@ -132,7 +132,7 @@ PAdES isn't a SignatureKit invention — it's PDF Advanced Electronic Signatures
 - **One bad document doesn't sink the batch.** A failed signature is a typed result, not an exception. The other
   documents still sign; the failure surfaces with a code you can act on.
 
-The cryptography was never the hard part — it's a hash signature measured in microseconds. Moving it off the server — and keeping it typed, batched, and in the browser — is what made qualified digital-certificate signing something Licitei could simply *include*, rather than meter.
+The cryptography was never the hard part — it's a hash signature measured in microseconds. Moving it off the server — and keeping it typed, batched, and in the browser — is what made qualified digital-certificate signing something Licitei could *include*, rather than meter.
 
 ## Keep reading
 

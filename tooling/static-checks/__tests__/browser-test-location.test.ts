@@ -1,22 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const skippedDirectories = new Set([".git", ".cache", "dist", "node_modules"]);
 
 const collectFiles = (directory: string): readonly string[] =>
-  readdirSync(directory).flatMap((entry) => {
-    if (skippedDirectories.has(entry)) {
-      return [];
-    }
+  existsSync(directory)
+    ? readdirSync(directory).flatMap((entry) => {
+        if (skippedDirectories.has(entry)) {
+          return [];
+        }
 
-    const path = join(directory, entry);
-    const stats = statSync(path);
-    if (stats.isDirectory()) {
-      return collectFiles(path);
-    }
-    return [path];
-  });
+        const path = join(directory, entry);
+        const stats = statSync(path);
+        if (stats.isDirectory()) {
+          return collectFiles(path);
+        }
+        return [path];
+      })
+    : [];
 
 describe("browser integration test placement", () => {
   it("keeps browser runtime coverage in packages that own browser-facing APIs", () => {

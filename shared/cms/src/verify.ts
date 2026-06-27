@@ -7,7 +7,7 @@
  * When `trustedRoots` is supplied, the signer chain is validated too.
  */
 
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import * as pkijs from "pkijs";
 import {
   type CmsVerifyResult,
@@ -29,11 +29,11 @@ const SignedDataVerifyErrorSchema = Schema.Struct({
 const signerSerialHex = (signed: pkijs.SignedData): string | null => {
   const sid = signed.signerInfos[0]?.sid;
   if (sid === null || typeof sid !== "object") return null;
-  const serial = Reflect.get(sid, "serialNumber");
+  const serial = "serialNumber" in sid ? sid.serialNumber : null;
   if (serial === null || typeof serial !== "object") return null;
-  const valueBlock = Reflect.get(serial, "valueBlock");
+  const valueBlock = "valueBlock" in serial ? serial.valueBlock : null;
   if (valueBlock === null || typeof valueBlock !== "object") return null;
-  const view = Reflect.get(valueBlock, "valueHexView");
+  const view = "valueHexView" in valueBlock ? valueBlock.valueHexView : null;
   if (!isUint8Array(view)) return null;
   return Array.from(view, (byte) => byte.toString(16).padStart(2, "0")).join("");
 };
@@ -69,44 +69,36 @@ export const verifyDetachedSignedData = (
     const serial = signerSerialHex(signed);
     const checkChain = trustedCerts.length > 0;
 
-    return yield* Effect.tryPromise({
-      try: () =>
-        signed.verify({
+    const verification = yield* Effect.promise(() =>
+      signed
+        .verify({
           signer: 0,
           data: toArrayBuffer(input.content),
           checkChain,
           trustedCerts,
           extendedMode: true,
-        }),
-      catch: (cause) => cause,
-    }).pipe(
-      Effect.catch((cause: unknown) =>
-        Schema.decodeUnknownEffect(SignedDataVerifyErrorSchema)(cause).pipe(
-          Effect.matchEffect({
-            onFailure: () => Effect.die(cause),
-            onSuccess: () =>
-              Effect.fail(
-                new CmsError({
-                  code: CmsErrorCodeValue.digestMismatch,
-                  operation: CmsOperationValue.verify,
-                }),
-              ),
-          }),
+        })
+        .then(
+          (result) => ({ result }),
+          (cause) => {
+            const decoded = Schema.decodeUnknownOption(SignedDataVerifyErrorSchema)(cause);
+            if (Option.isSome(decoded)) return {};
+            return Promise.reject(cause);
+          },
         ),
-      ),
-      Effect.map((result) => ({
-        valid: result.signatureVerified === true,
-        chainValid: checkChain ? result.signerCertificateVerified === true : true,
-        signerSerialNumber: serial,
-      })),
-      Effect.catchIf(
-        (error) => error.code === CmsErrorCodeValue.digestMismatch,
-        () =>
-          Effect.succeed({
-            valid: false,
-            chainValid: false,
-            signerSerialNumber: serial,
-          }),
-      ),
     );
+
+    if (!("result" in verification)) {
+      return {
+        valid: false,
+        chainValid: false,
+        signerSerialNumber: serial,
+      };
+    }
+
+    return {
+      valid: verification.result.signatureVerified === true,
+      chainValid: checkChain ? verification.result.signerCertificateVerified === true : true,
+      signerSerialNumber: serial,
+    };
   });

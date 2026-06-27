@@ -4,7 +4,6 @@ import {
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
   SignatureKitSchemaNameValue,
-  schemaErrorMetadata,
   type RemoteSignatureProvider,
   type SignatureKitSchemaName,
 } from "./config";
@@ -13,25 +12,28 @@ import { Context, Effect, Layer, Redacted, Schema } from "effect";
 export const SignatureHttpMethodSchema = Schema.Literals(["DELETE", "GET", "PATCH", "POST", "PUT"]);
 export type SignatureHttpMethod = (typeof SignatureHttpMethodSchema)["Type"];
 
-const HeadersInitSchema = Schema.declare<HeadersInit>(
-  (value): value is HeadersInit => typeof value === "object" && value !== null,
-  { identifier: "HeadersInit" },
-);
+export const SignatureHttpHeadersSchema = Schema.Record(Schema.String, Schema.String);
+export type SignatureHttpHeaders = (typeof SignatureHttpHeadersSchema)["Type"];
 
-const BodyInitSchema = Schema.declare<BodyInit>(
-  (value): value is BodyInit =>
-    typeof value === "string" || (typeof value === "object" && value !== null),
-  { identifier: "BodyInit" },
-);
+export const SignatureHttpBodySchema = Schema.Union([
+  Schema.String,
+  Schema.FormData,
+  Schema.URLSearchParams,
+]);
+export type SignatureHttpBody = (typeof SignatureHttpBodySchema)["Type"];
 
 export const SignatureHttpRequestSchema = Schema.Struct({
   method: SignatureHttpMethodSchema,
   url: Schema.NonEmptyString,
   provider: Schema.optional(RemoteSignatureProviderSchema),
-  headers: Schema.optional(HeadersInitSchema),
-  body: Schema.optional(BodyInitSchema),
+  headers: Schema.optional(SignatureHttpHeadersSchema),
+  diagnosticUrl: Schema.optional(Schema.NonEmptyString),
+  body: Schema.optional(SignatureHttpBodySchema),
 });
 export type SignatureHttpRequest = (typeof SignatureHttpRequestSchema)["Type"];
+
+const diagnosticRequestUrl = (request: SignatureHttpRequest): string =>
+  request.diagnosticUrl ?? request.url;
 
 export type SignatureHttpClientService = {
   readonly requestJson: (
@@ -61,7 +63,7 @@ const readResponseText = (
         provider: request.provider,
         operation: SignatureKitOperationValue.httpRequest,
         status: response.status,
-        reason: `Failed to read ${request.method} ${request.url} response body.`,
+        reason: `Failed to read ${request.method} ${diagnosticRequestUrl(request)} response body.`,
       }),
   });
 
@@ -80,8 +82,8 @@ const failOnHttpStatus = (
           status: response.status,
           reason:
             body.length === 0
-              ? `${request.method} ${request.url} returned HTTP ${response.status}.`
-              : `${request.method} ${request.url} returned HTTP ${response.status}: ${compactBody(body)}`,
+              ? `${request.method} ${diagnosticRequestUrl(request)} returned HTTP ${response.status}.`
+              : `${request.method} ${diagnosticRequestUrl(request)} returned HTTP ${response.status}: ${compactBody(body)}`,
         }),
       ),
     ),
@@ -101,7 +103,7 @@ const fetchResponse = (request: SignatureHttpRequest): Effect.Effect<Response, S
         retryable: true,
         provider: request.provider,
         operation: SignatureKitOperationValue.httpRequest,
-        reason: `Failed to call ${request.method} ${request.url}.`,
+        reason: `Failed to call ${request.method} ${diagnosticRequestUrl(request)}.`,
       }),
   }).pipe(
     Effect.flatMap((response) =>
@@ -126,7 +128,7 @@ const parseJsonBody = (
         operation: SignatureKitOperationValue.httpDecode,
         status: response.status,
         schemaName: SignatureKitSchemaNameValue.providerHttpRequest,
-        reason: `Failed to decode ${request.method} ${request.url} JSON response.`,
+        reason: `Failed to decode ${request.method} ${diagnosticRequestUrl(request)} JSON response.`,
       }),
   });
 
@@ -147,14 +149,13 @@ export const decodeRemoteShape = <A>(
 ): Effect.Effect<A, SignatureKitError> =>
   Schema.decodeUnknownEffect(schema)(value).pipe(
     Effect.mapError(
-      (issue) =>
+      (_issue) =>
         new SignatureKitError({
           code: SignatureKitErrorCodeValue.responseShape,
           retryable: false,
           provider,
           operation: SignatureKitOperationValue.httpDecode,
           schemaName,
-          ...schemaErrorMetadata(issue),
         }),
     ),
   );
@@ -167,14 +168,13 @@ export const decodeRemoteOptions = <A>(
 ): Effect.Effect<A, SignatureKitError> =>
   Schema.decodeUnknownEffect(schema)(value).pipe(
     Effect.mapError(
-      (issue) =>
+      (_issue) =>
         new SignatureKitError({
           code: SignatureKitErrorCodeValue.invalidInput,
           retryable: false,
           provider,
           operation: SignatureKitOperationValue.schemaDecode,
           schemaName,
-          ...schemaErrorMetadata(issue),
         }),
     ),
   );

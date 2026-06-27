@@ -15,7 +15,7 @@ description: "Load an A1 certificate, inspect the identity, and sign your first 
   </Step>
 
   <Step title="Load the A1, inspect, sign and verify">
-    `a1SignaturesLayer` takes the `.pfx` bytes and the `Redacted` password and provides the `Signatures` service. Inside one `Effect.gen`, `signatures.inspect()` returns a normalized `SignerIdentity` — `document` carries the e-CPF or e-CNPJ when present — then `signatures.sign` and `signatures.verify` run over the same boundary. Verification returns a value: `result.valid` is a `boolean`. A real failure becomes a `SignatureKitError` in the error channel, never a thrown exception.
+    `a1SignaturesLayer` takes the `.pfx` bytes and the `Redacted` password and provides the `Signatures` service. Inside one `Effect.gen`, `signatures.inspect()` returns a normalized `SignerIdentity` — `document` carries the e-CPF or e-CNPJ when present — then `signatures.sign` and `signatures.verify` run over the same boundary. `verify` returns a value: `result.valid` is a `boolean`, and a real failure surfaces as a `SignatureKitError` in the error channel, never a thrown exception.
 
     <Callout type="error" title="The .pfx bytes, not the path">
       `pfx` is a `Uint8Array` holding the binary contents of the `.pfx`/`.p12` — not the file path string. Keep these bytes and the password out of logs and version control.
@@ -53,7 +53,7 @@ description: "Load an A1 certificate, inspect the identity, and sign your first 
   </Step>
 
   <Step title="Run the program">
-    Run the `Effect` with `Effect.runPromise` (or run it inside another Effect program).
+    Run the `Effect` with `Effect.runPromise`, or call it from another Effect program.
 
     ```ts title="run.ts"
     import { Effect } from "effect"
@@ -64,7 +64,7 @@ description: "Load an A1 certificate, inspect the identity, and sign your first 
   </Step>
 
   <Step title="Sign XML and PDF">
-    The formats consume the same boundary via `Effect.provide`. `a1SignaturesLayer` provides the `Signatures` service — the `layer` line is identical for XML and PDF. XML additionally needs `xmlRuntimeLayer`; `verifyXml` / `verifyPdf` read the public key from the document and do not require the boundary.
+    Both formats consume the same boundary via `Effect.provide`; the `layer` line is identical to the previous step. XML also needs `xmlRuntimeLayer`; `verifyXml` / `verifyPdf` read the public key from the document and do not require the boundary.
 
     ```ts title="documents.ts"
     import { signXml } from "@signature-kit/xml/sign"

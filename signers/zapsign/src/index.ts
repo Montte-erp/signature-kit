@@ -10,7 +10,6 @@ import {
   validRemoteSignatureRequest,
 } from "@signature-kit/core/config";
 import type {
-  RemoteSignatureDocument,
   RemoteSignatureProvider,
   RemoteSignatureRecipient,
   RemoteSignatureRequest,
@@ -22,16 +21,18 @@ import {
   bearerAuthorization,
   decodeRemoteOptions,
   decodeRemoteShape,
+  signatureHttpClientLive,
   normalizedBaseUrl,
 } from "@signature-kit/core/http";
 import type { SignatureHttpClientService } from "@signature-kit/core/http";
-import { Resource } from "alchemy";
+import { isResolved } from "alchemy/Diff";
+import { Resource } from "alchemy/Resource";
 import * as Provider from "alchemy/Provider";
 import { Context, Effect, Layer, Schema } from "effect";
 
 const PROVIDER: RemoteSignatureProvider = "zapsign";
-const ZAPSIGN_SIGNATURE_REQUEST_TYPE = "SignatureKit.ZapSignSignatureRequest";
-const ZAPSIGN_PROVIDER_COLLECTION_ID = "SignatureKitZapSign";
+const ZAPSIGN_SIGNATURE_REQUEST_RESOURCE = "SignatureKit.ZapSignSignatureRequest";
+const ZAPSIGN_PROVIDER_COLLECTION_ID = "@signature-kit/zapsign/Providers";
 const SANDBOX_BASE_URL = "https://sandbox.api.zapsign.com.br/api/v1";
 const PRODUCTION_BASE_URL = "https://api.zapsign.com.br/api/v1";
 const BRAZIL_BASE_URL = "https://br.api.zapsign.com.br/api/v1";
@@ -78,14 +79,14 @@ const ZapSignDocumentResultSchema = Schema.Struct({
   signers: Schema.Array(ZapSignSignerResultSchema),
 });
 
-export type ZapSignSignatureRequestResource = Resource<
-  typeof ZAPSIGN_SIGNATURE_REQUEST_TYPE,
+export type ZapSignSignatureRequest = Resource<
+  typeof ZAPSIGN_SIGNATURE_REQUEST_RESOURCE,
   RemoteSignatureRequestProps,
   RemoteSignatureRequest
 >;
 
-export const ZapSignSignatureRequest = Resource<ZapSignSignatureRequestResource>(
-  ZAPSIGN_SIGNATURE_REQUEST_TYPE,
+export const ZapSignSignatureRequest = Resource<ZapSignSignatureRequest>(
+  ZAPSIGN_SIGNATURE_REQUEST_RESOURCE,
   { defaultRemovalPolicy: "retain" },
 );
 
@@ -109,27 +110,13 @@ export const zapSignCredentialsLayer = (
 
 const zapSignBaseUrl = (options: ZapSignProviderOptions): string => {
   if (options.baseUrl !== undefined) return normalizedBaseUrl(options.baseUrl);
-  if (options.environment === "sandbox") return SANDBOX_BASE_URL;
   if (options.environment === "brazil") return BRAZIL_BASE_URL;
-  return PRODUCTION_BASE_URL;
-};
-
-const onePdfDocument = (
-  input: RemoteSignatureRequestInput,
-): Effect.Effect<RemoteSignatureDocument, SignatureKitError> => {
-  const document = input.documents[0];
-  if (input.documents.length === 1 && document?.mimeType === "application/pdf") {
-    return Effect.succeed(document);
+  if (options.environment !== undefined) {
+    return options.environment === "production" ? PRODUCTION_BASE_URL : SANDBOX_BASE_URL;
   }
-  return Effect.fail(
-    new SignatureKitError({
-      code: SignatureKitErrorCodeValue.unsupportedOperation,
-      retryable: false,
-      provider: PROVIDER,
-      operation: SignatureKitOperationValue.remoteCreate,
-      reason: "ZapSign creates one PDF document per signature request.",
-    }),
-  );
+  return typeof process !== "undefined" && process.env.NODE_ENV === "production"
+    ? PRODUCTION_BASE_URL
+    : SANDBOX_BASE_URL;
 };
 
 const signerPayload = (
@@ -152,53 +139,63 @@ const createRemoteRequest = (
   options: ZapSignProviderOptions,
   baseUrl: string,
   input: RemoteSignatureRequestInput,
-): Effect.Effect<RemoteSignatureRequest, SignatureKitError> =>
-  onePdfDocument(input).pipe(
-    Effect.flatMap((document) =>
-      http
-        .requestJson({
-          provider: PROVIDER,
-          method: "POST",
-          url: `${baseUrl}/docs/`,
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: bearerAuthorization(options.apiToken),
-          },
-          body: JSON.stringify({
-            name: input.title,
-            base64_pdf: bytesToBase64(document.content),
-            lang: options.locale ?? "pt-br",
-            disable_signer_emails: input.send === false || options.disableSignerEmails === true,
-            signature_order_active: input.recipients.some(
-              (recipient) => recipient.routingOrder !== undefined,
-            ),
-            signers: input.recipients.map((recipient, index) =>
-              signerPayload(options, recipient, input, index),
-            ),
-            ...(input.expiresAt === undefined
-              ? {}
-              : { date_limit_to_sign: input.expiresAt.toISOString() }),
-          }),
-        })
-        .pipe(
-          Effect.flatMap((body) =>
-            decodeRemoteShape(
-              ZapSignDocumentResultSchema,
-              SignatureKitSchemaNameValue.zapSignDocumentResult,
-              PROVIDER,
-              body,
-            ),
-          ),
-        ),
-    ),
-    Effect.map((result) => ({
+): Effect.Effect<RemoteSignatureRequest, SignatureKitError> => {
+  const document = input.documents[0];
+  if (input.documents.length !== 1 || document?.mimeType !== "application/pdf") {
+    return Effect.fail(
+      new SignatureKitError({
+        code: SignatureKitErrorCodeValue.unsupportedOperation,
+        retryable: false,
+        provider: PROVIDER,
+        operation: SignatureKitOperationValue.remoteCreate,
+        reason: "ZapSign creates one PDF document per signature request.",
+      }),
+    );
+  }
+
+  return http
+    .requestJson({
       provider: PROVIDER,
-      id: result.token,
-      state: input.send === false ? "draft" : "sent",
-      providerStatus: result.status,
-      signingUrl: result.signers[0]?.sign_url,
-    })),
-  );
+      method: "POST",
+      url: `${baseUrl}/docs/`,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: bearerAuthorization(options.apiToken),
+      },
+      body: JSON.stringify({
+        name: input.title,
+        base64_pdf: bytesToBase64(document.content),
+        lang: options.locale ?? "pt-br",
+        disable_signer_emails: input.send === false || options.disableSignerEmails === true,
+        signature_order_active: input.recipients.some(
+          (recipient) => recipient.routingOrder !== undefined,
+        ),
+        signers: input.recipients.map((recipient, index) =>
+          signerPayload(options, recipient, input, index),
+        ),
+        ...(input.expiresAt === undefined
+          ? {}
+          : { date_limit_to_sign: input.expiresAt.toISOString() }),
+      }),
+    })
+    .pipe(
+      Effect.flatMap((body) =>
+        decodeRemoteShape(
+          ZapSignDocumentResultSchema,
+          SignatureKitSchemaNameValue.zapSignDocumentResult,
+          PROVIDER,
+          body,
+        ),
+      ),
+      Effect.map((result) => ({
+        provider: PROVIDER,
+        id: result.token,
+        state: input.send === false ? "draft" : "sent",
+        providerStatus: result.status,
+        signingUrl: result.signers[0]?.sign_url,
+      })),
+    );
+};
 
 export const ZapSignSignatureRequestProvider = () =>
   Provider.effect(
@@ -213,7 +210,13 @@ export const ZapSignSignatureRequestProvider = () =>
         stables: ["provider", "id"],
         list: () => Effect.succeed([]),
         read: ({ output }) => Effect.succeed(output),
-        reconcile: Effect.fnUntraced(function* ({ news, output }) {
+        diff: ({ news, output, olds }) => {
+          if (!isResolved(news) || output !== undefined || olds !== undefined) {
+            return Effect.succeed(undefined);
+          }
+          return Effect.succeed({ action: "noop" });
+        },
+        reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
           const props = yield* decodeRemoteOptions(
             RemoteSignatureRequestPropsSchema,
@@ -236,7 +239,8 @@ export class ZapSignProviders extends Provider.ProviderCollection<ZapSignProvide
 export const providers = (options: ZapSignProviderOptions) =>
   Layer.effect(ZapSignProviders, Provider.collection([ZapSignSignatureRequest])).pipe(
     Layer.provide(ZapSignSignatureRequestProvider()),
-    Layer.provide(zapSignCredentialsLayer(options)),
+    Layer.provideMerge(zapSignCredentialsLayer(options)),
+    Layer.provide(signatureHttpClientLive),
   );
 
 export const createZapSignSignatureRequest = (

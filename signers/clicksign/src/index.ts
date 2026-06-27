@@ -21,16 +21,18 @@ import {
   SignatureHttpClient,
   decodeRemoteOptions,
   decodeRemoteShape,
+  signatureHttpClientLive,
   normalizedBaseUrl,
 } from "@signature-kit/core/http";
-import type { SignatureHttpClientService } from "@signature-kit/core/http";
-import { Resource } from "alchemy";
+import type { SignatureHttpClientService, SignatureHttpRequest } from "@signature-kit/core/http";
+import { isResolved } from "alchemy/Diff";
+import { Resource } from "alchemy/Resource";
 import * as Provider from "alchemy/Provider";
 import { Context, Effect, Layer, Redacted, Schema } from "effect";
 
 const PROVIDER: RemoteSignatureProvider = "clicksign";
-const CLICKSIGN_SIGNATURE_REQUEST_TYPE = "SignatureKit.ClicksignSignatureRequest";
-const CLICKSIGN_PROVIDER_COLLECTION_ID = "SignatureKitClicksign";
+const CLICKSIGN_SIGNATURE_REQUEST_RESOURCE = "SignatureKit.ClicksignSignatureRequest";
+const CLICKSIGN_PROVIDER_COLLECTION_ID = "@signature-kit/clicksign/Providers";
 const SANDBOX_BASE_URL = "https://sandbox.clicksign.com/api/v1";
 const PRODUCTION_BASE_URL = "https://app.clicksign.com/api/v1";
 
@@ -64,14 +66,14 @@ const ClicksignListResultSchema = Schema.Struct({
   list: Schema.Struct({ request_signature_key: Schema.NonEmptyString }),
 });
 
-export type ClicksignSignatureRequestResource = Resource<
-  typeof CLICKSIGN_SIGNATURE_REQUEST_TYPE,
+export type ClicksignSignatureRequest = Resource<
+  typeof CLICKSIGN_SIGNATURE_REQUEST_RESOURCE,
   RemoteSignatureRequestProps,
   RemoteSignatureRequest
 >;
 
-export const ClicksignSignatureRequest = Resource<ClicksignSignatureRequestResource>(
-  CLICKSIGN_SIGNATURE_REQUEST_TYPE,
+export const ClicksignSignatureRequest = Resource<ClicksignSignatureRequest>(
+  CLICKSIGN_SIGNATURE_REQUEST_RESOURCE,
   { defaultRemovalPolicy: "retain" },
 );
 
@@ -95,17 +97,24 @@ export const clicksignCredentialsLayer = (
 
 const clicksignBaseUrl = (options: ClicksignProviderOptions): string => {
   if (options.baseUrl !== undefined) return normalizedBaseUrl(options.baseUrl);
-  return options.environment === "production" ? PRODUCTION_BASE_URL : SANDBOX_BASE_URL;
+  if (options.environment !== undefined) {
+    return options.environment === "production" ? PRODUCTION_BASE_URL : SANDBOX_BASE_URL;
+  }
+  return typeof process !== "undefined" && process.env.NODE_ENV === "production"
+    ? PRODUCTION_BASE_URL
+    : SANDBOX_BASE_URL;
 };
 
 const withAccessToken = (
   baseUrl: string,
   path: string,
   token: Redacted.Redacted<string>,
-): string => {
+): Pick<SignatureHttpRequest, "diagnosticUrl" | "url"> => {
   const url = new URL(`${baseUrl}${path}`);
+  const diagnosticUrl = new URL(`${baseUrl}${path}`);
   url.searchParams.set("access_token", Redacted.value(token));
-  return url.toString();
+  diagnosticUrl.searchParams.set("access_token", "<redacted>");
+  return { url: url.toString(), diagnosticUrl: diagnosticUrl.toString() };
 };
 
 const documentPath = (document: RemoteSignatureDocument): string =>
@@ -113,22 +122,6 @@ const documentPath = (document: RemoteSignatureDocument): string =>
 
 const recipientGroup = (recipient: RemoteSignatureRecipient, index: number): number =>
   recipient.routingOrder ?? index + 1;
-
-const oneDocument = (
-  input: RemoteSignatureRequestInput,
-): Effect.Effect<RemoteSignatureDocument, SignatureKitError> => {
-  const document = input.documents[0];
-  if (input.documents.length === 1 && document !== undefined) return Effect.succeed(document);
-  return Effect.fail(
-    new SignatureKitError({
-      code: SignatureKitErrorCodeValue.unsupportedOperation,
-      retryable: false,
-      provider: PROVIDER,
-      operation: SignatureKitOperationValue.remoteCreate,
-      reason: "Clicksign API v1 supports one uploaded document per signature request.",
-    }),
-  );
-};
 
 const createDocument = (
   http: SignatureHttpClientService,
@@ -141,7 +134,7 @@ const createDocument = (
     .requestJson({
       provider: PROVIDER,
       method: "POST",
-      url: withAccessToken(baseUrl, "/documents", options.accessToken),
+      ...withAccessToken(baseUrl, "/documents", options.accessToken),
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         document: {
@@ -176,7 +169,7 @@ const createSigner = (
     .requestJson({
       provider: PROVIDER,
       method: "POST",
-      url: withAccessToken(baseUrl, "/signers", options.accessToken),
+      ...withAccessToken(baseUrl, "/signers", options.accessToken),
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         signer: {
@@ -213,7 +206,7 @@ const linkRecipient = (
     .requestJson({
       provider: PROVIDER,
       method: "POST",
-      url: withAccessToken(baseUrl, "/lists", options.accessToken),
+      ...withAccessToken(baseUrl, "/lists", options.accessToken),
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         list: {
@@ -247,7 +240,7 @@ const notifyRecipient = (
   http.requestVoid({
     provider: PROVIDER,
     method: "POST",
-    url: withAccessToken(baseUrl, "/notifications", options.accessToken),
+    ...withAccessToken(baseUrl, "/notifications", options.accessToken),
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       request_signature_key: requestSignatureKey,
@@ -261,13 +254,22 @@ const createRemoteRequest = (
   options: ClicksignProviderOptions,
   baseUrl: string,
   input: RemoteSignatureRequestInput,
-): Effect.Effect<RemoteSignatureRequest, SignatureKitError> =>
-  oneDocument(input).pipe(
-    Effect.flatMap((document) =>
-      createDocument(http, options, baseUrl, input, document).pipe(
-        Effect.map((documentKey) => ({ documentKey })),
-      ),
-    ),
+): Effect.Effect<RemoteSignatureRequest, SignatureKitError> => {
+  const document = input.documents[0];
+  if (input.documents.length !== 1 || document === undefined) {
+    return Effect.fail(
+      new SignatureKitError({
+        code: SignatureKitErrorCodeValue.unsupportedOperation,
+        retryable: false,
+        provider: PROVIDER,
+        operation: SignatureKitOperationValue.remoteCreate,
+        reason: "Clicksign API v1 supports one uploaded document per signature request.",
+      }),
+    );
+  }
+
+  return createDocument(http, options, baseUrl, input, document).pipe(
+    Effect.map((documentKey) => ({ documentKey })),
     Effect.flatMap(({ documentKey }) =>
       Effect.forEach(input.recipients, (recipient, index) =>
         createSigner(http, options, baseUrl, recipient).pipe(
@@ -298,6 +300,7 @@ const createRemoteRequest = (
       state: input.send === false ? "draft" : "sent",
     })),
   );
+};
 
 export const ClicksignSignatureRequestProvider = () =>
   Provider.effect(
@@ -312,7 +315,13 @@ export const ClicksignSignatureRequestProvider = () =>
         stables: ["provider", "id"],
         list: () => Effect.succeed([]),
         read: ({ output }) => Effect.succeed(output),
-        reconcile: Effect.fnUntraced(function* ({ news, output }) {
+        diff: ({ news, output, olds }) => {
+          if (!isResolved(news) || output !== undefined || olds !== undefined) {
+            return Effect.succeed(undefined);
+          }
+          return Effect.succeed({ action: "noop" });
+        },
+        reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
           const props = yield* decodeRemoteOptions(
             RemoteSignatureRequestPropsSchema,
@@ -335,7 +344,8 @@ export class ClicksignProviders extends Provider.ProviderCollection<ClicksignPro
 export const providers = (options: ClicksignProviderOptions) =>
   Layer.effect(ClicksignProviders, Provider.collection([ClicksignSignatureRequest])).pipe(
     Layer.provide(ClicksignSignatureRequestProvider()),
-    Layer.provide(clicksignCredentialsLayer(options)),
+    Layer.provideMerge(clicksignCredentialsLayer(options)),
+    Layer.provide(signatureHttpClientLive),
   );
 
 export const createClicksignSignatureRequest = (

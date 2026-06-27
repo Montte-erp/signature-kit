@@ -20,9 +20,6 @@
       "path": "signers/a1"
     },
     {
-      "path": "signers/docusign"
-    },
-    {
       "path": "signers/clicksign"
     },
     {
@@ -33,12 +30,6 @@
     },
     {
       "path": "signers/docuseal"
-    },
-    {
-      "path": "signers/adobe-sign"
-    },
-    {
-      "path": "signers/dropbox-sign"
     },
     {
       "path": "signers/documenso"

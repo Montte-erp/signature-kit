@@ -5,7 +5,7 @@ import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { m } from "@/paraglide/messages";
 import type { Lang } from "@/lib/locale";
-import { appName } from "./shared";
+import { SITE_NAME } from "@/lib/site";
 
 /**
  * Shared nav/layout options, locale-aware. Internal URLs carry the active
@@ -25,7 +25,7 @@ export function baseOptions(lang: Lang): BaseLayoutProps {
           <span className="grid size-6 place-items-center rounded-md border border-border bg-input/30">
             <Logo className="size-3.5" />
           </span>
-          <span className="font-medium tracking-tight">{appName}</span>
+          <span className="font-medium tracking-tight">{SITE_NAME}</span>
         </div>
       ),
     },

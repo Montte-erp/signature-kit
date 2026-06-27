@@ -33,10 +33,9 @@ const sizeForPage = (
 ): PageSize => {
   if (size === undefined) return A4;
   if (Array.isArray(size)) {
-    const list = size as ReadonlyArray<PageSize>;
-    return list[Math.min(index, list.length - 1)] ?? A4;
+    return size[Math.min(index, size.length - 1)] ?? A4;
   }
-  return size as PageSize;
+  return size;
 };
 
 /** Build one dummy PDF with `pages` real, text-bearing pages. */

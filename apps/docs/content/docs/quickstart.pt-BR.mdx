@@ -15,7 +15,7 @@ description: "Carregue um certificado A1, inspecione a identidade e assine seus 
   </Step>
 
   <Step title="Carregue o A1, inspecione, assine e verifique">
-    O `a1SignaturesLayer` recebe os bytes do `.pfx` e a senha em `Redacted` e fornece o serviço `Signatures`. Dentro de um único `Effect.gen`, o `signatures.inspect()` retorna um `SignerIdentity` normalizado — o `document` traz o e-CPF ou o e-CNPJ quando presente — e então `signatures.sign` e `signatures.verify` rodam sobre a mesma camada de assinatura. A verificação retorna um valor: `result.valid` é um `boolean`. Uma falha real vira um `SignatureKitError` no canal de erro, nunca uma exceção lançada.
+    O `a1SignaturesLayer` recebe os bytes do `.pfx` e a senha em `Redacted` e fornece o serviço `Signatures`. Dentro de um único `Effect.gen`, o `signatures.inspect()` retorna um `SignerIdentity` normalizado — o `document` traz o e-CPF ou o e-CNPJ quando presente — e então `signatures.sign` e `signatures.verify` rodam sobre a mesma camada de assinatura. O `verify` retorna um valor: `result.valid` é um `boolean`, e uma falha real surge como um `SignatureKitError` no canal de erro, nunca uma exceção lançada.
 
     <Callout type="error" title="Os bytes do .pfx, não o caminho">
       `pfx` é um `Uint8Array` com o conteúdo binário do `.pfx`/`.p12` — não a string com o caminho do arquivo. Mantenha esses bytes e a senha fora de logs e do controle de versão.
@@ -27,12 +27,12 @@ description: "Carregue um certificado A1, inspecione a identidade e assine seus 
     import { Effect, Redacted } from "effect"
 
     const layer = a1SignaturesLayer({
-      pfx,                                          // Uint8Array — bytes of the .pfx/.p12
+      pfx,                                          // Uint8Array — bytes do .pfx/.p12
       password: Redacted.make(process.env.A1_PASSWORD ?? ""),
     })
 
     export const program = Effect.gen(function* () {
-      // normalized identity — identity.document carries e-CPF / e-CNPJ
+      // identidade normalizada — identity.document traz e-CPF / e-CNPJ
       const identity = yield* signatures.inspect()
 
       const content = new TextEncoder().encode("content to sign")
@@ -53,18 +53,18 @@ description: "Carregue um certificado A1, inspecione a identidade e assine seus 
   </Step>
 
   <Step title="Execute o programa">
-    Execute o `Effect` com `Effect.runPromise` (ou rode-o dentro de outro programa Effect).
+    Execute o `Effect` com `Effect.runPromise`, ou chame-o a partir de outro programa Effect.
 
     ```ts title="run.ts"
     import { Effect } from "effect"
 
     const { result } = await Effect.runPromise(program)
-    console.log(result.valid) // boolean — true if the signature checks out
+    console.log(result.valid) // boolean — true se a assinatura for válida
     ```
   </Step>
 
   <Step title="Assine XML e PDF">
-    Os formatos consomem a mesma camada de assinatura via `Effect.provide`. O `a1SignaturesLayer` fornece o serviço `Signatures` — a linha do `layer` é idêntica para XML e PDF. O XML precisa adicionalmente do `xmlRuntimeLayer`; o `verifyXml` / `verifyPdf` leem a chave pública do documento e não exigem a camada de assinatura.
+    Ambos os formatos consomem a mesma camada de assinatura via `Effect.provide`; a linha do `layer` é idêntica à da etapa anterior. O XML também precisa do `xmlRuntimeLayer`; `verifyXml` / `verifyPdf` leem a chave pública do documento e não exigem a camada de assinatura.
 
     ```ts title="documents.ts"
     import { signXml } from "@signature-kit/xml/sign"
@@ -74,7 +74,7 @@ description: "Carregue um certificado A1, inspecione a identidade e assine seus 
     import { Effect, Redacted } from "effect"
 
     const layer = a1SignaturesLayer({
-      pfx,                                          // Uint8Array — bytes of the .pfx/.p12
+      pfx,                                          // Uint8Array — bytes do .pfx/.p12
       password: Redacted.make(process.env.A1_PASSWORD ?? ""),
     })
 

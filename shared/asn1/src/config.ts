@@ -18,12 +18,14 @@ import { decodeOidBytes } from "./oid";
 export const Asn1ClassSchema = Schema.Literals(["universal", "context", "application", "private"]);
 export type Asn1Class = (typeof Asn1ClassSchema)["Type"];
 
-export type Asn1Primitive = {
-  readonly kind: "primitive";
-  readonly tag: number;
-  readonly class: Asn1Class;
-  readonly bytes: Uint8Array;
-};
+export const Asn1PrimitiveSchema = Schema.Struct({
+  kind: Schema.Literals(["primitive"]),
+  tag: Schema.Number,
+  class: Asn1ClassSchema,
+  bytes: Schema.Uint8Array,
+});
+
+export type Asn1Primitive = (typeof Asn1PrimitiveSchema)["Type"];
 
 export type Asn1Constructed = {
   readonly kind: "constructed";
@@ -33,6 +35,17 @@ export type Asn1Constructed = {
 };
 
 export type Asn1Node = Asn1Primitive | Asn1Constructed;
+
+export const Asn1ConstructedSchema: Schema.Schema<Asn1Constructed> = Schema.Struct({
+  kind: Schema.Literals(["constructed"]),
+  tag: Schema.Number,
+  class: Asn1ClassSchema,
+  children: Schema.Array(Schema.suspend(() => Asn1NodeSchema)),
+});
+
+export const Asn1NodeSchema: Schema.Schema<Asn1Node> = Schema.suspend(() =>
+  Schema.Union([Asn1PrimitiveSchema, Asn1ConstructedSchema]),
+);
 
 // =============================================================================
 // Error catalog

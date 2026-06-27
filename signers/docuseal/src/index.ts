@@ -2,8 +2,6 @@ import { bytesToBase64 } from "@signature-kit/crypto/base64";
 import {
   RemoteSignatureRequestPropsSchema,
   SignatureKitError,
-  SignatureKitErrorCodeValue,
-  SignatureKitOperationValue,
   SignatureKitSchemaNameValue,
   redactedStringSchema,
   remoteSignatureInputFromProps,
@@ -19,16 +17,18 @@ import {
   SignatureHttpClient,
   decodeRemoteOptions,
   decodeRemoteShape,
+  signatureHttpClientLive,
   normalizedBaseUrl,
 } from "@signature-kit/core/http";
 import type { SignatureHttpClientService } from "@signature-kit/core/http";
-import { Resource } from "alchemy";
+import { isResolved } from "alchemy/Diff";
+import { Resource } from "alchemy/Resource";
 import * as Provider from "alchemy/Provider";
 import { Context, Effect, Layer, Redacted, Schema } from "effect";
 
 const PROVIDER: RemoteSignatureProvider = "docuseal";
-const DOCUSEAL_SIGNATURE_REQUEST_TYPE = "SignatureKit.DocuSealSignatureRequest";
-const DOCUSEAL_PROVIDER_COLLECTION_ID = "SignatureKitDocuSeal";
+const DOCUSEAL_SIGNATURE_REQUEST_RESOURCE = "SignatureKit.DocuSealSignatureRequest";
+const DOCUSEAL_PROVIDER_COLLECTION_ID = "@signature-kit/docuseal/Providers";
 const DEFAULT_BASE_URL = "https://api.docuseal.com";
 
 const DocuSealSubmittersOrderSchema = Schema.Literals(["preserved", "random"]);
@@ -48,19 +48,25 @@ const DocuSealSubmitterResultSchema = Schema.Struct({
   embed_src: Schema.optional(Schema.String),
 });
 
-const DocuSealSubmissionResultSchema = Schema.Array(DocuSealSubmitterResultSchema);
+const DocuSealSubmissionArrayResultSchema = Schema.NonEmptyArray(DocuSealSubmitterResultSchema);
+const DocuSealSubmissionObjectResultSchema = Schema.Struct({
+  id: Schema.Number,
+  status: Schema.optional(Schema.String),
+  submitters: Schema.NonEmptyArray(DocuSealSubmitterResultSchema),
+});
+const DocuSealSubmissionResultSchema = Schema.Union([
+  DocuSealSubmissionArrayResultSchema,
+  DocuSealSubmissionObjectResultSchema,
+]);
 
-type DocuSealSubmissionResult = (typeof DocuSealSubmissionResultSchema)["Type"];
-type DocuSealSubmitterResult = (typeof DocuSealSubmitterResultSchema)["Type"];
-
-export type DocuSealSignatureRequestResource = Resource<
-  typeof DOCUSEAL_SIGNATURE_REQUEST_TYPE,
+export type DocuSealSignatureRequest = Resource<
+  typeof DOCUSEAL_SIGNATURE_REQUEST_RESOURCE,
   RemoteSignatureRequestProps,
   RemoteSignatureRequest
 >;
 
-export const DocuSealSignatureRequest = Resource<DocuSealSignatureRequestResource>(
-  DOCUSEAL_SIGNATURE_REQUEST_TYPE,
+export const DocuSealSignatureRequest = Resource<DocuSealSignatureRequest>(
+  DOCUSEAL_SIGNATURE_REQUEST_RESOURCE,
   { defaultRemovalPolicy: "retain" },
 );
 
@@ -84,23 +90,6 @@ export const docuSealCredentialsLayer = (
 
 const docuSealBaseUrl = (options: DocuSealProviderOptions): string =>
   options.baseUrl === undefined ? DEFAULT_BASE_URL : normalizedBaseUrl(options.baseUrl);
-
-const firstSubmitter = (
-  result: DocuSealSubmissionResult,
-): Effect.Effect<DocuSealSubmitterResult, SignatureKitError> => {
-  const first = result[0];
-  if (first !== undefined) return Effect.succeed(first);
-  return Effect.fail(
-    new SignatureKitError({
-      code: SignatureKitErrorCodeValue.responseShape,
-      retryable: true,
-      provider: PROVIDER,
-      operation: SignatureKitOperationValue.httpDecode,
-      schemaName: SignatureKitSchemaNameValue.docuSealSubmissionResult,
-      reason: "DocuSeal returned no submitters for the created submission.",
-    }),
-  );
-};
 
 const createSubmission = (
   http: SignatureHttpClientService,
@@ -149,8 +138,21 @@ const createSubmission = (
           body,
         ),
       ),
-      Effect.flatMap(firstSubmitter),
-      Effect.map((submitter) => {
+      Effect.map((result) => {
+        if ("submitters" in result) {
+          const submitter = result.submitters[0];
+          const id = result.id.toString();
+          return {
+            provider: PROVIDER,
+            id,
+            state: input.send === false ? "draft" : "sent",
+            providerStatus: result.status ?? submitter.status,
+            signingUrl: submitter.embed_src,
+            detailsUrl: `${baseUrl}/submissions/${id}`,
+          };
+        }
+
+        const submitter = result[0];
         const id = submitter.submission_id.toString();
         return {
           provider: PROVIDER,
@@ -176,7 +178,13 @@ export const DocuSealSignatureRequestProvider = () =>
         stables: ["provider", "id"],
         list: () => Effect.succeed([]),
         read: ({ output }) => Effect.succeed(output),
-        reconcile: Effect.fnUntraced(function* ({ news, output }) {
+        diff: ({ news, output, olds }) => {
+          if (!isResolved(news) || output !== undefined || olds !== undefined) {
+            return Effect.succeed(undefined);
+          }
+          return Effect.succeed({ action: "noop" });
+        },
+        reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
           const props = yield* decodeRemoteOptions(
             RemoteSignatureRequestPropsSchema,
@@ -199,7 +207,8 @@ export class DocuSealProviders extends Provider.ProviderCollection<DocuSealProvi
 export const providers = (options: DocuSealProviderOptions) =>
   Layer.effect(DocuSealProviders, Provider.collection([DocuSealSignatureRequest])).pipe(
     Layer.provide(DocuSealSignatureRequestProvider()),
-    Layer.provide(docuSealCredentialsLayer(options)),
+    Layer.provideMerge(docuSealCredentialsLayer(options)),
+    Layer.provide(signatureHttpClientLive),
   );
 
 export const createDocuSealSignatureRequest = (

@@ -55,9 +55,7 @@ describe("signAll + rubricEveryPage", () => {
           i % 3 === 0 ? [A4, LETTER, LEGAL, A4, LETTER].slice(0, pages) : i % 2 === 0 ? A4 : LETTER;
         const bytes = await makeDummyPdf({ pages, size, label: `Rubric doc ${i + 1}` });
         const dims: PageDim[] = Array.from({ length: pages }, (_u, p) => {
-          const ps = Array.isArray(size)
-            ? (size[Math.min(p, size.length - 1)] as PageSize)
-            : (size as PageSize);
+          const ps = Array.isArray(size) ? (size[Math.min(p, size.length - 1)] ?? A4) : size;
           return { index: p, width: ps.width, height: ps.height };
         });
         return { id: `rubric-${i}`, name: `Rubric doc ${i + 1}`, bytes, pageDims: dims };

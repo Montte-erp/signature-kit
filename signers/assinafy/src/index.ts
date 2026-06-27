@@ -21,47 +21,35 @@ import {
   bearerAuthorization,
   decodeRemoteOptions,
   decodeRemoteShape,
+  signatureHttpClientLive,
   normalizedBaseUrl,
 } from "@signature-kit/core/http";
-import type { SignatureHttpClientService } from "@signature-kit/core/http";
-import { Resource } from "alchemy";
+import type { SignatureHttpClientService, SignatureHttpHeaders } from "@signature-kit/core/http";
+import { isResolved } from "alchemy/Diff";
+import { Resource } from "alchemy/Resource";
 import * as Provider from "alchemy/Provider";
 import { Context, Effect, Layer, Redacted, Schema } from "effect";
 
 const PROVIDER: RemoteSignatureProvider = "assinafy";
-const ASSINAFY_SIGNATURE_REQUEST_TYPE = "SignatureKit.AssinafySignatureRequest";
-const ASSINAFY_PROVIDER_COLLECTION_ID = "SignatureKitAssinafy";
+const ASSINAFY_SIGNATURE_REQUEST_RESOURCE = "SignatureKit.AssinafySignatureRequest";
+const ASSINAFY_PROVIDER_COLLECTION_ID = "@signature-kit/assinafy/Providers";
 const SANDBOX_BASE_URL = "https://sandbox.assinafy.com.br";
 const PRODUCTION_BASE_URL = "https://api.assinafy.com.br";
 
 const AssinafyEnvironmentSchema = Schema.Literals(["production", "sandbox"]);
 export type AssinafyEnvironment = (typeof AssinafyEnvironmentSchema)["Type"];
 
-export const AssinafyProviderOptionsSchema = Schema.Struct({
+const AssinafyCommonProviderOptionsSchema = {
   accountId: Schema.NonEmptyString,
   environment: Schema.optional(AssinafyEnvironmentSchema),
   baseUrl: Schema.optional(Schema.NonEmptyString),
-  apiKey: Schema.optional(redactedStringSchema),
-  accessToken: Schema.optional(redactedStringSchema),
-});
-export type AssinafyProviderOptions = (typeof AssinafyProviderOptionsSchema)["Type"];
-const AssinafyApiKeyOptionsSchema = Schema.Struct({
-  accountId: Schema.NonEmptyString,
-  environment: Schema.optional(AssinafyEnvironmentSchema),
-  baseUrl: Schema.optional(Schema.NonEmptyString),
-  apiKey: redactedStringSchema,
-});
-const AssinafyAccessTokenOptionsSchema = Schema.Struct({
-  accountId: Schema.NonEmptyString,
-  environment: Schema.optional(AssinafyEnvironmentSchema),
-  baseUrl: Schema.optional(Schema.NonEmptyString),
-  accessToken: redactedStringSchema,
-});
-const AssinafyResolvedOptionsSchema = Schema.Union([
-  AssinafyApiKeyOptionsSchema,
-  AssinafyAccessTokenOptionsSchema,
+};
+
+export const AssinafyProviderOptionsSchema = Schema.Union([
+  Schema.Struct({ ...AssinafyCommonProviderOptionsSchema, apiKey: redactedStringSchema }),
+  Schema.Struct({ ...AssinafyCommonProviderOptionsSchema, accessToken: redactedStringSchema }),
 ]);
-type AssinafyResolvedOptions = (typeof AssinafyResolvedOptionsSchema)["Type"];
+export type AssinafyProviderOptions = (typeof AssinafyProviderOptionsSchema)["Type"];
 
 const AssinafyDocumentResultSchema = Schema.Struct({
   data: Schema.Struct({
@@ -89,20 +77,20 @@ const AssinafyAssignmentResultSchema = Schema.Struct({
   }),
 });
 
-export type AssinafySignatureRequestResource = Resource<
-  typeof ASSINAFY_SIGNATURE_REQUEST_TYPE,
+export type AssinafySignatureRequest = Resource<
+  typeof ASSINAFY_SIGNATURE_REQUEST_RESOURCE,
   RemoteSignatureRequestProps,
   RemoteSignatureRequest
 >;
 
-export const AssinafySignatureRequest = Resource<AssinafySignatureRequestResource>(
-  ASSINAFY_SIGNATURE_REQUEST_TYPE,
+export const AssinafySignatureRequest = Resource<AssinafySignatureRequest>(
+  ASSINAFY_SIGNATURE_REQUEST_RESOURCE,
   { defaultRemovalPolicy: "retain" },
 );
 
 export class AssinafyCredentials extends Context.Service<
   AssinafyCredentials,
-  AssinafyResolvedOptions
+  AssinafyProviderOptions
 >()("@signature-kit/assinafy/Credentials") {}
 
 export const assinafyCredentialsLayer = (
@@ -115,71 +103,29 @@ export const assinafyCredentialsLayer = (
       SignatureKitSchemaNameValue.assinafyProviderOptions,
       PROVIDER,
       options,
-    ).pipe(Effect.flatMap(requireCredential)),
+    ),
   );
-
-const requireCredential = (
-  options: AssinafyProviderOptions,
-): Effect.Effect<AssinafyResolvedOptions, SignatureKitError> => {
-  if (options.apiKey !== undefined) {
-    return Effect.succeed({
-      accountId: options.accountId,
-      ...(options.environment === undefined ? {} : { environment: options.environment }),
-      ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }),
-      apiKey: options.apiKey,
-    });
-  }
-  if (options.accessToken !== undefined) {
-    return Effect.succeed({
-      accountId: options.accountId,
-      ...(options.environment === undefined ? {} : { environment: options.environment }),
-      ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }),
-      accessToken: options.accessToken,
-    });
-  }
-  return Effect.fail(
-    new SignatureKitError({
-      code: SignatureKitErrorCodeValue.invalidInput,
-      retryable: false,
-      provider: PROVIDER,
-      operation: SignatureKitOperationValue.schemaDecode,
-      schemaName: SignatureKitSchemaNameValue.assinafyProviderOptions,
-      reason: "Assinafy requires either apiKey or accessToken.",
-    }),
-  );
-};
 
 const assinafyBaseUrl = (options: AssinafyProviderOptions): string => {
   if (options.baseUrl !== undefined) return normalizedBaseUrl(options.baseUrl);
-  return options.environment === "sandbox" ? SANDBOX_BASE_URL : PRODUCTION_BASE_URL;
+  if (options.environment !== undefined) {
+    return options.environment === "production" ? PRODUCTION_BASE_URL : SANDBOX_BASE_URL;
+  }
+  return typeof process !== "undefined" && process.env.NODE_ENV === "production"
+    ? PRODUCTION_BASE_URL
+    : SANDBOX_BASE_URL;
 };
 
-const authHeaders = (options: AssinafyResolvedOptions): HeadersInit => {
+const authHeaders = (options: AssinafyProviderOptions): SignatureHttpHeaders => {
   if ("apiKey" in options) {
     return { "X-Api-Key": Redacted.value(options.apiKey) };
   }
   return { Authorization: bearerAuthorization(options.accessToken) };
 };
 
-const oneDocument = (
-  input: RemoteSignatureRequestInput,
-): Effect.Effect<RemoteSignatureDocument, SignatureKitError> => {
-  const document = input.documents[0];
-  if (input.documents.length === 1 && document !== undefined) return Effect.succeed(document);
-  return Effect.fail(
-    new SignatureKitError({
-      code: SignatureKitErrorCodeValue.unsupportedOperation,
-      retryable: false,
-      provider: PROVIDER,
-      operation: SignatureKitOperationValue.remoteCreate,
-      reason: "Assinafy creates assignments for one uploaded document at a time.",
-    }),
-  );
-};
-
 const uploadDocument = (
   http: SignatureHttpClientService,
-  options: AssinafyResolvedOptions,
+  options: AssinafyProviderOptions,
   baseUrl: string,
   document: RemoteSignatureDocument,
 ): Effect.Effect<
@@ -213,7 +159,7 @@ const uploadDocument = (
 
 const createSigner = (
   http: SignatureHttpClientService,
-  options: AssinafyResolvedOptions,
+  options: AssinafyProviderOptions,
   baseUrl: string,
   recipient: RemoteSignatureRecipient,
 ): Effect.Effect<string, SignatureKitError> =>
@@ -242,7 +188,7 @@ const createSigner = (
 
 const createAssignment = (
   http: SignatureHttpClientService,
-  options: AssinafyResolvedOptions,
+  options: AssinafyProviderOptions,
   baseUrl: string,
   documentId: string,
   signerIds: readonly string[],
@@ -286,19 +232,31 @@ const createAssignment = (
 
 const createRemoteRequest = (
   http: SignatureHttpClientService,
-  options: AssinafyResolvedOptions,
+  options: AssinafyProviderOptions,
   baseUrl: string,
   input: RemoteSignatureRequestInput,
-): Effect.Effect<RemoteSignatureRequest, SignatureKitError> =>
-  oneDocument(input).pipe(
-    Effect.flatMap((document) => uploadDocument(http, options, baseUrl, document)),
-    Effect.flatMap((document) =>
+): Effect.Effect<RemoteSignatureRequest, SignatureKitError> => {
+  const document = input.documents[0];
+  if (input.documents.length !== 1 || document === undefined) {
+    return Effect.fail(
+      new SignatureKitError({
+        code: SignatureKitErrorCodeValue.unsupportedOperation,
+        retryable: false,
+        provider: PROVIDER,
+        operation: SignatureKitOperationValue.remoteCreate,
+        reason: "Assinafy creates assignments for one uploaded document at a time.",
+      }),
+    );
+  }
+
+  return uploadDocument(http, options, baseUrl, document).pipe(
+    Effect.flatMap((uploadedDocument) =>
       Effect.forEach(input.recipients, (recipient) =>
         createSigner(http, options, baseUrl, recipient),
       ).pipe(
         Effect.flatMap((signerIds) =>
-          createAssignment(http, options, baseUrl, document.id, signerIds, input).pipe(
-            Effect.map((assignment) => ({ document, assignment })),
+          createAssignment(http, options, baseUrl, uploadedDocument.id, signerIds, input).pipe(
+            Effect.map((assignment) => ({ document: uploadedDocument, assignment })),
           ),
         ),
       ),
@@ -312,6 +270,7 @@ const createRemoteRequest = (
       detailsUrl: `${baseUrl}/v1/documents/${document.id}`,
     })),
   );
+};
 
 export const AssinafySignatureRequestProvider = () =>
   Provider.effect(
@@ -326,7 +285,13 @@ export const AssinafySignatureRequestProvider = () =>
         stables: ["provider", "id"],
         list: () => Effect.succeed([]),
         read: ({ output }) => Effect.succeed(output),
-        reconcile: Effect.fnUntraced(function* ({ news, output }) {
+        diff: ({ news, output, olds }) => {
+          if (!isResolved(news) || output !== undefined || olds !== undefined) {
+            return Effect.succeed(undefined);
+          }
+          return Effect.succeed({ action: "noop" });
+        },
+        reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
           const props = yield* decodeRemoteOptions(
             RemoteSignatureRequestPropsSchema,
@@ -349,7 +314,8 @@ export class AssinafyProviders extends Provider.ProviderCollection<AssinafyProvi
 export const providers = (options: AssinafyProviderOptions) =>
   Layer.effect(AssinafyProviders, Provider.collection([AssinafySignatureRequest])).pipe(
     Layer.provide(AssinafySignatureRequestProvider()),
-    Layer.provide(assinafyCredentialsLayer(options)),
+    Layer.provideMerge(assinafyCredentialsLayer(options)),
+    Layer.provide(signatureHttpClientLive),
   );
 
 export const createAssinafySignatureRequest = (
@@ -362,7 +328,6 @@ export const createAssinafySignatureRequest = (
     PROVIDER,
     options,
   ).pipe(
-    Effect.flatMap(requireCredential),
     Effect.map((valid) => ({ valid, baseUrl: assinafyBaseUrl(valid) })),
     Effect.flatMap(({ valid, baseUrl }) =>
       validRemoteSignatureRequest(input).pipe(

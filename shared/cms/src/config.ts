@@ -184,8 +184,6 @@ export class CmsError extends Schema.TaggedErrorClass<CmsError>()("CmsError", {
   code: CmsErrorCodeSchema,
   reason: Schema.optional(Schema.String),
   operation: Schema.optional(CmsOperationSchema),
-  upstreamTag: Schema.optional(Schema.String),
-  upstreamCode: Schema.optional(Schema.String),
 }) {
   get message(): string {
     switch (this.code) {

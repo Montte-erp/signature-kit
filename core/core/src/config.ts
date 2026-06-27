@@ -8,7 +8,7 @@
  */
 
 import { Effect, Schema } from "effect";
-import type { Redacted, SchemaIssue } from "effect";
+import type { Redacted } from "effect";
 
 // =============================================================================
 // Primitive decoders
@@ -149,13 +149,10 @@ export type VerificationResult = (typeof VerificationResultSchema)["Type"];
 // =============================================================================
 
 export const RemoteSignatureProviderSchema = Schema.Literals([
-  "docusign",
   "clicksign",
   "assinafy",
   "zapsign",
   "docuseal",
-  "adobe-sign",
-  "dropbox-sign",
   "documenso",
 ]);
 export type RemoteSignatureProvider = (typeof RemoteSignatureProviderSchema)["Type"];
@@ -354,8 +351,6 @@ export const SignatureKitSchemaNameSchema = Schema.Literals([
   "RemoteSignatureRequestInput",
   "RemoteSignatureRequestProps",
   "ProviderHttpRequest",
-  "DocuSignProviderOptions",
-  "DocuSignEnvelopeResult",
   "ClicksignProviderOptions",
   "ClicksignDocumentResult",
   "ClicksignSignerResult",
@@ -368,11 +363,6 @@ export const SignatureKitSchemaNameSchema = Schema.Literals([
   "ZapSignDocumentResult",
   "DocuSealProviderOptions",
   "DocuSealSubmissionResult",
-  "AdobeSignProviderOptions",
-  "AdobeSignTransientDocumentResult",
-  "AdobeSignAgreementResult",
-  "DropboxSignProviderOptions",
-  "DropboxSignSignatureRequestResult",
   "DocumensoProviderOptions",
   "DocumensoCreateEnvelopeResult",
   "DocumensoDistributeEnvelopeResult",
@@ -385,8 +375,6 @@ export const SignatureKitSchemaNameValue = {
   remoteSignatureRequestInput: "RemoteSignatureRequestInput",
   remoteSignatureRequestProps: "RemoteSignatureRequestProps",
   providerHttpRequest: "ProviderHttpRequest",
-  docuSignProviderOptions: "DocuSignProviderOptions",
-  docuSignEnvelopeResult: "DocuSignEnvelopeResult",
   clicksignProviderOptions: "ClicksignProviderOptions",
   clicksignDocumentResult: "ClicksignDocumentResult",
   clicksignSignerResult: "ClicksignSignerResult",
@@ -399,11 +387,6 @@ export const SignatureKitSchemaNameValue = {
   zapSignDocumentResult: "ZapSignDocumentResult",
   docuSealProviderOptions: "DocuSealProviderOptions",
   docuSealSubmissionResult: "DocuSealSubmissionResult",
-  adobeSignProviderOptions: "AdobeSignProviderOptions",
-  adobeSignTransientDocumentResult: "AdobeSignTransientDocumentResult",
-  adobeSignAgreementResult: "AdobeSignAgreementResult",
-  dropboxSignProviderOptions: "DropboxSignProviderOptions",
-  dropboxSignSignatureRequestResult: "DropboxSignSignatureRequestResult",
   documensoProviderOptions: "DocumensoProviderOptions",
   documensoCreateEnvelopeResult: "DocumensoCreateEnvelopeResult",
   documensoDistributeEnvelopeResult: "DocumensoDistributeEnvelopeResult",
@@ -418,9 +401,6 @@ export class SignatureKitError extends Schema.TaggedErrorClass<SignatureKitError
     reason: Schema.optional(Schema.String),
     operation: Schema.optional(SignatureKitOperationSchema),
     schemaName: Schema.optional(SignatureKitSchemaNameSchema),
-    issuePath: Schema.optional(Schema.String),
-    issueMessage: Schema.optional(Schema.String),
-    upstreamTag: Schema.optional(Schema.String),
     provider: Schema.optional(RemoteSignatureProviderSchema),
     status: Schema.optional(Schema.Number),
   },
@@ -466,79 +446,3 @@ export class SignatureKitError extends Schema.TaggedErrorClass<SignatureKitError
     }
   }
 }
-
-// =============================================================================
-// Schema error metadata
-// =============================================================================
-
-type SchemaIssueMetadata = {
-  readonly issuePath?: string | undefined;
-  readonly issueMessage: string;
-  readonly upstreamTag: string;
-};
-
-const formatIssuePath = (path: ReadonlyArray<PropertyKey>): string | undefined =>
-  path.length === 0 ? undefined : path.map((segment) => String(segment)).join(".");
-
-const schemaIssueLeafMetadata = (
-  issue: SchemaIssue.Issue,
-  path: ReadonlyArray<PropertyKey> = [],
-): SchemaIssueMetadata => {
-  switch (issue._tag) {
-    case "Pointer":
-      return schemaIssueLeafMetadata(issue.issue, [...path, ...issue.path]);
-    case "Composite":
-      return schemaIssueLeafMetadata(issue.issues[0], path);
-    case "Encoding":
-      return schemaIssueLeafMetadata(issue.issue, path);
-    case "Filter":
-      return schemaIssueLeafMetadata(issue.issue, path);
-    case "AnyOf":
-      return issue.issues[0] === undefined
-        ? {
-            issuePath: formatIssuePath(path),
-            issueMessage: "No union member accepted the value.",
-            upstreamTag: issue._tag,
-          }
-        : schemaIssueLeafMetadata(issue.issues[0], path);
-    case "InvalidType":
-      return {
-        issuePath: formatIssuePath(path),
-        issueMessage: "Invalid type for schema.",
-        upstreamTag: issue._tag,
-      };
-    case "InvalidValue":
-      return {
-        issuePath: formatIssuePath(path),
-        issueMessage: "Invalid value for schema.",
-        upstreamTag: issue._tag,
-      };
-    case "MissingKey":
-      return {
-        issuePath: formatIssuePath(path),
-        issueMessage: "Required key missing.",
-        upstreamTag: issue._tag,
-      };
-    case "UnexpectedKey":
-      return {
-        issuePath: formatIssuePath(path),
-        issueMessage: "Unexpected key.",
-        upstreamTag: issue._tag,
-      };
-    case "Forbidden":
-      return {
-        issuePath: formatIssuePath(path),
-        issueMessage: "Forbidden operation during schema decode.",
-        upstreamTag: issue._tag,
-      };
-    case "OneOf":
-      return {
-        issuePath: formatIssuePath(path),
-        issueMessage: "More than one union member accepted the value.",
-        upstreamTag: issue._tag,
-      };
-  }
-};
-
-export const schemaErrorMetadata = (error: Schema.SchemaError): SchemaIssueMetadata =>
-  schemaIssueLeafMetadata(error.issue);

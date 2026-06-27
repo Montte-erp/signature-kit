@@ -1,9 +1,9 @@
 ---
 title: The signing boundary
-description: "The SignerAdapter is the capability seam: it decides where the power to sign comes from without touching the document, is provided as the Signatures service, and is swappable without rewriting formats."
+description: "The SignerAdapter is the capability seam that decides where signing power comes from, swappable without touching document formats."
 ---
 
-**The core idea:** the `SignerAdapter` is the single seam through which the power to sign enters. It answers _where_ the key comes from — an A1 `.pfx`, an HSM, a remote service — and always exposes the same shape. Everything above it (core, XML, PDF) talks to that shape, not to the backend.
+**The core idea:** the `SignerAdapter` is the seam through which signing power enters. It answers _where_ the key comes from — an A1 `.pfx`, an HSM, a remote service — while everything above it (core, XML, PDF) talks to one fixed shape, not the backend.
 
 ```text
                     ┌──────────────────────────────┐
@@ -23,7 +23,7 @@ description: "The SignerAdapter is the capability seam: it decides where the pow
 
 ## The SignerAdapter contract
 
-The type below is the literal definition exported by `@signature-kit/core/config`. The doc-comment pins down the rule that the rest of this page details: the signer owns where the signing power comes from, and **never** owns format mutation.
+The type below is the literal definition from `@signature-kit/core/config`. Its doc-comment pins the rule this page details: the signer owns where signing power comes from, and **never** owns format mutation.
 
 ```ts title="core/core/src/config.ts"
 /**
@@ -44,7 +44,7 @@ export type SignerAdapter = {
 
 Every `SignerAdapter` implementation delivers exactly these six members:
 
-- `id: string` — identity of the signing backend. A1 uses `"a1"`. Remote signers such as DocuSign, Clicksign, Assinafy and ZapSign use `create*SignatureRequest(...)` functions and do not go through this XML/PDF mutation seam.
+- `id: string` — identity of the signing backend. A1 uses `"a1"`. Remote signers such as Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso use `create*SignatureRequest(...)` functions and do not go through this XML/PDF mutation seam.
 - `inspect()` — returns `Effect<SignerIdentity, SignatureKitError>` with `subject`, `issuer`, `serialNumber`, `thumbprint`, `validFrom`, `validTo` and `document?` (CPF/CNPJ when ICP-Brasil).
 - `certificate()` — returns `Effect<Certificate, SignatureKitError>`, the full certificate (`certPem`, `certificateDer`, `publicKeyDer` and the `privateKeyPem: Redacted<string>`).
 - `importSigningKey(algorithm)` — materializes the signing `CryptoKey` for the requested `SignatureAlgorithm` (`"rsa-sha256"` or `"rsa-sha512"`).
@@ -58,7 +58,7 @@ Every `SignerAdapter` implementation delivers exactly these six members:
 
 ## Building an A1
 
-The `@signature-kit/a1` package implements the seam from a `.pfx`/`.p12` file. `loadA1SignerAdapter(options)` does the asynchronous parsing and returns a ready `SignerAdapter`, with `id` equal to `"a1"`.
+The `@signature-kit/a1` package implements the seam from a `.pfx`/`.p12` file. `loadA1SignerAdapter(options)` parses it asynchronously and returns a ready `SignerAdapter` with `id` `"a1"`.
 
 ```package-install
 @signature-kit/core @signature-kit/a1
@@ -86,7 +86,7 @@ const artifact = yield* signer.sign({ content, algorithm: "rsa-sha256" })
 
 ## Providing it as a service
 
-The core defines `Signatures` as a `Context.Service` with tag `"@signature-kit/core/Signatures"`. You never implement that service by hand: you pass a `SignerAdapter` to `signaturesLayer(signer)` and get a `Layer<Signatures>` back (via `Layer.succeed`). The accessors `signatures.{inspect, certificate, importSigningKey, sign, verify}` declare the dependency on `Signatures` and satisfy it with the provided layer.
+The core defines `Signatures` as a `Context.Service` with tag `"@signature-kit/core/Signatures"`. You never implement it by hand: pass a `SignerAdapter` to `signaturesLayer(signer)` and get a `Layer<Signatures>` back (via `Layer.succeed`). The accessors `signatures.{inspect, certificate, importSigningKey, sign, verify}` declare the dependency on `Signatures`; the layer satisfies it.
 
 ```ts title="provide.ts"
 import { signaturesLayer, signatures } from "@signature-kit/core/signatures"
@@ -113,7 +113,7 @@ yield* program.pipe(Effect.provide(signaturesLayer(signer)))
 
 ## Automatic provider for formats
 
-For formats, A1 offers a shortcut: `a1SignaturesLayer(options)` returns a `Layer<Signatures, SignatureKitError>` directly, without you instantiating the adapter beforehand. `signXml` and `signPdf` require `Signatures` in their requirements channel; you just hand over that layer via `Effect.provide`.
+For formats, A1 offers a shortcut: `a1SignaturesLayer(options)` returns a `Layer<Signatures, SignatureKitError>` directly, with no adapter to instantiate first. `signXml` and `signPdf` require `Signatures` in their requirements channel; hand over that layer via `Effect.provide`.
 
 ```package-install
 @signature-kit/xml @signature-kit/pdf
@@ -144,7 +144,7 @@ const signedPdf = yield* signPdf({ pdf, policy: "pades-icp-brasil" })
 
 ## Swapping the backend
 
-Because the seam is a fixed-shape port, swapping where the signing power comes from is swapping the argument of `signaturesLayer(...)`. The signing work is identical in both cases; nothing about the format changes.
+Because the seam is a fixed-shape port, swapping where signing power comes from means swapping the argument of `signaturesLayer(...)`. The signing work is identical; nothing about the format changes.
 
 ```ts title="swap-backend.ts"
 import { signPdf } from "@signature-kit/pdf/sign"
@@ -170,9 +170,9 @@ const withHsm = yield* job.pipe(Effect.provide(signaturesLayer(hsmSigner)))
 
 ## Where the seam ends
 
-The doc-comment's rule is deliberate: the `SignerAdapter` owns **where** the signing power comes from, and **never** document mutation. It operates over `content: Uint8Array` and returns a `signature: Uint8Array` — opaque bytes. Embedding a signature into an enveloped XML or a PAdES PDF is the job of the format modules (`@signature-kit/xml`, `@signature-kit/pdf`), which consume the seam through `Effect.provide` and only because of that stay backend-neutral.
+The doc-comment's rule is deliberate: the `SignerAdapter` owns **where** signing power comes from, and **never** document mutation. It operates over `content: Uint8Array` and returns a `signature: Uint8Array` — opaque bytes. Embedding a signature into an enveloped XML or a PAdES PDF is the job of the format modules (`@signature-kit/xml`, `@signature-kit/pdf`), which consume the seam through `Effect.provide` and stay backend-neutral because of it.
 
-That cut is what keeps the application stable: the XML doesn't know whether the key came from a `.pfx` or an HSM, and the signer doesn't know whether the bytes it received are an NF-e or a PDF. Each side knows only its own half of the boundary.
+That cut keeps the application stable: the XML doesn't know whether the key came from a `.pfx` or an HSM, and the signer doesn't know whether its bytes are an NF-e or a PDF. Each side knows only its half of the boundary.
 
 ## Errors you might see
 

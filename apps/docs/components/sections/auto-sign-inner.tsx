@@ -22,7 +22,7 @@ import {
   type SignatureVariant,
   type SignedMark,
 } from "@/components/formal-contract-pdf";
-import { PdfPage, loadPdfjs, type PdfDocumentProxy } from "@/components/pdf-page";
+import { PdfPage, loadPdfjs, type PdfDocumentProxy, type PdfLoadingTask } from "@/components/pdf-page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -33,8 +33,8 @@ import { m } from "@/paraglide/messages";
  * Auto-signature demo — heavy interactive body (loaded ssr:false from auto-sign.tsx
  * so react-pdf never runs during the SSG prerender).
  *
- * GENERATION is react-pdf ("pdfx", the same engine @signature-kit/react renders
- * signature templates with) via generateFormalContractPdf — a real A4 contract
+ * GENERATION is this docs app's own react-pdf ("pdfx") path via
+ * generateFormalContractPdf — a real A4 contract
  * with a FORMAL signature field. "prepare" renders the empty field (preview);
  * "sign" re-renders with the applied signature filling the field. The visible
  * crypto/PAdES step is out of scope (it needs a real .pfx — that is the live
@@ -123,10 +123,12 @@ type AutoState = {
 // A queue task: "prepare" renders the empty-field preview; "sign" re-renders with
 // the applied signature filling the field.
 type QueueItem = { readonly id: string; readonly name: string; readonly mode: "prepare" | "sign" };
+const statusEntry = (id: string, phase: DocPhase): readonly [string, DocPhase] => [id, phase];
+
 
 const initialState = (): AutoState => ({
   docs: DEMO_DOCS.map((d) => ({ id: d.id, name: d.name, variantLabel: d.variantLabel })),
-  status: Object.fromEntries(DEMO_DOCS.map((d) => [d.id, "queued" as const])),
+  status: Object.fromEntries(DEMO_DOCS.map((d) => statusEntry(d.id, "queued"))),
   activeIndex: 0,
 });
 
@@ -183,7 +185,7 @@ for (const demo of DEMO_DOCS) {
 
 const queueBusy = (): boolean => {
   const s = signQueuer.store.state;
-  return s.activeItems.length > 0 || s.items.length > 0;
+  return s.activeItems.length + s.items.length > 0;
 };
 
 const go = (to: number): void => {
@@ -201,7 +203,7 @@ const autoSign = (): void => {
     status: Object.fromEntries(
       DEMO_DOCS.map((d) => {
         const prepared = s.docs.find((x) => x.id === d.id)?.pdfBytes;
-        return [d.id, (prepared ? "ready" : "queued") as DocPhase];
+        return statusEntry(d.id, prepared ? "ready" : "queued");
       }),
     ),
   }));
@@ -284,8 +286,7 @@ function AutoDocCanvas({ doc }: { doc: AutoDoc }) {
   React.useEffect(() => {
     if (!bytes) return;
     let cancelled = false;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let task: any;
+    let task: PdfLoadingTask | undefined;
     (async () => {
       const pdfjs = await loadPdfjs();
       task = pdfjs.getDocument({ data: bytes.slice() });
@@ -332,7 +333,7 @@ export function AutoSignInner() {
   // `isRunning` (which stays true after start — the "never finishes" bug).
   const busy = useStore(
     signQueuer.store,
-    (s) => s.activeItems.length > 0 || s.items.length > 0,
+    (s) => s.activeItems.length + s.items.length > 0,
   );
 
   const allSigned = DEMO_DOCS.every((d) => status[d.id] === "signed");

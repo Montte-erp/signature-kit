@@ -18,7 +18,7 @@ import type { Locale } from "@/lib/locale";
  * `setServerLocale(lang)` at the top of its render, before any `m()`. The
  * cache()d store makes repeated calls within one request a cheap no-op.
  */
-const ssrLocale = cache(() => ({ locale: baseLocale as string }));
+const ssrLocale = cache((): { locale: string } => ({ locale: baseLocale }));
 
 overwriteGetLocale(() => assertIsLocale(ssrLocale().locale));
 

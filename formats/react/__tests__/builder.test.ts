@@ -3,7 +3,6 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Result, Schema } from "effect";
 import {
   addReactSignatureField,
-  createDocuSealBuilderTokenPayload,
   createReactSignatureBuilderState,
   createReactSignatureTemplate,
   fieldFromPlacement,
@@ -14,15 +13,14 @@ import {
 import {
   createBrowserPdfSignatureBuilderState,
   createBrowserPdfTemplate,
-  createBrowserPdfSigningQueue,
   loadBrowserPdfDocument,
   readBrowserFileBytes,
   signBrowserPdfBatch,
 } from "@signature-kit/react/browser-pdf";
-import { renderReactSignatureTemplatePdf } from "@signature-kit/react/react-pdf";
 import {
   BrowserPdfSigningInputSchema,
   ReactIntegrationErrorCodeValue,
+  ReactSignatureFieldTypeSchema,
   type ReactSignatureTemplate,
   type ReactSignatureTemplateInput,
 } from "@signature-kit/react/config";
@@ -44,8 +42,6 @@ const stubSigner: SignerAdapter = {
   verify: () => Effect.die("stub signer should not be called"),
 };
 
-const latin1 = new TextDecoder("latin1");
-
 const createPdf: Effect.Effect<Uint8Array> = Effect.promise(async () => {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([320, 180]);
@@ -63,7 +59,7 @@ const templateInput = (): ReactSignatureTemplateInput => ({
     {
       id: "document-1",
       name: "agreement.pdf",
-      source: { type: "generated" },
+      source: { type: "uploaded" },
       pages: [{ index: 0, width: 612, height: 792, label: "Agreement" }],
     },
   ],
@@ -77,7 +73,7 @@ const templateWithOutOfBoundsField = (): ReactSignatureTemplate => ({
     {
       id: "document-1",
       name: "agreement.pdf",
-      source: { type: "generated" },
+      source: { type: "uploaded" },
       pages: [{ index: 0, width: 612, height: 792, label: "Agreement" }],
     },
   ],
@@ -94,7 +90,7 @@ const templateWithOutOfBoundsField = (): ReactSignatureTemplate => ({
 });
 
 describe("React signature builder", () => {
-  it.effect("builds a DocuSeal-style template and PDF signing appearance", () =>
+  it.effect("builds an A1-only signature template and PDF signing appearance", () =>
     Effect.gen(function* () {
       const template = yield* createReactSignatureTemplate(templateInput());
       const field = yield* fieldFromPlacement({
@@ -114,25 +110,9 @@ describe("React signature builder", () => {
       });
       const withField = yield* addReactSignatureField(template, field);
       const appearance = yield* pdfSignatureAppearanceFromField(withField, "signature-1");
-      const docuSealPayload = yield* createDocuSealBuilderTokenPayload({
-        userEmail: "admin@example.com",
-        integrationEmail: "customer@example.com",
-        externalId: "template-1",
-        name: "Onboarding agreement",
-        documentUrls: ["https://example.com/agreement.pdf"],
-        extractFields: true,
-      });
 
       expect(withField.fields).toHaveLength(1);
       expect(appearance).toEqual({ pageIndex: 0, widgetRect: [72, 72, 216, 108] });
-      expect(docuSealPayload).toEqual({
-        user_email: "admin@example.com",
-        integration_email: "customer@example.com",
-        external_id: "template-1",
-        name: "Onboarding agreement",
-        document_urls: ["https://example.com/agreement.pdf"],
-        extract_fields: true,
-      });
     }),
   );
 
@@ -243,25 +223,13 @@ describe("React signature builder", () => {
     }),
   );
 
-  it.effect("renders the builder template through react-pdf", () =>
+  it.effect("rejects non-signature field types in the A1 React surface", () =>
     Effect.gen(function* () {
-      const template = yield* createReactSignatureTemplate({
-        ...templateInput(),
-        fields: [
-          {
-            id: "signature-1",
-            type: "signature",
-            documentId: "document-1",
-            roleId: "signer-1",
-            rect: { pageIndex: 0, x: 72, y: 684, width: 144, height: 36 },
-            label: "Assinatura",
-          },
-        ],
-      });
-      const pdfBytes = yield* renderReactSignatureTemplatePdf(template);
+      const result = yield* Effect.result(
+        Schema.decodeUnknownEffect(ReactSignatureFieldTypeSchema)("text"),
+      );
 
-      expect(latin1.decode(pdfBytes.slice(0, 5))).toBe("%PDF-");
-      expect(pdfBytes.byteLength).toBeGreaterThan(1000);
+      expect(Result.isFailure(result)).toBe(true);
     }),
   );
 
@@ -386,52 +354,6 @@ describe("React signature builder", () => {
       if (Result.isFailure(ambiguous)) {
         expect(ambiguous.failure.code).toBe(ReactIntegrationErrorCodeValue.invalidBuilderInput);
       }
-    }),
-  );
-
-  it.effect("queues browser PDF signing work with bounded concurrency", () =>
-    Effect.gen(function* () {
-      const pdf = yield* createPdf;
-      const template = yield* createBrowserPdfTemplate({
-        id: "browser-template",
-        name: "Browser PDF signature",
-        documentId: "uploaded",
-        documentName: "uploaded.pdf",
-        pdf,
-        role: { id: "signer-1", label: "Cliente", email: "ana@example.com", required: true },
-      });
-      const completed: string[] = [];
-      const queue = yield* createBrowserPdfSigningQueue(
-        async () => new Uint8Array([7]),
-        { concurrency: 1, maxSize: 1, started: false },
-        {
-          onSuccess: (success, item) => {
-            completed.push(`${item.id}:${success.signedPdf[0]}`);
-          },
-        },
-      );
-      const item = {
-        id: "first.pdf",
-        input: {
-          pdf,
-          template,
-          fieldId: "signature-1",
-          reason: "Queue test",
-        },
-      };
-
-      yield* queue.add(item);
-      expect(queue.getSnapshot().pendingCount).toBe(1);
-
-      const rejected = yield* Effect.result(queue.add({ ...item, id: "second.pdf" }));
-      expect(Result.isFailure(rejected)).toBe(true);
-      if (Result.isFailure(rejected)) {
-        expect(rejected.failure.code).toBe(ReactIntegrationErrorCodeValue.queueRejected);
-      }
-
-      yield* Effect.promise(() => queue.flush());
-      expect(completed).toEqual(["first.pdf:7"]);
-      expect(queue.getSnapshot().successCount).toBe(1);
     }),
   );
 

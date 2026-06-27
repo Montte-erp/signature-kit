@@ -1,5 +1,5 @@
-import { type Asn1Error, bytesOf, childrenOf, decode, oidString } from "@signature-kit/asn1";
-import { Duration, Effect } from "effect";
+import { Asn1Error, bytesOf, childrenOf, decode, oidString } from "@signature-kit/asn1";
+import { Duration, Effect, Schema } from "effect";
 import {
   type CmsHashAlgorithm,
   type IcpBrasilPolicy,
@@ -7,6 +7,11 @@ import {
   CmsErrorCodeValue,
   CmsOperationValue,
 } from "./config";
+
+const FetchIcpBrasilPadesPolicyOptionsSchema = Schema.Struct({
+  timeoutMillis: Schema.optional(Schema.Number),
+});
+type FetchIcpBrasilPadesPolicyOptions = (typeof FetchIcpBrasilPadesPolicyOptionsSchema)["Type"];
 
 export const IcpBrasilPadesPolicy = {
   adRbV11: {
@@ -17,15 +22,6 @@ export const IcpBrasilPadesPolicy = {
 
 const DEFAULT_POLICY_TIMEOUT_MILLIS = 10000;
 let cachedAdRbV11: IcpBrasilPolicy | null = null;
-
-const asn1ToCms = (error: Asn1Error): CmsError =>
-  new CmsError({
-    code: CmsErrorCodeValue.policyError,
-    reason: error.message,
-    operation: CmsOperationValue.policy,
-    upstreamTag: error._tag,
-    upstreamCode: error.code,
-  });
 
 const cmsHashAlgorithmFromOid = (oid: string): Effect.Effect<CmsHashAlgorithm, CmsError> => {
   switch (oid) {
@@ -48,16 +44,12 @@ const cmsHashAlgorithmFromOid = (oid: string): Effect.Effect<CmsHashAlgorithm, C
   }
 };
 
-export const clearIcpBrasilPolicyCache = (): void => {
-  cachedAdRbV11 = null;
-};
-
 export const parseIcpBrasilPadesPolicy = (
   policyDer: Uint8Array,
-): Effect.Effect<IcpBrasilPolicy, CmsError> =>
+): Effect.Effect<IcpBrasilPolicy, CmsError | Asn1Error> =>
   Effect.gen(function* () {
-    const root = yield* decode(policyDer).pipe(Effect.mapError(asn1ToCms));
-    const policyFields = yield* childrenOf(root).pipe(Effect.mapError(asn1ToCms));
+    const root = yield* decode(policyDer);
+    const policyFields = yield* childrenOf(root);
     const algorithmIdentifier = policyFields[0];
     const policyHashNode = policyFields[2];
     if (algorithmIdentifier === undefined || policyHashNode === undefined) {
@@ -70,7 +62,7 @@ export const parseIcpBrasilPadesPolicy = (
       );
     }
 
-    const algorithmFields = yield* childrenOf(algorithmIdentifier).pipe(Effect.mapError(asn1ToCms));
+    const algorithmFields = yield* childrenOf(algorithmIdentifier);
     const algorithmOidNode = algorithmFields[0];
     if (algorithmOidNode === undefined) {
       return yield* Effect.fail(
@@ -82,9 +74,9 @@ export const parseIcpBrasilPadesPolicy = (
       );
     }
 
-    const algorithmOid = yield* oidString(algorithmOidNode).pipe(Effect.mapError(asn1ToCms));
+    const algorithmOid = yield* oidString(algorithmOidNode);
     const policyHashAlgorithm = yield* cmsHashAlgorithmFromOid(algorithmOid);
-    const policyHash = yield* bytesOf(policyHashNode).pipe(Effect.mapError(asn1ToCms));
+    const policyHash = yield* bytesOf(policyHashNode);
 
     return {
       policyOid: IcpBrasilPadesPolicy.adRbV11.policyOid,
@@ -94,9 +86,13 @@ export const parseIcpBrasilPadesPolicy = (
     };
   });
 
-export const fetchIcpBrasilPadesPolicy = (options?: {
-  readonly timeoutMillis?: number | undefined;
-}): Effect.Effect<IcpBrasilPolicy, CmsError> => {
+export const clearIcpBrasilPolicyCache = (): void => {
+  cachedAdRbV11 = null;
+};
+
+export const fetchIcpBrasilPadesPolicy = (
+  options?: FetchIcpBrasilPadesPolicyOptions,
+): Effect.Effect<IcpBrasilPolicy, CmsError> => {
   if (cachedAdRbV11 !== null) return Effect.succeed(cachedAdRbV11);
 
   return Effect.gen(function* () {
@@ -142,7 +138,17 @@ export const fetchIcpBrasilPadesPolicy = (options?: {
         }),
     });
 
-    const policy = yield* parseIcpBrasilPadesPolicy(new Uint8Array(policyDer));
+    const policy = yield* parseIcpBrasilPadesPolicy(new Uint8Array(policyDer)).pipe(
+      Effect.mapError((error) =>
+        error._tag === "Asn1Error"
+          ? new CmsError({
+              code: CmsErrorCodeValue.policyError,
+              reason: error.message,
+              operation: CmsOperationValue.policy,
+            })
+          : error,
+      ),
+    );
     cachedAdRbV11 = policy;
     return policy;
   });

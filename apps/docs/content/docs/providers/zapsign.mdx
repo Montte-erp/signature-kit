@@ -3,7 +3,7 @@ title: ZapSign
 description: "Create ZapSign documents with createZapSignSignatureRequest(...), a Redacted API token, and the official REST endpoint."
 ---
 
-ZapSign is a remote signer that talks directly to `POST /api/v1/docs/`, with no intermediate gateway. Install the package and create the document in two steps.
+ZapSign is a remote signer that calls `POST /api/v1/docs/` with no intermediate gateway. Install the package and create the document in two steps.
 
 <Steps>
   <Step title="Install">
@@ -15,7 +15,7 @@ ZapSign is a remote signer that talks directly to `POST /api/v1/docs/`, with no 
   </Step>
 
   <Step title="Create the document">
-    The function sends `base64_pdf`, signers, and `Authorization: Bearer` authentication. The response normalizes `token`, `status`, and the first `sign_url` into a `RemoteSignatureRequest`.
+    The function sends `base64_pdf`, signers, and an `Authorization: Bearer` header. The response normalizes `token`, `status`, and the first `sign_url` into a `RemoteSignatureRequest`.
 
     ```ts title="zapsign.ts"
     import { createZapSignSignatureRequest } from "@signature-kit/zapsign"
@@ -44,7 +44,7 @@ ZapSign is a remote signer that talks directly to `POST /api/v1/docs/`, with no 
 
 ## API limit
 
-The current implementation accepts a single PDF per request, aligned with ZapSign's documented upload flow.
+Accepts a single PDF per request, matching ZapSign's documented upload flow.
 
 <Callout type="warn" title="One PDF per request">
   Multiple documents or any other MIME type fail as `signature-kit.UNSUPPORTED_OPERATION`.

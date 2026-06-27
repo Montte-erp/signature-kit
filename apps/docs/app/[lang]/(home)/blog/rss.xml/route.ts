@@ -1,7 +1,7 @@
 import { i18n } from "@/lib/i18n";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
 import { blogPostPath, sortedPosts } from "@/lib/blog";
-import type { Lang } from "@/lib/locale";
+import { parseLocale, type Lang } from "@/lib/locale";
 
 // Static per-locale RSS 2.0 feed at /{lang}/blog/rss.xml. Hand-rolled XML keeps it
 // dependency-free; the static `rss.xml` segment wins over the sibling `[slug]`.
@@ -37,7 +37,8 @@ export async function GET(
   { params }: { params: Promise<{ lang: string }> },
 ) {
   const { lang } = await params;
-  const locale = (i18n.languages.includes(lang as Lang) ? lang : "en-US") as Lang;
+  const locale = parseLocale(lang);
+  if (locale === undefined) return new Response("Not found", { status: 404 });
   const channel = CHANNEL[locale];
   const self = `${SITE_URL}/${locale}/blog/rss.xml`;
 

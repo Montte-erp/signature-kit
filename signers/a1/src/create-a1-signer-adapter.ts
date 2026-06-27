@@ -1,7 +1,6 @@
 /**
  * The first e-signature adapter: A1 / PKCS#12.
  */
-
 import { Signatures } from "@signature-kit/core/signatures";
 import type { Certificate, SignatureAlgorithm, SignerAdapter } from "@signature-kit/core/config";
 import {
@@ -11,12 +10,102 @@ import {
   SignatureKitSchemaNameValue,
   SignInputSchema,
   VerifyInputSchema,
-  schemaErrorMetadata,
 } from "@signature-kit/core/config";
 import { daysUntilExpiry, parseCertificate, toSignerIdentity } from "@signature-kit/certificates";
-import { Context, Effect, Layer, Schema } from "effect";
+import { pemToDer } from "@signature-kit/crypto/pem";
+import { Context, Effect, Layer, Redacted, Schema } from "effect";
 import { A1SignerOptionsSchema, type A1CertificateProfile, type A1SignerOptions } from "./config";
-import { importPrivateKey, importPublicKey, signWithKey, verifyWithKey } from "./web-crypto";
+
+const RSA_ALGORITHM_NAME = "RSASSA-PKCS1-v1_5";
+
+type RsaAlgorithm = {
+  readonly name: typeof RSA_ALGORITHM_NAME;
+  readonly hash: "SHA-1" | "SHA-256" | "SHA-512";
+};
+
+const rsaAlgorithm = (algorithm: SignatureAlgorithm): RsaAlgorithm => ({
+  name: RSA_ALGORITHM_NAME,
+  hash: algorithm === "rsa-sha1" ? "SHA-1" : algorithm === "rsa-sha512" ? "SHA-512" : "SHA-256",
+});
+
+/** Copy into a fresh ArrayBuffer-backed view so it satisfies `BufferSource`. */
+const toBufferSource = (data: Uint8Array): Uint8Array<ArrayBuffer> => {
+  const copy = new Uint8Array(data.byteLength);
+  copy.set(data);
+  return copy;
+};
+
+const importKey = (
+  format: "pkcs8" | "spki",
+  keyData: Uint8Array,
+  algorithm: SignatureAlgorithm,
+  usage: "sign" | "verify",
+): Effect.Effect<CryptoKey, SignatureKitError> =>
+  Effect.tryPromise({
+    try: () =>
+      crypto.subtle.importKey(format, toBufferSource(keyData), rsaAlgorithm(algorithm), false, [
+        usage,
+      ]),
+    catch: () =>
+      new SignatureKitError({
+        code: SignatureKitErrorCodeValue.keyImportFailed,
+        retryable: false,
+        reason: `Failed to import ${format} key for ${algorithm}.`,
+        operation: SignatureKitOperationValue.cryptoImport,
+      }),
+  });
+
+const importPrivateKey = (
+  privateKey: Redacted.Redacted<string>,
+  algorithm: SignatureAlgorithm,
+): Effect.Effect<CryptoKey, SignatureKitError> =>
+  importKey("pkcs8", pemToDer(Redacted.value(privateKey)), algorithm, "sign");
+
+const importPublicKey = (
+  publicKeyDer: Uint8Array,
+  algorithm: SignatureAlgorithm,
+): Effect.Effect<CryptoKey, SignatureKitError> =>
+  importKey("spki", publicKeyDer, algorithm, "verify");
+
+const signWithKey = (
+  key: CryptoKey,
+  algorithm: SignatureAlgorithm,
+  content: Uint8Array,
+): Effect.Effect<Uint8Array, SignatureKitError> =>
+  Effect.gen(function* () {
+    const signature = yield* Effect.tryPromise({
+      try: () => crypto.subtle.sign(rsaAlgorithm(algorithm).name, key, toBufferSource(content)),
+      catch: () =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.signFailed,
+          retryable: false,
+          operation: SignatureKitOperationValue.cryptoSign,
+        }),
+    });
+    return new Uint8Array(signature);
+  });
+
+const verifyWithKey = (
+  key: CryptoKey,
+  algorithm: SignatureAlgorithm,
+  signature: Uint8Array,
+  content: Uint8Array,
+): Effect.Effect<boolean, SignatureKitError> =>
+  Effect.tryPromise({
+    try: () =>
+      crypto.subtle.verify(
+        rsaAlgorithm(algorithm).name,
+        key,
+        toBufferSource(signature),
+        toBufferSource(content),
+      ),
+    catch: () =>
+      new SignatureKitError({
+        code: SignatureKitErrorCodeValue.verifyFailed,
+        retryable: false,
+        operation: SignatureKitOperationValue.cryptoVerify,
+      }),
+  });
 
 export type A1SignerMaterial = {
   readonly certificate: Certificate;
@@ -43,17 +132,15 @@ const decodeA1SignerOptions = (
   options: A1SignerOptions,
 ): Effect.Effect<A1SignerOptions, SignatureKitError> =>
   Schema.decodeUnknownEffect(A1SignerOptionsSchema)(options).pipe(
-    Effect.mapError(
-      (error) =>
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.invalidInput,
-          retryable: false,
-          reason: "Invalid A1 signer options.",
-          operation: SignatureKitOperationValue.schemaDecode,
-          schemaName: SignatureKitSchemaNameValue.a1SignerOptions,
-          ...schemaErrorMetadata(error),
-        }),
-    ),
+    Effect.mapError((_error) => {
+      return new SignatureKitError({
+        code: SignatureKitErrorCodeValue.invalidInput,
+        retryable: false,
+        reason: "Invalid A1 signer options.",
+        operation: SignatureKitOperationValue.schemaDecode,
+        schemaName: SignatureKitSchemaNameValue.a1SignerOptions,
+      });
+    }),
   );
 
 const loadA1Certificate = (
@@ -123,17 +210,15 @@ export const createA1SignerAdapter = (certificate: Certificate): SignerAdapter =
     importSigningKey: signingKey,
     sign: (input) =>
       Schema.decodeUnknownEffect(SignInputSchema)(input).pipe(
-        Effect.mapError(
-          (error) =>
-            new SignatureKitError({
-              code: SignatureKitErrorCodeValue.invalidInput,
-              retryable: false,
-              reason: "Invalid sign input.",
-              operation: SignatureKitOperationValue.schemaDecode,
-              schemaName: SignatureKitSchemaNameValue.signInput,
-              ...schemaErrorMetadata(error),
-            }),
-        ),
+        Effect.mapError((_error) => {
+          return new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            reason: "Invalid sign input.",
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.signInput,
+          });
+        }),
         Effect.flatMap((valid) =>
           signingKey(valid.algorithm).pipe(
             Effect.flatMap((key) => signWithKey(key, valid.algorithm, valid.content)),
@@ -143,17 +228,15 @@ export const createA1SignerAdapter = (certificate: Certificate): SignerAdapter =
       ),
     verify: (input) =>
       Schema.decodeUnknownEffect(VerifyInputSchema)(input).pipe(
-        Effect.mapError(
-          (error) =>
-            new SignatureKitError({
-              code: SignatureKitErrorCodeValue.invalidInput,
-              retryable: false,
-              reason: "Invalid verify input.",
-              operation: SignatureKitOperationValue.schemaDecode,
-              schemaName: SignatureKitSchemaNameValue.verifyInput,
-              ...schemaErrorMetadata(error),
-            }),
-        ),
+        Effect.mapError((_error) => {
+          return new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            reason: "Invalid verify input.",
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.verifyInput,
+          });
+        }),
         Effect.flatMap((valid) =>
           verificationKey(valid.algorithm).pipe(
             Effect.flatMap((key) =>

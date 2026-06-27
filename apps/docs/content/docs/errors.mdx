@@ -3,7 +3,7 @@ title: Typed error channel
 description: "Every SignatureKit failure is a SignatureKitError in Effect's error channel — discriminate by code with Effect.catchTag/catchIf, no throw."
 ---
 
-Every failure in the core, the A1 signer, and the formats is a `SignatureKitError` in `Effect`'s error channel — not a thrown exception. The return type carries the failure: `Effect<SignatureArtifact, SignatureKitError>`. This makes handling exhaustive and compiler-verifiable: you discriminate by `code`, and whatever you do not handle keeps propagating, typed.
+Every failure in the core, the A1 signer, and the formats is a `SignatureKitError` in `Effect`'s error channel — not a thrown exception. The return type carries it (`Effect<SignatureArtifact, SignatureKitError>`), so handling stays exhaustive and compiler-checked: you discriminate by `code`, and whatever you do not handle keeps propagating, typed.
 
 <Callout type="info" title="Typed error channel">
   Failures are not `throw`n: they live in `Effect`'s error channel as a `SignatureKitError` with a literal `code`. The
@@ -71,7 +71,7 @@ const handled = program.pipe(
 )
 ```
 
-When you only want to intercept a specific failure and let the rest propagate, use `Effect.catchIf` with a predicate over `_tag` and `code`:
+To intercept one failure and let the rest propagate, use `Effect.catchIf` with a predicate over `_tag` and `code`:
 
 ```ts title="catch-if.ts"
 import { Effect } from "effect"
@@ -141,10 +141,10 @@ In remote signers, input, HTTP, and response-shape failures arrive as `Signature
 
 ```ts title="remote-signer-error.ts"
 import { Effect } from "effect"
-import { createDocuSignSignatureRequest } from "@signature-kit/docusign"
+import { createClicksignSignatureRequest } from "@signature-kit/clicksign"
 import { signatureHttpClientLive } from "@signature-kit/core/http"
 
-const request = createDocuSignSignatureRequest(options, {
+const request = createClicksignSignatureRequest(options, {
   title: "Contract",
   documents,
   recipients,
@@ -168,5 +168,5 @@ const request = createDocuSignSignatureRequest(options, {
 The formats and signers are separate packages — install only what each path uses.
 
 ```package-install
-@signature-kit/xml @signature-kit/pdf @signature-kit/core @signature-kit/docusign
+@signature-kit/xml @signature-kit/pdf @signature-kit/core @signature-kit/clicksign
 ```

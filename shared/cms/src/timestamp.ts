@@ -8,12 +8,12 @@
  */
 
 import * as asn1js from "asn1js";
-import { Duration, Effect } from "effect";
+import { Duration, Effect, Schema } from "effect";
 import * as pkijs from "pkijs";
 import {
-  type CmsHashAlgorithm,
   CmsError,
   CmsErrorCodeValue,
+  CmsHashAlgorithmSchema,
   CmsOperationValue,
   hashAlgorithmOid,
 } from "./config";
@@ -22,12 +22,17 @@ import { digest, toArrayBuffer } from "./engine";
 const TSA_CONTENT_TYPE = "application/timestamp-query";
 const DEFAULT_TIMEOUT_MILLIS = 15000;
 
-export const requestTimestamp = (input: {
-  readonly data: Uint8Array;
-  readonly tsaUrl: string;
-  readonly hashAlgorithm: CmsHashAlgorithm;
-  readonly timeoutMillis?: number | undefined;
-}): Effect.Effect<Uint8Array, CmsError> =>
+const RequestTimestampInputSchema = Schema.Struct({
+  data: Schema.Uint8Array,
+  tsaUrl: Schema.NonEmptyString,
+  hashAlgorithm: CmsHashAlgorithmSchema,
+  timeoutMillis: Schema.optional(Schema.Number),
+});
+type RequestTimestampInput = (typeof RequestTimestampInputSchema)["Type"];
+
+export const requestTimestamp = (
+  input: RequestTimestampInput,
+): Effect.Effect<Uint8Array, CmsError> =>
   Effect.gen(function* () {
     const imprint = yield* digest(input.hashAlgorithm, input.data);
 

@@ -14,6 +14,10 @@ const hasManualSchemaContract = (line: string, path: string, source: string): bo
 
   const name = match[1] ?? "";
   const escapedName = escapeRegex(name);
+  if (new RegExp("\\bexport\\s+type\\s+" + escapedName + "\\s*=\\s*Resource\\s*<").test(source)) {
+    return false;
+  }
+
   const schemaName = name + "Schema";
   const camelSchemaName = (name[0]?.toLowerCase() ?? "") + name.slice(1) + "Schema";
   const schemaCandidates = new Set([schemaName, camelSchemaName]);

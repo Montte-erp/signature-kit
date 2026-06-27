@@ -1,21 +1,23 @@
 import type { MetadataRoute } from "next";
 
 import { source } from "@/lib/source";
-import { i18n } from "@/lib/i18n";
 import { SITE_URL } from "@/lib/site";
 import { blogPostPath, sortedPosts } from "@/lib/blog";
 import type { Lang } from "@/lib/locale";
 
-const langs = i18n.languages as ReadonlyArray<Lang>;
+const langs: ReadonlyArray<Lang> = ["en-US", "pt-BR"];
 
-const byLang = (make: (lang: Lang) => string): Record<Lang, string> =>
-  Object.fromEntries(langs.map((l) => [l, make(l)])) as Record<Lang, string>;
+const byLang = (make: (lang: Lang) => string): Record<Lang, string> => ({
+  "en-US": make("en-US"),
+  "pt-BR": make("pt-BR"),
+});
 
 /** One sitemap entry per locale, cross-linked via `alternates.languages`. */
 function localized(pathByLang: Record<Lang, string>, lastModified?: string): MetadataRoute.Sitemap {
-  const languages = Object.fromEntries(
-    langs.map((l) => [l, `${SITE_URL}${pathByLang[l]}`]),
-  );
+  const languages = {
+    "en-US": `${SITE_URL}${pathByLang["en-US"]}`,
+    "pt-BR": `${SITE_URL}${pathByLang["pt-BR"]}`,
+  };
   return langs.map((lang) => ({
     url: `${SITE_URL}${pathByLang[lang]}`,
     lastModified: lastModified ? new Date(lastModified) : undefined,
@@ -28,6 +30,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   out.push(...localized(byLang((l) => `/${l}`)));
   out.push(...localized(byLang((l) => `/${l}/blog`)));
+
+  out.push({
+    url: `${SITE_URL}/pt-BR/assine-documentos-gratis`,
+    alternates: { languages: { "pt-BR": `${SITE_URL}/pt-BR/assine-documentos-gratis` } },
+  });
 
   // Docs pages — the slug set is shared across locales (pt-BR falls back to en-US).
   for (const page of source.getPages("en-US")) {

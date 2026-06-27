@@ -1,3 +1,4 @@
+import { notFound } from "next/navigation";
 import { Hero } from "@/components/sections/hero";
 import { Integrations } from "@/components/sections/integrations";
 import { Signer } from "@/components/sections/signer";
@@ -8,7 +9,7 @@ import { GetStarted } from "@/components/sections/get-started";
 import { Sponsors } from "@/components/sections/sponsors";
 import { FinalCta } from "@/components/sections/final-cta";
 import { setServerLocale } from "@/lib/server-locale";
-import type { Lang } from "@/lib/locale";
+import { parseLocale } from "@/lib/locale";
 
 export default async function HomePage({ params }: PageProps<"/[lang]">) {
   const { lang } = await params;
@@ -16,7 +17,9 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
   // segments independently, so the layout's prime doesn't reach the server
   // sections rendered here (hero is client + primed via LocaleProvider; the rest
   // are server components reading the cache()d store).
-  setServerLocale(lang as Lang);
+  const locale = parseLocale(lang);
+  if (locale === undefined) notFound();
+  setServerLocale(locale);
 
   return (
     <main className="flex flex-col">

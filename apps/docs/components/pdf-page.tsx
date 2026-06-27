@@ -8,8 +8,34 @@ import { m } from "@/paraglide/messages";
 // page to a canvas and overlay a click-capture layer + the signature marker.
 // ---------------------------------------------------------------------------
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type PdfDocumentProxy = any;
+export interface PdfViewport {
+  readonly width: number;
+  readonly height: number;
+}
+
+export interface PdfRenderTask {
+  readonly promise: Promise<void>;
+  cancel(): void;
+}
+
+export interface PdfPageProxy {
+  getViewport(options: { readonly scale: number }): PdfViewport;
+  render(options: {
+    readonly canvasContext: CanvasRenderingContext2D;
+    readonly viewport: PdfViewport;
+  }): PdfRenderTask;
+}
+
+export interface PdfDocumentProxy {
+  readonly numPages?: number;
+  getPage(pageNumber: number): Promise<PdfPageProxy>;
+  destroy?(): Promise<void>;
+}
+
+export interface PdfLoadingTask {
+  readonly promise: Promise<PdfDocumentProxy>;
+  destroy?(): Promise<void>;
+}
 
 export const loadPdfjs = async () => {
   const pdfjs = await import("pdfjs-dist");
@@ -53,9 +79,7 @@ export function PdfPage({
 
   React.useEffect(() => {
     let cancelled = false;
-    // pdf.js RenderTask — has `.promise` and `.cancel()`.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let task: any;
+    let task: PdfRenderTask | undefined;
     (async () => {
       const page = await doc.getPage(pageNumber);
       if (cancelled) return;

@@ -24,10 +24,11 @@ import {
   CryptoOperationValue,
   type Pkcs12Result,
 } from "./config";
-import { hash } from "./hash";
 import { type HmacHashAlgorithm, hmac } from "./primitives/hmac";
 import { pbkdf2 } from "./primitives/pbkdf2";
 import { sha1 } from "./primitives/sha1";
+import { sha256 } from "./primitives/sha256";
+import { sha384, sha512 } from "./primitives/sha512";
 import { aesCbcDecrypt } from "./primitives/aes";
 import { tripleDesCbcDecrypt } from "./primitives/des";
 import { rc2CbcDecrypt } from "./primitives/rc2";
@@ -59,29 +60,14 @@ const OID_SHA512 = "2.16.840.1.101.3.4.2.3";
 // Boundary helpers
 // =============================================================================
 
-const cryptoFail = (code: CryptoError["code"], reason: string): Effect.Effect<never, CryptoError> =>
-  Effect.fail(new CryptoError({ code, reason, operation: CryptoOperationValue.pkcs12Decode }));
+type Pkcs12Error = CryptoError | Asn1Error;
 
-const fromAsn1 = <A>(effect: Effect.Effect<A, Asn1Error>): Effect.Effect<A, CryptoError> =>
-  Effect.mapError(
-    effect,
-    (error) =>
-      new CryptoError({
-        code: CryptoErrorCodeValue.decodeError,
-        reason: error.message,
-        operation: CryptoOperationValue.pkcs12Decode,
-      }),
-  );
-
-const decodeEff = (bytes: Uint8Array): Effect.Effect<Asn1Node, CryptoError> =>
-  fromAsn1(decode(bytes));
-const childrenEff = (node: Asn1Node): Effect.Effect<readonly Asn1Node[], CryptoError> =>
-  fromAsn1(childrenOf(node));
-const bytesEff = (node: Asn1Node): Effect.Effect<Uint8Array, CryptoError> =>
-  fromAsn1(bytesOf(node));
-const oidEff = (node: Asn1Node): Effect.Effect<string, CryptoError> => fromAsn1(oidString(node));
-const intEff = (node: Asn1Node): Effect.Effect<bigint, CryptoError> =>
-  fromAsn1(integerBigInt(node));
+const decodeEff = (bytes: Uint8Array): Effect.Effect<Asn1Node, Asn1Error> => decode(bytes);
+const childrenEff = (node: Asn1Node): Effect.Effect<readonly Asn1Node[], Asn1Error> =>
+  childrenOf(node);
+const bytesEff = (node: Asn1Node): Effect.Effect<Uint8Array, Asn1Error> => bytesOf(node);
+const oidEff = (node: Asn1Node): Effect.Effect<string, Asn1Error> => oidString(node);
+const intEff = (node: Asn1Node): Effect.Effect<bigint, Asn1Error> => integerBigInt(node);
 
 const elementAt = (
   nodes: readonly Asn1Node[],
@@ -90,7 +76,13 @@ const elementAt = (
 ): Effect.Effect<Asn1Node, CryptoError> => {
   const node = nodes[index];
   return node === undefined
-    ? cryptoFail(CryptoErrorCodeValue.corruptedFile, `Missing ${label} (element ${index}).`)
+    ? Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.corruptedFile,
+          reason: `Missing ${label} (element ${index}).`,
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
+      )
     : Effect.succeed(node);
 };
 
@@ -108,9 +100,12 @@ const concatBytes = (parts: readonly Uint8Array[]): Uint8Array => {
 /** Read an OCTET STRING, concatenating BER constructed fragments. */
 const readOctetString = (node: Asn1Node): Effect.Effect<Uint8Array, CryptoError> => {
   if (node.tag !== 0x04) {
-    return cryptoFail(
-      CryptoErrorCodeValue.corruptedFile,
-      `Expected OCTET STRING, got tag ${node.tag}.`,
+    return Effect.fail(
+      new CryptoError({
+        code: CryptoErrorCodeValue.corruptedFile,
+        reason: `Expected OCTET STRING, got tag ${node.tag}.`,
+        operation: CryptoOperationValue.pkcs12Decode,
+      }),
     );
   }
   if (node.kind === "primitive") return Effect.succeed(node.bytes);
@@ -121,11 +116,14 @@ const readOctetString = (node: Asn1Node): Effect.Effect<Uint8Array, CryptoError>
 const unwrapContextTag = (
   node: Asn1Node,
   expectedTag: number,
-): Effect.Effect<Asn1Node, CryptoError> => {
+): Effect.Effect<Asn1Node, Pkcs12Error> => {
   if (node.class !== "context" || node.tag !== expectedTag) {
-    return cryptoFail(
-      CryptoErrorCodeValue.corruptedFile,
-      `Expected context tag [${expectedTag}], got ${node.class} tag ${node.tag}.`,
+    return Effect.fail(
+      new CryptoError({
+        code: CryptoErrorCodeValue.corruptedFile,
+        reason: `Expected context tag [${expectedTag}], got ${node.class} tag ${node.tag}.`,
+        operation: CryptoOperationValue.pkcs12Decode,
+      }),
     );
   }
   if (node.kind === "constructed") {
@@ -141,8 +139,18 @@ const unwrapContextTag = (
 // PKCS#12 KDF (RFC 7292 Appendix B) — pure, total
 // =============================================================================
 
-const hashBytes = (algorithm: HmacHashAlgorithm, data: Uint8Array): Uint8Array =>
-  algorithm === "sha1" ? sha1(data) : hash(algorithm, data);
+const hashBytes = (algorithm: HmacHashAlgorithm, data: Uint8Array): Uint8Array => {
+  switch (algorithm) {
+    case "sha1":
+      return sha1(data);
+    case "sha256":
+      return sha256(data);
+    case "sha384":
+      return sha384(data);
+    case "sha512":
+      return sha512(data);
+  }
+};
 
 const toBmpString = (text: string): Uint8Array => {
   if (text.length === 0) return new Uint8Array([0x00, 0x00]);
@@ -246,7 +254,7 @@ const verifyMac = (
   macNode: Asn1Node,
   authSafeData: Uint8Array,
   bmpPassword: Uint8Array,
-): Effect.Effect<void, CryptoError> =>
+): Effect.Effect<void, Pkcs12Error> =>
   Effect.gen(function* () {
     const macFields = yield* childrenEff(macNode);
     const digestInfo = yield* childrenEff(yield* elementAt(macFields, 0, "DigestInfo"));
@@ -298,7 +306,7 @@ const decryptPbes2 = (
   encryptedData: Uint8Array,
   params: Asn1Node,
   passwordBytes: Uint8Array,
-): Effect.Effect<Uint8Array, CryptoError> =>
+): Effect.Effect<Uint8Array, Pkcs12Error> =>
   Effect.gen(function* () {
     const pbes2Params = yield* childrenEff(params);
     const kdfInfo = yield* childrenEff(yield* elementAt(pbes2Params, 0, "KeyDerivationFunc"));
@@ -306,9 +314,12 @@ const decryptPbes2 = (
 
     const kdfOid = yield* oidEff(yield* elementAt(kdfInfo, 0, "KDF OID"));
     if (kdfOid !== OID_PBKDF2) {
-      return yield* cryptoFail(
-        CryptoErrorCodeValue.unsupportedAlgorithm,
-        `Unsupported KDF: ${kdfOid}`,
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.unsupportedAlgorithm,
+          reason: `Unsupported KDF: ${kdfOid}`,
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
       );
     }
 
@@ -345,9 +356,12 @@ const decryptPbes2 = (
         encryptedData,
       );
     }
-    return yield* cryptoFail(
-      CryptoErrorCodeValue.unsupportedAlgorithm,
-      `Unsupported encryption scheme: ${encOid}`,
+    return yield* Effect.fail(
+      new CryptoError({
+        code: CryptoErrorCodeValue.unsupportedAlgorithm,
+        reason: `Unsupported encryption scheme: ${encOid}`,
+        operation: CryptoOperationValue.pkcs12Decode,
+      }),
     );
   });
 
@@ -357,7 +371,7 @@ const decryptPbe = (
   algorithmParams: Asn1Node,
   bmpPassword: Uint8Array,
   passwordBytes: Uint8Array,
-): Effect.Effect<Uint8Array, CryptoError> => {
+): Effect.Effect<Uint8Array, Pkcs12Error> => {
   if (algorithmOid === OID_PBES2) {
     return decryptPbes2(encryptedData, algorithmParams, passwordBytes);
   }
@@ -384,9 +398,12 @@ const decryptPbe = (
     if (algorithmOid === OID_PBE_SHA_RC2_40) {
       return yield* rc2CbcDecrypt(derive(5, 1), 40, derive(8, 2), encryptedData);
     }
-    return yield* cryptoFail(
-      CryptoErrorCodeValue.unsupportedAlgorithm,
-      `Unsupported PBE algorithm: ${algorithmOid}`,
+    return yield* Effect.fail(
+      new CryptoError({
+        code: CryptoErrorCodeValue.unsupportedAlgorithm,
+        reason: `Unsupported PBE algorithm: ${algorithmOid}`,
+        operation: CryptoOperationValue.pkcs12Decode,
+      }),
     );
   });
 };
@@ -395,7 +412,7 @@ const decryptEncryptedData = (
   node: Asn1Node,
   bmpPassword: Uint8Array,
   passwordBytes: Uint8Array,
-): Effect.Effect<Uint8Array, CryptoError> =>
+): Effect.Effect<Uint8Array, Pkcs12Error> =>
   Effect.gen(function* () {
     const edChildren = yield* childrenEff(node);
     const eci = yield* childrenEff(yield* elementAt(edChildren, 1, "EncryptedContentInfo"));
@@ -405,9 +422,12 @@ const decryptEncryptedData = (
 
     const encryptedContentNode = yield* elementAt(eci, 2, "encrypted content");
     if (encryptedContentNode.class !== "context" || encryptedContentNode.tag !== 0) {
-      return yield* cryptoFail(
-        CryptoErrorCodeValue.corruptedFile,
-        "Expected [0] IMPLICIT encrypted content.",
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.corruptedFile,
+          reason: "Expected [0] IMPLICIT encrypted content.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
       );
     }
     const encryptedContent =
@@ -447,7 +467,7 @@ const bytesToHex = (bytes: Uint8Array): string =>
 /** Read the localKeyId (OID 1.2.840.113549.1.9.21) from a SafeBag's bagAttributes. */
 const readLocalKeyId = (
   bagFields: readonly Asn1Node[],
-): Effect.Effect<string | null, CryptoError> =>
+): Effect.Effect<string | null, Pkcs12Error> =>
   Effect.gen(function* () {
     const attributesNode = bagFields[2];
     if (attributesNode === undefined || attributesNode.kind !== "constructed") return null;
@@ -466,7 +486,7 @@ const readLocalKeyId = (
 
 const extractCertFromBag = (
   certBagNode: Asn1Node,
-): Effect.Effect<readonly Uint8Array[], CryptoError> =>
+): Effect.Effect<readonly Uint8Array[], Pkcs12Error> =>
   Effect.gen(function* () {
     const fields = yield* childrenEff(certBagNode);
     const certId = yield* oidEff(yield* elementAt(fields, 0, "certId"));
@@ -475,7 +495,7 @@ const extractCertFromBag = (
     return [yield* readOctetString(certValue)];
   });
 
-const parseSafeBags = (safeContents: Asn1Node): Effect.Effect<readonly SafeBag[], CryptoError> =>
+const parseSafeBags = (safeContents: Asn1Node): Effect.Effect<readonly SafeBag[], Pkcs12Error> =>
   Effect.gen(function* () {
     const children = yield* childrenEff(safeContents);
     const bags: SafeBag[] = [];
@@ -499,7 +519,7 @@ const decryptShroudedKeyBag = (
   encryptedKeyInfoDer: Uint8Array,
   bmpPassword: Uint8Array,
   passwordBytes: Uint8Array,
-): Effect.Effect<Uint8Array, CryptoError> =>
+): Effect.Effect<Uint8Array, Pkcs12Error> =>
   Effect.gen(function* () {
     const node = yield* decodeEff(encryptedKeyInfoDer);
     const fields = yield* childrenEff(node);
@@ -526,9 +546,12 @@ const decryptShroudedKeyBag = (
     );
 
     if (pkcs8[0] !== 0x30) {
-      return yield* cryptoFail(
-        CryptoErrorCodeValue.wrongPassword,
-        "Decrypted private key is not valid PKCS#8.",
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.wrongPassword,
+          reason: "Decrypted private key is not valid PKCS#8.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
       );
     }
     return pkcs8;
@@ -553,18 +576,24 @@ export const parsePkcs12 = (
 
     const version = yield* intEff(yield* elementAt(pfxChildren, 0, "PFX version"));
     if (version !== 3n) {
-      return yield* cryptoFail(
-        CryptoErrorCodeValue.invalidFormat,
-        `Unsupported PFX version: ${version}.`,
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.invalidFormat,
+          reason: `Unsupported PFX version: ${version}.`,
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
       );
     }
 
     const authSafe = yield* childrenEff(yield* elementAt(pfxChildren, 1, "authSafe ContentInfo"));
     const authSafeOid = yield* oidEff(yield* elementAt(authSafe, 0, "authSafe OID"));
     if (authSafeOid !== OID_DATA) {
-      return yield* cryptoFail(
-        CryptoErrorCodeValue.invalidFormat,
-        `Expected data ContentInfo in authSafe, got ${authSafeOid}.`,
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.invalidFormat,
+          reason: `Expected data ContentInfo in authSafe, got ${authSafeOid}.`,
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
       );
     }
 
@@ -612,11 +641,23 @@ export const parsePkcs12 = (
 
     const firstCert = certificates[0];
     if (firstCert === undefined) {
-      return yield* cryptoFail(CryptoErrorCodeValue.noCertificate, "No certificate in PKCS#12.");
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.noCertificate,
+          reason: "No certificate in PKCS#12.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
+      );
     }
     const keyBag = keyBags[0];
     if (keyBag === undefined) {
-      return yield* cryptoFail(CryptoErrorCodeValue.noPrivateKey, "No private key in PKCS#12.");
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.noPrivateKey,
+          reason: "No private key in PKCS#12.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
+      );
     }
 
     const privateKey = yield* decryptShroudedKeyBag(keyBag.data, bmpPassword, passwordBytes);
@@ -635,4 +676,14 @@ export const parsePkcs12 = (
       privateKey,
       chain,
     } satisfies Pkcs12Result;
-  });
+  }).pipe(
+    Effect.mapError((error) =>
+      error._tag === "Asn1Error"
+        ? new CryptoError({
+            code: CryptoErrorCodeValue.decodeError,
+            reason: error.message,
+            operation: CryptoOperationValue.pkcs12Decode,
+          })
+        : error,
+    ),
+  );

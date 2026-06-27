@@ -5,7 +5,10 @@ import { createBrowserPdfSignatureBuilderState } from "@signature-kit/react/brow
 import { createSignatureBuilderStore } from "@signature-kit/react/components";
 import type {
   ReactSignatureFieldDraft,
+  ReactSignaturePage,
+  ReactSignatureRect,
   ReactSignatureTemplate,
+  ReactSignerRole,
 } from "@signature-kit/react/config";
 import { Store } from "@tanstack/react-store";
 
@@ -36,15 +39,15 @@ const SIGNATURE_DRAFT: ReactSignatureFieldDraft = {
   required: true,
 };
 
-const ROLE = {
+const ROLE: ReactSignerRole = {
   id: "signer",
   label: "Signatário",
   email: "signer@example.com",
   required: true,
-} as const;
+};
 
-type PageDim = { readonly index: number; readonly width: number; readonly height: number };
-type DocRect = { pageIndex: number; x: number; y: number; width: number; height: number };
+type PageDim = ReactSignaturePage;
+type DocRect = ReactSignatureRect;
 
 type ParsedDoc = {
   readonly id: string;
@@ -84,12 +87,14 @@ describe("best-guess auto-placement", () => {
             draft: SIGNATURE_DRAFT,
           }),
         );
-        const template = state.template as ReactSignatureTemplate;
+        const template = state.template;
+        const [document] = template.documents;
+        if (document === undefined) expect.fail("missing generated test document");
         return {
           id: doc.id,
           name: doc.name,
           template,
-          pageDims: template.documents[0]!.pages as ReadonlyArray<PageDim>,
+          pageDims: document.pages,
         };
       }),
     );
@@ -124,7 +129,9 @@ describe("best-guess auto-placement", () => {
             anchor: "center",
           }),
         );
-        const rect = placed.fields.find((f) => f.id === SIGNATURE_DRAFT.id)!.rect as DocRect;
+        const field = placed.fields.find((f) => f.id === SIGNATURE_DRAFT.id);
+        if (field === undefined) expect.fail("missing placed signature field");
+        const rect = field.rect;
         placedStore.setState((s) => ({ ...s, rects: { ...s.rects, [doc.id]: rect } }));
         return doc.id;
       },

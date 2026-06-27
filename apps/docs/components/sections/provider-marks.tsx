@@ -15,13 +15,10 @@ export interface Brand {
 
 /** The remote signature providers SignatureKit ships an adapter for. */
 export const PROVIDERS: readonly Brand[] = [
-  { name: "DocuSign", domain: "docusign.com" },
   { name: "Clicksign", domain: "clicksign.com" },
   { name: "Assinafy", domain: "assinafy.com.br" },
   { name: "ZapSign", domain: "zapsign.co" },
   { name: "DocuSeal", domain: "docuseal.com" },
-  { name: "Adobe Acrobat Sign", domain: "adobe.com" },
-  { name: "Dropbox Sign", domain: "dropboxsign.com" },
   { name: "Documenso", domain: "documenso.com" },
 ];
 

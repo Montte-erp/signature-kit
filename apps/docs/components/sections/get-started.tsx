@@ -22,12 +22,12 @@ import { Container, Section, SectionHeading } from "./_shared";
  * Every code string is valid against @signature-kit/* GROUND TRUTH.
  */
 
-const INSTALL = [
+const INSTALL: ReadonlyArray<{ readonly value: string; readonly label: string; readonly code: string }> = [
   { value: "bun", label: "bun", code: "bun add @signature-kit/core @signature-kit/a1" },
   { value: "npm", label: "npm", code: "npm install @signature-kit/core @signature-kit/a1" },
   { value: "pnpm", label: "pnpm", code: "pnpm add @signature-kit/core @signature-kit/a1" },
   { value: "yarn", label: "yarn", code: "yarn add @signature-kit/core @signature-kit/a1" },
-] as const;
+];
 
 const FIRST_CALL = `import { a1SignaturesLayer } from "@signature-kit/a1/signer"
 import { signatures } from "@signature-kit/core/signatures"

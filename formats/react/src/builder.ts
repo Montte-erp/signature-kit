@@ -1,8 +1,6 @@
 import type { PdfSignatureAppearance } from "@signature-kit/pdf/config";
-import { schemaErrorMetadata } from "@signature-kit/core/config";
 import { Effect, Schema } from "effect";
 import {
-  DocuSealBuilderInputSchema,
   ReactSignatureAutoPlacementCollisionValue,
   ReactSignatureAutoPlacementInputSchema,
   ReactSignatureAutoPlacementPageValue,
@@ -21,8 +19,6 @@ import {
   ReactSignatureTemplateSchema,
 } from "./config";
 import type {
-  DocuSealBuilderInput,
-  DocuSealBuilderTokenPayload,
   ReactSignatureAutoPlacementInput,
   ReactSignatureAutoPlacementSlot,
   ReactSignatureAutoPlacementStackDirection,
@@ -32,12 +28,12 @@ import type {
   ReactSignatureField,
   ReactSignatureFieldDraft,
   ReactSignatureFieldPlacement,
-  ReactSignatureFieldValue,
   ReactSignaturePage,
   ReactSignatureRect,
   ReactSignatureTemplate,
   ReactSignatureTemplateInput,
 } from "./config";
+
 const fieldPageKey = (documentId: string, pageIndex: number): string =>
   `${documentId}:${pageIndex}`;
 
@@ -73,10 +69,6 @@ const hasDuplicateId = (items: readonly { readonly id: string }[]): boolean => {
   }
   return false;
 };
-
-const fieldValueLooksLikeSignatureImage = (value: ReactSignatureFieldValue | undefined): boolean =>
-  value?.imageDataUrl === undefined ||
-  /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value.imageDataUrl);
 
 const anchoredRectFromPlacement = (placement: ReactSignatureFieldPlacement): ReactSignatureRect => {
   const anchor = placement.anchor ?? ReactSignaturePlacementAnchorValue.topLeft;
@@ -353,17 +345,6 @@ const validateFieldPlacement = (
     );
   }
 
-  if (!fieldValueLooksLikeSignatureImage(field.value)) {
-    return Effect.fail(
-      new ReactIntegrationError({
-        code: ReactIntegrationErrorCodeValue.invalidSignatureImage,
-        retryable: false,
-        operation: ReactIntegrationOperationValue.validateTemplate,
-        reason: `Field ${field.id} signature image must be a PNG, JPEG or WEBP data URL.`,
-      }),
-    );
-  }
-
   return Effect.void;
 };
 
@@ -371,16 +352,13 @@ export const validateReactSignatureTemplate = (
   input: ReactSignatureTemplate,
 ): Effect.Effect<ReactSignatureTemplate, ReactIntegrationError> =>
   Schema.decodeUnknownEffect(ReactSignatureTemplateSchema)(input).pipe(
-    Effect.mapError((error) => {
-      const issue = schemaErrorMetadata(error);
+    Effect.mapError((_error) => {
       return new ReactIntegrationError({
         code: ReactIntegrationErrorCodeValue.invalidBuilderInput,
         retryable: false,
         operation: ReactIntegrationOperationValue.validateTemplate,
         schemaName: ReactIntegrationSchemaNameValue.reactSignatureTemplate,
         reason: "React signature template does not match the builder schema.",
-        ...(issue.issuePath === undefined ? {} : { issuePath: issue.issuePath }),
-        ...(issue.issueMessage === undefined ? {} : { issueMessage: issue.issueMessage }),
       });
     }),
     Effect.flatMap((template) => {
@@ -419,16 +397,13 @@ export const createReactSignatureTemplate = (
   input: ReactSignatureTemplateInput,
 ): Effect.Effect<ReactSignatureTemplate, ReactIntegrationError> =>
   Schema.decodeUnknownEffect(ReactSignatureTemplateInputSchema)(input).pipe(
-    Effect.mapError((error) => {
-      const issue = schemaErrorMetadata(error);
+    Effect.mapError((_error) => {
       return new ReactIntegrationError({
         code: ReactIntegrationErrorCodeValue.invalidBuilderInput,
         retryable: false,
         operation: ReactIntegrationOperationValue.createTemplate,
         schemaName: ReactIntegrationSchemaNameValue.reactSignatureTemplateInput,
         reason: "React signature template input does not match the builder schema.",
-        ...(issue.issuePath === undefined ? {} : { issuePath: issue.issuePath }),
-        ...(issue.issueMessage === undefined ? {} : { issueMessage: issue.issueMessage }),
       });
     }),
     Effect.map((valid) => ({ ...valid, fields: valid.fields ?? [] })),
@@ -465,16 +440,13 @@ export const createReactSignatureBuilderState = (
   input: ReactSignatureBuilderStateInput,
 ): Effect.Effect<ReactSignatureBuilderState, ReactIntegrationError> =>
   Schema.decodeUnknownEffect(ReactSignatureBuilderStateInputSchema)(input).pipe(
-    Effect.mapError((error) => {
-      const issue = schemaErrorMetadata(error);
+    Effect.mapError((_error) => {
       return new ReactIntegrationError({
         code: ReactIntegrationErrorCodeValue.invalidBuilderInput,
         retryable: false,
         operation: ReactIntegrationOperationValue.createBuilderState,
         schemaName: ReactIntegrationSchemaNameValue.reactSignatureBuilderStateInput,
         reason: "React signature builder state input does not match the builder schema.",
-        ...(issue.issuePath === undefined ? {} : { issuePath: issue.issuePath }),
-        ...(issue.issueMessage === undefined ? {} : { issueMessage: issue.issueMessage }),
       });
     }),
     Effect.flatMap((valid) =>
@@ -490,16 +462,13 @@ export const fieldFromPlacement = (
   placement: ReactSignatureFieldPlacement,
 ): Effect.Effect<ReactSignatureField, ReactIntegrationError> =>
   Schema.decodeUnknownEffect(ReactSignatureFieldPlacementSchema)(placement).pipe(
-    Effect.mapError((error) => {
-      const issue = schemaErrorMetadata(error);
+    Effect.mapError((_error) => {
       return new ReactIntegrationError({
         code: ReactIntegrationErrorCodeValue.invalidBuilderInput,
         retryable: false,
         operation: ReactIntegrationOperationValue.addField,
         schemaName: ReactIntegrationSchemaNameValue.reactSignatureFieldPlacement,
         reason: "React signature field placement does not match the builder schema.",
-        ...(issue.issuePath === undefined ? {} : { issuePath: issue.issuePath }),
-        ...(issue.issueMessage === undefined ? {} : { issueMessage: issue.issueMessage }),
       });
     }),
     Effect.map((valid) => ({
@@ -561,16 +530,13 @@ export const autoPlaceReactSignatureField = (
   placement: ReactSignatureAutoPlacementInput,
 ): Effect.Effect<ReactSignatureTemplate, ReactIntegrationError> =>
   Schema.decodeUnknownEffect(ReactSignatureAutoPlacementInputSchema)(placement).pipe(
-    Effect.mapError((error) => {
-      const issue = schemaErrorMetadata(error);
+    Effect.mapError((_error) => {
       return new ReactIntegrationError({
         code: ReactIntegrationErrorCodeValue.invalidBuilderInput,
         retryable: false,
         operation: ReactIntegrationOperationValue.autoPlaceField,
         schemaName: ReactIntegrationSchemaNameValue.reactSignatureAutoPlacementInput,
         reason: "React signature auto-placement input does not match the builder schema.",
-        ...(issue.issuePath === undefined ? {} : { issuePath: issue.issuePath }),
-        ...(issue.issueMessage === undefined ? {} : { issueMessage: issue.issueMessage }),
       });
     }),
     Effect.flatMap((valid) =>
@@ -715,16 +681,13 @@ export const addReactSignatureField = (
   validateReactSignatureTemplate(template).pipe(
     Effect.flatMap((checked) =>
       Schema.decodeUnknownEffect(ReactSignatureFieldSchema)(field).pipe(
-        Effect.mapError((error) => {
-          const issue = schemaErrorMetadata(error);
+        Effect.mapError((_error) => {
           return new ReactIntegrationError({
             code: ReactIntegrationErrorCodeValue.invalidBuilderInput,
             retryable: false,
             operation: ReactIntegrationOperationValue.addField,
             schemaName: ReactIntegrationSchemaNameValue.reactSignatureField,
             reason: "React signature field does not match the builder schema.",
-            ...(issue.issuePath === undefined ? {} : { issuePath: issue.issuePath }),
-            ...(issue.issueMessage === undefined ? {} : { issueMessage: issue.issueMessage }),
           });
         }),
         Effect.flatMap((decodedField) => {
@@ -753,16 +716,13 @@ export const replaceReactSignatureField = (
   validateReactSignatureTemplate(template).pipe(
     Effect.flatMap((checked) =>
       Schema.decodeUnknownEffect(ReactSignatureFieldSchema)(field).pipe(
-        Effect.mapError((error) => {
-          const issue = schemaErrorMetadata(error);
+        Effect.mapError((_error) => {
           return new ReactIntegrationError({
             code: ReactIntegrationErrorCodeValue.invalidBuilderInput,
             retryable: false,
             operation: ReactIntegrationOperationValue.replaceField,
             schemaName: ReactIntegrationSchemaNameValue.reactSignatureField,
             reason: "React signature field does not match the builder schema.",
-            ...(issue.issuePath === undefined ? {} : { issuePath: issue.issuePath }),
-            ...(issue.issueMessage === undefined ? {} : { issueMessage: issue.issueMessage }),
           });
         }),
         Effect.flatMap((decodedField) => {
@@ -819,16 +779,13 @@ export const moveReactSignatureField = (
   validateReactSignatureTemplate(template).pipe(
     Effect.flatMap((checked) =>
       Schema.decodeUnknownEffect(ReactSignatureRectSchema)(rect).pipe(
-        Effect.mapError((error) => {
-          const issue = schemaErrorMetadata(error);
+        Effect.mapError((_error) => {
           return new ReactIntegrationError({
             code: ReactIntegrationErrorCodeValue.invalidBuilderInput,
             retryable: false,
             operation: ReactIntegrationOperationValue.moveField,
             schemaName: ReactIntegrationSchemaNameValue.reactSignatureRect,
             reason: "React signature field rect does not match the builder schema.",
-            ...(issue.issuePath === undefined ? {} : { issuePath: issue.issuePath }),
-            ...(issue.issueMessage === undefined ? {} : { issueMessage: issue.issueMessage }),
           });
         }),
         Effect.flatMap((decodedRect) => {
@@ -847,72 +804,6 @@ export const moveReactSignatureField = (
         }),
       ),
     ),
-  );
-
-export const assignReactSignatureFieldValue = (
-  template: ReactSignatureTemplate,
-  fieldId: string,
-  value: ReactSignatureFieldValue,
-): Effect.Effect<ReactSignatureTemplate, ReactIntegrationError> =>
-  validateReactSignatureTemplate(template).pipe(
-    Effect.flatMap((checked) => {
-      const existing = checked.fields.find((candidate) => candidate.id === fieldId);
-      if (existing === undefined) {
-        return Effect.fail(
-          new ReactIntegrationError({
-            code: ReactIntegrationErrorCodeValue.unknownField,
-            retryable: false,
-            operation: ReactIntegrationOperationValue.assignValue,
-            reason: `Field ${fieldId} does not exist on template ${checked.id}.`,
-          }),
-        );
-      }
-      return replaceReactSignatureField(checked, { ...existing, value });
-    }),
-  );
-
-export const createDocuSealBuilderTokenPayload = (
-  input: DocuSealBuilderInput,
-): Effect.Effect<DocuSealBuilderTokenPayload, ReactIntegrationError> =>
-  Schema.decodeUnknownEffect(DocuSealBuilderInputSchema)(input).pipe(
-    Effect.mapError((error) => {
-      const issue = schemaErrorMetadata(error);
-      return new ReactIntegrationError({
-        code: ReactIntegrationErrorCodeValue.invalidBuilderInput,
-        retryable: false,
-        operation: ReactIntegrationOperationValue.docuSealPayload,
-        schemaName: ReactIntegrationSchemaNameValue.docuSealBuilderInput,
-        reason: "DocuSeal builder input does not match the token payload schema.",
-        ...(issue.issuePath === undefined ? {} : { issuePath: issue.issuePath }),
-        ...(issue.issueMessage === undefined ? {} : { issueMessage: issue.issueMessage }),
-      });
-    }),
-    Effect.flatMap((valid) => {
-      const hasTemplate = valid.templateId !== undefined;
-      const hasDocuments = valid.documentUrls !== undefined && valid.documentUrls.length > 0;
-      if (!hasTemplate && !hasDocuments) {
-        return Effect.fail(
-          new ReactIntegrationError({
-            code: ReactIntegrationErrorCodeValue.invalidBuilderInput,
-            retryable: false,
-            operation: ReactIntegrationOperationValue.docuSealPayload,
-            reason: "DocuSeal builder token payload needs templateId or at least one document URL.",
-          }),
-        );
-      }
-      return Effect.succeed({
-        user_email: valid.userEmail,
-        ...(valid.integrationEmail === undefined
-          ? {}
-          : { integration_email: valid.integrationEmail }),
-        ...(valid.templateId === undefined ? {} : { template_id: valid.templateId }),
-        ...(valid.externalId === undefined ? {} : { external_id: valid.externalId }),
-        ...(valid.folderName === undefined ? {} : { folder_name: valid.folderName }),
-        ...(valid.documentUrls === undefined ? {} : { document_urls: valid.documentUrls }),
-        ...(valid.name === undefined ? {} : { name: valid.name }),
-        ...(valid.extractFields === undefined ? {} : { extract_fields: valid.extractFields }),
-      });
-    }),
   );
 
 export const pdfSignatureAppearanceFromField = (

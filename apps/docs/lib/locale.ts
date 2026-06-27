@@ -13,3 +13,9 @@ export type Locale = (typeof locales)[number];
 
 /** Alias kept for the route layer, which reads the segment as `lang`. */
 export type Lang = Locale;
+
+export const isLocale = (value: string): value is Locale =>
+  locales.some((locale) => locale === value);
+
+export const parseLocale = (value: string): Locale | undefined =>
+  isLocale(value) ? value : undefined;

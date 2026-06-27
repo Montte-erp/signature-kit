@@ -11,7 +11,7 @@ import { setServerLocale } from "@/lib/server-locale";
 import { i18n } from "@/lib/i18n";
 import { OG_LOCALE, SITE_NAME, absoluteUrl } from "@/lib/site";
 import { blogPostPath, readingMinutes } from "@/lib/blog";
-import type { Lang } from "@/lib/locale";
+import { parseLocale, type Lang } from "@/lib/locale";
 
 /**
  * Single blog post — in the `(home)` route group for the landing nav + footer.
@@ -42,11 +42,12 @@ export default async function BlogPost(
   props: PageProps<"/[lang]/blog/[slug]">,
 ) {
   const { lang, slug } = await props.params;
-  const locale = lang as Lang;
+  const locale = parseLocale(lang);
+  if (locale === undefined) notFound();
   // Prime the request locale for this segment before rendering server chrome.
   setServerLocale(locale);
 
-  const page = blogSource.getPage([slug], lang);
+  const page = blogSource.getPage([slug], locale);
   if (!page) notFound();
 
   const MDX = page.data.body;
@@ -121,13 +122,19 @@ export async function generateMetadata(
   props: PageProps<"/[lang]/blog/[slug]">,
 ): Promise<Metadata> {
   const { lang, slug } = await props.params;
-  const locale = lang as Lang;
-  const page = blogSource.getPage([slug], lang);
+  const locale = parseLocale(lang);
+  if (locale === undefined) notFound();
+  const page = blogSource.getPage([slug], locale);
   if (!page) notFound();
 
   const url = absoluteUrl(blogPostPath(locale, page.slugs));
   const languages = Object.fromEntries(
-    i18n.languages.map((l) => [l, absoluteUrl(blogPostPath(l as Lang, page.slugs))]),
+    i18n.languages.flatMap((language) => {
+      const languageLocale = parseLocale(language);
+      return languageLocale === undefined
+        ? []
+        : [[languageLocale, absoluteUrl(blogPostPath(languageLocale, page.slugs))]];
+    }),
   );
 
   return {

@@ -3,7 +3,7 @@ title: Canal de erros tipados
 description: "Toda falha do SignatureKit é um SignatureKitError no canal de erros do Effect — discrimine pelo code com Effect.catchTag/catchIf, sem throw."
 ---
 
-Toda falha no core, no signer A1 e nos formatos é um `SignatureKitError` no canal de erros do `Effect` — não uma exceção lançada com `throw`. O tipo de retorno carrega a falha: `Effect<SignatureArtifact, SignatureKitError>`. Isso torna o tratamento exaustivo e verificável pelo compilador: você discrimina pelo `code`, e tudo o que você não tratar continua se propagando, tipado.
+Toda falha no core, no signer A1 e nos formatos é um `SignatureKitError` no canal de erros do `Effect` — não uma exceção lançada com `throw`. O tipo de retorno a carrega (`Effect<SignatureArtifact, SignatureKitError>`), então o tratamento é exaustivo e verificado pelo compilador: você discrimina pelo `code`, e tudo o que não tratar continua se propagando, tipado.
 
 <Callout type="info" title="Canal de erros tipados">
   As falhas não são lançadas com `throw`: elas vivem no canal de erros do `Effect` como um `SignatureKitError` com um
@@ -72,7 +72,7 @@ const handled = program.pipe(
 )
 ```
 
-Quando você só quer interceptar uma falha específica e deixar o restante se propagar, use `Effect.catchIf` com um predicado sobre `_tag` e `code`:
+Para interceptar uma falha específica e deixar o restante se propagar, use `Effect.catchIf` com um predicado sobre `_tag` e `code`:
 
 ```ts title="catch-if.ts"
 import { Effect } from "effect"
@@ -142,10 +142,10 @@ Nos signers remotos, as falhas de entrada, de HTTP e de formato de resposta cheg
 
 ```ts title="remote-signer-error.ts"
 import { Effect } from "effect"
-import { createDocuSignSignatureRequest } from "@signature-kit/docusign"
+import { createClicksignSignatureRequest } from "@signature-kit/clicksign"
 import { signatureHttpClientLive } from "@signature-kit/core/http"
 
-const request = createDocuSignSignatureRequest(options, {
+const request = createClicksignSignatureRequest(options, {
   title: "Contract",
   documents,
   recipients,
@@ -169,5 +169,5 @@ const request = createDocuSignSignatureRequest(options, {
 Os formatos e os signers são pacotes separados — instale apenas o que cada caminho usa.
 
 ```package-install
-@signature-kit/xml @signature-kit/pdf @signature-kit/core @signature-kit/docusign
+@signature-kit/xml @signature-kit/pdf @signature-kit/core @signature-kit/clicksign
 ```

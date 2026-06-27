@@ -17,16 +17,18 @@ import {
   SignatureHttpClient,
   decodeRemoteOptions,
   decodeRemoteShape,
+  signatureHttpClientLive,
   normalizedBaseUrl,
 } from "@signature-kit/core/http";
 import type { SignatureHttpClientService } from "@signature-kit/core/http";
-import { Resource } from "alchemy";
+import { isResolved } from "alchemy/Diff";
+import { Resource } from "alchemy/Resource";
 import * as Provider from "alchemy/Provider";
 import { Context, Effect, Layer, Redacted, Schema } from "effect";
 
 const PROVIDER: RemoteSignatureProvider = "documenso";
-const DOCUMENSO_SIGNATURE_REQUEST_TYPE = "SignatureKit.DocumensoSignatureRequest";
-const DOCUMENSO_PROVIDER_COLLECTION_ID = "SignatureKitDocumenso";
+const DOCUMENSO_SIGNATURE_REQUEST_RESOURCE = "SignatureKit.DocumensoSignatureRequest";
+const DOCUMENSO_PROVIDER_COLLECTION_ID = "@signature-kit/documenso/Providers";
 const DEFAULT_BASE_URL = "https://app.documenso.com/api/v2";
 
 const DocumensoAuthorizationSchemeSchema = Schema.Literals(["raw", "bearer"]);
@@ -60,17 +62,16 @@ const DocumensoDistributeEnvelopeResultSchema = Schema.Struct({
   recipients: Schema.Array(DocumensoRecipientResultSchema),
 });
 
-export type DocumensoSignatureRequestResource = Resource<
-  typeof DOCUMENSO_SIGNATURE_REQUEST_TYPE,
+export type DocumensoSignatureRequest = Resource<
+  typeof DOCUMENSO_SIGNATURE_REQUEST_RESOURCE,
   RemoteSignatureRequestProps,
   RemoteSignatureRequest
 >;
 
-export const DocumensoSignatureRequest = Resource<DocumensoSignatureRequestResource>(
-  DOCUMENSO_SIGNATURE_REQUEST_TYPE,
+export const DocumensoSignatureRequest = Resource<DocumensoSignatureRequest>(
+  DOCUMENSO_SIGNATURE_REQUEST_RESOURCE,
   { defaultRemovalPolicy: "retain" },
 );
-
 export class DocumensoCredentials extends Context.Service<
   DocumensoCredentials,
   DocumensoProviderOptions
@@ -230,7 +231,13 @@ export const DocumensoSignatureRequestProvider = () =>
         stables: ["provider", "id"],
         list: () => Effect.succeed([]),
         read: ({ output }) => Effect.succeed(output),
-        reconcile: Effect.fnUntraced(function* ({ news, output }) {
+        diff: ({ news, output, olds }) => {
+          if (!isResolved(news) || output !== undefined || olds !== undefined) {
+            return Effect.succeed(undefined);
+          }
+          return Effect.succeed({ action: "noop" });
+        },
+        reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
           const props = yield* decodeRemoteOptions(
             RemoteSignatureRequestPropsSchema,
@@ -253,7 +260,8 @@ export class DocumensoProviders extends Provider.ProviderCollection<DocumensoPro
 export const providers = (options: DocumensoProviderOptions) =>
   Layer.effect(DocumensoProviders, Provider.collection([DocumensoSignatureRequest])).pipe(
     Layer.provide(DocumensoSignatureRequestProvider()),
-    Layer.provide(documensoCredentialsLayer(options)),
+    Layer.provideMerge(documensoCredentialsLayer(options)),
+    Layer.provide(signatureHttpClientLive),
   );
 
 export const createDocumensoSignatureRequest = (

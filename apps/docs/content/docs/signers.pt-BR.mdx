@@ -1,9 +1,9 @@
 ---
 title: A camada de assinatura
-description: "O SignerAdapter é a costura de capacidade: ele decide de onde vem o poder de assinar sem tocar no documento, é disponibilizado como o serviço Signatures e pode ser trocado sem reescrever os formatos."
+description: "O SignerAdapter é a costura de capacidade que decide de onde vem o poder de assinar, trocável sem mexer nos formatos de documento."
 ---
 
-**A ideia central:** o `SignerAdapter` é a única costura por onde o poder de assinar entra. Ele responde _de onde_ vem a chave — um `.pfx` A1, um HSM, um serviço remoto — e sempre expõe o mesmo formato. Tudo acima dele (core, XML, PDF) conversa com esse formato, não com o backend.
+**A ideia central:** o `SignerAdapter` é a costura por onde o poder de assinar entra. Ele responde _de onde_ vem a chave — um `.pfx` A1, um HSM, um serviço remoto — enquanto tudo acima dele (core, XML, PDF) conversa com um único formato fixo, não com o backend.
 
 ```text
                     ┌──────────────────────────────┐
@@ -23,7 +23,7 @@ description: "O SignerAdapter é a costura de capacidade: ele decide de onde vem
 
 ## O contrato do SignerAdapter
 
-O tipo abaixo é a definição literal exportada por `@signature-kit/core/config`. O doc-comment fixa a regra que o restante desta página detalha: o signatário decide de onde vem o poder de assinar e **nunca** é dono da mutação de formato.
+O tipo abaixo é a definição literal exportada por `@signature-kit/core/config`. Seu doc-comment fixa a regra que esta página detalha: o `SignerAdapter` é dono de onde vem o poder de assinar e **nunca** da mutação de formato.
 
 ```ts title="core/core/src/config.ts"
 /**
@@ -44,7 +44,7 @@ export type SignerAdapter = {
 
 Toda implementação de `SignerAdapter` entrega exatamente estes seis membros:
 
-- `id: string` — identidade do backend de assinatura. O A1 usa `"a1"`. Signatários remotos como DocuSign, Clicksign, Assinafy e ZapSign usam funções `create*SignatureRequest(...)` e não passam por esta costura de mutação de XML/PDF.
+- `id: string` — identidade do backend de assinatura. O A1 usa `"a1"`. Provedores remotos como Clicksign, Assinafy, ZapSign, DocuSeal e Documenso usam funções `create*SignatureRequest(...)` e não passam por esta costura de mutação de XML/PDF.
 - `inspect()` — retorna `Effect<SignerIdentity, SignatureKitError>` com `subject`, `issuer`, `serialNumber`, `thumbprint`, `validFrom`, `validTo` e `document?` (CPF/CNPJ quando ICP-Brasil).
 - `certificate()` — retorna `Effect<Certificate, SignatureKitError>`, o certificado completo (`certPem`, `certificateDer`, `publicKeyDer` e a `privateKeyPem: Redacted<string>`).
 - `importSigningKey(algorithm)` — materializa a `CryptoKey` de assinatura para o `SignatureAlgorithm` solicitado (`"rsa-sha256"` ou `"rsa-sha512"`).
@@ -58,7 +58,7 @@ Toda implementação de `SignerAdapter` entrega exatamente estes seis membros:
 
 ## Construindo um A1
 
-O pacote `@signature-kit/a1` implementa a costura a partir de um arquivo `.pfx`/`.p12`. `loadA1SignerAdapter(options)` faz o parsing assíncrono e retorna um `SignerAdapter` pronto, com `id` igual a `"a1"`.
+O pacote `@signature-kit/a1` implementa a costura a partir de um arquivo `.pfx`/`.p12`. `loadA1SignerAdapter(options)` faz o parsing assíncrono e retorna um `SignerAdapter` pronto, com `id` `"a1"`.
 
 ```package-install
 @signature-kit/core @signature-kit/a1
@@ -86,7 +86,7 @@ const artifact = yield* signer.sign({ content, algorithm: "rsa-sha256" })
 
 ## Disponibilizando como serviço
 
-O core define `Signatures` como um `Context.Service` com a tag `"@signature-kit/core/Signatures"`. Você nunca implementa esse serviço na mão: você passa um `SignerAdapter` para `signaturesLayer(signer)` e recebe de volta um `Layer<Signatures>` (via `Layer.succeed`). Os accessors `signatures.{inspect, certificate, importSigningKey, sign, verify}` declaram a dependência de `Signatures` e a satisfazem com a layer fornecida.
+O core define `Signatures` como um `Context.Service` com a tag `"@signature-kit/core/Signatures"`. Você nunca o implementa na mão: passe um `SignerAdapter` para `signaturesLayer(signer)` e receba de volta um `Layer<Signatures>` (via `Layer.succeed`). Os accessors `signatures.{inspect, certificate, importSigningKey, sign, verify}` declaram a dependência de `Signatures`; a layer a satisfaz.
 
 ```ts title="provide.ts"
 import { signaturesLayer, signatures } from "@signature-kit/core/signatures"
@@ -113,7 +113,7 @@ yield* program.pipe(Effect.provide(signaturesLayer(signer)))
 
 ## Provedor automático para formatos
 
-Para os formatos, o A1 oferece um atalho: `a1SignaturesLayer(options)` retorna um `Layer<Signatures, SignatureKitError>` diretamente, sem que você precise instanciar o adapter antes. `signXml` e `signPdf` exigem `Signatures` no canal de requisitos; basta você entregar essa layer via `Effect.provide`.
+Para os formatos, o A1 oferece um atalho: `a1SignaturesLayer(options)` retorna um `Layer<Signatures, SignatureKitError>` diretamente, sem instanciar o adapter antes. `signXml` e `signPdf` exigem `Signatures` no canal de requisitos; basta entregar essa layer via `Effect.provide`.
 
 ```package-install
 @signature-kit/xml @signature-kit/pdf
@@ -144,7 +144,7 @@ const signedPdf = yield* signPdf({ pdf, policy: "pades-icp-brasil" })
 
 ## Trocando o backend
 
-Como a costura é uma porta de formato fixo, trocar de onde vem o poder de assinar é trocar o argumento de `signaturesLayer(...)`. O trabalho de assinatura é idêntico nos dois casos; nada do formato muda.
+Como a costura é uma porta de formato fixo, trocar de onde vem o poder de assinar é trocar o argumento de `signaturesLayer(...)`. O trabalho de assinatura é idêntico; nada do formato muda.
 
 ```ts title="swap-backend.ts"
 import { signPdf } from "@signature-kit/pdf/sign"
@@ -170,13 +170,13 @@ const withHsm = yield* job.pipe(Effect.provide(signaturesLayer(hsmSigner)))
 
 ## Onde a costura termina
 
-A regra do doc-comment é deliberada: o `SignerAdapter` é dono de **onde** vem o poder de assinar e **nunca** da mutação do documento. Ele opera sobre `content: Uint8Array` e retorna uma `signature: Uint8Array` — bytes opacos. Embutir uma assinatura em um XML envelopado ou em um PDF PAdES é trabalho dos módulos de formato (`@signature-kit/xml`, `@signature-kit/pdf`), que consomem a costura através de `Effect.provide` e só por isso permanecem neutros em relação ao backend.
+A regra do doc-comment é deliberada: o `SignerAdapter` é dono de **onde** vem o poder de assinar e **nunca** da mutação do documento. Ele opera sobre `content: Uint8Array` e retorna uma `signature: Uint8Array` — bytes opacos. Embutir uma assinatura em um XML envelopado ou em um PDF PAdES é trabalho dos módulos de formato (`@signature-kit/xml`, `@signature-kit/pdf`), que consomem a costura via `Effect.provide` e por isso permanecem neutros ao backend.
 
-Esse corte é o que mantém a aplicação estável: o XML não sabe se a chave veio de um `.pfx` ou de um HSM, e o signatário não sabe se os bytes que recebeu são uma NF-e ou um PDF. Cada lado conhece apenas a sua metade da fronteira.
+Esse corte mantém a aplicação estável: o XML não sabe se a chave veio de um `.pfx` ou de um HSM, e o signer não sabe se os bytes que recebeu são uma NF-e ou um PDF. Cada lado conhece apenas a sua metade da fronteira.
 
 ## Erros que você pode encontrar
 
-Toda falha da costura é um `SignatureKitError` tipado. Os mais comuns ao construir e usar o signatário:
+Toda falha da costura é um `SignatureKitError` tipado. Os mais comuns ao construir e usar o signer:
 
 <Cards>
   <Card title="signature-kit.WRONG_PASSWORD" href="/docs/errors#error-catalog">Senha do certificado incorreta em loadA1SignerAdapter.</Card>
