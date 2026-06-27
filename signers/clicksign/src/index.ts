@@ -143,7 +143,9 @@ const createDocument = (
           deadline_at: input.expiresAt?.toISOString(),
           auto_close: options.autoClose ?? true,
           locale: options.locale ?? "pt-BR",
-          sequence_enabled: input.recipients.length > 1,
+          sequence_enabled:
+            input.recipients.length > 1 ||
+            input.recipients.some((recipient) => recipient.routingOrder !== undefined),
         },
       }),
     })

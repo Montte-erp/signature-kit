@@ -168,7 +168,7 @@ describe("Clicksign remote signatures", () => {
             deadline_at: "2030-01-01T00:00:00.000Z",
             auto_close: false,
             locale: "pt-BR",
-            sequence_enabled: false,
+            sequence_enabled: true,
           },
         });
       }
