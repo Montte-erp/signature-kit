@@ -1750,23 +1750,40 @@ export function PdfSigner({
               className="sr-only"
               onChange={onPfxFile}
             />
-            <form.Field name="password">
-              {(field) => (
-                <Input
-                  type="password"
-                  value={field.state.value}
-                  aria-label={m.signer_cert_password()}
-                  placeholder={m.signer_cert_password()}
-                  onBlur={field.handleBlur}
-                  onChange={(e) => {
-                    clearBanners();
-                    patchSignerRuntime({ profile: undefined });
-                    field.handleChange(e.currentTarget.value);
-                  }}
-                  className="rounded-md border-border bg-input/30 px-3 py-2 text-sm text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                />
-              )}
-            </form.Field>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void loadProfileThenAdvance();
+              }}
+            >
+              <input
+                type="text"
+                autoComplete="username"
+                value=""
+                readOnly
+                tabIndex={-1}
+                aria-hidden="true"
+                className="sr-only"
+              />
+              <form.Field name="password">
+                {(field) => (
+                  <Input
+                    type="password"
+                    autoComplete="current-password"
+                    value={field.state.value ?? ""}
+                    aria-label={m.signer_cert_password()}
+                    placeholder={m.signer_cert_password()}
+                    onBlur={field.handleBlur}
+                    onChange={(e) => {
+                      clearBanners();
+                      patchSignerRuntime({ profile: undefined });
+                      field.handleChange(e.currentTarget.value);
+                    }}
+                    className="rounded-md border-border bg-input/30 px-3 py-2 text-sm text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                  />
+                )}
+              </form.Field>
+            </form>
             <p className="text-[11px] leading-relaxed text-muted-foreground">
               {m.signer_step2_note_a()}
               <code className="mx-1 font-mono text-foreground">Redacted</code>
@@ -1858,7 +1875,7 @@ export function PdfSigner({
                       {(field) => (
                         <Input
                           type="text"
-                          value={field.state.value}
+                          value={field.state.value ?? ""}
                           aria-label={m.signer_type_aria()}
                           placeholder={profile?.subject ?? m.signer_type_placeholder()}
                           onBlur={field.handleBlur}
@@ -1926,7 +1943,7 @@ export function PdfSigner({
                 >
                   <Checkbox
                     id="stamp-name"
-                    checked={field.state.value}
+                    checked={field.state.value === true}
                     onCheckedChange={(v) => {
                       clearBanners();
                       field.handleChange(v === true);
@@ -1945,7 +1962,7 @@ export function PdfSigner({
                 >
                   <Checkbox
                     id="stamp-date"
-                    checked={field.state.value}
+                    checked={field.state.value === true}
                     onCheckedChange={(v) => {
                       clearBanners();
                       field.handleChange(v === true);
@@ -1964,7 +1981,7 @@ export function PdfSigner({
                 >
                   <Checkbox
                     id="stamp-rubric"
-                    checked={field.state.value}
+                    checked={field.state.value === true}
                     onCheckedChange={(v) => {
                       clearBanners();
                       field.handleChange(v === true);

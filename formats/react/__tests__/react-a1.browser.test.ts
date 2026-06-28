@@ -1,5 +1,5 @@
 import { PDFDocument } from "@cantoo/pdf-lib";
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, it } from "vitest";
 import { a1SignaturesLayer, parseA1CertificateProfile } from "@signature-kit/a1/signer";
 import { signBrowserPdf } from "@signature-kit/react/browser-pdf";
 import {
@@ -78,182 +78,185 @@ if (typeof document === "undefined") {
   });
 } else {
   describe("React browser signing package", () => {
-    it.effect("mounts the React builder surface and emits typed placement", () =>
-      Effect.gen(function* () {
-        const template = yield* createTemplate();
-        const container = document.createElement("div");
-        container.style.width = "320px";
-        document.body.append(container);
-        const placementRef: { current: ReactSignatureFieldPlacement | undefined } = {
-          current: undefined,
-        };
-        const root = createRoot(container);
-        const store = createSignatureBuilderStore({
-          template,
-          draft: {
-            id: "signature-1",
-            type: "signature",
-            roleId: "signer-1",
-            width: 120,
-            height: 32,
-            label: "Assinatura A1",
-            required: true,
-          },
-        });
-        root.render(
-          React.createElement(SignatureBuilderSurface, {
-            store,
-            onFieldPlacement: (next) => {
-              placementRef.current = next;
+    it("mounts the React builder surface and emits typed placement", () =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const template = yield* createTemplate();
+          const container = document.createElement("div");
+          container.style.width = "320px";
+          document.body.append(container);
+          const placementRef: { current: ReactSignatureFieldPlacement | undefined } = {
+            current: undefined,
+          };
+          const root = createRoot(container);
+          const store = createSignatureBuilderStore({
+            template,
+            draft: {
+              id: "signature-1",
+              type: "signature",
+              roleId: "signer-1",
+              width: 120,
+              height: 32,
+              label: "Assinatura A1",
+              required: true,
             },
-          }),
-        );
+          });
+          root.render(
+            React.createElement(SignatureBuilderSurface, {
+              store,
+              onFieldPlacement: (next) => {
+                placementRef.current = next;
+              },
+            }),
+          );
 
-        const page = yield* findBuilderPage(container, 10);
-        expect(page).not.toBeNull();
-        if (page === null) {
+          const page = yield* findBuilderPage(container, 10);
+          expect(page).not.toBeNull();
+          if (page === null) {
+            root.unmount();
+            container.remove();
+            return;
+          }
+
+          const bounds = page.getBoundingClientRect();
+          page.dispatchEvent(
+            new PointerEvent("pointerdown", {
+              bubbles: true,
+              clientX: bounds.left + 40,
+              clientY: bounds.top + 110,
+            }),
+          );
+
+          expect(placementRef.current).toBeDefined();
+          const placement = placementRef.current;
+          if (placement === undefined) {
+            root.unmount();
+            container.remove();
+            return;
+          }
+          expect(placement.documentId).toBe("uploaded");
+          expect(placement.pageIndex).toBe(0);
+          expect(placement.x).toBeGreaterThan(39);
+          expect(placement.x).toBeLessThan(41);
+          expect(placement.y).toBeGreaterThan(108);
+          expect(placement.y).toBeLessThan(111);
+          expect(placement.anchor).toBe("center");
           root.unmount();
           container.remove();
-          return;
-        }
+        }),
+      ));
 
-        const bounds = page.getBoundingClientRect();
-        page.dispatchEvent(
-          new PointerEvent("pointerdown", {
-            bubbles: true,
-            clientX: bounds.left + 40,
-            clientY: bounds.top + 110,
-          }),
-        );
+    it("subscribes React components to selected builder state slices", () =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const template = yield* createTemplate();
+          const field = yield* fieldFromPlacement({
+            documentId: "uploaded",
+            pageIndex: 0,
+            x: 40,
+            y: 110,
+            draft: {
+              id: "signature-1",
+              type: "signature",
+              roleId: "signer-1",
+              width: 120,
+              height: 32,
+            },
+          });
+          const withField = yield* addReactSignatureField(template, field);
+          const store = createSignatureBuilderStore({ template: withField });
+          const container = document.createElement("div");
+          document.body.append(container);
+          const root = createRoot(container);
+          const renderCounts = { role: 0, selected: 0, fields: 0 };
 
-        expect(placementRef.current).toBeDefined();
-        const placement = placementRef.current;
-        if (placement === undefined) {
-          root.unmount();
-          container.remove();
-          return;
-        }
-        expect(placement.documentId).toBe("uploaded");
-        expect(placement.pageIndex).toBe(0);
-        expect(placement.x).toBeGreaterThan(39);
-        expect(placement.x).toBeLessThan(41);
-        expect(placement.y).toBeGreaterThan(108);
-        expect(placement.y).toBeLessThan(111);
-        expect(placement.anchor).toBe("center");
-        root.unmount();
-        container.remove();
-      }),
-    );
+          const RoleProbe = (): React.ReactElement | null => {
+            useSignatureBuilderSelector(store, signatureBuilderSelectors.roles);
+            renderCounts.role += 1;
+            return null;
+          };
+          const SelectedProbe = (): React.ReactElement | null => {
+            useSignatureBuilderSelector(store, signatureBuilderSelectors.selectedFieldId);
+            renderCounts.selected += 1;
+            return null;
+          };
+          const FieldsProbe = (): React.ReactElement | null => {
+            useSignatureBuilderFieldsForPage(store, "uploaded", 0);
+            renderCounts.fields += 1;
+            return null;
+          };
 
-    it.effect("subscribes React components to selected builder state slices", () =>
-      Effect.gen(function* () {
-        const template = yield* createTemplate();
-        const field = yield* fieldFromPlacement({
-          documentId: "uploaded",
-          pageIndex: 0,
-          x: 40,
-          y: 110,
-          draft: {
-            id: "signature-1",
+          root.render(
+            React.createElement(
+              React.Fragment,
+              null,
+              React.createElement(RoleProbe),
+              React.createElement(SelectedProbe),
+              React.createElement(FieldsProbe),
+            ),
+          );
+          yield* nextAnimationFrame;
+
+          store.selectField("signature-1");
+          yield* nextAnimationFrame;
+
+          store.setDraft({
+            id: "signature-2",
             type: "signature",
             roleId: "signer-1",
             width: 120,
             height: 32,
-          },
-        });
-        const withField = yield* addReactSignatureField(template, field);
-        const store = createSignatureBuilderStore({ template: withField });
-        const container = document.createElement("div");
-        document.body.append(container);
-        const root = createRoot(container);
-        const renderCounts = { role: 0, selected: 0, fields: 0 };
+          });
+          yield* nextAnimationFrame;
 
-        const RoleProbe = (): React.ReactElement | null => {
-          useSignatureBuilderSelector(store, signatureBuilderSelectors.roles);
-          renderCounts.role += 1;
-          return null;
-        };
-        const SelectedProbe = (): React.ReactElement | null => {
-          useSignatureBuilderSelector(store, signatureBuilderSelectors.selectedFieldId);
-          renderCounts.selected += 1;
-          return null;
-        };
-        const FieldsProbe = (): React.ReactElement | null => {
-          useSignatureBuilderFieldsForPage(store, "uploaded", 0);
-          renderCounts.fields += 1;
-          return null;
-        };
+          expect(renderCounts.role).toBe(1);
+          expect(renderCounts.selected).toBe(2);
+          expect(renderCounts.fields).toBe(1);
+          root.unmount();
+          container.remove();
+        }),
+      ));
 
-        root.render(
-          React.createElement(
-            React.Fragment,
-            null,
-            React.createElement(RoleProbe),
-            React.createElement(SelectedProbe),
-            React.createElement(FieldsProbe),
-          ),
-        );
-        yield* nextAnimationFrame;
+    it("loads an A1 certificate and signs a PDF in Chromium", () =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const pfx = yield* readA1FixtureFromBrowser("ecpf");
+          const pdf = yield* createPdf;
+          const profile = yield* parseA1CertificateProfile({ pfx, password: PASSWORD });
+          const template = yield* createTemplate();
+          const field = yield* fieldFromPlacement({
+            documentId: "uploaded",
+            pageIndex: 0,
+            x: 40,
+            y: 110,
+            draft: {
+              id: "signature-1",
+              type: "signature",
+              roleId: "signer-1",
+              width: 120,
+              height: 32,
+              label: "Assinatura A1",
+              required: true,
+            },
+          });
+          const withField = yield* addReactSignatureField(template, field);
+          const signed = yield* signBrowserPdf({
+            pdf,
+            template: withField,
+            fieldId: "signature-1",
+            reason: "Chromium browser A1 test",
+            name: "Pessoa CPF:12345678901",
+            location: "BR",
+            signatureLength: 16384,
+          }).pipe(Effect.provide(a1SignaturesLayer({ pfx, password: PASSWORD })));
+          const text = latin1.decode(signed);
 
-        store.selectField("signature-1");
-        yield* nextAnimationFrame;
-
-        store.setDraft({
-          id: "signature-2",
-          type: "signature",
-          roleId: "signer-1",
-          width: 120,
-          height: 32,
-        });
-        yield* nextAnimationFrame;
-
-        expect(renderCounts.role).toBe(1);
-        expect(renderCounts.selected).toBe(2);
-        expect(renderCounts.fields).toBe(1);
-        root.unmount();
-        container.remove();
-      }),
-    );
-
-    it.effect("loads an A1 certificate and signs a PDF in Chromium", () =>
-      Effect.gen(function* () {
-        const pfx = yield* readA1FixtureFromBrowser("ecpf");
-        const pdf = yield* createPdf;
-        const profile = yield* parseA1CertificateProfile({ pfx, password: PASSWORD });
-        const template = yield* createTemplate();
-        const field = yield* fieldFromPlacement({
-          documentId: "uploaded",
-          pageIndex: 0,
-          x: 40,
-          y: 110,
-          draft: {
-            id: "signature-1",
-            type: "signature",
-            roleId: "signer-1",
-            width: 120,
-            height: 32,
-            label: "Assinatura A1",
-            required: true,
-          },
-        });
-        const withField = yield* addReactSignatureField(template, field);
-        const signed = yield* signBrowserPdf({
-          pdf,
-          template: withField,
-          fieldId: "signature-1",
-          reason: "Chromium browser A1 test",
-          name: "Pessoa CPF:12345678901",
-          location: "BR",
-          signatureLength: 16384,
-        }).pipe(Effect.provide(a1SignaturesLayer({ pfx, password: PASSWORD })));
-        const text = latin1.decode(signed);
-
-        expect(profile.document).toBe("12345678901");
-        expect(signed.byteLength).toBeGreaterThan(pdf.byteLength);
-        expect(text).toContain("/ByteRange");
-        expect(text).toContain("/SubFilter /adbe.pkcs7.detached");
-        expect(text).toContain("Chromium browser A1 test");
-      }),
-    );
+          expect(profile.document).toBe("12345678901");
+          expect(signed.byteLength).toBeGreaterThan(pdf.byteLength);
+          expect(text).toContain("/ByteRange");
+          expect(text).toContain("/SubFilter /adbe.pkcs7.detached");
+          expect(text).toContain("Chromium browser A1 test");
+        }),
+      ));
   });
 }

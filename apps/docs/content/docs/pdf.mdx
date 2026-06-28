@@ -46,6 +46,52 @@ const signedPdf: Uint8Array = yield* program  // signed PDF, pades-ades policy
 
 `signatureLength` reserves the bytes of the `/Contents` field that holds the CMS — too small a value fails the signature. `reason` and `name` default to `"Digital signature"` and `"SignatureKit signer"`. Other optional fields: `contactInfo`, `location`, `signingTime`, `timestamp`, and `appearance`.
 
+## Two A1 certificates, two signed PDFs
+
+`Signatures` is an Effect requirement, so certificate choice stays at the call site. Provide one `a1SignaturesLayer` per signer when two people sign independent PDF outputs from the same source bytes.
+
+```ts title="two-a1-signers.ts"
+import { signPdf } from "@signature-kit/pdf/sign"
+import { a1SignaturesLayer } from "@signature-kit/a1/signer"
+import { Effect, Redacted } from "effect"
+
+const mariaProgram = signPdf({
+  pdf: unsignedPdf,
+  reason: "Maria approved the contract",
+  name: "Maria Souza",
+  signatureLength: 16384,
+}).pipe(
+  Effect.provide(
+    a1SignaturesLayer({
+      pfx: mariaPfx,
+      password: Redacted.make(mariaPassword),
+    }),
+  ),
+)
+
+const joaoProgram = signPdf({
+  pdf: unsignedPdf,
+  reason: "João approved the contract",
+  name: "João Silva",
+  signatureLength: 16384,
+}).pipe(
+  Effect.provide(
+    a1SignaturesLayer({
+      pfx: joaoPfx,
+      password: Redacted.make(joaoPassword),
+    }),
+  ),
+)
+
+const [mariaSignedPdf, joaoSignedPdf] = yield* Effect.all([
+  mariaProgram,
+  joaoProgram,
+])
+```
+
+This signs two PDF copies under two different PKCS#12 certificates without sharing secrets or process-global signer state. Today `signPdf` writes one PDF signature per output file; don't model a same-file multi-party workflow by silently re-signing already signed bytes unless your verifier covers that exact flow.
+
+
 <Callout type="warn">
   `hashAlgorithm` only accepts `"sha256"` (→ `rsa-sha256`) or `"sha512"` (→ `rsa-sha512`). Values like `sha1` or `sha384`
   fail with `pdf.SIGN_FAILED`.

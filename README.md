@@ -39,10 +39,10 @@ certificate.
   (`Context.Service` + `Layer`). Apps choose a signer layer once and all byte,
   XML, PDF, and React flows consume that seam.
 - PayKit centers provider portability on one configured instance and separate
-  provider packages. SignatureKit deliberately does not add a gateway: DocuSign,
-  Clicksign, Assinafy, ZapSign, DocuSeal, Adobe Acrobat Sign, Dropbox Sign, and
-  Documenso expose direct `create*SignatureRequest(...)` functions and Alchemy provider
-  layers over `SignatureHttpClient`.
+  provider packages. SignatureKit deliberately does not add a gateway: Clicksign,
+  Assinafy, ZapSign, DocuSeal, and Documenso expose direct
+  `create*SignatureRequest(...)` functions and Alchemy provider layers over
+  `SignatureHttpClient`.
 - Deliberate difference: SignatureKit is a cryptographic runtime, not a SaaS
   workflow app. Core does not import XML, PDF, A1, or provider packages; each seam
   stays replaceable.
@@ -56,14 +56,11 @@ shared/cms         @signature-kit/cms                 CMS/PKCS#7, ICP attrs, RFC
 core/core          @signature-kit/core                runtime schemas, typed errors, Signatures service
 core/certificates  @signature-kit/certificates        Effect-safe PKCS#12/X.509 certificate API
 signers/a1         @signature-kit/a1                  A1 / PKCS#12 signer adapter
-signers/docusign   @signature-kit/docusign            DocuSign remote signer
 signers/clicksign  @signature-kit/clicksign           Clicksign remote signer
 signers/assinafy   @signature-kit/assinafy            Assinafy remote signer
 signers/zapsign    @signature-kit/zapsign             ZapSign remote signer
 signers/docuseal   @signature-kit/docuseal            DocuSeal remote signer
-signers/adobe-sign @signature-kit/adobe-sign          Adobe Acrobat Sign remote signer
-signers/dropbox-sign @signature-kit/dropbox-sign      Dropbox Sign remote signer
-signers/documenso @signature-kit/documenso            Documenso remote signer
+signers/documenso  @signature-kit/documenso            Documenso remote signer
 formats/xml        @signature-kit/xml                 XML-DSig sign/verify
 formats/pdf        @signature-kit/pdf                 PDF detached CMS sign/verify
 formats/react      @signature-kit/react               React builder + browser A1 PDF signing
@@ -129,15 +126,14 @@ const documentProgram = Effect.gen(function* () {
 ### Remote provider workflows
 
 ```ts
-import { createDocuSignSignatureRequest } from "@signature-kit/docusign";
+import { createClicksignSignatureRequest } from "@signature-kit/clicksign";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
 import { Effect, Redacted } from "effect";
 
-const request = createDocuSignSignatureRequest(
+const request = createClicksignSignatureRequest(
   {
-    baseUrl: "https://demo.docusign.net/restapi",
-    accountId: "account-123",
-    accessToken: Redacted.make("docusign-token"),
+    environment: "sandbox",
+    accessToken: Redacted.make("clicksign-token"),
   },
   {
     title: "Contract",

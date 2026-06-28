@@ -100,6 +100,10 @@ declarable, reconcilable, or persisted contract passes through. If something mus
 be declared, reconciled, or stored, it takes Alchemy's shape — never a bespoke
 wrapper. The signer adapters are already modeled this way (each is a `Resource`
 with a `Provider.effect` and a collection layer); follow that shape.
+- Read the upstream v2 guides before changing provider or state-store shape:
+  `https://v2.alchemy.run/guides/custom-provider/#declare-the-resource-constructor-the-tag`,
+  `https://v2.alchemy.run/guides/infrastructure-layers/`, and
+  `https://v2.alchemy.run/guides/custom-state-store/`.
 
 - **The resource constructor is the tag.** One named string literal is the
   resource type, repeated identically in the type alias, the constructor const,
@@ -122,6 +126,14 @@ with a `Provider.effect` and a collection layer); follow that shape.
   must not advertise replacement semantics it cannot execute. For those resources,
   return `noop` once `olds` exists instead of pretending a changed prop can be
   replaced.
+- **Remote provider lifecycle APIs mirror upstream facts.** Keep the Alchemy
+  `create...Request` resource as the reconcile entry point, and expose
+  provider-specific `get`/`list`/`cancel`/`delete`/`download` functions only when
+  the upstream really has those endpoints. These functions use provider schemas
+  plus `SignatureHttpClient`, map remote status into `RemoteSignatureRequest.state`
+  without lossy string helpers, and test path/method/auth redaction/binary
+  downloads against a local HTTP server. Never fake list/delete behavior through
+  Alchemy when the provider cannot perform it.
 - **Infrastructure is layered: Service → Layer → Binding → Runtime.** A runtime
   contract is a `Context.Service`; a
   `Layer.effect(Service, Effect.gen(function* () { const r = yield* ResourceDecl; const client = yield* Binding(r); return { ...methods } }))`

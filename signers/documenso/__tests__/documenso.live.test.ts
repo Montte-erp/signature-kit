@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
-import { Effect, Redacted } from "effect";
+import { Effect, Redacted, Result } from "effect";
 import { createDocumensoSignatureRequest } from "../src/index";
 
 const liveConfig = () => {
@@ -75,15 +75,27 @@ if (config === undefined) {
           send: false,
         } satisfies RemoteSignatureRequestInput;
 
-        const request = yield* createDocumensoSignatureRequest(
-          {
-            apiKey: Redacted.make(config.apiKey),
-            ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
-            ...(config.authorizationScheme === "bearer" ? { authorizationScheme: "bearer" } : {}),
-          },
-          input,
-        ).pipe(Effect.provide(signatureHttpClientLive));
+        const result = yield* Effect.result(
+          createDocumensoSignatureRequest(
+            {
+              apiKey: Redacted.make(config.apiKey),
+              ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
+              ...(config.authorizationScheme === "bearer" ? { authorizationScheme: "bearer" } : {}),
+            },
+            input,
+          ).pipe(Effect.provide(signatureHttpClientLive)),
+        );
 
+        if (Result.isFailure(result)) {
+          const reachedAccountLimit =
+            result.failure.code === "signature-kit.HTTP" &&
+            result.failure.status === 400 &&
+            result.failure.reason?.includes("LIMIT_EXCEEDED") === true;
+          expect(reachedAccountLimit, result.failure.message).toBe(true);
+          return;
+        }
+
+        const request = result.success;
         expect(request.provider).toBe("documenso");
         expect(request.state).toBe("draft");
         expect(request.id.length).toBeGreaterThan(0);

@@ -50,9 +50,9 @@ there is no root runtime facade and no separate contracts-only package.
 
 ### Remote signer packages
 
-- `@signature-kit/docusign`, `@signature-kit/clicksign`, `@signature-kit/assinafy`,
-  `@signature-kit/zapsign`, `@signature-kit/docuseal`, `@signature-kit/adobe-sign`,
-  `@signature-kit/dropbox-sign`, and `@signature-kit/documenso` each own one remote signing protocol adapter.
+- `@signature-kit/clicksign`, `@signature-kit/assinafy`,
+  `@signature-kit/zapsign`, `@signature-kit/docuseal`, and `@signature-kit/documenso`
+  each own one remote signing protocol adapter.
 - Remote signers expose direct `create*SignatureRequest(...)` functions over the
   `SignatureHttpClient` service; there is no provider-neutral gateway package.
 

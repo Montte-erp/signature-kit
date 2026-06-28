@@ -157,7 +157,15 @@ export const RemoteSignatureProviderSchema = Schema.Literals([
 ]);
 export type RemoteSignatureProvider = (typeof RemoteSignatureProviderSchema)["Type"];
 
-export const RemoteSignatureStateSchema = Schema.Literals(["draft", "sent"]);
+export const RemoteSignatureStateSchema = Schema.Literals([
+  "draft",
+  "sent",
+  "completed",
+  "cancelled",
+  "deleted",
+  "declined",
+  "expired",
+]);
 export type RemoteSignatureState = (typeof RemoteSignatureStateSchema)["Type"];
 
 export const RemoteSignatureRecipientRoleSchema = Schema.Literals(["approver", "signer"]);
@@ -235,6 +243,7 @@ export const RemoteSignatureRequestSchema = Schema.Struct({
   providerStatus: Schema.optional(Schema.String),
   signingUrl: Schema.optional(Schema.String),
   detailsUrl: Schema.optional(Schema.String),
+  downloadUrl: Schema.optional(Schema.String),
 });
 export type RemoteSignatureRequest = (typeof RemoteSignatureRequestSchema)["Type"];
 
@@ -326,7 +335,11 @@ export const SignatureKitOperationSchema = Schema.Literals([
   "http.request",
   "http.decode",
   "remote.create",
+  "remote.get",
+  "remote.list",
+  "remote.cancel",
   "remote.delete",
+  "remote.download",
 ]);
 export type SignatureKitOperation = (typeof SignatureKitOperationSchema)["Type"];
 export const SignatureKitOperationValue = {
@@ -339,7 +352,11 @@ export const SignatureKitOperationValue = {
   httpRequest: "http.request",
   httpDecode: "http.decode",
   remoteCreate: "remote.create",
+  remoteGet: "remote.get",
+  remoteList: "remote.list",
+  remoteCancel: "remote.cancel",
   remoteDelete: "remote.delete",
+  remoteDownload: "remote.download",
   schemaDecode: "schema.decode",
 } satisfies Record<string, SignatureKitOperation>;
 
@@ -355,17 +372,23 @@ export const SignatureKitSchemaNameSchema = Schema.Literals([
   "ClicksignDocumentResult",
   "ClicksignSignerResult",
   "ClicksignListResult",
+  "ClicksignDocumentsResult",
   "AssinafyProviderOptions",
   "AssinafyDocumentResult",
   "AssinafySignerResult",
   "AssinafyAssignmentResult",
+  "AssinafyAssignmentsResult",
   "ZapSignProviderOptions",
   "ZapSignDocumentResult",
+  "ZapSignDocumentsResult",
   "DocuSealProviderOptions",
   "DocuSealSubmissionResult",
+  "DocuSealSubmissionsResult",
   "DocumensoProviderOptions",
   "DocumensoCreateEnvelopeResult",
   "DocumensoDistributeEnvelopeResult",
+  "DocumensoEnvelopeResult",
+  "DocumensoEnvelopeListResult",
 ]);
 export type SignatureKitSchemaName = (typeof SignatureKitSchemaNameSchema)["Type"];
 export const SignatureKitSchemaNameValue = {
@@ -379,17 +402,23 @@ export const SignatureKitSchemaNameValue = {
   clicksignDocumentResult: "ClicksignDocumentResult",
   clicksignSignerResult: "ClicksignSignerResult",
   clicksignListResult: "ClicksignListResult",
+  clicksignDocumentsResult: "ClicksignDocumentsResult",
   assinafyProviderOptions: "AssinafyProviderOptions",
   assinafyDocumentResult: "AssinafyDocumentResult",
   assinafySignerResult: "AssinafySignerResult",
   assinafyAssignmentResult: "AssinafyAssignmentResult",
+  assinafyAssignmentsResult: "AssinafyAssignmentsResult",
   zapSignProviderOptions: "ZapSignProviderOptions",
   zapSignDocumentResult: "ZapSignDocumentResult",
+  zapSignDocumentsResult: "ZapSignDocumentsResult",
   docuSealProviderOptions: "DocuSealProviderOptions",
   docuSealSubmissionResult: "DocuSealSubmissionResult",
+  docuSealSubmissionsResult: "DocuSealSubmissionsResult",
   documensoProviderOptions: "DocumensoProviderOptions",
   documensoCreateEnvelopeResult: "DocumensoCreateEnvelopeResult",
   documensoDistributeEnvelopeResult: "DocumensoDistributeEnvelopeResult",
+  documensoEnvelopeResult: "DocumensoEnvelopeResult",
+  documensoEnvelopeListResult: "DocumensoEnvelopeListResult",
   a1SignerOptions: "A1SignerOptions",
 } satisfies Record<string, SignatureKitSchemaName>;
 

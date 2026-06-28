@@ -3,11 +3,26 @@ title: Assinatura A1 no React
 description: "A superfície enxuta do @signature-kit/react: assinatura A1 de PDF no navegador, guiada por Effect."
 ---
 
-`@signature-kit/react` agora é uma camada fina de navegador/React sobre o runtime Effect do SignatureKit. O escopo inicial é propositalmente estreito: **assinar PDFs com certificado A1 / PKCS#12 no navegador**. Provedores remotos, bridges do builder DocuSeal, tipos genéricos de campo, hooks de fila e renderização `react-pdf` ficam fora desta superfície React.
+`@signature-kit/react` agora é uma camada fina de navegador/React sobre o runtime Effect do SignatureKit. O escopo inicial é propositalmente estreito: **assinar PDFs com certificado A1 / PKCS#12 no navegador**. Todo o resto fica em pacotes de provider ou formato até o caminho A1 ficar boring.
 
 ```package-install
 @signature-kit/react @signature-kit/a1 @signature-kit/pdf
 ```
+
+## Registry install
+
+```bash
+npx shadcn@latest add a1-browser-signing --registry {URL_DA_DOCS}/registry
+```
+
+O item da registry (`a1-browser-signing`) envia apenas o bloco de UI:
+
+```ts
+// componentes copiados para sua app
+components/a1-browser-signing.tsx
+```
+
+Ele depende dos pacotes da sua app (`@signature-kit/react`, `@signature-kit/a1`, `@signature-kit/pdf`); o item da registry adiciona só dependências locais de UI/form/store e nenhuma superfície de providers remotos de assinatura.
 
 ## Forma pública
 

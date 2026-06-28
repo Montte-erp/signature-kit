@@ -39,6 +39,9 @@ export type SignatureHttpClientService = {
   readonly requestJson: (
     request: SignatureHttpRequest,
   ) => Effect.Effect<unknown, SignatureKitError>;
+  readonly requestBytes: (
+    request: SignatureHttpRequest,
+  ) => Effect.Effect<Uint8Array, SignatureKitError>;
   readonly requestVoid: (request: SignatureHttpRequest) => Effect.Effect<void, SignatureKitError>;
 };
 
@@ -132,11 +135,32 @@ const parseJsonBody = (
       }),
   });
 
+const readResponseBytes = (
+  request: SignatureHttpRequest,
+  response: Response,
+): Effect.Effect<Uint8Array, SignatureKitError> =>
+  Effect.tryPromise({
+    try: async () => new Uint8Array(await response.arrayBuffer()),
+    catch: () =>
+      new SignatureKitError({
+        code: SignatureKitErrorCodeValue.http,
+        retryable: true,
+        provider: request.provider,
+        operation: SignatureKitOperationValue.httpRequest,
+        status: response.status,
+        reason: `Failed to read ${request.method} ${diagnosticRequestUrl(request)} response body.`,
+      }),
+  });
+
 export const signatureHttpClientLive: Layer.Layer<SignatureHttpClient> = Layer.succeed(
   SignatureHttpClient,
   {
     requestJson: (request: SignatureHttpRequest) =>
       fetchResponse(request).pipe(Effect.flatMap((response) => parseJsonBody(request, response))),
+    requestBytes: (request: SignatureHttpRequest) =>
+      fetchResponse(request).pipe(
+        Effect.flatMap((response) => readResponseBytes(request, response)),
+      ),
     requestVoid: (request: SignatureHttpRequest) => fetchResponse(request).pipe(Effect.asVoid),
   },
 );

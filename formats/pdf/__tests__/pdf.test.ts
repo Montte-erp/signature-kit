@@ -229,6 +229,43 @@ describe("PDF signatures", () => {
     }),
   );
 
+  it.effect("signs one PDF with two A1 certificates in sequence", () =>
+    Effect.gen(function* () {
+      const companyPfx = yield* readA1Fixture("ecnpj");
+      const personPfx = yield* readA1Fixture("ecpf");
+      const pdf = yield* createPdf;
+
+      const companySigned = yield* signPdf({
+        pdf,
+        reason: "Company approval",
+        name: "Empresa CNPJ:12345678000195",
+        location: "BR",
+        signatureLength: 16384,
+        appearance: {
+          placement: { kind: "manual", pageIndex: 0, widgetRect: [20, 20, 140, 60] },
+        },
+      }).pipe(Effect.provide(a1SignaturesLayer({ pfx: companyPfx, password: PASSWORD })));
+
+      const personSigned = yield* signPdf({
+        pdf: companySigned,
+        reason: "Person approval",
+        name: "Pessoa CPF:12345678901",
+        location: "BR",
+        signatureLength: 16384,
+        appearance: {
+          placement: { kind: "manual", pageIndex: 0, widgetRect: [180, 20, 300, 60] },
+        },
+      }).pipe(Effect.provide(a1SignaturesLayer({ pfx: personPfx, password: PASSWORD })));
+
+      const verification = yield* verifyPdf({ pdf: personSigned });
+
+      expect(personSigned.byteLength).toBeGreaterThan(companySigned.byteLength);
+      expect(verification.valid).toBe(true);
+      expect(verification.chainValid).toBe(true);
+      expect(verification.signatureCount).toBe(2);
+    }),
+  );
+
   it.effect("stamps a rubric on every page, then signs once over the whole document", () =>
     Effect.gen(function* () {
       const pfx = yield* readA1Fixture("ecnpj");

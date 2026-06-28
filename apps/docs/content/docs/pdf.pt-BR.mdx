@@ -46,6 +46,52 @@ const signedPdf: Uint8Array = yield* program  // signed PDF, pades-ades policy
 
 `signatureLength` reserva os bytes do campo `/Contents` que guarda o CMS — um valor curto demais faz a assinatura falhar. `reason` e `name` têm como padrão `"Digital signature"` e `"SignatureKit signer"`. Outros campos opcionais: `contactInfo`, `location`, `signingTime`, `timestamp` e `appearance`.
 
+## Dois certificados A1, dois PDFs assinados
+
+`Signatures` é um requisito do Effect, então a escolha do certificado fica no ponto de chamada. Forneça um `a1SignaturesLayer` por signatário quando duas pessoas assinam saídas de PDF independentes a partir dos mesmos bytes de origem.
+
+```ts title="two-a1-signers.ts"
+import { signPdf } from "@signature-kit/pdf/sign"
+import { a1SignaturesLayer } from "@signature-kit/a1/signer"
+import { Effect, Redacted } from "effect"
+
+const mariaProgram = signPdf({
+  pdf: unsignedPdf,
+  reason: "Maria aprovou o contrato",
+  name: "Maria Souza",
+  signatureLength: 16384,
+}).pipe(
+  Effect.provide(
+    a1SignaturesLayer({
+      pfx: mariaPfx,
+      password: Redacted.make(mariaPassword),
+    }),
+  ),
+)
+
+const joaoProgram = signPdf({
+  pdf: unsignedPdf,
+  reason: "João aprovou o contrato",
+  name: "João Silva",
+  signatureLength: 16384,
+}).pipe(
+  Effect.provide(
+    a1SignaturesLayer({
+      pfx: joaoPfx,
+      password: Redacted.make(joaoPassword),
+    }),
+  ),
+)
+
+const [mariaSignedPdf, joaoSignedPdf] = yield* Effect.all([
+  mariaProgram,
+  joaoProgram,
+])
+```
+
+Isso assina duas cópias de PDF com dois certificados PKCS#12 diferentes sem compartilhar segredos nem estado global de signatário. Hoje `signPdf` grava uma assinatura PDF por arquivo de saída; não modele um fluxo multipartes no mesmo arquivo reassinando bytes já assinados em silêncio sem cobrir esse fluxo com o verificador.
+
+
 <Callout type="warn">
   `hashAlgorithm` aceita apenas `"sha256"` (→ `rsa-sha256`) ou `"sha512"` (→ `rsa-sha512`). Valores como `sha1` ou `sha384`
   falham com `pdf.SIGN_FAILED`.

@@ -8,6 +8,16 @@ description: "Leia, posicione e assine PDFs com certificado A1 no navegador via 
 ```package-install
 @signature-kit/react @signature-kit/a1 @signature-kit/pdf
 ```
+## Instalação via registry
+
+```bash
+npx shadcn@latest add a1-browser-signing --registry {URL_DA_DOCS}/registry
+```
+
+Instale o bloco da UI sem depender do app de docs: ele é copiado para `components/a1-browser-signing.tsx`. O item da registry puxa os primitivos shadcn `button`, `input` e `label` mais as dependências locais de formulário/store do TanStack; SignatureKit continua limitado a `@signature-kit/react`, `@signature-kit/a1` e `@signature-kit/pdf`.
+
+O bloco instalável segue a ideia que gostamos no PDFX: manter a UI de PDF como um componente copiável no estilo shadcn, enquanto a primitiva de assinatura continua sendo a API Effect do SignatureKit.
+
 
 <Callout type="error" title="Nada sai do dispositivo">
   `readBrowserFileBytes`, `createBrowserPdfSignatureBuilderState`, `signBrowserPdf` e `signBrowserPdfBatch` não enviam documento nem certificado. Envolva a senha com `Redacted` antes de fornecer a camada A1.
@@ -16,6 +26,8 @@ description: "Leia, posicione e assine PDFs com certificado A1 no navegador via 
 ## Demo ao vivo
 
 A ilha React abaixo é o caminho de componente suportado hoje: suba PDFs, posicione o retângulo da assinatura A1, carregue o certificado A1, assine localmente e baixe os PDFs assinados.
+Se preferir um componente copiado em vez da ilha de docs, importe `A1BrowserSigningBlock` do arquivo copiado.
+
 
 <PdfSigner />
 
@@ -58,6 +70,49 @@ const signed = await Effect.runPromise(
   ),
 )
 ```
+
+## Duas pessoas, dois certificados A1
+
+`signBrowserPdfBatch` serve para muitos PDFs sob uma única camada A1 fornecida. Quando cada pessoa tem um certificado diferente, mantenha o mesmo fluxo de PDF/template e forneça cada signatário separadamente na borda da ação do navegador.
+
+```ts title="two-browser-a1-signers.ts"
+const mariaSignedPdf = await Effect.runPromise(
+  signBrowserPdf({
+    pdf: bytes,
+    template: state.template,
+    fieldId: "sig",
+    reason: "Maria aprovou no navegador",
+    name: "Maria Souza",
+  }).pipe(
+    Effect.provide(
+      a1SignaturesLayer({
+        pfx: mariaPfx,
+        password: Redacted.make(mariaPassword),
+      }),
+    ),
+  ),
+)
+
+const joaoSignedPdf = await Effect.runPromise(
+  signBrowserPdf({
+    pdf: bytes,
+    template: state.template,
+    fieldId: "sig",
+    reason: "João aprovou no navegador",
+    name: "João Silva",
+  }).pipe(
+    Effect.provide(
+      a1SignaturesLayer({
+        pfx: joaoPfx,
+        password: Redacted.make(joaoPassword),
+      }),
+    ),
+  ),
+)
+```
+
+Cada programa produz um PDF assinado separado. A superfície React continua responsável apenas por leitura de arquivos no navegador, posicionamento e ligação da ação; a assinatura A1 fica na camada Effect que você fornece.
+
 
 ## API
 

@@ -83,9 +83,9 @@ Benchmark against current docs:
   future HSM/government signers, XML, PDF, and remote workflow vendors behind
   adapters or format modules.
 - PayKit's setup creates one `createPayKit({ ... })` server instance and provider
-  portability comes from provider-specific packages. SignatureKit keeps DocuSign,
-  Clicksign, Assinafy, and ZapSign as direct remote signer packages instead of
-  adding a provider-neutral gateway.
+  portability comes from provider-specific packages. SignatureKit keeps Clicksign,
+  Assinafy, ZapSign, DocuSeal, and Documenso as direct remote signer packages
+  instead of adding a provider-neutral gateway.
 - PayKit exposes handlers and clients because billing has a server/client product
   surface. SignatureKit should not add a handler/client abstraction until a real
   request/response signing product surface exists; cryptographic signing remains a
@@ -194,10 +194,11 @@ Every publishable package lives one level below them and owns its own `package.j
 #### `signers/`
 
 - `signers/a1` → `@signature-kit/a1`
-- `signers/docusign` → `@signature-kit/docusign`
 - `signers/clicksign` → `@signature-kit/clicksign`
 - `signers/assinafy` → `@signature-kit/assinafy`
 - `signers/zapsign` → `@signature-kit/zapsign`
+- `signers/docuseal` → `@signature-kit/docuseal`
+- `signers/documenso` → `@signature-kit/documenso`
 
 #### `formats/`
 
@@ -260,8 +261,8 @@ This package is the first real backend, not the whole product.
 
 Purpose:
 
-- one package per provider: DocuSign, Clicksign, Assinafy, ZapSign, DocuSeal,
-  Adobe Acrobat Sign, Dropbox Sign, Documenso;
+- one package per provider: Clicksign, Assinafy, ZapSign, DocuSeal, and
+  Documenso;
 - expose direct `create*SignatureRequest(...)` functions over `SignatureHttpClient`;
 - keep provider HTTP protocol details inside that provider adapter;
 - let users install only the providers they use.
@@ -405,8 +406,9 @@ type XmlSignatureModule = {
 - `@signature-kit/core` and `@signature-kit/certificates`;
 - `@signature-kit/a1` for PKCS#12 / PFX loading, password validation, e-CPF/e-CNPJ
   identity extraction, byte signing, and byte verification;
-- `@signature-kit/docusign`, `@signature-kit/clicksign`, `@signature-kit/assinafy`,
-  and `@signature-kit/zapsign` for remote signature-request workflows;
+- `@signature-kit/clicksign`, `@signature-kit/assinafy`, `@signature-kit/zapsign`,
+  `@signature-kit/docuseal`, and `@signature-kit/documenso` for remote
+  signature-request workflows;
 - `@signature-kit/xml` for XMLDSig sign/verify over the `Signatures` seam;
 - `@signature-kit/pdf` and internal `@signature-kit/cms` for detached CMS / PAdES-shaped
   PDF signing;
@@ -500,9 +502,11 @@ core/
   certificates/ # PKCS#12/X.509 parse + identity normalization
 signers/
   a1/           # PKCS#12 signer adapter
-  docusign/     # remote signer adapter
-  clicksign/
+  clicksign/    # remote signer adapter
   assinafy/
+  zapsign/
+  docuseal/
+  documenso/
 formats/
   xml/         # XMLDSig document mutation
   pdf/         # PDF mutation + detached CMS embedding
@@ -523,14 +527,13 @@ Use simple, stable names:
 - future adapter layer: `govBrSignaturesLayer`
 - certificate API: `certificates.inspect`
 - bytes API: `signatures.sign`, `signatures.verify`
-- remote signer API: `createDocuSignSignatureRequest`, `createClicksignSignatureRequest`,
+- remote signer API: `createClicksignSignatureRequest`,
   `createAssinafySignatureRequest`, `createZapSignSignatureRequest`,
-  `createDocuSealSignatureRequest`, `createAdobeSignSignatureRequest`,
-  `createDropboxSignSignatureRequest`, `createDocumensoSignatureRequest`
+  `createDocuSealSignatureRequest`, `createDocumensoSignatureRequest`
 
 Do not introduce synonyms for the same concept. Use `signer` for signing
 capability backends; use `provider` only for remote workflow vendors such as
-DocuSign, Clicksign, Assinafy, ZapSign, DocuSeal, Adobe Acrobat Sign, Dropbox Sign, and Documenso.
+Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso.
 
 ---
 
@@ -541,7 +544,7 @@ SignatureKit now has:
 1. one lean signer runtime in `@signature-kit/core`;
 2. one real local backend in `@signature-kit/a1`;
 3. XML and PDF format modules that consume the same signing seam;
-4. direct remote signer packages for DocuSign, Clicksign, Assinafy, ZapSign, DocuSeal, Adobe Acrobat Sign, Dropbox Sign, and Documenso;
+4. direct remote signer packages for Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso;
 5. OSS packaging and boring names.
 
 The architecture succeeds if A1 is only the first backend, not the product definition.

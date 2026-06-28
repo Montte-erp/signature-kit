@@ -63,8 +63,8 @@ describe("declarative smell rules", () => {
     expect(
       anyCheckMatchesSource(
         architectureChecks,
-        "signers/docusign/src/index.ts",
-        'import { Effect } from "effect";\nexport const docusign = () => Effect.void;',
+        "signers/clicksign/src/index.ts",
+        'import { Effect } from "effect";\nexport const clicksign = () => Effect.void;',
       ),
     ).toBe(false);
   });

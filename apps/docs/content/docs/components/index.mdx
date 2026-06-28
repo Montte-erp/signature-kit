@@ -3,11 +3,26 @@ title: React A1 browser signing
 description: "The lean @signature-kit/react surface: Effect-first A1 PDF signing in the browser."
 ---
 
-`@signature-kit/react` is now a thin browser/React layer over SignatureKit's Effect runtime. The launch scope is intentionally narrow: **PDF signing with an A1 / PKCS#12 certificate in the browser**. Remote providers, DocuSeal builder bridges, generic field types, queue hooks, and `react-pdf` rendering are outside this React package surface.
+`@signature-kit/react` is now a thin browser/React layer over SignatureKit's Effect runtime. The launch scope is intentionally narrow: **PDF signing with an A1 / PKCS#12 certificate in the browser**. Everything else stays in provider or format packages until the A1 path is boring.
 
 ```package-install
 @signature-kit/react @signature-kit/a1 @signature-kit/pdf
 ```
+
+## Registry install
+
+```bash
+npx shadcn@latest add a1-browser-signing --registry {DOCS_ORIGIN}/registry
+```
+
+The registry item (`a1-browser-signing`) ships only the UI block:
+
+```ts
+// components copied into your app
+components/a1-browser-signing.tsx
+```
+
+It depends on your app package install (`@signature-kit/react`, `@signature-kit/a1`, `@signature-kit/pdf`); the registry item adds only local UI/form/store dependencies and no remote signer provider surface.
 
 ## Public shape
 
