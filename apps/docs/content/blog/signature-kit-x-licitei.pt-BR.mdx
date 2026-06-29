@@ -44,7 +44,7 @@ O `@signature-kit` roda o **fluxo de assinatura inteiro no navegador**. Os bytes
 Isso é possível porque o navegador já traz a primitiva certa. A Web Crypto API expõe operações criptográficas direto no cliente — inclusive em Web Workers — e o `SubtleCrypto.sign()` gera a assinatura digital com a chave privada usando RSASSA-PKCS1-v1_5, RSA-PSS, ECDSA ou Ed25519 ([MDN, Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API)). É exatamente a operação necessária para assinar o hash de um PDF sem servidor.
 
 ```package-install
-@signature-kit/react @signature-kit/pdf @signature-kit/a1
+@signature-kit/pdf @signature-kit/a1
 ```
 
 <Callout type="error" title="Nada sai do dispositivo">
@@ -61,7 +61,7 @@ Isso é possível porque o navegador já traz a primitiva certa. A Web Crypto AP
     (`react.FILE_READ_FAILED`), nunca uma exceção solta.
 
     ```ts title="read.ts"
-    import { readBrowserFileBytes } from "@signature-kit/react/browser-pdf"
+    import { readBrowserFileBytes } from "@signature-kit/pdf/browser"
 
     const bytes = await Effect.runPromise(readBrowserFileBytes(file))
     ```
@@ -72,7 +72,7 @@ Isso é possível porque o navegador já traz a primitiva certa. A Web Crypto AP
     campo de assinatura posicionado — de forma explícita ou automática. O `template` dele é o que o assinador consome.
 
     ```ts title="build.ts"
-    import { createBrowserPdfSignatureBuilderState } from "@signature-kit/react/browser-pdf"
+    import { createBrowserPdfSignatureBuilderState } from "@signature-kit/pdf/browser"
 
     const state = await Effect.runPromise(
       createBrowserPdfSignatureBuilderState({
@@ -96,7 +96,7 @@ Isso é possível porque o navegador já traz a primitiva certa. A Web Crypto AP
     a cada documento concluído, então a UI mostra o progresso e devolve cada arquivo assinado direto para a disputa.
 
     ```ts title="sign-batch.ts"
-    import { signBrowserPdfBatch } from "@signature-kit/react/browser-pdf"
+    import { signBrowserPdfBatch } from "@signature-kit/pdf/browser"
     import { a1SignaturesLayer } from "@signature-kit/a1/signer"
     import { Effect, Redacted } from "effect"
 
@@ -143,10 +143,10 @@ tornou a assinatura com certificado digital algo que a Licitei pôde *incluir*, 
 ## Continue lendo
 
 <Cards>
-  <Card title="Assinatura no navegador (demo ao vivo)" href="/docs/components/browser-signing">
+  <Card title="Assinatura no navegador (demo ao vivo)" href="/docs/concepts/browser-a1-boundary">
     As mesmas primitivas numa ilha React no navegador: suba, posicione, adicione um certificado A1 e assine um lote — os bytes e a senha nunca saem da página.
   </Card>
-  <Card title="Certificados A1" href="/docs/certificates">
+  <Card title="Certificados A1" href="/docs/signing/certificates">
     Como o container A1 / PKCS#12 é lido e transformado na fronteira Signatures.
   </Card>
 </Cards>

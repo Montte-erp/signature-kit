@@ -1,0 +1,96 @@
+---
+title: Installation
+description: "Install the core and the A1 signer, provide the Signatures layer, and sign your first bytes with typed errors."
+---
+
+**What you'll do:** install the runtime, load an A1 certificate, and sign bytes with typed errors. Formats and providers come later, without changing your application's contract.
+
+<Steps>
+  <Step title="Install the packages">
+    Start with the `@signature-kit/core` runtime and the `@signature-kit/a1` signer.
+
+    ```package-install
+    @signature-kit/core @signature-kit/a1
+    ```
+  </Step>
+
+  <Step title="Provide the Signatures layer">
+    `a1SignaturesLayer` takes the `.pfx` bytes and the `Redacted` password, validates the certificate, and provides the `Signatures` service.
+
+    ```ts title="signature-kit.ts"
+    import { a1SignaturesLayer } from "@signature-kit/a1/signer"
+    import { signatures } from "@signature-kit/core/signatures"
+    import { Effect, Redacted } from "effect"
+
+    export const layer = a1SignaturesLayer({
+      pfx,                                          // Uint8Array — bytes of the .pfx/.p12
+      password: Redacted.make(process.env.A1_PASSWORD ?? ""),
+    })
+    ```
+
+    <Callout type="info">
+      the password is `Redacted.Redacted<string>` — wrap it with `Redacted.make(...)` to keep the secret out of logs until the point of use.
+    </Callout>
+  </Step>
+
+  <Step title="Sign and verify bytes">
+    The service exposes `signatures.inspect`, `signatures.sign`, and `signatures.verify`. The algorithm is `"rsa-sha256"` or `"rsa-sha512"`.
+
+    ```ts title="sign.ts"
+    const program = Effect.gen(function* () {
+      const identity = yield* signatures.inspect()  // e-CPF / e-CNPJ
+      const artifact = yield* signatures.sign({
+        content,
+        algorithm: "rsa-sha256",
+      })
+
+      const result = yield* signatures.verify({
+        content,
+        signature: artifact.signature,
+        algorithm: artifact.algorithm,
+      })
+      return { identity, result }
+    }).pipe(Effect.provide(layer))
+    // result.valid: boolean
+    ```
+  </Step>
+
+  <Step title="Add XML and PDF">
+    PDF reuses the same boundary via `Effect.provide(layer)`. XML also declares `xmlRuntimeLayer`, an explicit runtime dependency.
+
+    ```package-install
+    @signature-kit/xml @signature-kit/pdf
+    ```
+
+    ```ts title="documents.ts"
+    import { signXml } from "@signature-kit/xml/sign"
+    import { xmlRuntimeLayer } from "@signature-kit/xml/engine"
+    import { signPdf } from "@signature-kit/pdf/sign"
+    import { a1SignaturesLayer } from "@signature-kit/a1/signer"
+    import { Effect } from "effect"
+
+    const layer = a1SignaturesLayer({ pfx, password })
+
+    const signedXml = yield* signXml({ xml, referenceId: "nfe-1" })
+      .pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer))
+
+    const signedPdf = yield* signPdf({ pdf, policy: "pades-icp-brasil" })
+      .pipe(Effect.provide(layer))
+    ```
+  </Step>
+</Steps>
+
+## Errors you may see
+
+Every failure is a typed `SignatureKitError` on the error channel. The most common ones during installation:
+
+- [`signature-kit.WRONG_PASSWORD`](/docs/signing/errors) — "Wrong certificate password."
+- [`signature-kit.NO_PRIVATE_KEY`](/docs/signing/errors) — "The file does not contain a private key."
+- [`signature-kit.INVALID_FORMAT`](/docs/signing/errors) — the file is not a PKCS#12 (.pfx/.p12).
+
+## Next steps
+
+<Cards>
+  <Card title="First use" href="/docs/get-started/quickstart">Load an A1 certificate and produce your first signature in minutes.</Card>
+  <Card title="The boundary" href="/docs/signing/signers">The SignerAdapter: the seam through which the power to sign enters.</Card>
+</Cards>

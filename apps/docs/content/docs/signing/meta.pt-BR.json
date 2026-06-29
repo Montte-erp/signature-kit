@@ -1,0 +1,11 @@
+{
+  "title": "Signers",
+  "icon": "PenTool",
+  "pages": [
+    "signers",
+    "certificates",
+    "pdf",
+    "xml",
+    "errors"
+  ]
+}

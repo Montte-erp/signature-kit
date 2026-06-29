@@ -1,0 +1,17 @@
+---
+title: Effect runtime
+description: "SignatureKit APIs return typed Effect values so runtime requirements and recoverable errors stay explicit."
+---
+
+SignatureKit keeps recoverable technical failures in the typed Effect error channel. Mandatory invariants stay hard failures. Services are `Context.Service` + `Layer`, so internals do not hide `Effect.provide` deep inside library code.
+
+## What this buys
+
+- Call sites can see required services in the Effect environment.
+- Secrets stay `Redacted` until an explicit import or transport boundary.
+- Tests can swap layers without mocking global state.
+- HTTP, schema, and provider failures carry stable structured facts.
+
+<Callout type="info" title="Boundary rule">
+  Applications run Effects. Libraries return Effects. That is why docs examples put `Effect.runPromise` at event handlers, scripts, tests, or app boundaries.
+</Callout>

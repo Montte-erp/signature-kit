@@ -1,15 +1,15 @@
 import { Effect } from "effect";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { createBrowserPdfSignatureBuilderState } from "@signature-kit/react/browser-pdf";
-import { createSignatureBuilderStore } from "@signature-kit/react/components";
+import { createPdfSignatureBuilderStateFromBytes } from "@signature-kit/pdf/workflow";
+import { createPdfSignatureBuilderStore } from "@signature-kit/pdf/builder-store";
 import type {
-  ReactSignatureFieldDraft,
-  ReactSignaturePage,
-  ReactSignatureRect,
-  ReactSignatureTemplate,
-  ReactSignerRole,
-} from "@signature-kit/react/config";
+  PdfSignatureFieldDraft,
+  PdfSignaturePage,
+  PdfSignatureRect,
+  PdfSignatureTemplate,
+  PdfSignerRole,
+} from "@signature-kit/pdf/config";
 import { Store } from "@tanstack/react-store";
 
 import { AsyncQueuer, queuerBusy, waitFor } from "./helpers/queue";
@@ -29,7 +29,7 @@ import { makeDummyDocs } from "./helpers/dummy-pdf";
 
 const DOC_COUNT = 25;
 
-const SIGNATURE_DRAFT: ReactSignatureFieldDraft = {
+const SIGNATURE_DRAFT: PdfSignatureFieldDraft = {
   id: "a1-signature",
   type: "signature",
   roleId: "signer",
@@ -39,20 +39,20 @@ const SIGNATURE_DRAFT: ReactSignatureFieldDraft = {
   required: true,
 };
 
-const ROLE: ReactSignerRole = {
+const ROLE: PdfSignerRole = {
   id: "signer",
   label: "Signatário",
   email: "signer@example.com",
   required: true,
 };
 
-type PageDim = ReactSignaturePage;
-type DocRect = ReactSignatureRect;
+type PageDim = PdfSignaturePage;
+type DocRect = PdfSignatureRect;
 
 type ParsedDoc = {
   readonly id: string;
   readonly name: string;
-  readonly template: ReactSignatureTemplate;
+  readonly template: PdfSignatureTemplate;
   readonly pageDims: ReadonlyArray<PageDim>;
 };
 
@@ -77,7 +77,7 @@ describe("best-guess auto-placement", () => {
     parsed = await Promise.all(
       built.map(async (doc) => {
         const state = await Effect.runPromise(
-          createBrowserPdfSignatureBuilderState({
+          createPdfSignatureBuilderStateFromBytes({
             id: "best-guess-test",
             name: doc.name,
             documentId: doc.id,
@@ -115,7 +115,7 @@ describe("best-guess auto-placement", () => {
         focusOrder.push(doc.id);
 
         const anchor = bestGuessAnchor(doc.pageDims);
-        const builder = createSignatureBuilderStore({
+        const builder = createPdfSignatureBuilderStore({
           template: doc.template,
           draft: SIGNATURE_DRAFT,
         });

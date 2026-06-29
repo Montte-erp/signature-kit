@@ -38,7 +38,7 @@ So Montte and Licitei asked the obvious question: what if the server isn't in th
 `@signature-kit` runs the **entire signing flow in the browser**. The PDF bytes, the A1 `.p12`/`.pfx` container, and its password stay in the page's local memory and never make a network request. The asymmetric operation is the same one the platform already exposes: the Web Crypto API gives a script direct access to cryptographic primitives via `SubtleCrypto`, and `sign()` produces a digital signature from a private key entirely client-side, with no server in the path ([MDN, Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API)). PAdES is computed in the page; the app gets back finished, signed bytes to download or store.
 
 ```package-install
-@signature-kit/react @signature-kit/pdf @signature-kit/a1
+@signature-kit/pdf @signature-kit/a1
 ```
 
 <Callout type="error" title="Nothing leaves the device">
@@ -55,7 +55,7 @@ So Montte and Licitei asked the obvious question: what if the server isn't in th
     (`react.FILE_READ_FAILED`), never a thrown exception.
 
     ```ts title="read.ts"
-    import { readBrowserFileBytes } from "@signature-kit/react/browser-pdf"
+    import { readBrowserFileBytes } from "@signature-kit/pdf/browser"
 
     const bytes = await Effect.runPromise(readBrowserFileBytes(file))
     ```
@@ -66,7 +66,7 @@ So Montte and Licitei asked the obvious question: what if the server isn't in th
     the signature field positioned — explicitly, or auto-placed. Its `template` is what the signer consumes.
 
     ```ts title="build.ts"
-    import { createBrowserPdfSignatureBuilderState } from "@signature-kit/react/browser-pdf"
+    import { createBrowserPdfSignatureBuilderState } from "@signature-kit/pdf/browser"
 
     const state = await Effect.runPromise(
       createBrowserPdfSignatureBuilderState({
@@ -90,7 +90,7 @@ So Montte and Licitei asked the obvious question: what if the server isn't in th
     fires as each finishes, so the UI can stream progress and hand each signed file straight back to the bid.
 
     ```ts title="sign-batch.ts"
-    import { signBrowserPdfBatch } from "@signature-kit/react/browser-pdf"
+    import { signBrowserPdfBatch } from "@signature-kit/pdf/browser"
     import { a1SignaturesLayer } from "@signature-kit/a1/signer"
     import { Effect, Redacted } from "effect"
 
@@ -137,10 +137,10 @@ The cryptography was never the hard part — it's a hash signature measured in m
 ## Keep reading
 
 <Cards>
-  <Card title="Browser signing (live demo)" href="/docs/components/browser-signing">
+  <Card title="Browser signing (live demo)" href="/docs/concepts/browser-a1-boundary">
     The same primitives wired into an in-browser island: upload, place, add an A1 certificate, and sign a batch — bytes and password never leave the page.
   </Card>
-  <Card title="A1 certificates" href="/docs/certificates">
+  <Card title="A1 certificates" href="/docs/signing/certificates">
     How the A1 / PKCS#12 container is read and turned into the Signatures boundary.
   </Card>
 </Cards>

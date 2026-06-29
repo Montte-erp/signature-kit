@@ -1,0 +1,17 @@
+---
+title: Remote signature requests
+description: "Remote providers create external signing workflows; they are not local Signatures backends."
+---
+
+Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso are remote workflow providers. Their APIs create documents, recipients, envelopes, links, and notifications in an upstream system. They do not mutate your local PDF/XML bytes through the `Signatures` service.
+
+## Provider rule
+
+- Use local `Signatures` when SignatureKit signs document bytes directly.
+- Use provider request functions when an upstream platform owns the signing ceremony.
+- Keep provider tokens in `Redacted`; HTTP errors must never serialize secrets.
+
+<Cards>
+  <Card title="Remote APIs" href="/docs/providers/request-shape">Provider overview and matrix.</Card>
+  <Card title="Clicksign" href="/docs/providers/clicksign">One provider page in the separated docs pattern.</Card>
+</Cards>

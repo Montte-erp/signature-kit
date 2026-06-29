@@ -27,18 +27,19 @@ import {
   createBrowserPdfSignatureBuilderState,
   readBrowserFileBytes,
   signBrowserPdfBatch,
-} from "@signature-kit/react/browser-pdf";
+} from "@signature-kit/pdf/browser";
 import {
-  createSignatureBuilderStore,
-  signatureBuilderSelectors,
-  useSignatureBuilderSelector,
-  type SignatureBuilderStore,
-} from "@signature-kit/react/components";
+  createPdfSignatureBuilderStore,
+  pdfSignatureBuilderSelectors,
+  placePdfSignatureFieldsBatch,
+  type PdfSignatureBuilderStore,
+} from "@signature-kit/pdf/builder-store";
 import type {
-  BrowserPdfSigningBatchItem,
-  ReactSignatureFieldDraft,
-  ReactSignatureTemplate,
-} from "@signature-kit/react/config";
+  PdfSignatureBuilderState,
+  PdfSignatureFieldDraft,
+  PdfSigningBatchItem,
+  PdfSignatureTemplate,
+} from "@signature-kit/pdf/config";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -88,14 +89,24 @@ const SIGNATURE_FIELD_ID = "a1-signature";
 // (instantiated outside React); the component only subscribes via useStore.
 const placeRunStore = new Store<{ ran: boolean }>({ ran: false });
 
-const SIGNER_ROLE: ReactSignatureTemplate["roles"][number] = {
+const usePdfSignatureBuilderSelector = <Selected,>(
+  store: PdfSignatureBuilderStore,
+  selector: (state: PdfSignatureBuilderState) => Selected,
+): Selected =>
+  React.useSyncExternalStore(
+    store.subscribe,
+    () => selector(store.getSnapshot()),
+    () => selector(store.getSnapshot()),
+  );
+
+const SIGNER_ROLE: PdfSignatureTemplate["roles"][number] = {
   id: "signer-1",
   label: "Signer",
   email: "you@example.com",
   required: true,
 };
 
-const SIGNATURE_DRAFT: ReactSignatureFieldDraft = {
+const SIGNATURE_DRAFT: PdfSignatureFieldDraft = {
   id: SIGNATURE_FIELD_ID,
   type: "signature",
   roleId: SIGNER_ROLE.id,
@@ -125,8 +136,8 @@ interface DocEntry {
   readonly pdfBytes: Uint8Array;
   readonly documentId: string;
   readonly pageDims: ReadonlyArray<PageDim>;
-  readonly template: ReactSignatureTemplate;
-  readonly store: SignatureBuilderStore;
+  readonly template: PdfSignatureTemplate;
+  readonly store: PdfSignatureBuilderStore;
   readonly rect?: DocRect;
 }
 
@@ -373,46 +384,6 @@ async function renderRubricaInitialsPng(
 
 
 // ---------------------------------------------------------------------------
-// Best-guess auto-placement. Pick a sensible signature spot per document so the
-// user doesn't have to click every PDF one-by-one. Output is always a CENTER
-// point in top-left page points — the exact shape the manual click feeds to
-// store.placeField (anchor "center"), so an auto placement signs identically to
-// a manual one.
-//
-// This is PURE GEOMETRY: it never spins up pdf.js. The builder template already
-// carries every page's dimensions (`doc.pageDims`), so we compute a bottom-right
-// anchor on the last page directly. Parsing 29 PDFs with pdf.js just to hunt a
-// /Sig widget was the freeze ("fica preso / nunca termina"); geometry places N
-// docs in well under a millisecond each, leaving the worker free to yield.
-// ---------------------------------------------------------------------------
-
-type AutoAnchor = {
-  readonly pageIndex: number;
-  readonly cx: number;
-  readonly cy: number;
-};
-
-// Bottom-right anchor on the LAST page, sized from SIGNATURE_DRAFT so it matches a
-// manual placement. Synchronous — no pdf.js, no per-doc async work.
-function bestGuessAnchor(doc: DocEntry): AutoAnchor | undefined {
-  const pages = doc.pageDims;
-  if (pages.length === 0) return undefined;
-  const last = pages[pages.length - 1]!;
-  const margin = 48;
-  return {
-    pageIndex: pages.length - 1,
-    cx: Math.max(
-      SIGNATURE_DRAFT.width / 2,
-      last.width - margin - SIGNATURE_DRAFT.width / 2,
-    ),
-    cy: Math.max(
-      SIGNATURE_DRAFT.height / 2,
-      last.height - margin - SIGNATURE_DRAFT.height / 2,
-    ),
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Keyed document canvas. The parent owns one long-lived builder store per
 // document; the canvas only subscribes to that store and reports committed
 // placements from user actions.
@@ -435,16 +406,16 @@ function DocumentCanvas({
   rubricEveryPage: boolean;
   onTemplateChange: (
     docId: string,
-    template: ReactSignatureTemplate,
+    template: PdfSignatureTemplate,
     rect?: DocRect,
   ) => void;
   onPlaced: () => void;
   onError: (message: string) => void;
 }) {
   const store = activeDoc.store;
-  const template = useSignatureBuilderSelector(
+  const template = usePdfSignatureBuilderSelector(
     store,
-    signatureBuilderSelectors.template,
+    pdfSignatureBuilderSelectors.template,
   );
   const placedField = template.fields.find((f) => f.id === SIGNATURE_FIELD_ID);
 
@@ -914,11 +885,9 @@ export function PdfSigner({
   // from this plus the live queue counts (no finalize useEffect).
   const placeRan = useStore(placeRunStore, (s) => s.ran);
 
-  // Best-guess auto-placement is PURE GEOMETRY (sub-millisecond per doc — see
-  // bestGuessAnchor), so it runs as a plain async loop, NOT a work queue. `placing`
-  // lives in the external TanStack store and flips back to false when the loop ends,
-  // so the button can never spin forever. `placingIds` / `queuedIds` drive the live
-  // per-document status in the DocList.
+  // Best-guess auto-placement is owned by @signature-kit/pdf/builder-store:
+  // pure geometry computes one placement per document, and the PDF batch queue
+  // streams per-document progress back into this React shell.
 
   const activeDoc = docs.find((d) => d.id === activeDocId);
   const placedCount = docs.filter((d) => d.rect).length;
@@ -1025,7 +994,7 @@ export function PdfSigner({
   const step2Done = Boolean(pfxBytes && password.length > 0);
 
   const onTemplateChange = React.useCallback(
-    (docId: string, template: ReactSignatureTemplate, rect?: DocRect) => {
+    (docId: string, template: PdfSignatureTemplate, rect?: DocRect) => {
       updateSignerRuntime((state) => {
         const nextDocs = state.docs.map((doc) =>
           doc.id === docId ? { ...doc, template, rect } : doc,
@@ -1071,7 +1040,7 @@ export function PdfSigner({
         continue;
       }
       const template = state.success.template;
-      const store = createSignatureBuilderStore(state.success);
+      const store = createPdfSignatureBuilderStore(state.success);
       const entry: DocEntry = {
         id,
         name: file.name,
@@ -1105,10 +1074,8 @@ export function PdfSigner({
     });
   };
 
-  // Best guess: place a sensible signature rect on EVERY loaded document at once, so
-  // the user never has to click each PDF one-by-one. The anchor is pure geometry
-  // (bottom-right of the last page) and each long-lived per-document store runs the
-  // same placeField path used by manual clicks.
+  // Best guess: ask the PDF adapter to place a sensible signature rect on EVERY
+  // loaded document through the same long-lived store path manual clicks use.
   const autoPlaceAll = async () => {
     if (docs.length === 0 || placing) return;
     patchSignerRuntime({
@@ -1119,50 +1086,46 @@ export function PdfSigner({
     }); // hand the status line to the DERIVED best-guess status
     placeRunStore.setState(() => ({ ran: true }));
 
-    const queue = docs; // snapshot at click time
+    const queue = docs.map((doc) => ({
+      id: doc.id,
+      store: doc.store,
+      documentId: doc.documentId,
+      draft: SIGNATURE_DRAFT,
+    }));
     let nextDocs = docs;
-    patchSignerRuntime({ placing: true, queuedIds: queue.map((d) => d.id) });
-    for (const d of queue) {
-      updateSignerRuntime((state) => ({
-        ...state,
-        queuedIds: state.queuedIds.filter((id) => id !== d.id),
-        placingIds: [d.id],
-      }));
-      const anchor = bestGuessAnchor(d); // pure geometry — no pdf.js, instant
-      if (anchor) {
-        // Drive the SAME store.placeField path the manual click uses (via a throwaway
-        // store per doc), so each placement persists into DocEntry.rect and signs
-        // identically to a hand-placed one.
-        const store = d.store;
-        const result = await Effect.runPromise(
-          Effect.result(
-            store.placeField({
-              documentId: d.documentId,
-              pageIndex: anchor.pageIndex,
-              x: anchor.cx,
-              y: anchor.cy,
-              draft: SIGNATURE_DRAFT,
-              anchor: "center",
-            }),
-          ),
-        );
-        if (Result.isSuccess(result)) {
-          const field = result.success.fields.find((f) => f.id === SIGNATURE_FIELD_ID);
-          if (field) {
-            const placedTemplate = result.success;
-            const placedRect = field.rect;
+    patchSignerRuntime({ placing: true, queuedIds: queue.map((item) => item.id) });
+
+    await Effect.runPromise(
+      placePdfSignatureFieldsBatch(queue, {
+        onItemStarted: (item) => {
+          updateSignerRuntime((state) => ({
+            ...state,
+            queuedIds: state.queuedIds.filter((id) => id !== item.id),
+            placingIds: [item.id],
+          }));
+        },
+        onItemSettled: (result) => {
+          if (result.ok) {
             nextDocs = nextDocs.map((doc) =>
-              doc.id === d.id ? { ...doc, template: placedTemplate, rect: placedRect } : doc,
+              doc.id === result.id
+                ? { ...doc, template: result.template, rect: result.field.rect }
+                : doc,
             );
-            patchSignerRuntime({ docs: nextDocs, activeDocId: d.id });
+            patchSignerRuntime({ docs: nextDocs, activeDocId: result.id });
+          } else {
+            patchSignerRuntime({ error: result.error.message });
           }
-        }
-      }
-      patchSignerRuntime({ placingIds: [] });
-      // Yield so the just-placed marker paints before the next doc takes the canvas.
-      await new Promise((resolve) => setTimeout(resolve, 24));
-    }
-    if (activeStep === 1 && nextDocs.length > 0 && nextDocs.every((d) => d.rect)) {
+        },
+        yieldAfterItem: () => {
+          patchSignerRuntime({ placingIds: [] });
+          const { promise, resolve } = Promise.withResolvers<void>();
+          setTimeout(resolve, 24);
+          return promise;
+        },
+      }),
+    );
+
+    if (activeStep === 1 && nextDocs.length > 0 && nextDocs.every((doc) => doc.rect)) {
       patchSignerRuntime({ activeStep: 2 });
     }
     patchSignerRuntime({ placing: false, queuedIds: [], placingIds: [] });
@@ -1261,7 +1224,7 @@ export function PdfSigner({
       status: m.signer_status_preparing(),
     });
 
-    const items: BrowserPdfSigningBatchItem[] = [];
+    const items: PdfSigningBatchItem[] = [];
     for (const d of placed) {
       const rect = d.rect;
       if (!rect) continue;

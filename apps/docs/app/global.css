@@ -57,6 +57,15 @@ figure.shiki {
   flex: none;
 }
 
+
+/*
+ * Fumadocs renders the top tab strip in the same grid area as the page body.
+ * Keep it at intrinsic height; otherwise its background stretches over the
+ * article row and visually hides the docs content.
+ */
+#nd-docs-layout > [class~="[grid-area:main]"][class~="z-10"] {
+  align-self: start;
+}
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

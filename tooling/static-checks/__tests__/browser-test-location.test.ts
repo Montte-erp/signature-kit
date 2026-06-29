@@ -28,7 +28,7 @@ describe("browser integration test placement", () => {
       .sort();
 
     expect(browserTests).toEqual([
-      "formats/react/__tests__/react-a1.browser.test.ts",
+      "formats/pdf/__tests__/pdf-a1.browser.test.ts",
       "signers/a1/__tests__/a1.browser.test.ts",
     ]);
   });

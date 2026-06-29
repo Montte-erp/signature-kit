@@ -1,55 +1,64 @@
 ---
 title: ZapSign
-description: "Crie documentos no ZapSign com createZapSignSignatureRequest(...), um token de API Redacted e o endpoint REST oficial."
+description: "Create ZapSign PDF requests with Bearer credentials and typed SignatureKit errors."
 ---
 
-O ZapSign é um provedor remoto que chama `POST /api/v1/docs/` sem gateway intermediário. Instale o pacote e crie o documento em dois passos.
+ZapSign faz upload do PDF, cria a lista de signatários e devolve a primeira URL de assinatura quando disponível. O provider possui a cerimônia externa; SignatureKit possui validação e erros tipados.
 
-<Steps>
-  <Step title="Instale">
-    Adicione o runtime principal e o pacote do provedor ZapSign.
+## Instalação
 
-    ```package-install
-    @signature-kit/core @signature-kit/zapsign
-    ```
-  </Step>
+```package-install
+@signature-kit/core @signature-kit/zapsign
+```
 
-  <Step title="Crie o documento">
-    A função envia `base64_pdf`, os signatários e um cabeçalho `Authorization: Bearer`. A resposta normaliza `token`, `status` e a primeira `sign_url` em um `RemoteSignatureRequest`.
+## Quando usar
 
-    ```ts title="zapsign.ts"
-    import { createZapSignSignatureRequest } from "@signature-kit/zapsign"
-    import { signatureHttpClientLive } from "@signature-kit/core/http"
-    import { Effect, Redacted } from "effect"
+Use ZapSign quando o produto quer um link hospedado de assinatura após upload simples de PDF. Use A1/PDF local quando não há cerimônia upstream.
 
-    const request = yield* createZapSignSignatureRequest(
-      {
-        apiToken: Redacted.make(process.env.ZAPSIGN_API_TOKEN ?? ""),
-        environment: "sandbox",
-        locale: "pt-br",
-      },
-      {
-        title: "Contract",
-        message: "Sign to complete.",
-        documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
-        recipients: [{ name: "Davi Rocha", email: "davi@example.com", role: "signer" }],
-      },
-    ).pipe(Effect.provide(signatureHttpClientLive))
-
-    // request.provider === "zapsign"
-    // request.signingUrl guarda o primeiro link de assinatura retornado pelo ZapSign
-    ```
-  </Step>
-</Steps>
-
-## Limite da API
-
-Aceita um único PDF por requisição, conforme o fluxo de upload documentado pelo ZapSign.
-
-<Callout type="warn" title="Um PDF por requisição">
-  Vários documentos ou qualquer outro tipo MIME falham como `signature-kit.UNSUPPORTED_OPERATION`.
+<Callout type="error" title="Mantenha credenciais Redacted">
+  Tokens de provider entram como `Redacted.make(...)` e são abertos apenas dentro da fronteira HTTP do pacote. Nunca passe tokens remotos para componentes React ou logs.
 </Callout>
+
+## Request mínimo
+
+```ts title="zapsign.ts"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { createZapSignSignatureRequest } from "@signature-kit/zapsign"
+import { Effect, Redacted } from "effect"
+
+const program = createZapSignSignatureRequest(
+  {
+    apiToken: Redacted.make(process.env.ZAPSIGN_API_TOKEN ?? ""),
+    environment: "sandbox",
+    locale: "pt-br",
+  },
+  {
+    title: "Contrato de serviço",
+    message: "Revise e assine este documento.",
+    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
+    recipients: [{ name: "Ana Silva", email: "ada@example.com", role: "signer" }],
+    send: true,
+  },
+).pipe(Effect.provide(signatureHttpClientLive))
+
+const request = await Effect.runPromise(program)
+```
+
+
+## Fatos do provider
+
+- Aceita um único PDF por request, como o upload de documento da ZapSign.
+- Autorização usa bearer token em `Redacted`.
+- MIME inválido ou múltiplos documentos falham antes da chamada HTTP.
 
 ## Erros
 
-Falhas de entrada, de HTTP e de formato da resposta usam `SignatureKitError`, com `provider: "zapsign"` e metadados estruturados quando disponíveis.
+Input inválido, falhas HTTP remotas e shapes de resposta inválidos falham como `SignatureKitError`. Os campos `provider`, `operation` e `status` HTTP são preservados quando a resposta upstream expõe esses dados.
+
+## Relacionados
+
+<Cards>
+  <Card title="Clicksign" href="/docs/providers/clicksign">Fluxo v1 de documento + signatário, um documento por request.</Card>
+  <Card title="Assinafy" href="/docs/providers/assinafy">Documento, signatário e assignment dentro de uma conta.</Card>
+  <Card title="Requests remotos" href="/docs/concepts/remote-signature-requests">Por que providers remotos não são backends locais de Signatures.</Card>
+</Cards>

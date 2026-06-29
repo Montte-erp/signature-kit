@@ -25,8 +25,8 @@ const STEPS = [
 
 /**
  * Landing showpiece — the real in-browser signer, launched in a modal.
- * Not a mock: the same `@signature-kit/react` browser-pdf flow that ships in the
- * docs. Upload → click to place → load A1 → sign → download, fully client-side.
+ * Not a mock: the same `@signature-kit/pdf` browser flow that ships in the docs.
+ * Upload → click to place → load A1 → sign → download, fully client-side.
  */
 export function Signer() {
   return (

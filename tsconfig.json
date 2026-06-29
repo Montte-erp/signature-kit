@@ -39,9 +39,6 @@
     },
     {
       "path": "formats/pdf"
-    },
-    {
-      "path": "formats/react"
     }
   ]
 }

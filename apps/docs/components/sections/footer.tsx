@@ -24,11 +24,11 @@ const GithubMark = (props: SVGProps<SVGSVGElement>) => (
 const GITHUB_URL = "https://github.com/Montte-erp/signature-kit";
 
 const DOCS_LINKS: ReadonlyArray<{ readonly href: string; readonly label: () => string }> = [
-  { href: "/docs/quickstart", label: m.footer_link_quickstart },
-  { href: "/docs/signers", label: m.footer_link_signing_boundary },
-  { href: "/docs/pdf", label: m.footer_link_pdf },
-  { href: "/docs/xml", label: m.footer_link_xml },
-  { href: "/docs/errors", label: m.footer_link_errors },
+  { href: "/docs/get-started/quickstart", label: m.footer_link_quickstart },
+  { href: "/docs/signing/signers", label: m.footer_link_signing_boundary },
+  { href: "/docs/signing/pdf", label: m.footer_link_pdf },
+  { href: "/docs/signing/xml", label: m.footer_link_xml },
+  { href: "/docs/signing/errors", label: m.footer_link_errors },
 ];
 
 const PROJECT_LINKS: ReadonlyArray<{
@@ -36,7 +36,7 @@ const PROJECT_LINKS: ReadonlyArray<{
   readonly href: string;
   readonly label: () => string;
 }> = [
-  { href: "/docs/providers", label: m.footer_col_providers },
+  { href: "/docs/providers/request-shape", label: m.footer_col_providers },
   { href: "/blog", label: m.footer_link_blog },
   { external: true, href: GITHUB_URL, label: m.footer_link_github },
   { external: true, href: `${GITHUB_URL}/issues`, label: m.footer_link_issues },

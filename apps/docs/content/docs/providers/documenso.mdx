@@ -1,73 +1,63 @@
 ---
 title: Documenso
-description: "Create Documenso v2 envelopes with createDocumensoSignatureRequest and multipart PDF uploads."
+description: "Create Documenso v2 envelopes with multipart PDF uploads and typed SignatureKit errors."
 ---
 
-Documenso is an open-source signing platform. `createDocumensoSignatureRequest` builds a v2 envelope from your PDF files, then distributes it when `send !== false`.
+Documenso creates a v2 envelope, uploads PDFs as multipart files, and can distribute the envelope when `send` is enabled.
 
-## Install
+## Installation
 
 ```package-install
 @signature-kit/core @signature-kit/documenso
 ```
 
-## Create and distribute an envelope
+## When to use
 
-Documenso's public examples pass the API token directly in `Authorization`, which is the SignatureKit default. For a deployment that expects `Bearer <token>`, set `authorizationScheme: "bearer"`.
+Use Documenso when envelope ownership, routing, and recipient actions live in Documenso. Use local signing for in-process PDF/PAdES bytes.
+
+<Callout type="error" title="Keep credentials Redacted">
+  Provider tokens enter as `Redacted.make(...)` and are unwrapped only inside the package HTTP boundary. Never pass remote tokens to React components or logs.
+</Callout>
+
+## Minimal request
 
 ```ts title="documenso.ts"
-import { createDocumensoSignatureRequest } from "@signature-kit/documenso"
 import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { createDocumensoSignatureRequest } from "@signature-kit/documenso"
 import { Effect, Redacted } from "effect"
 
-const request = yield* createDocumensoSignatureRequest(
+const program = createDocumensoSignatureRequest(
   {
     apiKey: Redacted.make(process.env.DOCUMENSO_API_KEY ?? ""),
     baseUrl: "https://app.documenso.com/api/v2",
   },
   {
     title: "Service agreement",
-    subject: "Please sign",
-    message: "Review and sign this agreement.",
-    documents: [{ fileName: "agreement.pdf", mimeType: "application/pdf", content: pdfBytes }],
-    recipients: [{ name: "Ana Silva", email: "ana@example.com", role: "approver", routingOrder: 1 }],
-    redirectUrl: "https://app.example.com/done",
+    message: "Review and sign this document.",
+    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
+    recipients: [{ name: "Ada Lovelace", email: "ada@example.com", role: "signer" }],
+    send: true,
   },
 ).pipe(Effect.provide(signatureHttpClientLive))
 
-// request.provider === "documenso"
-// request.state    === "sent" | "draft"
+const request = await Effect.runPromise(program)
 ```
 
-## Request mapping
 
-- `POST /envelope/create` receives multipart `payload` plus one `files` part per document.
-- Recipients map to Documenso roles: `approver` becomes `APPROVER`; the default becomes `SIGNER`.
-- `routingOrder` maps to `signingOrder`.
-- `subject`, `message`, and `redirectUrl` map to Documenso `meta`.
-- When `send` is omitted or true, SignatureKit calls `POST /envelope/distribute` and returns the first `signingUrl`.
-- When `send: false`, SignatureKit stops after creation and returns a draft request.
+## Provider facts
 
-<Callout type="info" title="Expiration shape">
-  Documenso models expiry as an envelope expiration period. The adapter does not map `expiresAt` — set expiry in Documenso or extend the provider options for exact control.
-</Callout>
-
-## Alchemy
-
-```ts title="alchemy.ts"
-import * as Documenso from "@signature-kit/documenso"
-import { Redacted } from "effect"
-
-export const providers = Documenso.providers({
-  apiKey: Redacted.make(process.env.DOCUMENSO_API_KEY ?? ""),
-})
-```
+- Uses the v2 envelope API with multipart file uploads.
+- `send: false` stops after creation and returns a draft request.
+- Recipient roles and signing order map to Documenso envelope fields.
 
 ## Errors
 
-Invalid input, remote HTTP, and response-shape failures all surface as `SignatureKitError` with `provider: "documenso"` and structured metadata.
+Invalid input, remote HTTP failures, and invalid response shapes fail as `SignatureKitError`. The `provider`, `operation`, and HTTP `status` fields are preserved when the upstream response exposes them.
+
+## Related
 
 <Cards>
-  <Card title="DocuSeal" href="/docs/providers/docuseal">The DocuSeal open-source remote signer adapter.</Card>
-  <Card title="Remote signers" href="/docs/providers">Back to every provider package.</Card>
+  <Card title="Clicksign" href="/docs/providers/clicksign">v1 document + signer flow, one document per request.</Card>
+  <Card title="Assinafy" href="/docs/providers/assinafy">Document, signer, and assignment inside an account.</Card>
+  <Card title="Remote requests" href="/docs/concepts/remote-signature-requests">Why remote providers are not local Signatures backends.</Card>
 </Cards>

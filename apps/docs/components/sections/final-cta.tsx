@@ -32,7 +32,7 @@ export function FinalCta() {
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
               <Button asChild size="lg">
-                <Link href={localePath("/docs/quickstart")}>
+                <Link href={localePath("/docs/get-started/quickstart")}>
                   {m.final_cta()}
                   <ArrowRight data-icon="inline-end" />
                 </Link>

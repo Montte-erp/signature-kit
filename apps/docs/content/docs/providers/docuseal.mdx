@@ -1,26 +1,32 @@
 ---
 title: DocuSeal
-description: "Create DocuSeal PDF submissions with createDocuSealSignatureRequest(...), X-Auth-Token, and typed SignatureKit errors."
+description: "Create DocuSeal PDF submissions with X-Auth-Token credentials and typed SignatureKit errors."
 ---
 
-DocuSeal is an open-source remote signer adapter. SignatureKit sends the PDF bytes to DocuSeal's `/submissions/pdf` endpoint and returns the first submitter link as a `RemoteSignatureRequest`.
+DocuSeal creates a PDF submission and returns submitter links. It is a provider request API, not a local signer layer.
 
-## Install
+## Installation
 
 ```package-install
 @signature-kit/core @signature-kit/docuseal
 ```
 
-## Create a PDF submission
+## When to use
 
-`apiKey` stays `Redacted` until the HTTP boundary; `sendSms: false` skips SMS delivery. Set `send: false` on the request to create a draft without emailing the submitters — by default, DocuSeal emails them.
+Use DocuSeal when an open-source remote signer should host the submission and collect signatures. Use local signing when SignatureKit must produce the final bytes itself.
+
+<Callout type="error" title="Keep credentials Redacted">
+  Provider tokens enter as `Redacted.make(...)` and are unwrapped only inside the package HTTP boundary. Never pass remote tokens to React components or logs.
+</Callout>
+
+## Minimal request
 
 ```ts title="docuseal.ts"
-import { createDocuSealSignatureRequest } from "@signature-kit/docuseal"
 import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { createDocuSealSignatureRequest } from "@signature-kit/docuseal"
 import { Effect, Redacted } from "effect"
 
-const request = yield* createDocuSealSignatureRequest(
+const program = createDocuSealSignatureRequest(
   {
     apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
     baseUrl: "https://api.docuseal.com",
@@ -29,45 +35,31 @@ const request = yield* createDocuSealSignatureRequest(
   },
   {
     title: "Service agreement",
-    subject: "Please sign",
-    message: "Review and sign this agreement.",
-    documents: [{ fileName: "agreement.pdf", mimeType: "application/pdf", content: pdfBytes }],
-    recipients: [{ name: "Ana Silva", email: "ana@example.com", role: "signer" }],
-    redirectUrl: "https://app.example.com/signed",
+    message: "Review and sign this document.",
+    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
+    recipients: [{ name: "Ada Lovelace", email: "ada@example.com", role: "signer" }],
+    send: true,
   },
 ).pipe(Effect.provide(signatureHttpClientLive))
 
-// request.provider === "docuseal"
-// request.signingUrl is the first submitter's embed_src when DocuSeal returns one
+const request = await Effect.runPromise(program)
 ```
 
-## Request mapping
 
-- `documents[]` become `{ name, file, position }`, where `file` is base64 PDF content.
-- `recipients[]` become `submitters[]`; `routingOrder` maps to DocuSeal `order`.
-- `subject`, `message`, `redirectUrl`, and `expiresAt` map to DocuSeal's submission payload.
-- `submittersOrder` defaults to `"preserved"`; set `"random"` only when order is irrelevant.
+## Provider facts
 
-<Callout type="info" title="React launch scope">
-  The React package currently supports only the local A1 browser-signing flow. Use this provider package directly for DocuSeal remote signing.
-</Callout>
-
-## Alchemy
-
-```ts title="alchemy.ts"
-import * as DocuSeal from "@signature-kit/docuseal"
-import { Redacted } from "effect"
-
-export const providers = DocuSeal.providers({
-  apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
-})
-```
+- Creates a PDF submission through DocuSeal’s API.
+- `send: false` creates a draft without emailing submitters.
+- Submitter order can be preserved when the upstream supports it.
 
 ## Errors
 
-Invalid input, remote HTTP, and response-shape failures fail as `SignatureKitError`, with `provider: "docuseal"` and structured metadata.
+Invalid input, remote HTTP failures, and invalid response shapes fail as `SignatureKitError`. The `provider`, `operation`, and HTTP `status` fields are preserved when the upstream response exposes them.
+
+## Related
 
 <Cards>
-  <Card title="Documenso" href="/docs/providers/documenso">The other open-source remote signer adapter.</Card>
-  <Card title="Remote signers" href="/docs/providers">Back to every provider package.</Card>
+  <Card title="Clicksign" href="/docs/providers/clicksign">v1 document + signer flow, one document per request.</Card>
+  <Card title="Assinafy" href="/docs/providers/assinafy">Document, signer, and assignment inside an account.</Card>
+  <Card title="Remote requests" href="/docs/concepts/remote-signature-requests">Why remote providers are not local Signatures backends.</Card>
 </Cards>

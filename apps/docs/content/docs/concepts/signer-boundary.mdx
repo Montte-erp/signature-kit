@@ -1,0 +1,19 @@
+---
+title: Signer boundary
+description: "A signer owns where signing power comes from; formats own document mutation."
+---
+
+The `SignerAdapter` is the capability seam. It can inspect a certificate, expose the certificate, import a signing key, sign bytes, and verify bytes. It does not know whether the caller is building XML-DSig, PAdES, CMS, or a UI preview.
+
+That split keeps A1 as one backend, not the product definition. A future HSM signer can satisfy the same capability without moving PDF or XML code.
+
+## Rule
+
+- Signers answer **where the key comes from**.
+- Format packages answer **how the document is changed**.
+- Application boundaries provide the concrete signer layer.
+
+<Cards>
+  <Card title="The signing boundary" href="/docs/signing/signers">Read the API-level SignerAdapter page.</Card>
+  <Card title="PDF signing" href="/docs/signing/pdf">See how the PDF format consumes Signatures.</Card>
+</Cards>

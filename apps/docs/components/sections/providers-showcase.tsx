@@ -201,7 +201,7 @@ export function ProvidersShowcase() {
                   </Link>
                 </Button>
                 <Button asChild variant="outline" size="lg">
-                  <Link href={localePath("/docs/providers")}>
+                  <Link href={localePath("/docs/providers/request-shape")}>
                     {m.showcase_cta_browse()}
                   </Link>
                 </Button>

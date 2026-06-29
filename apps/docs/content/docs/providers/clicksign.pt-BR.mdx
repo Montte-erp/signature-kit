@@ -1,73 +1,65 @@
 ---
 title: Clicksign
-description: "Crie solicitações na Clicksign com createClicksignSignatureRequest(...), um signatário remoto diretamente sobre a API v1 — sem gateway de normalização."
+description: "Create Clicksign v1 document requests with Redacted credentials and typed SignatureKit errors."
 ---
 
-A Clicksign é um signatário remoto sobre a API v1 — sem gateway intermediário.
+Clicksign cria o documento e o signatário no upstream, opcionalmente notifica o destinatário e devolve um `RemoteSignatureRequest` normalizado. Não é backend local de `Signatures` e não muta bytes de PDF no processo.
 
-<Steps>
-  <Step>
-    ### Instalação
+## Instalação
 
-    Adicione o runtime e o pacote do provedor.
+```package-install
+@signature-kit/core @signature-kit/clicksign
+```
 
-    ```package-install
-    @signature-kit/core @signature-kit/clicksign
-    ```
-  </Step>
+## Quando usar
 
-  <Step>
-    ### Criar documento
+Use Clicksign quando a cerimônia, lembretes e trilha de auditoria vivem na Clicksign. Use assinatura A1/PDF local quando o app precisa produzir os bytes assinados diretamente.
 
-    A função cria o documento e o signatário e, opcionalmente, notifica por e-mail. O token permanece em `Redacted` até a camada HTTP.
-
-    ```ts title="clicksign.ts"
-    import { createClicksignSignatureRequest } from "@signature-kit/clicksign"
-    import { signatureHttpClientLive } from "@signature-kit/core/http"
-    import { Effect, Redacted } from "effect"
-
-    const request = yield* createClicksignSignatureRequest(
-      {
-        accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
-        environment: "sandbox",
-        locale: "pt-BR",
-        autoClose: true,
-      },
-      {
-        title: "Membership agreement",
-        message: "Sign to continue.",
-        documents: [{ fileName: "agreement.pdf", mimeType: "application/pdf", content: pdfBytes }],
-        recipients: [{ name: "Bruno Lima", email: "bruno@example.com", role: "signer" }],
-      },
-    ).pipe(Effect.provide(signatureHttpClientLive))
-
-    // request.provider === "clicksign"
-    ```
-  </Step>
-</Steps>
-
-## Limite da API
-
-Cada solicitação aceita um documento, seguindo o fluxo v1 da Clicksign.
-
-<Callout type="warn" title="Um documento por solicitação">
-  Solicitações com múltiplos documentos falham no canal tipado com `signature-kit.UNSUPPORTED_OPERATION`.
+<Callout type="error" title="Mantenha credenciais Redacted">
+  Tokens de provider entram como `Redacted.make(...)` e são abertos apenas dentro da fronteira HTTP do pacote. Nunca passe tokens remotos para componentes React ou logs.
 </Callout>
+
+## Request mínimo
+
+```ts title="clicksign.ts"
+import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { createClicksignSignatureRequest } from "@signature-kit/clicksign"
+import { Effect, Redacted } from "effect"
+
+const program = createClicksignSignatureRequest(
+  {
+    accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
+    environment: "sandbox",
+    locale: "pt-BR",
+    autoClose: true,
+  },
+  {
+    title: "Contrato de serviço",
+    message: "Revise e assine este documento.",
+    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
+    recipients: [{ name: "Ana Silva", email: "ada@example.com", role: "signer" }],
+    send: true,
+  },
+).pipe(Effect.provide(signatureHttpClientLive))
+
+const request = await Effect.runPromise(program)
+```
+
+
+## Fatos do provider
+
+- Fluxo v1 cria documento, signatário e notificação opcional.
+- Um documento por request; múltiplos documentos falham como `signature-kit.UNSUPPORTED_OPERATION`.
+- O token é aberto apenas na fronteira HTTP do pacote.
 
 ## Erros
 
-Entrada inválida, HTTP remoto e formato de resposta falham como `SignatureKitError`, com `provider: "clicksign"`.
+Input inválido, falhas HTTP remotas e shapes de resposta inválidos falham como `SignatureKitError`. Os campos `provider`, `operation` e `status` HTTP são preservados quando a resposta upstream expõe esses dados.
 
-## Continue explorando
+## Relacionados
 
 <Cards>
-  <Card title="ZapSign" href="/docs/providers/zapsign">
-    PDFs da ZapSign com createZapSignSignatureRequest(...).
-  </Card>
-  <Card title="Assinafy" href="/docs/providers/assinafy">
-    Signatário remoto da Assinafy sobre a mesma camada tipada.
-  </Card>
-  <Card title="Canal de erros tipado" href="/docs/errors">
-    O SignatureKitError e o catálogo de códigos literais.
-  </Card>
+  <Card title="Assinafy" href="/docs/providers/assinafy">Documento, signatário e assignment dentro de uma conta.</Card>
+  <Card title="ZapSign" href="/docs/providers/zapsign">Upload PDF com Bearer token e primeira URL de assinatura.</Card>
+  <Card title="Requests remotos" href="/docs/concepts/remote-signature-requests">Por que providers remotos não são backends locais de Signatures.</Card>
 </Cards>

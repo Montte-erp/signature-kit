@@ -1,0 +1,19 @@
+---
+title: Fronteira do signer
+description: "Um signer possui a origem do poder de assinatura; formatos possuem a mutação do documento."
+---
+
+O `SignerAdapter` é a fronteira de capability. Ele inspeciona certificado, expõe certificado, importa chave, assina bytes e verifica bytes. Ele não sabe se o chamador está montando XML-DSig, PAdES, CMS ou preview de UI.
+
+Essa separação mantém A1 como um backend, não como definição do produto. Um HSM futuro pode satisfazer a mesma capability sem mover código de PDF ou XML.
+
+## Regra
+
+- Signers respondem **de onde vem a chave**.
+- Pacotes de formato respondem **como o documento muda**.
+- A borda da aplicação fornece a layer concreta do signer.
+
+<Cards>
+  <Card title="A fronteira de assinatura" href="/docs/signing/signers">Leia a página de API do SignerAdapter.</Card>
+  <Card title="Assinatura PDF" href="/docs/signing/pdf">Veja como o formato PDF consome Signatures.</Card>
+</Cards>

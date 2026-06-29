@@ -10,8 +10,7 @@ import {
 } from "@react-pdf/renderer";
 
 /*
- * Formal-contract generator — REACT-PDF ("pdfx"), the same engine @signature-kit/
- * react renders signature templates with. Browser-safe: built-in Helvetica only
+ * Formal-contract generator — React-PDF ("pdfx") for the public landing-page demo.
  * (no Font.register → no fontkit hang) and we AWAIT pdf(...).toBlob() (the browser
  * path; never Node renderToStream/Buffer) — exactly the fixes for the "Generating…"
  * hang.

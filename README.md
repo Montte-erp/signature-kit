@@ -13,8 +13,7 @@ comes from, while format modules own XML/PDF mutation.
 - Raw byte signing and verification.
 - XML-DSig enveloped signatures via `xmldsigjs`.
 - PDF detached CMS signatures via `@cantoo/pdf-lib` + `@signature-kit/cms`.
-- React builder package with Effect-typed template schemas, DocuSeal payload helpers,
-  browser A1 PDF signing helpers, React PDF rendering, and PAdES widget coordinate conversion.
+- PDF-owned browser builder state, placement queues, A1 signing helpers, and PAdES coordinate conversion.
 - Browser + server support: WebCrypto-first, no `Buffer` in library internals.
 - ICP-Brasil PAdES shape: supported when `policy: "pades-icp-brasil"` is used.
   This embeds `signing-certificate-v2` and `signature-policy-identifier`
@@ -63,7 +62,6 @@ signers/docuseal   @signature-kit/docuseal            DocuSeal remote signer
 signers/documenso  @signature-kit/documenso            Documenso remote signer
 formats/xml        @signature-kit/xml                 XML-DSig sign/verify
 formats/pdf        @signature-kit/pdf                 PDF detached CMS sign/verify
-formats/react      @signature-kit/react               React builder + browser A1 PDF signing
 ```
 
 ## Usage sketch

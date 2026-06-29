@@ -1,0 +1,65 @@
+---
+title: Browser PDF flow
+description: "Read a PDF, build the A1 signature placement template, and sign with the browser helpers."
+---
+
+The browser helpers are the typed bridge between a file input and the PDF builder state. They keep byte handling in `Effect`, produce a validated placement template, and sign the selected field with the provided A1 layer.
+
+## Steps
+
+<Steps>
+  <Step title="Read the file">`readBrowserFileBytes(file)` turns a browser `Blob` into `Uint8Array` inside the typed error channel.</Step>
+  <Step title="Build placement state">`createBrowserPdfSignatureBuilderState(...)` reads page dimensions, creates the template, and optionally auto-places a draft field.</Step>
+  <Step title="Render your UI">Create a `PdfSignatureBuilderStore` once and let your app subscribe to it with its own React/Vue/Svelte boundary.</Step>
+  <Step title="Sign bytes">`signBrowserPdf(...)` turns the selected field into a PDF appearance and delegates cryptography to `Signatures`.</Step>
+</Steps>
+
+```ts title="browser-a1-flow.ts"
+import { a1SignaturesLayer } from "@signature-kit/a1/signer"
+import {
+  createBrowserPdfSignatureBuilderState,
+  readBrowserFileBytes,
+  signBrowserPdf,
+} from "@signature-kit/pdf/browser"
+import { createPdfSignatureBuilderStore } from "@signature-kit/pdf/builder-store"
+import { Effect, Redacted } from "effect"
+
+const pdf = await Effect.runPromise(readBrowserFileBytes(file))
+const state = await Effect.runPromise(
+  createBrowserPdfSignatureBuilderState({
+    id: "contract-a1",
+    name: file.name,
+    documentId: "contract",
+    documentName: file.name,
+    pdf,
+    role: { id: "signer", label: "Signer A1", required: true },
+    draft: { id: "sig", type: "signature", roleId: "signer", width: 156, height: 42 },
+    autoPlacement: { page: "last", slot: "bottom-right", margin: 24 },
+  }),
+)
+
+const store = createPdfSignatureBuilderStore(state)
+
+const signedPdf = await Effect.runPromise(
+  signBrowserPdf({
+    pdf,
+    template: store.getSnapshot().template,
+    fieldId: "sig",
+    reason: "Signed locally with A1",
+    signatureLength: 16384,
+  }).pipe(
+    Effect.provide(a1SignaturesLayer({ pfx, password: Redacted.make(password) })),
+  ),
+)
+```
+
+## Batch signing
+
+Use `signBrowserPdfBatch(items, callbacks)` when one A1 certificate signs many PDFs. It runs sequentially with `concurrency: 1`, captures per-document failures as result values, and keeps one bad document from aborting the batch.
+
+## Related
+
+<Cards>
+  <Card title="PDF/PAdES" href="/docs/signing/pdf">Detached CMS signing and placeholder sizing for PDF documents.</Card>
+  <Card title="Live A1 demo" href="/pt-BR/assine-documentos-gratis">Run the existing browser signer with the same boundary.</Card>
+</Cards>

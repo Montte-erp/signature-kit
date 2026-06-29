@@ -1,34 +1,36 @@
 ---
 title: Introduction
-description: Effect-native signing for TypeScript — A1 first, one Signatures boundary, XML/PDF formats around it, and React as browser infrastructure.
+description: Effect-native signing for TypeScript — A1 first, one Signatures boundary, XML/PDF formats around it, and browser UI at the app edge.
 icon: Rocket
 ---
 
-SignatureKit has one signing boundary: the `Signatures` Effect service. Start with an A1 / PKCS#12 certificate, then reuse the same boundary from Node, the browser, XML-DSig, and PDF/PAdES. Remote providers stay separate provider APIs; React stays browser infrastructure.
+SignatureKit has one signing boundary: the `Signatures` Effect service. Start with an A1 / PKCS#12 certificate, then reuse the same boundary from Node, the browser, XML-DSig, and PDF/PAdES. Remote providers stay separate provider APIs; browser UI stays at the application edge.
 
 ## Choose the path
 
 <Cards>
-  <Card title="Install A1" href="/docs/installation" description="Add the Effect runtime, the core Signatures service, and the PKCS#12 signer." />
-  <Card title="First signature" href="/docs/quickstart" description="Load an A1 certificate, inspect the identity, sign bytes, and verify the result." />
-  <Card title="PDF/PAdES" href="/docs/pdf" description="Sign PDFs by placing a detached CMS signature into a PDF placeholder." />
-  <Card title="React A1 browser" href="/docs/components" description="Use React only for file input, placement UI, and browser action wiring." />
+  <Card title="Install A1" href="/docs/get-started/installation" description="Add the Effect runtime, the core Signatures service, and the PKCS#12 signer." />
+  <Card title="First signature" href="/docs/get-started/quickstart" description="Load an A1 certificate, inspect the identity, sign bytes, and verify the result." />
+  <Card title="PDF/PAdES" href="/docs/signing/pdf" description="Sign PDFs by placing a detached CMS signature into a PDF placeholder." />
+  <Card title="Browser PDF flow" href="/docs/a1-signing/browser-pdf-flow" description="Read PDF bytes, render placement UI, and provide the A1 layer only at the action boundary." />
 </Cards>
 
 ## One boundary
 
-```text
-Application / React UI
-        |
-        v
-Signatures service: inspect / sign / verify
-        |
-        v
-SignerAdapter layer
-        |
-        +-- A1 / PKCS#12 in Node or browser
-        +-- XML-DSig and PDF/PAdES document formats
-        +-- Remote provider APIs when a backend is involved
+```mermaid
+flowchart TD
+  app["Application / browser UI"]
+  service["Signatures service<br/>inspect / sign / verify"]
+  adapter["SignerAdapter layer"]
+  a1["A1 / PKCS#12<br/>Node or browser"]
+  formats["XML-DSig + PDF/PAdES<br/>document mutation"]
+  providers["Provider APIs<br/>remote request flows"]
+
+  app --> service
+  service --> adapter
+  adapter --> a1
+  service --> formats
+  app --> providers
 ```
 
 ```ts title="signature-kit.ts"
@@ -57,7 +59,7 @@ The program knows the contract, not the key location. Browser A1, server A1, XML
 ## Product rules
 
 - **A1 first.** The first local signer is PKCS#12 (`.pfx` / `.p12`) with passwords kept in `Redacted`.
-- **React is infrastructure.** `@signature-kit/react` covers only browser A1 PDF signing: file bytes in, one placement UI, `a1SignaturesLayer` provided at the action boundary, signed PDF out.
+- **Browser PDF is format-owned.** `@signature-kit/pdf` owns file bytes, placement state, and browser A1 PDF signing; app UI only subscribes to that state and provides `a1SignaturesLayer` at the action boundary.
 - **Formats mutate documents.** XML-DSig and PDF/PAdES own document mutation around `signatures.sign`; signer adapters only own signing power.
 - **Remote APIs stay explicit.** Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso keep provider-specific APIs instead of pretending to be one universal signer.
 - **Failures are values.** Recoverable faults are typed `SignatureKitError` or package-specific Effect errors, not thrown exceptions.
@@ -65,10 +67,10 @@ The program knows the contract, not the key location. Browser A1, server A1, XML
 ## Go deeper
 
 <Cards>
-  <Card title="PDF/PAdES" href="/docs/pdf" description="Detached CMS signing and placeholder sizing for PDF documents." />
-  <Card title="XML-DSig" href="/docs/xml" description="XML mutation through an explicit XmlRuntime dependency." />
-  <Card title="Remote APIs" href="/docs/providers" description="Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso as their own provider packages." />
-  <Card title="Error catalog" href="/docs/errors" description="Literal error codes and the metadata preserved at each failure point." />
+  <Card title="PDF/PAdES" href="/docs/signing/pdf" description="Detached CMS signing and placeholder sizing for PDF documents." />
+  <Card title="XML-DSig" href="/docs/signing/xml" description="XML mutation through an explicit XmlRuntime dependency." />
+  <Card title="Provider APIs" href="/docs/providers/request-shape" description="Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso as explicit upstream request packages." />
+  <Card title="Error catalog" href="/docs/signing/errors" description="Literal error codes and the metadata preserved at each failure point." />
 </Cards>
 
 ```package-install

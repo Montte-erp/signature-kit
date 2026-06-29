@@ -63,8 +63,8 @@
   "cap5_desc": "Clicksign, Assinafy, ZapSign, DocuSeal e Documenso recebem cada um um create*SignatureRequest sobre um único cliente HTTP.",
   "cap6_title": "Um canal de erros tipado",
   "cap6_desc": "Nada lança exceção. Toda falha é um SignatureKitError carregando um de 18 códigos literais, capturado no canal de erros do Effect.",
-  "cap7_title": "Assine no navegador, com React",
-  "cap7_desc": "@signature-kit/react traz um construtor de assinaturas type-safe, um bloco de tinta em canvas e assinatura A1 no navegador. O assinador ao vivo acima executa todo o fluxo no cliente.",
+  "cap7_title": "Assine PDF no navegador",
+  "cap7_desc": "@signature-kit/pdf cuida de leitura de arquivo, estado de posicionamento e assinatura PDF A1 no navegador. O signer ao vivo renderiza a UI da app ao redor dessa fronteira tipada.",
 
   "gs_eyebrow": "Dois passos",
   "gs_title": "Sua primeira assinatura, de ponta a ponta.",

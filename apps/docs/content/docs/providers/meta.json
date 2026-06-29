@@ -1,8 +1,8 @@
 {
-  "title": "Providers",
+  "title": "Provider APIs",
   "icon": "Cloud",
   "pages": [
-    "index",
+    "request-shape",
     "clicksign",
     "assinafy",
     "zapsign",

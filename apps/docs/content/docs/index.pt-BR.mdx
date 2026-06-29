@@ -1,35 +1,34 @@
 ---
 title: Introdução
-description: Assinatura nativa de Effect para TypeScript — A1 primeiro, uma fronteira Signatures, formatos XML/PDF ao redor e React como infraestrutura de navegador.
+description: Assinatura nativa de Effect para TypeScript — A1 primeiro, uma fronteira Signatures, formatos XML/PDF ao redor e UI de navegador na borda da app.
 icon: Rocket
 ---
 
 SignatureKit mantém o poder de assinatura atrás de um serviço Effect. Comece com certificado A1 / PKCS#12; reutilize a mesma fronteira no Node, no navegador, em XML-DSig e em PDF/PAdES. Provedores remotos continuam como APIs próprias, sem virar um gateway universal falso.
 
-```text
-                    Aplicação / UI React
-                            |
-                            v
-                 +----------------------+
-                 |  Signatures service  |
-                 | inspect / sign / verify
-                 +----------------------+
-                            |
-                    SignerAdapter layer
-                            |
-        +-------------------+-------------------+
-        v                   v                   v
-   A1 / PKCS#12       Formatos XML/PDF   Provedores remotos
- navegador ou Node    mutam documento    APIs dos provedores
+```mermaid
+flowchart TD
+  app["Aplicação / UI de navegador"]
+  service["Signatures service<br/>inspect / sign / verify"]
+  adapter["SignerAdapter layer"]
+  a1["A1 / PKCS#12<br/>navegador ou Node"]
+  formats["XML-DSig + PDF/PAdES<br/>mutação de documento"]
+  providers["APIs de provedores<br/>requests remotos"]
+
+  app --> service
+  service --> adapter
+  adapter --> a1
+  service --> formats
+  app --> providers
 ```
 
 ## Escolha o caminho
 
 <Cards>
-  <Card title="Primeira assinatura" href="/docs/quickstart" description="Carregue um A1, leia a identidade, assine bytes e verifique o resultado." />
-  <Card title="Certificados A1" href="/docs/certificates" description="PKCS#12, identidade e-CPF / e-CNPJ, senha e falhas comuns de certificado." />
-  <Card title="Fronteira de assinatura" href="/docs/signers" description="O contrato SignerAdapter e o serviço Signatures consumido por formatos e React." />
-  <Card title="React A1 no navegador" href="/docs/components" description="Uma camada fina: PDF entra, layer A1 é fornecida, PDF assinado sai." />
+  <Card title="Primeira assinatura" href="/docs/get-started/quickstart" description="Carregue um A1, leia a identidade, assine bytes e verifique o resultado." />
+  <Card title="Certificados A1" href="/docs/signing/certificates" description="PKCS#12, identidade e-CPF / e-CNPJ, senha e falhas comuns de certificado." />
+  <Card title="Fronteira de assinatura" href="/docs/signing/signers" description="O contrato SignerAdapter e o serviço Signatures consumido por formatos e React." />
+  <Card title="Fluxo PDF no navegador" href="/docs/a1-signing/browser-pdf-flow" description="PDF entra, UI posiciona a assinatura, layer A1 roda só na ação do usuário." />
 </Cards>
 
 ## O contrato
@@ -59,17 +58,17 @@ Esse programa não sabe onde a chave vive. A1 no navegador, A1 no servidor e mó
 ## O que importa
 
 - **A1 primeiro.** O signer local principal é PKCS#12 (`.pfx` / `.p12`) com segredo em `Redacted`.
-- **React é infraestrutura.** `@signature-kit/react` cobre só o fluxo de PDF A1 no navegador; filas de provedores, bridges de DocuSeal e UI genérica de signer ficam fora.
+- **PDF no navegador pertence ao formato.** `@signature-kit/pdf` cuida de bytes, estado de posicionamento e assinatura PDF A1 no navegador; a UI da app só assina esse estado e fornece `a1SignaturesLayer` na fronteira da ação.
 - **Formatos fazem o trabalho de documento.** XML-DSig e PDF/PAdES mutam documentos ao redor de `signatures.sign`; adapters de signer não cuidam de XML ou layout de PDF.
 - **Falhas são valores.** Erros recuperáveis são `SignatureKitError` tipados no canal de erro do Effect, não exceções lançadas.
 
 ## Aprofunde
 
 <Cards>
-  <Card title="PDF/PAdES" href="/docs/pdf" description="CMS detached e tamanho de placeholder para documentos PDF." />
-  <Card title="XML-DSig" href="/docs/xml" description="Mutação de XML com dependência explícita de XmlRuntime." />
-  <Card title="APIs remotas" href="/docs/providers" description="Clicksign, Assinafy, ZapSign, DocuSeal e Documenso como pacotes próprios." />
-  <Card title="Catálogo de erros" href="/docs/errors" description="Códigos literais e metadados preservados em cada ponto de falha." />
+  <Card title="PDF/PAdES" href="/docs/signing/pdf" description="CMS detached e tamanho de placeholder para documentos PDF." />
+  <Card title="XML-DSig" href="/docs/signing/xml" description="Mutação de XML com dependência explícita de XmlRuntime." />
+  <Card title="APIs de provedores" href="/docs/providers/request-shape" description="Clicksign, Assinafy, ZapSign, DocuSeal e Documenso como pacotes upstream explícitos." />
+  <Card title="Catálogo de erros" href="/docs/signing/errors" description="Códigos literais e metadados preservados em cada ponto de falha." />
 </Cards>
 
 ```package-install

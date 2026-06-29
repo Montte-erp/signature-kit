@@ -1,61 +1,64 @@
 ---
 title: Assinafy
-description: "Create Assinafy requests with createAssinafySignatureRequest(...), SignatureHttpClient and Redacted credentials."
+description: "Create Assinafy requests with account-scoped credentials and typed SignatureKit errors."
 ---
 
-`createAssinafySignatureRequest` is a direct remote signer over `SignatureHttpClient`. It creates the document, registers the signers, and creates the assignment in the Assinafy API, then returns a normalized `RemoteSignatureRequest`.
+Assinafy creates a document, registers the signer, and creates the assignment in the configured account. SignatureKit keeps the request shape typed and leaves ceremony ownership to Assinafy.
 
-## Install
-
-No `integrations/*` layer.
+## Installation
 
 ```package-install
 @signature-kit/core @signature-kit/assinafy
 ```
 
-## Create signature
+## When to use
 
-Pass the credentials and the shared request shape; the call returns the normalized `RemoteSignatureRequest`.
+Use Assinafy when account-level organization and assignment tracking belong in Assinafy. Use local signing when your app owns the signature bytes and placement.
+
+<Callout type="error" title="Keep credentials Redacted">
+  Provider tokens enter as `Redacted.make(...)` and are unwrapped only inside the package HTTP boundary. Never pass remote tokens to React components or logs.
+</Callout>
+
+## Minimal request
 
 ```ts title="assinafy.ts"
-import { createAssinafySignatureRequest } from "@signature-kit/assinafy"
 import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { createAssinafySignatureRequest } from "@signature-kit/assinafy"
 import { Effect, Redacted } from "effect"
 
-const request = yield* createAssinafySignatureRequest(
+const program = createAssinafySignatureRequest(
   {
-    accountId: process.env.ASSINAFY_ACCOUNT_ID!,
     apiKey: Redacted.make(process.env.ASSINAFY_API_KEY ?? ""),
+    accountId: process.env.ASSINAFY_ACCOUNT_ID ?? "",
     environment: "sandbox",
   },
   {
-    title: "Contract",
-    message: "Sign to complete.",
+    title: "Service agreement",
+    message: "Review and sign this document.",
     documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
-    recipients: [{ name: "Carla Nunes", email: "carla@example.com", role: "signer" }],
+    recipients: [{ name: "Ada Lovelace", email: "ada@example.com", role: "signer" }],
+    send: true,
   },
 ).pipe(Effect.provide(signatureHttpClientLive))
 
-// request.provider === "assinafy"
+const request = await Effect.runPromise(program)
 ```
 
-## Credentials
 
-`accountId` is required — it scopes the document, signer, and assignment endpoints. Authenticate with either `apiKey` or `accessToken`.
+## Provider facts
 
-<Callout type="error" title="Never expose the secret">
-  Both are `Redacted<string>` and are only unwrapped at the package's HTTP boundary. Keep the key in an environment variable and
-  never log it or expose it on the client.
-</Callout>
+- Credentials include both API key and account id.
+- The adapter creates document, signer, and assignment in one request flow.
+- Recoverable HTTP and response-shape failures surface as `SignatureKitError`.
 
 ## Errors
 
-Missing credential, validation, HTTP and response-shape failures all use `SignatureKitError`, with `provider: "assinafy"`.
+Invalid input, remote HTTP failures, and invalid response shapes fail as `SignatureKitError`. The `provider`, `operation`, and HTTP `status` fields are preserved when the upstream response exposes them.
 
-## See also
+## Related
 
 <Cards>
-  <Card title="Clicksign" href="/docs/providers/clicksign">The Clicksign remote signer over the same boundary.</Card>
-  <Card title="ZapSign" href="/docs/providers/zapsign">The ZapSign remote signer over the same boundary.</Card>
-  <Card title="Typed error channel" href="/docs/errors">A single SignatureKitError and a catalog of literal codes.</Card>
+  <Card title="Clicksign" href="/docs/providers/clicksign">v1 document + signer flow, one document per request.</Card>
+  <Card title="ZapSign" href="/docs/providers/zapsign">Bearer-token PDF upload with first signing URL.</Card>
+  <Card title="Remote requests" href="/docs/concepts/remote-signature-requests">Why remote providers are not local Signatures backends.</Card>
 </Cards>

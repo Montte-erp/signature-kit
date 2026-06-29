@@ -1,0 +1,18 @@
+---
+title: Document formats
+description: "PDF and XML packages own document mutation while sharing the same signing capability."
+---
+
+A document format package decides where bytes go. PDF owns visible rectangles, PAdES placeholders, byte ranges, and validation policy. XML owns canonicalization, transforms, references, and XML-DSig placement. Both consume `Signatures`; neither owns the signer backend.
+
+## Format responsibilities
+
+- Parse or prepare the document.
+- Derive the bytes that must be signed.
+- Ask `Signatures` to sign those bytes.
+- Embed the artifact back into the document.
+
+<Cards>
+  <Card title="PDF / PAdES" href="/docs/signing/pdf">Visible rectangles, policies, and signed PDF bytes.</Card>
+  <Card title="XML-DSig" href="/docs/signing/xml">References, canonicalization, and XML mutation.</Card>
+</Cards>

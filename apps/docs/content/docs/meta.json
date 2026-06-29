@@ -2,25 +2,11 @@
   "title": "Documentation",
   "root": true,
   "pages": [
-    "---Get started---",
     "index",
-    "installation",
-    "quickstart",
-    "---Signing core---",
-    "signers",
-    "certificates",
-    "pdf",
-    "xml",
-    "errors",
-    "---React A1 browser---",
-    "components/index",
-    "components/browser-signing",
-    "---Remote APIs---",
-    "providers/index",
-    "providers/clicksign",
-    "providers/assinafy",
-    "providers/zapsign",
-    "providers/docuseal",
-    "providers/documenso"
+    "get-started",
+    "a1-signing",
+    "concepts",
+    "signing",
+    "providers"
   ]
 }

@@ -1,9 +1,9 @@
 ---
 title: DocuSeal
-description: "Crie submissions de PDF no DocuSeal com createDocuSealSignatureRequest(...), X-Auth-Token e erros tipados do SignatureKit."
+description: "Create DocuSeal PDF submissions with X-Auth-Token credentials and typed SignatureKit errors."
 ---
 
-O DocuSeal é um adaptador de assinatura remota de código aberto. O SignatureKit envia os bytes do PDF para o endpoint `/submissions/pdf` do DocuSeal e retorna o link do primeiro submitter como um `RemoteSignatureRequest`.
+DocuSeal cria uma submissão PDF e devolve links de submitter. É uma API de request de provider, não uma layer local de signer.
 
 ## Instalação
 
@@ -11,16 +11,22 @@ O DocuSeal é um adaptador de assinatura remota de código aberto. O SignatureKi
 @signature-kit/core @signature-kit/docuseal
 ```
 
-## Crie uma submission de PDF
+## Quando usar
 
-A `apiKey` permanece `Redacted` até a camada HTTP; `sendSms: false` desativa o envio por SMS. Use `send: false` na requisição para criar a submission como rascunho, sem enviar e-mail aos submitters — por padrão, o DocuSeal envia.
+Use DocuSeal quando um signer remoto open-source deve hospedar a submissão e coletar assinaturas. Use assinatura local quando SignatureKit precisa produzir os bytes finais.
+
+<Callout type="error" title="Mantenha credenciais Redacted">
+  Tokens de provider entram como `Redacted.make(...)` e são abertos apenas dentro da fronteira HTTP do pacote. Nunca passe tokens remotos para componentes React ou logs.
+</Callout>
+
+## Request mínimo
 
 ```ts title="docuseal.ts"
-import { createDocuSealSignatureRequest } from "@signature-kit/docuseal"
 import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { createDocuSealSignatureRequest } from "@signature-kit/docuseal"
 import { Effect, Redacted } from "effect"
 
-const request = yield* createDocuSealSignatureRequest(
+const program = createDocuSealSignatureRequest(
   {
     apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
     baseUrl: "https://api.docuseal.com",
@@ -28,46 +34,32 @@ const request = yield* createDocuSealSignatureRequest(
     submittersOrder: "preserved",
   },
   {
-    title: "Service agreement",
-    subject: "Please sign",
-    message: "Review and sign this agreement.",
-    documents: [{ fileName: "agreement.pdf", mimeType: "application/pdf", content: pdfBytes }],
-    recipients: [{ name: "Ana Silva", email: "ana@example.com", role: "signer" }],
-    redirectUrl: "https://app.example.com/signed",
+    title: "Contrato de serviço",
+    message: "Revise e assine este documento.",
+    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
+    recipients: [{ name: "Ana Silva", email: "ada@example.com", role: "signer" }],
+    send: true,
   },
 ).pipe(Effect.provide(signatureHttpClientLive))
 
-// request.provider === "docuseal"
-// request.signingUrl is the first submitter's embed_src when DocuSeal returns one
+const request = await Effect.runPromise(program)
 ```
 
-## Mapeamento da requisição
 
-- `documents[]` se tornam `{ name, file, position }`, onde `file` é o conteúdo do PDF em base64.
-- `recipients[]` se tornam `submitters[]`; `routingOrder` mapeia para o `order` do DocuSeal.
-- `subject`, `message`, `redirectUrl` e `expiresAt` mapeiam para o payload de submission do DocuSeal.
-- `submittersOrder` assume `"preserved"` por padrão; defina `"random"` apenas quando a ordem for irrelevante.
+## Fatos do provider
 
-<Callout type="info" title="Escopo atual do React">
-  O pacote React hoje suporta apenas o fluxo local de assinatura A1 no navegador. Use este pacote de provider diretamente para assinatura remota com DocuSeal.
-</Callout>
-
-## Alchemy
-
-```ts title="alchemy.ts"
-import * as DocuSeal from "@signature-kit/docuseal"
-import { Redacted } from "effect"
-
-export const providers = DocuSeal.providers({
-  apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
-})
-```
+- Cria uma submissão PDF pela API do DocuSeal.
+- `send: false` cria draft sem enviar email aos submitters.
+- A ordem dos submitters pode ser preservada quando o upstream suporta.
 
 ## Erros
 
-Entradas inválidas, falhas de HTTP remoto e respostas malformadas resultam em `SignatureKitError`, com `provider: "docuseal"` e metadados estruturados.
+Input inválido, falhas HTTP remotas e shapes de resposta inválidos falham como `SignatureKitError`. Os campos `provider`, `operation` e `status` HTTP são preservados quando a resposta upstream expõe esses dados.
+
+## Relacionados
 
 <Cards>
-  <Card title="Documenso" href="/docs/providers/documenso">O outro adaptador de assinatura remota de código aberto.</Card>
-  <Card title="Signatários remotos" href="/docs/providers">Voltar a todos os pacotes de provedores.</Card>
+  <Card title="Clicksign" href="/docs/providers/clicksign">Fluxo v1 de documento + signatário, um documento por request.</Card>
+  <Card title="Assinafy" href="/docs/providers/assinafy">Documento, signatário e assignment dentro de uma conta.</Card>
+  <Card title="Requests remotos" href="/docs/concepts/remote-signature-requests">Por que providers remotos não são backends locais de Signatures.</Card>
 </Cards>

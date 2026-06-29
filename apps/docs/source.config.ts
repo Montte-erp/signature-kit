@@ -1,4 +1,5 @@
 import { defineConfig, defineDocs } from "fumadocs-mdx/config";
+import { remarkMdxMermaid } from "fumadocs-core/mdx-plugins";
 import { metaSchema, pageSchema } from "fumadocs-core/source/schema";
 
 export const docs = defineDocs({
@@ -35,6 +36,7 @@ export const blog = defineDocs({
 
 export default defineConfig({
   mdxOptions: {
+    remarkPlugins: [remarkMdxMermaid],
     // Match the landing's code blocks: server-highlighted with the Vitesse
     // themes, dark variant active under the pinned `.dark` class.
     rehypeCodeOptions: {

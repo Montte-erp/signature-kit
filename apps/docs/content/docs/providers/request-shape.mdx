@@ -1,0 +1,28 @@
+---
+title: Request shape
+description: "The shared request facts behind each provider API."
+---
+
+Provider APIs create upstream signing ceremonies. They are not local `Signatures` backends: the provider owns links, notifications, recipients, envelopes, and audit UX. SignatureKit keeps the calls boring: typed input, Redacted credentials, `SignatureHttpClient`, and `SignatureKitError` on recoverable failures.
+
+```package-install
+@signature-kit/core @signature-kit/clicksign @signature-kit/assinafy @signature-kit/zapsign @signature-kit/docuseal @signature-kit/documenso
+```
+
+## Providers
+
+<Cards>
+  <Card title="Clicksign" href="/docs/providers/clicksign">v1 document + signer flow, one document per request.</Card>
+  <Card title="Assinafy" href="/docs/providers/assinafy">Document, signer, and assignment inside an account.</Card>
+  <Card title="ZapSign" href="/docs/providers/zapsign">Bearer-token PDF upload with first signing URL.</Card>
+  <Card title="DocuSeal" href="/docs/providers/docuseal">Open-source PDF submissions with submitter links.</Card>
+  <Card title="Documenso" href="/docs/providers/documenso">Open-source v2 envelopes with optional distribution.</Card>
+</Cards>
+
+## Shared request shape
+
+Every provider starts from the same SignatureKit request facts: `title`, `documents`, `recipients`, optional `subject`, `message`, `send`, `expiresAt`, and `redirectUrl`. Each provider page explains how those facts map to its upstream protocol.
+
+<Callout type="info" title="Local vs remote">
+  Use `@signature-kit/pdf` + `Signatures` when SignatureKit must sign bytes. Use provider request functions when an upstream platform owns the ceremony.
+</Callout>

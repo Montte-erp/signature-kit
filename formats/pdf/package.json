@@ -10,6 +10,22 @@
       "types": "./dist/config.d.ts",
       "import": "./dist/config.js"
     },
+    "./builder": {
+      "types": "./dist/builder.d.ts",
+      "import": "./dist/builder.js"
+    },
+    "./builder-store": {
+      "types": "./dist/builder-store.d.ts",
+      "import": "./dist/builder-store.js"
+    },
+    "./workflow": {
+      "types": "./dist/workflow.d.ts",
+      "import": "./dist/workflow.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
+    },
     "./sign": {
       "types": "./dist/sign.d.ts",
       "import": "./dist/sign.js"

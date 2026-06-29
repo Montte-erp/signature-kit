@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowDown, ArrowRight, Check } from "lucide-react";
@@ -96,7 +97,8 @@ const faqs = [
 /**
  * Structured data so Google can surface this page as rich results: the FAQ as an
  * expandable accordion, the four steps as a HowTo, and the tool itself as a free
- * SoftwareApplication. One inline <script> — no client JS, no bloat.
+ * SoftwareApplication. Next's Script component avoids React's client-side
+ * "script tag" warning in dev while keeping the JSON-LD payload static.
  */
 function buildJsonLd() {
   const url = absoluteUrl(PATH);
@@ -145,9 +147,9 @@ export default async function AssineDocumentosGratisPage({ params }: PortugueseS
 
   return (
     <main className="flex flex-col">
-      <script
+      <Script
+        id="assine-documentos-gratis-json-ld"
         type="application/ld+json"
-        // biome-ignore lint/security/noDangerouslySetInnerHtml: trusted static JSON-LD
         dangerouslySetInnerHTML={{ __html: JSON.stringify(buildJsonLd()) }}
       />
       <Section>
@@ -179,7 +181,7 @@ export default async function AssineDocumentosGratisPage({ params }: PortugueseS
                 </Link>
               </Button>
               <Button asChild size="lg" variant="ghost">
-                <Link href="/pt-BR/docs/components/browser-signing">
+                <Link href="/pt-BR/docs/a1-signing/browser-pdf-flow">
                   Como funciona
                   <ArrowRight data-icon="inline-end" />
                 </Link>
