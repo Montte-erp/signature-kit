@@ -22,11 +22,17 @@ import {
   type SignatureVariant,
   type SignedMark,
 } from "@/components/formal-contract-pdf";
-import { PdfPage, loadPdfjs, type PdfDocumentProxy, type PdfLoadingTask } from "@/components/pdf-page";
+import {
+  PdfPage,
+  loadPdfjs,
+  type PdfDocumentProxy,
+  type PdfLoadingTask,
+} from "@/components/pdf-page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { captureDocsEvent } from "@/lib/posthog/client";
 import { m } from "@/paraglide/messages";
 
 /*
@@ -125,7 +131,6 @@ type AutoState = {
 type QueueItem = { readonly id: string; readonly name: string; readonly mode: "prepare" | "sign" };
 const statusEntry = (id: string, phase: DocPhase): readonly [string, DocPhase] => [id, phase];
 
-
 const initialState = (): AutoState => ({
   docs: DEMO_DOCS.map((d) => ({ id: d.id, name: d.name, variantLabel: d.variantLabel })),
   status: Object.fromEntries(DEMO_DOCS.map((d) => statusEntry(d.id, "queued"))),
@@ -147,8 +152,7 @@ const patchDoc = (id: string, patch: Partial<AutoDoc>): void =>
     docs: s.docs.map((d) => (d.id === id ? { ...d, ...patch } : d)),
   }));
 
-const focusDoc = (index: number): void =>
-  store.setState((s) => ({ ...s, activeIndex: index }));
+const focusDoc = (index: number): void => store.setState((s) => ({ ...s, activeIndex: index }));
 
 // One document at a time. The worker writes directly into the store, so each step
 // paints live and the carousel snaps to the document being worked.
@@ -169,7 +173,12 @@ const signQueuer = new AsyncQueuer<QueueItem>(
 
     setPhase(item.id, "signing");
     const signed: SignedMark = { ...SIGNER, date: new Date().toLocaleString("pt-BR") };
-    const bytes = await generateFormalContractPdf({ title: item.name, paragraphs, variant, signed });
+    const bytes = await generateFormalContractPdf({
+      title: item.name,
+      paragraphs,
+      variant,
+      signed,
+    });
     patchDoc(item.id, { pdfBytes: bytes, signed: true });
     setPhase(item.id, "signed");
   },
@@ -195,6 +204,9 @@ const go = (to: number): void => {
 
 const autoSign = (): void => {
   if (queueBusy()) return;
+  captureDocsEvent("auto_sign_demo_started", {
+    document_count: DEMO_DOCS.length,
+  });
   // Re-render every document with the signature filled. The worker regenerates
   // from scratch, so it never depends on prior bytes.
   store.setState((s) => ({
@@ -216,6 +228,9 @@ const autoSign = (): void => {
 // remount — is what clears the demo.
 const resetDemo = (): void => {
   if (queueBusy()) return;
+  captureDocsEvent("auto_sign_demo_reset", {
+    document_count: DEMO_DOCS.length,
+  });
   store.setState(() => initialState());
   for (const demo of DEMO_DOCS) {
     signQueuer.addItem({ id: demo.id, name: demo.name, mode: "prepare" });
@@ -224,6 +239,10 @@ const resetDemo = (): void => {
 
 function downloadDoc(doc: AutoDoc): void {
   if (!doc.pdfBytes) return;
+  captureDocsEvent("auto_sign_demo_downloaded", {
+    document_id: doc.id,
+    signed: doc.signed ?? false,
+  });
   const url = URL.createObjectURL(
     new Blob([new Uint8Array(doc.pdfBytes)], { type: "application/pdf" }),
   );
@@ -305,13 +324,7 @@ function AutoDocCanvas({ doc }: { doc: AutoDoc }) {
 
   if (bytes && pdfDoc) {
     return (
-      <PdfPage
-        doc={pdfDoc}
-        pageNumber={1}
-        widthPt={595.28}
-        heightPt={841.89}
-        onPlace={() => {}}
-      />
+      <PdfPage doc={pdfDoc} pageNumber={1} widthPt={595.28} heightPt={841.89} onPlace={() => {}} />
     );
   }
 
@@ -331,10 +344,7 @@ export function AutoSignInner() {
   const activeIndex = useStore(store, (s) => s.activeIndex);
   // Busy is derived from the queue's OWN store (active + pending), never from
   // `isRunning` (which stays true after start — the "never finishes" bug).
-  const busy = useStore(
-    signQueuer.store,
-    (s) => s.activeItems.length + s.items.length > 0,
-  );
+  const busy = useStore(signQueuer.store, (s) => s.activeItems.length + s.items.length > 0);
 
   const allSigned = DEMO_DOCS.every((d) => status[d.id] === "signed");
   const count = docs.length;

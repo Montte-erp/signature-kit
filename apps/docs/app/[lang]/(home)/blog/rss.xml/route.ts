@@ -2,10 +2,10 @@ import { i18n } from "@/lib/i18n";
 import { SITE_NAME, SITE_URL } from "@/lib/site";
 import { blogPostPath, sortedPosts } from "@/lib/blog";
 import { parseLocale, type Lang } from "@/lib/locale";
+import { captureServerEvent } from "@/lib/posthog/server";
 
-// Static per-locale RSS 2.0 feed at /{lang}/blog/rss.xml. Hand-rolled XML keeps it
+// Per-locale RSS 2.0 feed at /{lang}/blog/rss.xml. Hand-rolled XML keeps it
 // dependency-free; the static `rss.xml` segment wins over the sibling `[slug]`.
-export const dynamic = "force-static";
 
 export function generateStaticParams() {
   return i18n.languages.map((lang) => ({ lang }));
@@ -14,13 +14,11 @@ export function generateStaticParams() {
 const CHANNEL = {
   "en-US": {
     title: `${SITE_NAME} — Blog`,
-    description:
-      "Crossovers, integration stories, and the reasoning behind SignatureKit.",
+    description: "Crossovers, integration stories, and the reasoning behind SignatureKit.",
   },
   "pt-BR": {
     title: `${SITE_NAME} — Blog`,
-    description:
-      "Crossovers, histórias de integração e o raciocínio por trás do SignatureKit.",
+    description: "Crossovers, histórias de integração e o raciocínio por trás do SignatureKit.",
   },
 } satisfies Record<Lang, { title: string; description: string }>;
 
@@ -32,14 +30,12 @@ const escapeXml = (value: string): string =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ lang: string }> },
-) {
+export async function GET(request: Request, { params }: { params: Promise<{ lang: string }> }) {
   const { lang } = await params;
   const locale = parseLocale(lang);
   if (locale === undefined) return new Response("Not found", { status: 404 });
   const channel = CHANNEL[locale];
+  await captureServerEvent("rss_requested", request, { locale });
   const self = `${SITE_URL}/${locale}/blog/rss.xml`;
 
   const items = sortedPosts(locale)

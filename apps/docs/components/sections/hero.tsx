@@ -30,11 +30,7 @@ export function Hero() {
           variant="outline"
           className="gap-2 px-3 py-1 font-mono text-xs text-muted-foreground hover:text-foreground"
         >
-          <a
-            href="https://github.com/Montte-erp/signature-kit"
-            rel="noreferrer"
-            target="_blank"
-          >
+          <a href="https://github.com/Montte-erp/signature-kit" rel="noreferrer" target="_blank">
             {m.hero_badge()}
             <ArrowRight data-icon="inline-end" />
           </a>
@@ -64,7 +60,7 @@ export function Hero() {
           animate={{ opacity: 1, transform: "translateY(0px)" }}
           transition={{ delay: 0.26, duration: 0.6, ease: EASE }}
         >
-          <InstallCommand />
+          <InstallCommand analyticsLocation="hero" />
           <Button asChild size="lg" variant="ghost">
             <Link href={localePath("/docs")}>
               {m.hero_cta_docs()}

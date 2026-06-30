@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { m } from "@/paraglide/messages";
+import { captureDocsEvent } from "@/lib/posthog/client";
 import { cn } from "@/lib/utils";
 
 export interface ProviderCarouselItem {
@@ -39,11 +40,7 @@ function ProviderLogo({ src, name }: { src: string; name: string }) {
   const [bad, setBad] = useState(false);
 
   if (bad) {
-    return (
-      <span className="font-mono text-sm font-medium text-muted-foreground">
-        {name[0]}
-      </span>
-    );
+    return <span className="font-mono text-sm font-medium text-muted-foreground">{name[0]}</span>;
   }
 
   return (
@@ -71,16 +68,22 @@ export function ProviderCarousel({ items, panels }: ProviderCarouselProps) {
   const [index, setIndex] = useState(0);
   const [copied, setCopied] = useState(false);
 
-  const next = () => setIndex((i) => (i + 1) % items.length);
-  const prev = () => setIndex((i) => (i - 1 + items.length) % items.length);
+  const selectProvider = (nextIndex: number, method: string) => {
+    const item = items[nextIndex];
+    setIndex(nextIndex);
+    captureDocsEvent("provider_showcase_selected", {
+      method,
+      provider: item?.name,
+    });
+  };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "ArrowRight") {
       event.preventDefault();
-      next();
+      selectProvider((index + 1) % items.length, "keyboard_next");
     } else if (event.key === "ArrowLeft") {
       event.preventDefault();
-      prev();
+      selectProvider((index - 1 + items.length) % items.length, "keyboard_previous");
     }
   };
 
@@ -88,9 +91,16 @@ export function ProviderCarousel({ items, panels }: ProviderCarouselProps) {
     try {
       await navigator.clipboard.writeText(items[index].code);
       setCopied(true);
+      captureDocsEvent("provider_snippet_copied", {
+        filename: items[index].filename,
+        provider: items[index].name,
+      });
       setTimeout(() => setCopied(false), 1800);
     } catch {
-      // clipboard unavailable — silently ignore
+      captureDocsEvent("provider_snippet_copy_failed", {
+        filename: items[index].filename,
+        provider: items[index].name,
+      });
     }
   };
 
@@ -119,7 +129,7 @@ export function ProviderCarousel({ items, panels }: ProviderCarouselProps) {
           size="icon"
           className="rounded-full"
           aria-label={m.showcase_prev()}
-          onClick={prev}
+          onClick={() => selectProvider((index - 1 + items.length) % items.length, "previous")}
         >
           <ChevronLeft />
         </Button>
@@ -139,7 +149,7 @@ export function ProviderCarousel({ items, panels }: ProviderCarouselProps) {
               size="icon"
               aria-pressed={i === index}
               aria-label={item.name}
-              onClick={() => setIndex(i)}
+              onClick={() => selectProvider(i, "logo")}
               className={cn(
                 "size-11 shrink-0 rounded-full bg-input/30",
                 i === index
@@ -158,7 +168,7 @@ export function ProviderCarousel({ items, panels }: ProviderCarouselProps) {
           size="icon"
           className="rounded-full"
           aria-label={m.showcase_next()}
-          onClick={next}
+          onClick={() => selectProvider((index + 1) % items.length, "next")}
         >
           <ChevronRight />
         </Button>

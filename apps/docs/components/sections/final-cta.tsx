@@ -37,7 +37,7 @@ export function FinalCta() {
                   <ArrowRight data-icon="inline-end" />
                 </Link>
               </Button>
-              <InstallCommand />
+              <InstallCommand analyticsLocation="final_cta" />
             </div>
           </div>
         </FadeIn>

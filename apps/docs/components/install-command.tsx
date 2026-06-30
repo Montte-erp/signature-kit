@@ -5,12 +5,14 @@ import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { captureDocsEvent } from "@/lib/posthog/client";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_COMMAND = "bun add @signature-kit/core @signature-kit/a1";
 
 interface InstallCommandProps {
   command?: string;
+  analyticsLocation?: string;
   className?: string;
 }
 
@@ -21,6 +23,7 @@ interface InstallCommandProps {
 export const InstallCommand = ({
   command = DEFAULT_COMMAND,
   className,
+  analyticsLocation,
 }: InstallCommandProps) => {
   const [copied, setCopied] = useState(false);
 
@@ -28,9 +31,15 @@ export const InstallCommand = ({
     try {
       await navigator.clipboard.writeText(command);
       setCopied(true);
+      captureDocsEvent("install_command_copied", {
+        analytics_location: analyticsLocation,
+        command,
+      });
       setTimeout(() => setCopied(false), 1800);
     } catch {
-      // clipboard unavailable — silently ignore
+      captureDocsEvent("install_command_copy_failed", {
+        analytics_location: analyticsLocation,
+      });
     }
   };
 

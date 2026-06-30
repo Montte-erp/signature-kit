@@ -18,10 +18,7 @@ import * as React from "react";
 import { useForm } from "@tanstack/react-form";
 
 import type { A1CertificateProfile } from "@signature-kit/a1/config";
-import {
-  a1SignaturesLayer,
-  parseA1CertificateProfile,
-} from "@signature-kit/a1/signer";
+import { a1SignaturesLayer, parseA1CertificateProfile } from "@signature-kit/a1/signer";
 import { stampPdfRubric } from "@signature-kit/pdf/stamp";
 import {
   createBrowserPdfSignatureBuilderState,
@@ -65,6 +62,7 @@ import { bakeStamp, toBottomLeft } from "@/components/pdf-stamp";
 import { Store, useStore } from "@tanstack/react-store";
 import { caveat } from "@/lib/handwriting-font";
 import { cn } from "@/lib/utils";
+import { captureDocsEvent } from "@/lib/posthog/client";
 import { m } from "@/paraglide/messages";
 
 /*
@@ -219,9 +217,7 @@ const patchSignerRuntime = (patch: Partial<SignerRuntimeState>): void => {
   signerRuntimeStore.setState((state) => ({ ...state, ...patch }));
 };
 
-const updateSignerRuntime = (
-  update: (state: SignerRuntimeState) => SignerRuntimeState,
-): void => {
+const updateSignerRuntime = (update: (state: SignerRuntimeState) => SignerRuntimeState): void => {
   signerRuntimeStore.setState(update);
 };
 
@@ -237,23 +233,15 @@ const dropPdfDocument = (id: string): void => {
   });
 };
 
-
 // Per-page rubricas sit in the RIGHT MARGIN, flush to the right edge and
 // vertically CENTERED on the page — repeating the placed-signature's x/y would
 // stamp the rubrica on top of page content. Keeps the placed mark's size; x
 // shifts to the right margin and y centers on the page height (both clamped so a
 // large mark still fits).
 const RUBRIC_RIGHT_MARGIN_PT = 18;
-const toRightMargin = (
-  rect: DocRect,
-  pageWidth: number,
-  pageHeight: number,
-): DocRect => ({
+const toRightMargin = (rect: DocRect, pageWidth: number, pageHeight: number): DocRect => ({
   ...rect,
-  x: Math.max(
-    RUBRIC_RIGHT_MARGIN_PT,
-    pageWidth - RUBRIC_RIGHT_MARGIN_PT - rect.width,
-  ),
+  x: Math.max(RUBRIC_RIGHT_MARGIN_PT, pageWidth - RUBRIC_RIGHT_MARGIN_PT - rect.width),
   y: Math.max(0, (pageHeight - rect.height) / 2),
 });
 
@@ -287,13 +275,7 @@ const deriveInitials = (name: string): string => {
 };
 
 const inkScale = (min: number): number =>
-  Math.max(
-    min,
-    Math.min(
-      3,
-      (typeof window !== "undefined" && window.devicePixelRatio) || 2,
-    ),
-  );
+  Math.max(min, Math.min(3, (typeof window !== "undefined" && window.devicePixelRatio) || 2));
 
 // Load a specific font for canvas drawing, but NEVER block on it. `document.fonts.ready`
 // waits for EVERY page font, so a single perpetually-pending face hangs it forever
@@ -344,9 +326,7 @@ async function renderHandwritingPng(text: string): Promise<string | undefined> {
 
 // Small initials mark: thin corner brackets + centered initials. Used
 // as the per-page rubrica when "Rubric on every page" is on.
-async function renderRubricaInitialsPng(
-  initials: string,
-): Promise<string | undefined> {
+async function renderRubricaInitialsPng(initials: string): Promise<string | undefined> {
   const t = initials.trim();
   if (!t) return undefined;
   const family = caveat.style.fontFamily;
@@ -382,7 +362,6 @@ async function renderRubricaInitialsPng(
   return c.toDataURL("image/png");
 }
 
-
 // ---------------------------------------------------------------------------
 // Keyed document canvas. The parent owns one long-lived builder store per
 // document; the canvas only subscribes to that store and reports committed
@@ -404,21 +383,13 @@ function DocumentCanvas({
     lines: string[];
   };
   rubricEveryPage: boolean;
-  onTemplateChange: (
-    docId: string,
-    template: PdfSignatureTemplate,
-    rect?: DocRect,
-  ) => void;
+  onTemplateChange: (docId: string, template: PdfSignatureTemplate, rect?: DocRect) => void;
   onPlaced: () => void;
   onError: (message: string) => void;
 }) {
   const store = activeDoc.store;
-  const template = usePdfSignatureBuilderSelector(
-    store,
-    pdfSignatureBuilderSelectors.template,
-  );
+  const template = usePdfSignatureBuilderSelector(store, pdfSignatureBuilderSelectors.template);
   const placedField = template.fields.find((f) => f.id === SIGNATURE_FIELD_ID);
-
 
   const pages = template.documents[0]?.pages ?? [];
   const doc = useStore(pdfDocumentStore, (state) => state[activeDoc.id]);
@@ -516,8 +487,7 @@ function DocumentCanvas({
   return (
     <div className="flex flex-col gap-3">
       {pages.map((page, index) => {
-        const isPlacedPage =
-          placedField !== undefined && placedField.rect.pageIndex === index;
+        const isPlacedPage = placedField !== undefined && placedField.rect.pageIndex === index;
         // With "every page" on, every page that doesn't own the signature shows a
         // faint repeat of the rubric so the toggle reads as having a consequence.
         const ghost =
@@ -611,13 +581,7 @@ function Step({
                 : "border-border text-muted-foreground",
           )}
         >
-          {done ? (
-            <Check className="size-3" />
-          ) : locked ? (
-            <Lock className="size-2.5" />
-          ) : (
-            n
-          )}
+          {done ? <Check className="size-3" /> : locked ? <Lock className="size-2.5" /> : n}
         </span>
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
@@ -629,14 +593,10 @@ function Step({
             ) : null}
           </span>
           {done && summary ? (
-            <span className="mt-0.5 truncate text-[11px] text-muted-foreground">
-              {summary}
-            </span>
+            <span className="mt-0.5 truncate text-[11px] text-muted-foreground">{summary}</span>
           ) : null}
           {locked && hint ? (
-            <span className="mt-0.5 truncate text-[11px] text-muted-foreground">
-              {hint}
-            </span>
+            <span className="mt-0.5 truncate text-[11px] text-muted-foreground">{hint}</span>
           ) : null}
         </span>
         {done ? (
@@ -756,9 +716,7 @@ function BatchResults({
   onDownload: (id: string) => void;
   onDownloadAll: () => void;
 }) {
-  const signedCount = docs.filter(
-    (d) => rows[d.id]?.status === "signed",
-  ).length;
+  const signedCount = docs.filter((d) => rows[d.id]?.status === "signed").length;
   return (
     <div className="flex flex-col gap-2">
       {run.kind === "signing" ? (
@@ -792,9 +750,7 @@ function BatchResults({
                   <span className="size-2 rounded-full border border-muted-foreground/50" />
                 )}
               </span>
-              <span className="min-w-0 flex-1 truncate text-foreground">
-                {d.name}
-              </span>
+              <span className="min-w-0 flex-1 truncate text-foreground">{d.name}</span>
               {status === "signed" ? (
                 <Button
                   type="button"
@@ -808,10 +764,7 @@ function BatchResults({
               ) : status === "failed" ? (
                 <span className="min-w-0 max-w-[55%] shrink-0 truncate text-[11px] text-destructive">
                   {m.signer_result_failed({
-                    reason:
-                      row?.status === "failed"
-                        ? row.error
-                        : m.signer_error_generic(),
+                    reason: row?.status === "failed" ? row.error : m.signer_error_generic(),
                   })}
                 </span>
               ) : status === "skipped" ? (
@@ -845,13 +798,7 @@ function BatchResults({
 // The signer
 // ---------------------------------------------------------------------------
 
-export function PdfSigner({
-  className,
-  inDialog,
-}: {
-  className?: string;
-  inDialog?: boolean;
-}) {
+export function PdfSigner({ className, inDialog }: { className?: string; inDialog?: boolean }) {
   const form = useForm<SignerFormValues>({ defaultValues: signerFormDefaults });
 
   const docs = useStore(signerRuntimeStore, (state) => state.docs);
@@ -902,9 +849,7 @@ export function PdfSigner({
   const previewLines: string[] = [];
   if (stampName) {
     previewLines.push(profile?.subject ?? m.signer_preview_name());
-    previewLines.push(
-      profile?.document ? `CPF/CNPJ: ${profile.document}` : "CPF / CNPJ",
-    );
+    previewLines.push(profile?.document ? `CPF/CNPJ: ${profile.document}` : "CPF / CNPJ");
   }
   if (stampDate) {
     previewLines.push(new Date().toLocaleDateString("pt-BR"));
@@ -953,15 +898,17 @@ export function PdfSigner({
   // document. It must NOT switch documents: Enter/arrow nudges re-fire this, and
   // jumping away mid-nudge would break the keyboard placement flow.
   const handlePlaced = React.useCallback(() => {
+    captureDocsEvent("pdf_signer_signature_placed", {
+      document_count: docs.length,
+      placed_count: placedCount,
+    });
     patchSignerRuntime({
       run: { kind: "idle" },
       rows: {},
       error: "",
       status: m.signer_status_placed(),
     });
-  }, []);
-
-
+  }, [docs.length, placedCount]);
 
   // Derive the two marks from the active source. Font load is async, so this runs
   // in an effect; the `live` guard discards results that resolve after a source
@@ -1012,12 +959,19 @@ export function PdfSigner({
   const onPdfFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.currentTarget.files ?? []);
     event.currentTarget.value = ""; // allow re-adding the same file later
+    captureDocsEvent("pdf_signer_pdfs_selected", {
+      document_count: files.length,
+      total_bytes: files.reduce((total, file) => total + file.size, 0),
+    });
     if (files.length === 0) return;
     reset();
+    let loadedCount = 0;
+    let failedCount = 0;
     patchSignerRuntime({ busy: true, status: m.signer_status_reading_pdfs() });
     for (const file of files) {
       const bytes = await Effect.runPromise(Effect.result(readBrowserFileBytes(file)));
       if (Result.isFailure(bytes)) {
+        failedCount += 1;
         patchSignerRuntime({ error: bytes.failure.message });
         continue;
       }
@@ -1036,6 +990,7 @@ export function PdfSigner({
         ),
       );
       if (Result.isFailure(state)) {
+        failedCount += 1;
         patchSignerRuntime({ error: state.failure.message });
         continue;
       }
@@ -1055,11 +1010,20 @@ export function PdfSigner({
         docs: [...state.docs, entry],
         activeDocId: state.activeDocId ?? id,
       }));
+      loadedCount += 1;
     }
+    captureDocsEvent("pdf_signer_pdfs_loaded", {
+      failed_count: failedCount,
+      loaded_count: loadedCount,
+      selected_count: files.length,
+    });
     patchSignerRuntime({ busy: false, status: m.signer_status_click_to_place() });
   };
 
   const removeDoc = (docId: string) => {
+    captureDocsEvent("pdf_signer_document_removed", {
+      remaining_count: docs.length - 1,
+    });
     clearBanners(); // keep any already-signed rows/downloads; only drop this doc
     updateSignerRuntime((state) => {
       const remaining = state.docs.filter((d) => d.id !== docId);
@@ -1078,6 +1042,10 @@ export function PdfSigner({
   // loaded document through the same long-lived store path manual clicks use.
   const autoPlaceAll = async () => {
     if (docs.length === 0 || placing) return;
+    captureDocsEvent("pdf_signer_auto_place_started", {
+      document_count: docs.length,
+      unplaced_count: unplacedCount,
+    });
     patchSignerRuntime({
       error: "",
       run: { kind: "idle" },
@@ -1128,30 +1096,57 @@ export function PdfSigner({
     if (activeStep === 1 && nextDocs.length > 0 && nextDocs.every((doc) => doc.rect)) {
       patchSignerRuntime({ activeStep: 2 });
     }
+    captureDocsEvent("pdf_signer_auto_place_completed", {
+      placed_count: nextDocs.filter((doc) => doc.rect).length,
+      total_count: nextDocs.length,
+    });
     patchSignerRuntime({ placing: false, queuedIds: [], placingIds: [] });
   };
 
   const onPfxFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
+    captureDocsEvent("pdf_signer_certificate_selected", {
+      file_size: file.size,
+    });
     reset();
     patchSignerRuntime({ profile: undefined, busy: true, status: m.signer_status_reading_cert() });
     const bytes = await Effect.runPromise(Effect.result(readBrowserFileBytes(file)));
     patchSignerRuntime({ busy: false });
     if (Result.isFailure(bytes)) {
+      captureDocsEvent("pdf_signer_certificate_failed", {
+        phase: "read_file",
+      });
       patchSignerRuntime({ error: bytes.failure.message });
       return;
     }
+    captureDocsEvent("pdf_signer_certificate_loaded", {
+      file_size: file.size,
+    });
     patchSignerRuntime({ pfxBytes: bytes.success, status: m.signer_status_cert_loaded() });
   };
 
   const signAll = async () => {
     const placed = docs.filter((d) => d.rect);
-    if (placed.length === 0)
+    if (placed.length === 0) {
+      captureDocsEvent("pdf_signer_sign_blocked", { reason: "no_signature_placement" });
       return patchSignerRuntime({ error: "Place at least one signature first." });
-    if (!pfxBytes) return patchSignerRuntime({ error: "Upload your A1 (.pfx/.p12) certificate." });
-    if (password.length === 0)
+    }
+    if (!pfxBytes) {
+      captureDocsEvent("pdf_signer_sign_blocked", { reason: "missing_certificate" });
+      return patchSignerRuntime({ error: "Upload your A1 (.pfx/.p12) certificate." });
+    }
+    if (password.length === 0) {
+      captureDocsEvent("pdf_signer_sign_blocked", { reason: "missing_password" });
       return patchSignerRuntime({ error: "Enter the certificate password." });
+    }
+
+    captureDocsEvent("pdf_signer_sign_started", {
+      document_count: placed.length,
+      rubric_every_page: rubricEveryPage,
+      stamp_date: stampDate,
+      stamp_name: stampName,
+    });
 
     patchSignerRuntime({ error: "", busy: true, status: m.signer_status_reading_identity() });
 
@@ -1168,6 +1163,9 @@ export function PdfSigner({
         ),
       );
       if (Result.isFailure(certificate)) {
+        captureDocsEvent("pdf_signer_identity_failed", {
+          phase: "sign_start",
+        });
         patchSignerRuntime({ busy: false, error: certificate.failure.message });
         return;
       }
@@ -1275,10 +1273,7 @@ export function PdfSigner({
                   stampPdfRubric(pdf, {
                     // Right margin, vertically centered, flipped to bottom-left using
                     // this size's width/height so it clears the content column.
-                    rect: toBottomLeft(
-                      toRightMargin(rect, odim.width, odim.height),
-                      odim.height,
-                    ),
+                    rect: toBottomLeft(toRightMargin(rect, odim.width, odim.height), odim.height),
                     pages,
                     border: false, // the bracket is baked into the PNG; no lib rectangle
                     imagePng: rubricaPng, // initials only — no caption lines on every page
@@ -1352,7 +1347,16 @@ export function PdfSigner({
     if (anyPrepFailed) patchSignerRuntime({ rows: { ...nextRows } });
 
     if (items.length === 0) {
-      patchSignerRuntime({ busy: false, run: { kind: "idle" }, error: m.signer_err_none_prepared() });
+      captureDocsEvent("pdf_signer_sign_failed", {
+        attempted_count: placed.length,
+        phase: "prepare_documents",
+        prepared_count: items.length,
+      });
+      patchSignerRuntime({
+        busy: false,
+        run: { kind: "idle" },
+        error: m.signer_err_none_prepared(),
+      });
       return;
     }
 
@@ -1398,6 +1402,11 @@ export function PdfSigner({
         ),
       );
     } catch {
+      captureDocsEvent("pdf_signer_sign_failed", {
+        attempted_count: placed.length,
+        phase: "sign_batch",
+        prepared_count: items.length,
+      });
       patchSignerRuntime({
         busy: false,
         run: { kind: "idle" },
@@ -1405,13 +1414,19 @@ export function PdfSigner({
       });
       return;
     }
+    const finalRows = Object.values(signerRuntimeStore.state.rows);
+    const signedCount = finalRows.filter((row) => row.status === "signed").length;
+    const failedCount = finalRows.filter((row) => row.status === "failed").length;
+    captureDocsEvent("pdf_signer_sign_completed", {
+      attempted_count: placed.length,
+      failed_count: failedCount,
+      signed_count: signedCount,
+    });
     patchSignerRuntime({ busy: false, run: { kind: "done" }, status: m.signer_status_signed() });
   };
 
   const downloadBytes = (bytes: Uint8Array, name: string) => {
-    const url = URL.createObjectURL(
-      new Blob([new Uint8Array(bytes)], { type: "application/pdf" }),
-    );
+    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "application/pdf" }));
     const a = document.createElement("a");
     a.href = url;
     a.download = name.replace(/\.pdf$/i, "") + "-signed.pdf";
@@ -1421,27 +1436,31 @@ export function PdfSigner({
   const downloadOne = (docId: string) => {
     const d = docs.find((x) => x.id === docId);
     const row = rows[docId];
-    if (d && row?.status === "signed") downloadBytes(row.signedPdf, d.name);
+    if (d && row?.status === "signed") {
+      captureDocsEvent("pdf_signer_signed_pdf_downloaded", {
+        document_count: 1,
+      });
+      downloadBytes(row.signedPdf, d.name);
+    }
   };
   const downloadAll = () => {
-    for (const d of docs) {
+    const signedRows = docs.filter((d) => rows[d.id]?.status === "signed");
+    captureDocsEvent("pdf_signer_signed_pdf_downloaded", {
+      document_count: signedRows.length,
+    });
+    for (const d of signedRows) {
       const row = rows[d.id];
       if (row?.status === "signed") downloadBytes(row.signedPdf, d.name);
     }
   };
 
-  const canSign = Boolean(
-    placedCount > 0 && pfxBytes && password.length > 0 && !busy,
-  );
-
+  const canSign = Boolean(placedCount > 0 && pfxBytes && password.length > 0 && !busy);
 
   // Keyboard focus management for the collapses. A panel that closes becomes
   // `inert`; on user-driven advances we move focus to the newly opened step's
   // header. Auto-advance after placement keeps focus on the canvas (never inert),
   // so it must NOT trigger this.
-  const headerRefs = React.useRef<
-    Partial<Record<1 | 2 | 3 | 4, HTMLButtonElement | null>>
-  >({});
+  const headerRefs = React.useRef<Partial<Record<1 | 2 | 3 | 4, HTMLButtonElement | null>>>({});
   const goToStep = (n: 1 | 2 | 3 | 4) => {
     patchSignerRuntime({ activeStep: n });
     queueMicrotask(() => headerRefs.current[n]?.focus());
@@ -1451,6 +1470,7 @@ export function PdfSigner({
   // opens (the "From certificate" mark needs it) and wrong passwords surface early.
   const loadProfileThenAdvance = async () => {
     if (!pfxBytes || password.length === 0) return;
+    captureDocsEvent("pdf_signer_certificate_profile_started");
     patchSignerRuntime({ busy: true, status: m.signer_status_reading_identity() });
     const c = await Effect.runPromise(
       Effect.result(
@@ -1462,9 +1482,11 @@ export function PdfSigner({
     );
     patchSignerRuntime({ busy: false });
     if (Result.isFailure(c)) {
+      captureDocsEvent("pdf_signer_certificate_profile_failed");
       patchSignerRuntime({ error: c.failure.message }); // stay on Step 2, surface the message verbatim
       return;
     }
+    captureDocsEvent("pdf_signer_certificate_profile_loaded");
     patchSignerRuntime({ profile: c.success });
     goToStep(3);
   };
@@ -1511,545 +1533,516 @@ export function PdfSigner({
 
   return (
     <form.Provider>
-      <div
-        className={cn(
-        "@container",
-        inDialog && "flex min-h-0 flex-1 flex-col",
-        className,
-      )}
-      >
+      <div className={cn("@container", inDialog && "flex min-h-0 flex-1 flex-col", className)}>
         <div
           className={cn(
-          "grid gap-6 @4xl:grid-cols-[minmax(0,1fr)_minmax(400px,440px)]",
-          inDialog &&
-            "min-h-0 flex-1 overflow-y-auto p-6 @4xl:grid-rows-[minmax(0,1fr)] @4xl:overflow-hidden",
-        )}
-      >
-        {/* LEFT / TOP — persistent document canvas. In the dialog it owns its own
+            "grid gap-6 @4xl:grid-cols-[minmax(0,1fr)_minmax(400px,440px)]",
+            inDialog &&
+              "min-h-0 flex-1 overflow-y-auto p-6 @4xl:grid-rows-[minmax(0,1fr)] @4xl:overflow-hidden",
+          )}
+        >
+          {/* LEFT / TOP — persistent document canvas. In the dialog it owns its own
             scroll (the steps pane scrolls separately, so the modal never has one
             scroll that moves everything); standalone it stays sticky. */}
-        <div
-          className={cn(
-            "min-w-0 bg-background pb-1",
-            inDialog
-              ? "@4xl:min-h-0 @4xl:self-stretch @4xl:overflow-y-auto"
-              : "sticky top-0 z-10 self-start @4xl:top-0",
-          )}
-        >
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-muted-foreground">
-              {m.signer_doc_label()}
-            </span>
-            {activeDoc ? (
-              <span className="truncate text-xs text-muted-foreground">
-                {activeDoc.name}
-              </span>
-            ) : null}
-          </div>
-          <Card className="min-h-64 rounded-lg border-border bg-muted/30 p-3 shadow-none">
-            {!activeDoc ? (
-              <Label className="flex h-64 cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border text-center text-sm font-normal text-muted-foreground hover:bg-input/30 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50">
-                <FileUp className="size-6 opacity-60" />
-                <span>{m.signer_dropzone()}</span>
-                <input
-                  type="file"
-                  multiple
-                  accept="application/pdf,.pdf"
-                  className="sr-only"
-                  onChange={onPdfFiles}
-                />
-              </Label>
-            ) : (
-              <DocumentCanvas
-                key={activeDoc.id}
-                activeDoc={activeDoc}
-                stampPreview={stampPreview}
-                rubricEveryPage={rubricEveryPage}
-                onTemplateChange={onTemplateChange}
-                onPlaced={handlePlaced}
-                onError={(message) => patchSignerRuntime({ error: message })}
-              />
+          <div
+            className={cn(
+              "min-w-0 bg-background pb-1",
+              inDialog
+                ? "@4xl:min-h-0 @4xl:self-stretch @4xl:overflow-y-auto"
+                : "sticky top-0 z-10 self-start @4xl:top-0",
             )}
-          </Card>
-          {shownStatus ? (
-            <p className="mt-2 px-0.5 text-xs leading-relaxed text-muted-foreground">
-              {shownStatus}
-            </p>
-          ) : null}
-          {/* Canvas-local "one obvious next action" for a multi-PDF batch: jump to
+          >
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                {m.signer_doc_label()}
+              </span>
+              {activeDoc ? (
+                <span className="truncate text-xs text-muted-foreground">{activeDoc.name}</span>
+              ) : null}
+            </div>
+            <Card className="min-h-64 rounded-lg border-border bg-muted/30 p-3 shadow-none">
+              {!activeDoc ? (
+                <Label className="flex h-64 cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border text-center text-sm font-normal text-muted-foreground hover:bg-input/30 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50">
+                  <FileUp className="size-6 opacity-60" />
+                  <span>{m.signer_dropzone()}</span>
+                  <input
+                    type="file"
+                    multiple
+                    accept="application/pdf,.pdf"
+                    data-ph-no-autocapture
+                    data-analytics-sensitive
+                    className="sr-only"
+                    onChange={onPdfFiles}
+                  />
+                </Label>
+              ) : (
+                <DocumentCanvas
+                  key={activeDoc.id}
+                  activeDoc={activeDoc}
+                  stampPreview={stampPreview}
+                  rubricEveryPage={rubricEveryPage}
+                  onTemplateChange={onTemplateChange}
+                  onPlaced={handlePlaced}
+                  onError={(message) => patchSignerRuntime({ error: message })}
+                />
+              )}
+            </Card>
+            {shownStatus ? (
+              <p className="mt-2 px-0.5 text-xs leading-relaxed text-muted-foreground">
+                {shownStatus}
+              </p>
+            ) : null}
+            {/* Canvas-local "one obvious next action" for a multi-PDF batch: jump to
               the next document that still needs a signature without scrolling back
               up to the document list. */}
-          {nextUnplacedId ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => patchSignerRuntime({ activeDocId: nextUnplacedId })}
-              className="mt-2 gap-1.5 text-xs text-foreground"
-            >
-              <FileUp className="size-3.5" data-icon="inline-start" />
-              {m.signer_next_unplaced({ count: unplacedCount })}
-            </Button>
-          ) : null}
-        </div>
-
-        {/* RIGHT / BELOW — the guided accordion */}
-        <div
-          className={cn(
-            "flex flex-col gap-2.5",
-            inDialog && "@4xl:min-h-0 @4xl:self-stretch @4xl:overflow-y-auto",
-          )}
-        >
-          {/* STEP 1 — Documents */}
-          <Step
-            n={1}
-            title={m.signer_step_documents()}
-            status={statusOf(1)}
-            onOpen={() => patchSignerRuntime({ activeStep: 1 })}
-            headerRef={(el) => {
-              headerRefs.current[1] = el;
-            }}
-            summary={m.signer_step1_summary({
-              docs: docs.length,
-              noun:
-                docs.length === 1 ? m.signer_doc_one() : m.signer_doc_many(),
-              placed: placedCount,
-            })}
-          >
-            {docs.length > 0 ? (
-              <DocList
-                docs={docs}
-                activeDocId={activeDocId}
-                onSelect={(id) => patchSignerRuntime({ activeDocId: id })}
-                onRemove={removeDoc}
-                placingIds={placingIds}
-                queuedIds={queuedIds}
-              />
-            ) : null}
-            {/* Best guess — auto-place a signature rect on every loaded document at
-                once (bottom-right of the last page, pure geometry), so a multi-PDF
-                batch needs zero per-document clicking. */}
-            {docs.length > 0 ? (
+            {nextUnplacedId ? (
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => void autoPlaceAll()}
-                disabled={placing}
-                className="gap-1.5 text-xs text-foreground disabled:opacity-60"
+                onClick={() => patchSignerRuntime({ activeDocId: nextUnplacedId })}
+                className="mt-2 gap-1.5 text-xs text-foreground"
               >
-                {placing ? (
-                  <Loader2
-                    className="size-3.5 animate-spin"
-                    data-icon="inline-start"
-                  />
-                ) : (
-                  <Wand2 className="size-3.5" data-icon="inline-start" />
-                )}
-                {unplacedCount > 0
-                  ? m.signer_place_all({ count: docs.length })
-                  : m.signer_place_reposition()}
+                <FileUp className="size-3.5" data-icon="inline-start" />
+                {m.signer_next_unplaced({ count: unplacedCount })}
               </Button>
             ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => pdfInputRef.current?.click()}
-              className="gap-1.5 text-xs text-foreground"
-            >
-              <FileUp className="size-3.5" data-icon="inline-start" />
-              {m.signer_add_pdfs()}
-            </Button>
-            <input
-              ref={pdfInputRef}
-              type="file"
-              multiple
-              accept="application/pdf,.pdf"
-              className="sr-only"
-              onChange={onPdfFiles}
-            />
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              {docs.length === 0
-                ? m.signer_step1_hint_empty()
-                : activeDoc && !activeDoc.rect
-                  ? m.signer_step1_hint_place()
-                  : placedCount < docs.length
-                    ? m.signer_step1_hint_some()
-                    : m.signer_step1_hint_all()}
-            </p>
-          </Step>
+          </div>
 
-          {/* STEP 2 — A1 certificate */}
-          <Step
-            n={2}
-            title={m.signer_step_a1()}
-            status={statusOf(2)}
-            onOpen={() => patchSignerRuntime({ activeStep: 2 })}
-            headerRef={(el) => {
-              headerRefs.current[2] = el;
-            }}
-            hint={m.signer_step2_hint()}
-            summary={
-              profile
-                ? `${profile.subject}${profile.document ? ` · ${profile.document}` : ""}`
-                : m.signer_step2_summary_loaded()
-            }
+          {/* RIGHT / BELOW — the guided accordion */}
+          <div
+            className={cn(
+              "flex flex-col gap-2.5",
+              inDialog && "@4xl:min-h-0 @4xl:self-stretch @4xl:overflow-y-auto",
+            )}
           >
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => pfxInputRef.current?.click()}
-              className="gap-1.5 text-xs text-foreground"
-            >
-              <Lock className="size-3.5" data-icon="inline-start" />
-              {pfxBytes ? m.signer_replace_pfx() : m.signer_upload_pfx()}
-            </Button>
-            <input
-              ref={pfxInputRef}
-              type="file"
-              accept=".pfx,.p12,application/x-pkcs12"
-              className="sr-only"
-              onChange={onPfxFile}
-            />
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void loadProfileThenAdvance();
+            {/* STEP 1 — Documents */}
+            <Step
+              n={1}
+              title={m.signer_step_documents()}
+              status={statusOf(1)}
+              onOpen={() => patchSignerRuntime({ activeStep: 1 })}
+              headerRef={(el) => {
+                headerRefs.current[1] = el;
               }}
+              summary={m.signer_step1_summary({
+                docs: docs.length,
+                noun: docs.length === 1 ? m.signer_doc_one() : m.signer_doc_many(),
+                placed: placedCount,
+              })}
             >
-              <input
-                type="text"
-                autoComplete="username"
-                value=""
-                readOnly
-                tabIndex={-1}
-                aria-hidden="true"
-                className="sr-only"
-              />
-              <form.Field name="password">
-                {(field) => (
-                  <Input
-                    type="password"
-                    autoComplete="current-password"
-                    value={field.state.value ?? ""}
-                    aria-label={m.signer_cert_password()}
-                    placeholder={m.signer_cert_password()}
-                    onBlur={field.handleBlur}
-                    onChange={(e) => {
-                      clearBanners();
-                      patchSignerRuntime({ profile: undefined });
-                      field.handleChange(e.currentTarget.value);
-                    }}
-                    className="rounded-md border-border bg-input/30 px-3 py-2 text-sm text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                  />
-                )}
-              </form.Field>
-            </form>
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              {m.signer_step2_note_a()}
-              <code className="mx-1 font-mono text-foreground">Redacted</code>
-              {m.signer_step2_note_b()}
-            </p>
-            {profile ? (
-              <p className="rounded-md border border-border bg-muted/40 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
-                {profile.subject}
-                {profile.document ? ` · ${profile.document}` : ""}
-              </p>
-            ) : null}
-            <Button
-              onClick={() => void loadProfileThenAdvance()}
-              disabled={!step2Done || busy}
-              className="w-full"
-            >
-              {busy ? <Loader2 className="size-4 animate-spin" /> : null}
-              {m.signer_continue()}
-            </Button>
-          </Step>
-
-          {/* STEP 3 — Stamp */}
-          <Step
-            n={3}
-            title={m.signer_step_stamp()}
-            optional
-            status={statusOf(3)}
-            onOpen={() => patchSignerRuntime({ activeStep: 3 })}
-            headerRef={(el) => {
-              headerRefs.current[3] = el;
-            }}
-            hint={m.signer_step3_hint()}
-            summary={
-              stampBits.length
-                ? stampBits.join(" · ")
-                : m.signer_step3_summary_none()
-            }
-          >
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              {m.signer_step3_intro()}
-            </p>
-
-            {/* Visible mark — source picker */}
-            <div className="mt-1 flex flex-col gap-2">
-              <p
-                id="rubric-source-label"
-                className="text-[11px] text-muted-foreground"
+              {docs.length > 0 ? (
+                <DocList
+                  docs={docs}
+                  activeDocId={activeDocId}
+                  onSelect={(id) => patchSignerRuntime({ activeDocId: id })}
+                  onRemove={removeDoc}
+                  placingIds={placingIds}
+                  queuedIds={queuedIds}
+                />
+              ) : null}
+              {/* Best guess — auto-place a signature rect on every loaded document at
+                once (bottom-right of the last page, pure geometry), so a multi-PDF
+                batch needs zero per-document clicking. */}
+              {docs.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void autoPlaceAll()}
+                  disabled={placing}
+                  className="gap-1.5 text-xs text-foreground disabled:opacity-60"
+                >
+                  {placing ? (
+                    <Loader2 className="size-3.5 animate-spin" data-icon="inline-start" />
+                  ) : (
+                    <Wand2 className="size-3.5" data-icon="inline-start" />
+                  )}
+                  {unplacedCount > 0
+                    ? m.signer_place_all({ count: docs.length })
+                    : m.signer_place_reposition()}
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => pdfInputRef.current?.click()}
+                className="gap-1.5 text-xs text-foreground"
               >
-                {m.signer_signature_mark()}
+                <FileUp className="size-3.5" data-icon="inline-start" />
+                {m.signer_add_pdfs()}
+              </Button>
+              <input
+                ref={pdfInputRef}
+                type="file"
+                multiple
+                accept="application/pdf,.pdf"
+                data-ph-no-autocapture
+                data-analytics-sensitive
+                className="sr-only"
+                onChange={onPdfFiles}
+              />
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {docs.length === 0
+                  ? m.signer_step1_hint_empty()
+                  : activeDoc && !activeDoc.rect
+                    ? m.signer_step1_hint_place()
+                    : placedCount < docs.length
+                      ? m.signer_step1_hint_some()
+                      : m.signer_step1_hint_all()}
               </p>
-              <form.Field name="rubricSource">
-                {(field) => (
-                  <div
-                    aria-labelledby="rubric-source-label"
-                    className="grid grid-cols-2 gap-1.5"
-                  >
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={field.state.value === "type" ? "secondary" : "outline"}
-                      onClick={() => {
-                        clearBanners();
-                        field.handleChange("type");
-                      }}
-                      className="justify-center gap-1.5 text-xs"
-                    >
-                      <Type className="size-3.5" /> {m.signer_mark_type()}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={field.state.value === "cert" ? "secondary" : "outline"}
-                      onClick={() => {
-                        clearBanners();
-                        field.handleChange("cert");
-                      }}
-                      className="justify-center gap-1.5 text-xs"
-                    >
-                      <BadgeCheck className="size-3.5" /> {m.signer_mark_cert()}
-                    </Button>
-                  </div>
-                )}
-              </form.Field>
+            </Step>
 
-              <div className="min-h-[120px]">
-                {rubricSource === "type" ? (
-                  <div className="flex flex-col gap-2">
-                    <form.Field name="typedText">
-                      {(field) => (
-                        <Input
-                          type="text"
-                          value={field.state.value ?? ""}
-                          aria-label={m.signer_type_aria()}
-                          placeholder={profile?.subject ?? m.signer_type_placeholder()}
-                          onBlur={field.handleBlur}
-                          onChange={(e) => {
-                            clearBanners();
-                            field.handleChange(e.currentTarget.value);
-                          }}
-                          className="rounded-md border-border bg-input/30 px-3 py-2 text-sm text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                        />
-                      )}
-                    </form.Field>
-                    {signatureDataUrl ? (
-                      <div className="flex h-16 items-center justify-center rounded-md border border-border bg-white">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={signatureDataUrl}
-                          alt=""
-                          className="max-h-12 w-auto object-contain"
-                        />
-                      </div>
-                    ) : null}
-                    {typedText.trim() ? (
-                      <p className="text-[11px] text-muted-foreground">
-                        {m.signer_initials_label()}{" "}
-                        <span className="font-mono text-foreground">
-                          {deriveInitials(typedText)}
-                        </span>
-                      </p>
-                    ) : null}
-                  </div>
-                ) : !profile ? (
-                  <p className="text-[11px] leading-relaxed text-muted-foreground">
-                    {pfxBytes
-                      ? m.signer_cert_hint_continue()
-                      : m.signer_cert_hint_add()}
-                  </p>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    <div className="flex h-16 items-center justify-center rounded-md border border-border bg-white">
+            {/* STEP 2 — A1 certificate */}
+            <Step
+              n={2}
+              title={m.signer_step_a1()}
+              status={statusOf(2)}
+              onOpen={() => patchSignerRuntime({ activeStep: 2 })}
+              headerRef={(el) => {
+                headerRefs.current[2] = el;
+              }}
+              hint={m.signer_step2_hint()}
+              summary={
+                profile
+                  ? `${profile.subject}${profile.document ? ` · ${profile.document}` : ""}`
+                  : m.signer_step2_summary_loaded()
+              }
+            >
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => pfxInputRef.current?.click()}
+                className="gap-1.5 text-xs text-foreground"
+              >
+                <Lock className="size-3.5" data-icon="inline-start" />
+                {pfxBytes ? m.signer_replace_pfx() : m.signer_upload_pfx()}
+              </Button>
+              <input
+                ref={pfxInputRef}
+                type="file"
+                accept=".pfx,.p12,application/x-pkcs12"
+                data-ph-no-autocapture
+                data-analytics-sensitive
+                className="sr-only"
+                onChange={onPfxFile}
+              />
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void loadProfileThenAdvance();
+                }}
+              >
+                <input
+                  type="text"
+                  autoComplete="username"
+                  value=""
+                  readOnly
+                  tabIndex={-1}
+                  aria-hidden="true"
+                  className="sr-only"
+                />
+                <form.Field name="password">
+                  {(field) => (
+                    <Input
+                      type="password"
+                      data-ph-no-autocapture
+                      data-analytics-sensitive
+                      autoComplete="current-password"
+                      value={field.state.value ?? ""}
+                      aria-label={m.signer_cert_password()}
+                      placeholder={m.signer_cert_password()}
+                      onBlur={field.handleBlur}
+                      onChange={(e) => {
+                        clearBanners();
+                        patchSignerRuntime({ profile: undefined });
+                        field.handleChange(e.currentTarget.value);
+                      }}
+                      className="rounded-md border-border bg-input/30 px-3 py-2 text-sm text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    />
+                  )}
+                </form.Field>
+              </form>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {m.signer_step2_note_a()}
+                <code className="mx-1 font-mono text-foreground">Redacted</code>
+                {m.signer_step2_note_b()}
+              </p>
+              {profile ? (
+                <p className="rounded-md border border-border bg-muted/40 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
+                  {profile.subject}
+                  {profile.document ? ` · ${profile.document}` : ""}
+                </p>
+              ) : null}
+              <Button
+                onClick={() => void loadProfileThenAdvance()}
+                disabled={!step2Done || busy}
+                className="w-full"
+              >
+                {busy ? <Loader2 className="size-4 animate-spin" /> : null}
+                {m.signer_continue()}
+              </Button>
+            </Step>
+
+            {/* STEP 3 — Stamp */}
+            <Step
+              n={3}
+              title={m.signer_step_stamp()}
+              optional
+              status={statusOf(3)}
+              onOpen={() => patchSignerRuntime({ activeStep: 3 })}
+              headerRef={(el) => {
+                headerRefs.current[3] = el;
+              }}
+              hint={m.signer_step3_hint()}
+              summary={stampBits.length ? stampBits.join(" · ") : m.signer_step3_summary_none()}
+            >
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {m.signer_step3_intro()}
+              </p>
+
+              {/* Visible mark — source picker */}
+              <div className="mt-1 flex flex-col gap-2">
+                <p id="rubric-source-label" className="text-[11px] text-muted-foreground">
+                  {m.signer_signature_mark()}
+                </p>
+                <form.Field name="rubricSource">
+                  {(field) => (
+                    <div aria-labelledby="rubric-source-label" className="grid grid-cols-2 gap-1.5">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={field.state.value === "type" ? "secondary" : "outline"}
+                        onClick={() => {
+                          clearBanners();
+                          field.handleChange("type");
+                        }}
+                        className="justify-center gap-1.5 text-xs"
+                      >
+                        <Type className="size-3.5" /> {m.signer_mark_type()}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={field.state.value === "cert" ? "secondary" : "outline"}
+                        onClick={() => {
+                          clearBanners();
+                          field.handleChange("cert");
+                        }}
+                        className="justify-center gap-1.5 text-xs"
+                      >
+                        <BadgeCheck className="size-3.5" /> {m.signer_mark_cert()}
+                      </Button>
+                    </div>
+                  )}
+                </form.Field>
+
+                <div className="min-h-[120px]">
+                  {rubricSource === "type" ? (
+                    <div className="flex flex-col gap-2">
+                      <form.Field name="typedText">
+                        {(field) => (
+                          <Input
+                            type="text"
+                            value={field.state.value ?? ""}
+                            aria-label={m.signer_type_aria()}
+                            placeholder={profile?.subject ?? m.signer_type_placeholder()}
+                            onBlur={field.handleBlur}
+                            onChange={(e) => {
+                              clearBanners();
+                              field.handleChange(e.currentTarget.value);
+                            }}
+                            className="rounded-md border-border bg-input/30 px-3 py-2 text-sm text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                          />
+                        )}
+                      </form.Field>
                       {signatureDataUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={signatureDataUrl}
-                          alt=""
-                          className="max-h-12 w-auto object-contain"
-                        />
+                        <div className="flex h-16 items-center justify-center rounded-md border border-border bg-white">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={signatureDataUrl}
+                            alt=""
+                            className="max-h-12 w-auto object-contain"
+                          />
+                        </div>
+                      ) : null}
+                      {typedText.trim() ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          {m.signer_initials_label()}{" "}
+                          <span className="font-mono text-foreground">
+                            {deriveInitials(typedText)}
+                          </span>
+                        </p>
                       ) : null}
                     </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      {m.signer_cert_initials_label()}{" "}
-                      <span className="font-mono text-foreground">
-                        {deriveInitials(profile.subject)}
-                      </span>
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <form.Field name="stampName">
-              {(field) => (
-                <Label
-                  htmlFor="stamp-name"
-                  className="gap-2 text-xs font-normal text-foreground"
-                >
-                  <Checkbox
-                    id="stamp-name"
-                    checked={field.state.value === true}
-                    onCheckedChange={(v) => {
-                      clearBanners();
-                      field.handleChange(v === true);
-                    }}
-                    className="size-3.5"
-                  />
-                  {m.signer_chk_name()}
-                </Label>
-              )}
-            </form.Field>
-            <form.Field name="stampDate">
-              {(field) => (
-                <Label
-                  htmlFor="stamp-date"
-                  className="gap-2 text-xs font-normal text-foreground"
-                >
-                  <Checkbox
-                    id="stamp-date"
-                    checked={field.state.value === true}
-                    onCheckedChange={(v) => {
-                      clearBanners();
-                      field.handleChange(v === true);
-                    }}
-                    className="size-3.5"
-                  />
-                  {m.signer_chk_date()}
-                </Label>
-              )}
-            </form.Field>
-            <form.Field name="rubricEveryPage">
-              {(field) => (
-                <Label
-                  htmlFor="stamp-rubric"
-                  className="gap-2 text-xs font-normal text-foreground"
-                >
-                  <Checkbox
-                    id="stamp-rubric"
-                    checked={field.state.value === true}
-                    onCheckedChange={(v) => {
-                      clearBanners();
-                      field.handleChange(v === true);
-                    }}
-                    className="size-3.5"
-                  />
-                  {m.signer_chk_rubric()}
-                </Label>
-              )}
-            </form.Field>
-            <p className="-mt-1 pl-5 text-[11px] leading-relaxed text-muted-foreground">
-              {m.signer_rubric_note_initials()}
-            </p>
-            <Button onClick={() => goToStep(4)} className="w-full">
-              {m.signer_continue()}
-            </Button>
-          </Step>
-
-          {/* STEP 4 — Sign */}
-          <Step
-            n={4}
-            title={m.signer_step_sign()}
-            status={statusOf(4)}
-            onOpen={() => patchSignerRuntime({ activeStep: 4 })}
-            headerRef={(el) => {
-              headerRefs.current[4] = el;
-            }}
-            hint={m.signer_step4_hint()}
-            summary={signed ? m.signer_step4_summary_signed() : ""}
-          >
-            {run.kind === "idle" ? (
-              <>
-                <Button
-                  onClick={() => void signAll()}
-                  disabled={!canSign}
-                  className="w-full"
-                >
-                  {busy ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <PenLine className="size-4" />
-                  )}
-                  {m.signer_sign_button({
-                    count: placedCount,
-                    noun:
-                      placedCount === 1
-                        ? m.signer_doc_one()
-                        : m.signer_doc_many(),
-                  })}
-                </Button>
-                {placedCount < docs.length ? (
-                  <p className="text-[11px] leading-relaxed text-muted-foreground">
-                    {m.signer_skip_note({ count: docs.length - placedCount })}
-                  </p>
-                ) : null}
-              </>
-            ) : (
-              <>
-                <BatchResults
-                  docs={docs}
-                  rows={rows}
-                  run={run}
-                  onDownload={downloadOne}
-                  onDownloadAll={downloadAll}
-                />
-                {run.kind === "done" ? (
-                  <>
-                    <a
-                      href="https://validar.iti.gov.br/"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-4xl border border-border bg-input/30 px-3 text-sm font-medium text-foreground transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-input/50 active:scale-[0.98]"
-                    >
-                      {m.signer_validate()}
-                      <ExternalLink className="size-3.5" />
-                    </a>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void signAll()}
-                      disabled={!canSign}
-                      className="w-full"
-                    >
-                      {busy ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <PenLine className="size-4" />
-                      )}
-                      {m.signer_sign_again()}
-                    </Button>
+                  ) : !profile ? (
                     <p className="text-[11px] leading-relaxed text-muted-foreground">
-                      {m.signer_validate_note()}
+                      {pfxBytes ? m.signer_cert_hint_continue() : m.signer_cert_hint_add()}
                     </p>
-                  </>
-                ) : null}
-              </>
-            )}
-          </Step>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex h-16 items-center justify-center rounded-md border border-border bg-white">
+                        {signatureDataUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={signatureDataUrl}
+                            alt=""
+                            className="max-h-12 w-auto object-contain"
+                          />
+                        ) : null}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        {m.signer_cert_initials_label()}{" "}
+                        <span className="font-mono text-foreground">
+                          {deriveInitials(profile.subject)}
+                        </span>
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
 
-          {error ? (
-            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {error}
-            </p>
-          ) : null}
-        </div>
+              <form.Field name="stampName">
+                {(field) => (
+                  <Label htmlFor="stamp-name" className="gap-2 text-xs font-normal text-foreground">
+                    <Checkbox
+                      id="stamp-name"
+                      checked={field.state.value === true}
+                      onCheckedChange={(v) => {
+                        clearBanners();
+                        field.handleChange(v === true);
+                      }}
+                      className="size-3.5"
+                    />
+                    {m.signer_chk_name()}
+                  </Label>
+                )}
+              </form.Field>
+              <form.Field name="stampDate">
+                {(field) => (
+                  <Label htmlFor="stamp-date" className="gap-2 text-xs font-normal text-foreground">
+                    <Checkbox
+                      id="stamp-date"
+                      checked={field.state.value === true}
+                      onCheckedChange={(v) => {
+                        clearBanners();
+                        field.handleChange(v === true);
+                      }}
+                      className="size-3.5"
+                    />
+                    {m.signer_chk_date()}
+                  </Label>
+                )}
+              </form.Field>
+              <form.Field name="rubricEveryPage">
+                {(field) => (
+                  <Label
+                    htmlFor="stamp-rubric"
+                    className="gap-2 text-xs font-normal text-foreground"
+                  >
+                    <Checkbox
+                      id="stamp-rubric"
+                      checked={field.state.value === true}
+                      onCheckedChange={(v) => {
+                        clearBanners();
+                        field.handleChange(v === true);
+                      }}
+                      className="size-3.5"
+                    />
+                    {m.signer_chk_rubric()}
+                  </Label>
+                )}
+              </form.Field>
+              <p className="-mt-1 pl-5 text-[11px] leading-relaxed text-muted-foreground">
+                {m.signer_rubric_note_initials()}
+              </p>
+              <Button onClick={() => goToStep(4)} className="w-full">
+                {m.signer_continue()}
+              </Button>
+            </Step>
+
+            {/* STEP 4 — Sign */}
+            <Step
+              n={4}
+              title={m.signer_step_sign()}
+              status={statusOf(4)}
+              onOpen={() => patchSignerRuntime({ activeStep: 4 })}
+              headerRef={(el) => {
+                headerRefs.current[4] = el;
+              }}
+              hint={m.signer_step4_hint()}
+              summary={signed ? m.signer_step4_summary_signed() : ""}
+            >
+              {run.kind === "idle" ? (
+                <>
+                  <Button onClick={() => void signAll()} disabled={!canSign} className="w-full">
+                    {busy ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <PenLine className="size-4" />
+                    )}
+                    {m.signer_sign_button({
+                      count: placedCount,
+                      noun: placedCount === 1 ? m.signer_doc_one() : m.signer_doc_many(),
+                    })}
+                  </Button>
+                  {placedCount < docs.length ? (
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      {m.signer_skip_note({ count: docs.length - placedCount })}
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <BatchResults
+                    docs={docs}
+                    rows={rows}
+                    run={run}
+                    onDownload={downloadOne}
+                    onDownloadAll={downloadAll}
+                  />
+                  {run.kind === "done" ? (
+                    <>
+                      <a
+                        href="https://validar.iti.gov.br/"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-4xl border border-border bg-input/30 px-3 text-sm font-medium text-foreground transition-[background-color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-input/50 active:scale-[0.98]"
+                      >
+                        {m.signer_validate()}
+                        <ExternalLink className="size-3.5" />
+                      </a>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void signAll()}
+                        disabled={!canSign}
+                        className="w-full"
+                      >
+                        {busy ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <PenLine className="size-4" />
+                        )}
+                        {m.signer_sign_again()}
+                      </Button>
+                      <p className="text-[11px] leading-relaxed text-muted-foreground">
+                        {m.signer_validate_note()}
+                      </p>
+                    </>
+                  ) : null}
+                </>
+              )}
+            </Step>
+
+            {error ? (
+              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {error}
+              </p>
+            ) : null}
+          </div>
         </div>
       </div>
     </form.Provider>
@@ -2079,10 +2072,7 @@ export function PdfSignerDialog({ children }: { children: React.ReactNode }) {
               <span className="sr-only">{m.signer_close()}</span>
             </DialogClose>
           </div>
-          <DialogDescription
-            id="pdf-signer-desc"
-            className="text-xs text-muted-foreground"
-          >
+          <DialogDescription id="pdf-signer-desc" className="text-xs text-muted-foreground">
             {m.signer_dialog_desc()}
           </DialogDescription>
         </DialogHeader>
