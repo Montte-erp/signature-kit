@@ -37,6 +37,7 @@
     "next": "16.2.9",
     "pdfjs-dist": "^4.10.38",
     "posthog-js": "^1.396.2",
+    "posthog-node": "^5.39.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "simple-icons": "^15.18.0",
