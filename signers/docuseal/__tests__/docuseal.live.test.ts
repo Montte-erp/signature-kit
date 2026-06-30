@@ -1,8 +1,14 @@
 import { describe, expect, it } from "@effect/vitest";
 import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
+import { reconcileInput } from "../../__tests__/alchemy-provider";
 import { Effect, Redacted } from "effect";
-import { createDocuSealSignatureRequest } from "../src/index";
+import {
+  DocuSealSignatureRequest,
+  DocuSealSignatureRequestProvider,
+  docuSealCredentialsLayer,
+  type DocuSealProviderOptions,
+} from "../src/index";
 
 const liveConfig = () => {
   if (process.env.SIGNATURE_KIT_LIVE_REMOTE_SIGNERS !== "1") return undefined;
@@ -42,6 +48,19 @@ const livePdf = (): Uint8Array => {
   );
 };
 
+const reconcileDocuSealSignatureRequest = (
+  options: DocuSealProviderOptions,
+  request: RemoteSignatureRequestInput,
+) =>
+  Effect.gen(function* () {
+    const provider = yield* DocuSealSignatureRequest.Provider;
+    return yield* provider.reconcile(reconcileInput("docuseal-live-request", request));
+  }).pipe(
+    Effect.provide(DocuSealSignatureRequestProvider()),
+    Effect.provide(docuSealCredentialsLayer(options)),
+    Effect.provide(signatureHttpClientLive),
+  );
+
 const config = liveConfig();
 
 if (config === undefined) {
@@ -74,7 +93,7 @@ if (config === undefined) {
           send: false,
         } satisfies RemoteSignatureRequestInput;
 
-        const request = yield* createDocuSealSignatureRequest(
+        const request = yield* reconcileDocuSealSignatureRequest(
           {
             apiKey: Redacted.make(config.apiKey),
             sendSms: false,
@@ -82,7 +101,7 @@ if (config === undefined) {
             ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
           },
           input,
-        ).pipe(Effect.provide(signatureHttpClientLive));
+        );
 
         expect(request.provider).toBe("docuseal");
         expect(request.state).toBe("draft");

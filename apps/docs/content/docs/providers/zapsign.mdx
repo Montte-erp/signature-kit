@@ -22,26 +22,30 @@ Use ZapSign when the product wants a hosted signing link after a simple PDF uplo
 ## Minimal request
 
 ```ts title="zapsign.ts"
+import * as Alchemy from "alchemy"
+import { ZapSignSignatureRequest, providers as zapSignProviders } from "@signature-kit/zapsign"
 import { signatureHttpClientLive } from "@signature-kit/core/http"
-import { createZapSignSignatureRequest } from "@signature-kit/zapsign"
-import { Effect, Redacted } from "effect"
+import { Effect, Layer, Redacted } from "effect"
 
-const program = createZapSignSignatureRequest(
+export default Alchemy.Stack(
+  "Contracts",
   {
-    apiToken: Redacted.make(process.env.ZAPSIGN_API_TOKEN ?? ""),
-    environment: "sandbox",
-    locale: "pt-br",
+    providers: zapSignProviders({
+      apiToken: Redacted.make(process.env.ZAPSIGN_API_TOKEN ?? ""),
+      environment: "sandbox",
+      locale: "pt-br",
+    }).pipe(Layer.provide(signatureHttpClientLive)),
   },
-  {
-    title: "Service agreement",
-    message: "Review and sign this document.",
-    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
-    recipients: [{ name: "Ada Lovelace", email: "ada@example.com", role: "signer" }],
-    send: true,
-  },
-).pipe(Effect.provide(signatureHttpClientLive))
-
-const request = await Effect.runPromise(program)
+  Effect.gen(function* () {
+    return yield* ZapSignSignatureRequest("service-agreement", {
+      title: "Service agreement",
+      message: "Review and sign this document.",
+      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
+      recipients: [{ name: "Ada Lovelace", email: "ada@example.com", role: "signer" }],
+      send: true,
+    })
+  }),
+)
 ```
 
 

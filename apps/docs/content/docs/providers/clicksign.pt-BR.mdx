@@ -22,27 +22,31 @@ Use Clicksign quando a cerimônia, lembretes e trilha de auditoria vivem na Clic
 ## Request mínimo
 
 ```ts title="clicksign.ts"
+import * as Alchemy from "alchemy"
+import { ClicksignSignatureRequest, providers as clicksignProviders } from "@signature-kit/clicksign"
 import { signatureHttpClientLive } from "@signature-kit/core/http"
-import { createClicksignSignatureRequest } from "@signature-kit/clicksign"
-import { Effect, Redacted } from "effect"
+import { Effect, Layer, Redacted } from "effect"
 
-const program = createClicksignSignatureRequest(
+export default Alchemy.Stack(
+  "Contracts",
   {
-    accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
-    environment: "sandbox",
-    locale: "pt-BR",
-    autoClose: true,
+    providers: clicksignProviders({
+      accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
+      environment: "sandbox",
+      locale: "pt-BR",
+      autoClose: true,
+    }).pipe(Layer.provide(signatureHttpClientLive)),
   },
-  {
-    title: "Contrato de serviço",
-    message: "Revise e assine este documento.",
-    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
-    recipients: [{ name: "Ana Silva", email: "ada@example.com", role: "signer" }],
-    send: true,
-  },
-).pipe(Effect.provide(signatureHttpClientLive))
-
-const request = await Effect.runPromise(program)
+  Effect.gen(function* () {
+    return yield* ClicksignSignatureRequest("contrato-de-servico", {
+      title: "Contrato de serviço",
+      message: "Revise e assine este documento.",
+      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
+      recipients: [{ name: "Ana Silva", email: "ada@example.com", role: "signer" }],
+      send: true,
+    })
+  }),
+)
 ```
 
 

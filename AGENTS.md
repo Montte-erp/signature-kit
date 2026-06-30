@@ -28,6 +28,8 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
 - Stateful/global setup is a service dependency. Example: XML-DSig requires
   `XmlRuntime`/`xmlRuntimeLayer`; callers provide it explicitly instead of relying
   on import-time mutation or hidden module flags.
+  Runtime marker services must expose a real capability (for example
+  `XmlRuntime.parse`) instead of sentinel booleans like `{ configured: true }`.
 - Never read ambient process state (`NODE_ENV`, env vars, globals) inside package
   internals to choose behavior. Decode explicit config through Schema or require a
   provided service/layer.
@@ -66,6 +68,14 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
   only when callers genuinely need structured Standard Schema issues. Keep only
   the typed fields you use (usually `schemaName` + `issueMessage`). A cause with
   no decoded contract is a defect, not metadata to launder.
+- Schema decode failures are mapped where the schema is decoded. Do not add
+  shared `decodeRemoteShape` / `decodeRemoteOptions`-style wrappers that hide the
+  decision point; use `Schema.decodeUnknownEffect(...).pipe(Effect.mapError((issue) =>
+  new TaggedError({ ..., reason: String(issue) })))` inline at the provider,
+  resource, or public API boundary.
+- Default error-message catalogs are source-of-truth data next to the
+  `TaggedErrorClass`, backed by Schema-derived entry types. Docs/apps import that
+  exported catalog instead of duplicating literal code/message tables.
 - HTTP errors must never serialize secrets. If an upstream forces credentials into
   a URL query string, carry the real transport URL separately from a redacted
   diagnostic URL and use only the diagnostic URL in `SignatureKitError.reason`.
@@ -78,6 +88,9 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
   literal catalogs in `Schema.Literals([...])`, or model data as discriminated
   unions so reads narrow without assertions.
 - No manual interfaces for config/data contracts when `Schema` can derive the type.
+- If public docs need an example value for a Schema-backed contract, make the
+  snippet use the real contract shape (`contentBase64` for remote resource props,
+  not byte-only helper input) so examples do not become a parallel API.
 
 ## Effect 4 idioms
 
@@ -114,6 +127,9 @@ with a `Provider.effect` and a collection layer); follow that shape.
   `export type X = Resource<"Vendor.Thing", XProps, XAttributes>` and
   `export const X = Resource<X>("Vendor.Thing")`. Alchemy resolves providers by
   that literal at plan time.
+  Import `Resource` from the root `alchemy` package, matching the upstream v2
+  guide; use subpath imports only for dedicated modules such as
+  `alchemy/Provider`.
 - **One `reconcile`, plus `delete` — never separate create/update.** A provider is
   `Provider.effect(X, Effect.gen(/* acquire shared deps once */) → X.Provider.of({ reconcile, delete }))`.
   `reconcile` covers create AND update and decides which by inspecting

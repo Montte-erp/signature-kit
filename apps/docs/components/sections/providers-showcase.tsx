@@ -48,106 +48,136 @@ const PROVIDERS_SHOWCASE: readonly ProviderShowcase[] = [
     name: "Clicksign",
     domain: "clicksign.com",
     filename: "clicksign.ts",
-    code: `import { createClicksignSignatureRequest } from "@signature-kit/clicksign"
+    code: `import * as Alchemy from "alchemy"
+import { ClicksignSignatureRequest, providers as clicksignProviders } from "@signature-kit/clicksign"
 import { signatureHttpClientLive } from "@signature-kit/core/http"
-import { Effect, Redacted } from "effect"
+import { Effect, Layer, Redacted } from "effect"
 
-const request = yield* createClicksignSignatureRequest(
+export default Alchemy.Stack(
+  "Contracts",
   {
-    accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
-    environment: "sandbox",
-    locale: "pt-BR",
-    autoClose: true,
+    providers: clicksignProviders({
+      accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
+      environment: "sandbox",
+      locale: "pt-BR",
+      autoClose: true,
+    }).pipe(Layer.provide(signatureHttpClientLive)),
   },
-  {
-    title: "Membership agreement",
-    documents: [{ fileName: "agreement.pdf", mimeType: "application/pdf", content: pdfBytes }],
-    recipients: [{ name: "Bruno Lima", email: "bruno@example.com", role: "signer" }],
-  },
-).pipe(Effect.provide(signatureHttpClientLive))`,
+  Effect.gen(function* () {
+    return yield* ClicksignSignatureRequest("membership-agreement", {
+      title: "Membership agreement",
+      documents: [{ fileName: "agreement.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
+      recipients: [{ name: "Bruno Lima", email: "bruno@example.com", role: "signer" }],
+    })
+  }),
+)`,
   },
   {
     name: "Assinafy",
     domain: "assinafy.com.br",
     filename: "assinafy.ts",
-    code: `import { createAssinafySignatureRequest } from "@signature-kit/assinafy"
+    code: `import * as Alchemy from "alchemy"
+import { AssinafySignatureRequest, providers as assinafyProviders } from "@signature-kit/assinafy"
 import { signatureHttpClientLive } from "@signature-kit/core/http"
-import { Effect, Redacted } from "effect"
+import { Effect, Layer, Redacted } from "effect"
 
-const request = yield* createAssinafySignatureRequest(
+export default Alchemy.Stack(
+  "Contracts",
   {
-    accountId: process.env.ASSINAFY_ACCOUNT_ID!,
-    apiKey: Redacted.make(process.env.ASSINAFY_API_KEY ?? ""),
-    environment: "sandbox",
+    providers: assinafyProviders({
+      accountId: process.env.ASSINAFY_ACCOUNT_ID!,
+      apiKey: Redacted.make(process.env.ASSINAFY_API_KEY ?? ""),
+      environment: "sandbox",
+    }).pipe(Layer.provide(signatureHttpClientLive)),
   },
-  {
-    title: "Contract",
-    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
-    recipients: [{ name: "Carla Nunes", email: "carla@example.com", role: "signer" }],
-  },
-).pipe(Effect.provide(signatureHttpClientLive))`,
+  Effect.gen(function* () {
+    return yield* AssinafySignatureRequest("contract", {
+      title: "Contract",
+      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
+      recipients: [{ name: "Carla Nunes", email: "carla@example.com", role: "signer" }],
+    })
+  }),
+)`,
   },
   {
     name: "ZapSign",
     domain: "zapsign.co",
     filename: "zapsign.ts",
-    code: `import { createZapSignSignatureRequest } from "@signature-kit/zapsign"
+    code: `import * as Alchemy from "alchemy"
+import { ZapSignSignatureRequest, providers as zapSignProviders } from "@signature-kit/zapsign"
 import { signatureHttpClientLive } from "@signature-kit/core/http"
-import { Effect, Redacted } from "effect"
+import { Effect, Layer, Redacted } from "effect"
 
-const request = yield* createZapSignSignatureRequest(
+export default Alchemy.Stack(
+  "Contracts",
   {
-    apiToken: Redacted.make(process.env.ZAPSIGN_API_TOKEN ?? ""),
-    environment: "sandbox",
-    locale: "pt-br",
+    providers: zapSignProviders({
+      apiToken: Redacted.make(process.env.ZAPSIGN_API_TOKEN ?? ""),
+      environment: "sandbox",
+      locale: "pt-br",
+    }).pipe(Layer.provide(signatureHttpClientLive)),
   },
-  {
-    title: "Contract",
-    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
-    recipients: [{ name: "Davi Rocha", email: "davi@example.com", role: "signer" }],
-  },
-).pipe(Effect.provide(signatureHttpClientLive))`,
+  Effect.gen(function* () {
+    return yield* ZapSignSignatureRequest("contract", {
+      title: "Contract",
+      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
+      recipients: [{ name: "Davi Rocha", email: "davi@example.com", role: "signer" }],
+    })
+  }),
+)`,
   },
   {
     name: "DocuSeal",
     domain: "docuseal.com",
     filename: "docuseal.ts",
-    code: `import { createDocuSealSignatureRequest } from "@signature-kit/docuseal"
+    code: `import * as Alchemy from "alchemy"
+import { DocuSealSignatureRequest, providers as docuSealProviders } from "@signature-kit/docuseal"
 import { signatureHttpClientLive } from "@signature-kit/core/http"
-import { Effect, Redacted } from "effect"
+import { Effect, Layer, Redacted } from "effect"
 
-const request = yield* createDocuSealSignatureRequest(
+export default Alchemy.Stack(
+  "Contracts",
   {
-    apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
-    baseUrl: "https://api.docuseal.com",
-    submittersOrder: "preserved",
+    providers: docuSealProviders({
+      apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
+      baseUrl: "https://api.docuseal.com",
+      submittersOrder: "preserved",
+    }).pipe(Layer.provide(signatureHttpClientLive)),
   },
-  {
-    title: "Service agreement",
-    documents: [{ fileName: "agreement.pdf", mimeType: "application/pdf", content: pdfBytes }],
-    recipients: [{ name: "Ana Silva", email: "ana@example.com", role: "signer" }],
-  },
-).pipe(Effect.provide(signatureHttpClientLive))`,
+  Effect.gen(function* () {
+    return yield* DocuSealSignatureRequest("service-agreement", {
+      title: "Service agreement",
+      documents: [{ fileName: "agreement.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
+      recipients: [{ name: "Ana Silva", email: "ana@example.com", role: "signer" }],
+    })
+  }),
+)`,
   },
   {
     name: "Documenso",
     domain: "documenso.com",
     filename: "documenso.ts",
-    code: `import { createDocumensoSignatureRequest } from "@signature-kit/documenso"
+    code: `import * as Alchemy from "alchemy"
+import { DocumensoSignatureRequest, providers as documensoProviders } from "@signature-kit/documenso"
 import { signatureHttpClientLive } from "@signature-kit/core/http"
-import { Effect, Redacted } from "effect"
+import { Effect, Layer, Redacted } from "effect"
 
-const request = yield* createDocumensoSignatureRequest(
+export default Alchemy.Stack(
+  "Contracts",
   {
-    apiKey: Redacted.make(process.env.DOCUMENSO_API_KEY ?? ""),
-    baseUrl: "https://app.documenso.com/api/v2",
+    providers: documensoProviders({
+      apiKey: Redacted.make(process.env.DOCUMENSO_API_KEY ?? ""),
+      baseUrl: "https://app.documenso.com/api/v2",
+    }).pipe(Layer.provide(signatureHttpClientLive)),
   },
-  {
-    title: "Service agreement",
-    documents: [{ fileName: "agreement.pdf", mimeType: "application/pdf", content: pdfBytes }],
-    recipients: [{ name: "Ana Silva", email: "ana@example.com", role: "approver", routingOrder: 1 }],
-  },
-).pipe(Effect.provide(signatureHttpClientLive))`,
+  Effect.gen(function* () {
+    return yield* DocumensoSignatureRequest("service-agreement", {
+      title: "Service agreement",
+      documents: [{ fileName: "agreement.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
+      recipients: [{ name: "Ana Silva", email: "ana@example.com", role: "approver", routingOrder: 1 }],
+    })
+  }),
+)`,
   },
 ];
 

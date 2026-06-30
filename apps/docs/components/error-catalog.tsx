@@ -1,4 +1,4 @@
-import { errorCatalog } from "@/lib/error-catalog";
+import { signatureKitErrorCatalog } from "@signature-kit/core/config";
 
 /**
  * Renders the full `SignatureKitError` catalog. Each row carries a stable
@@ -12,7 +12,7 @@ export function ErrorCatalog() {
         <span>Code</span>
         <span>Default message</span>
       </div>
-      {errorCatalog.map((entry) => {
+      {signatureKitErrorCatalog.map((entry) => {
         const id = entry.code.replace("signature-kit.", "err-");
         const short = entry.code.replace("signature-kit.", "");
         return (

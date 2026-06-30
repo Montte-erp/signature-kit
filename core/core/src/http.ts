@@ -4,8 +4,6 @@ import {
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
   SignatureKitSchemaNameValue,
-  type RemoteSignatureProvider,
-  type SignatureKitSchemaName,
 } from "./config";
 import { Context, Effect, Layer, Redacted, Schema } from "effect";
 
@@ -164,44 +162,6 @@ export const signatureHttpClientLive: Layer.Layer<SignatureHttpClient> = Layer.s
     requestVoid: (request: SignatureHttpRequest) => fetchResponse(request).pipe(Effect.asVoid),
   },
 );
-
-export const decodeRemoteShape = <A>(
-  schema: Schema.ConstraintDecoder<A>,
-  schemaName: SignatureKitSchemaName,
-  provider: RemoteSignatureProvider,
-  value: unknown,
-): Effect.Effect<A, SignatureKitError> =>
-  Schema.decodeUnknownEffect(schema)(value).pipe(
-    Effect.mapError(
-      (_issue) =>
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.responseShape,
-          retryable: false,
-          provider,
-          operation: SignatureKitOperationValue.httpDecode,
-          schemaName,
-        }),
-    ),
-  );
-
-export const decodeRemoteOptions = <A>(
-  schema: Schema.ConstraintDecoder<A>,
-  schemaName: SignatureKitSchemaName,
-  provider: RemoteSignatureProvider,
-  value: unknown,
-): Effect.Effect<A, SignatureKitError> =>
-  Schema.decodeUnknownEffect(schema)(value).pipe(
-    Effect.mapError(
-      (_issue) =>
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.invalidInput,
-          retryable: false,
-          provider,
-          operation: SignatureKitOperationValue.schemaDecode,
-          schemaName,
-        }),
-    ),
-  );
 
 export const bearerAuthorization = (token: Redacted.Redacted<string>): string =>
   `Bearer ${Redacted.value(token)}`;

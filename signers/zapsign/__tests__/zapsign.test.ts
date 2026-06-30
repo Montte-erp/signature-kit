@@ -7,10 +7,14 @@ import {
   type RemoteSignatureRequestInput,
 } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
+import { reconcileInput } from "../../__tests__/alchemy-provider";
 import { Effect, Redacted, Result } from "effect";
 import {
+  ZapSignSignatureRequest,
+  ZapSignSignatureRequestProvider,
   cancelZapSignSignatureRequest,
-  createZapSignSignatureRequest,
+  type ZapSignProviderOptions,
+  zapSignCredentialsLayer,
   deleteZapSignSignatureRequest,
   downloadZapSignSignedDocument,
   getZapSignSignatureRequest,
@@ -262,11 +266,24 @@ const closeServer = (server: Server): Effect.Effect<void> =>
 
 const parseBody = (call: CapturedCall): unknown => JSON.parse(call.bodyText);
 
+const reconcileZapSignSignatureRequest = (
+  options: ZapSignProviderOptions,
+  request: RemoteSignatureRequestInput,
+) =>
+  Effect.gen(function* () {
+    const provider = yield* ZapSignSignatureRequest.Provider;
+    return yield* provider.reconcile(reconcileInput("zapsign-request", request));
+  }).pipe(
+    Effect.provide(ZapSignSignatureRequestProvider()),
+    Effect.provide(zapSignCredentialsLayer(options)),
+    Effect.provide(signatureHttpClientLive),
+  );
+
 describe("ZapSign remote signatures", () => {
   it.effect("creates one PDF document through the live HTTP client", () =>
     Effect.gen(function* () {
       const local = yield* startServer();
-      const result = yield* createZapSignSignatureRequest(
+      const result = yield* reconcileZapSignSignatureRequest(
         {
           baseUrl: local.baseUrl,
           apiToken: Redacted.make("zapsign-token"),
@@ -275,7 +292,7 @@ describe("ZapSign remote signatures", () => {
           disableSignerEmails: true,
         },
         pdfInput,
-      ).pipe(Effect.provide(signatureHttpClientLive));
+      );
 
       expect(result).toEqual({
         provider: "zapsign",
@@ -513,13 +530,13 @@ describe("ZapSign remote signatures", () => {
   it.effect("rejects non-PDF uploads before HTTP", () =>
     Effect.gen(function* () {
       const result = yield* Effect.result(
-        createZapSignSignatureRequest(
+        reconcileZapSignSignatureRequest(
           {
             baseUrl: "http://127.0.0.1:1",
             apiToken: Redacted.make("zapsign-token"),
           },
           xmlInput,
-        ).pipe(Effect.provide(signatureHttpClientLive)),
+        ),
       );
 
       expect(Result.isFailure(result)).toBe(true);

@@ -25,9 +25,9 @@ import { Container, Section, SectionHeading } from "./_shared";
  * Two axes of the product live here, kept honest against GROUND TRUTH:
  *   - the local SignerAdapter seam (signatures.*, signPdf, signXml) provided by
  *     a `Signatures` layer (A1 or any custom adapter);
- *   - the remote-provider axis (create*SignatureRequest + signatureHttpClientLive),
- *     a SEPARATE function family that NEVER calls signatures.* — so the snippets
- *     below never blur the two.
+ *   - the remote-provider axis (`*SignatureRequest` resources + `providers(...)`
+ *     layers over `SignatureHttpClient`), so snippets use Alchemy as the
+ *     declarative remote-workflow seam.
  *
  * Every code string is valid against @signature-kit/*; nothing invented.
  */
@@ -69,7 +69,7 @@ const CAPABILITIES: Capability[] = [
     title: m.cap5_title,
     description: m.cap5_desc,
     docHref: "/docs/providers/request-shape",
-    code: `createClicksignSignatureRequest(config, request)`,
+    code: `ClicksignSignatureRequest("contract", props)`,
   },
   {
     title: m.cap6_title,

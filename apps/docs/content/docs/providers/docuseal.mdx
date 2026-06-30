@@ -22,27 +22,31 @@ Use DocuSeal when an open-source remote signer should host the submission and co
 ## Minimal request
 
 ```ts title="docuseal.ts"
+import * as Alchemy from "alchemy"
+import { DocuSealSignatureRequest, providers as docuSealProviders } from "@signature-kit/docuseal"
 import { signatureHttpClientLive } from "@signature-kit/core/http"
-import { createDocuSealSignatureRequest } from "@signature-kit/docuseal"
-import { Effect, Redacted } from "effect"
+import { Effect, Layer, Redacted } from "effect"
 
-const program = createDocuSealSignatureRequest(
+export default Alchemy.Stack(
+  "Contracts",
   {
-    apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
-    baseUrl: "https://api.docuseal.com",
-    sendSms: false,
-    submittersOrder: "preserved",
+    providers: docuSealProviders({
+      apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
+      baseUrl: "https://api.docuseal.com",
+      sendSms: false,
+      submittersOrder: "preserved",
+    }).pipe(Layer.provide(signatureHttpClientLive)),
   },
-  {
-    title: "Service agreement",
-    message: "Review and sign this document.",
-    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
-    recipients: [{ name: "Ada Lovelace", email: "ada@example.com", role: "signer" }],
-    send: true,
-  },
-).pipe(Effect.provide(signatureHttpClientLive))
-
-const request = await Effect.runPromise(program)
+  Effect.gen(function* () {
+    return yield* DocuSealSignatureRequest("service-agreement", {
+      title: "Service agreement",
+      message: "Review and sign this document.",
+      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
+      recipients: [{ name: "Ada Lovelace", email: "ada@example.com", role: "signer" }],
+      send: true,
+    })
+  }),
+)
 ```
 
 

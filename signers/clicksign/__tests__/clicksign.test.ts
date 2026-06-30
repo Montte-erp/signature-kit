@@ -3,10 +3,14 @@ import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
+import { reconcileInput } from "../../__tests__/alchemy-provider";
 import { Effect, Redacted, Result } from "effect";
 import {
+  ClicksignSignatureRequest,
+  ClicksignSignatureRequestProvider,
   cancelClicksignSignatureRequest,
-  createClicksignSignatureRequest,
+  clicksignCredentialsLayer,
+  type ClicksignProviderOptions,
   deleteClicksignSignatureRequest,
   downloadClicksignSignedDocument,
   getClicksignSignatureRequest,
@@ -195,11 +199,24 @@ const closeServer = (server: Server): Effect.Effect<void> =>
 
 const parseBody = (call: CapturedCall): unknown => JSON.parse(call.bodyText);
 
+const reconcileClicksignSignatureRequest = (
+  options: ClicksignProviderOptions,
+  request: RemoteSignatureRequestInput,
+) =>
+  Effect.gen(function* () {
+    const provider = yield* ClicksignSignatureRequest.Provider;
+    return yield* provider.reconcile(reconcileInput("clicksign-request", request));
+  }).pipe(
+    Effect.provide(ClicksignSignatureRequestProvider()),
+    Effect.provide(clicksignCredentialsLayer(options)),
+    Effect.provide(signatureHttpClientLive),
+  );
+
 describe("Clicksign remote signatures", () => {
   it.effect("creates document, signer, list, and notification through the live HTTP client", () =>
     Effect.gen(function* () {
       const local = yield* startServer();
-      const result = yield* createClicksignSignatureRequest(
+      const result = yield* reconcileClicksignSignatureRequest(
         {
           baseUrl: local.baseUrl,
           accessToken: Redacted.make("clicksign-token"),
@@ -207,7 +224,7 @@ describe("Clicksign remote signatures", () => {
           autoClose: false,
         },
         input,
-      ).pipe(Effect.provide(signatureHttpClientLive));
+      );
 
       expect(result).toEqual({
         provider: "clicksign",
@@ -471,13 +488,13 @@ describe("Clicksign remote signatures", () => {
     Effect.gen(function* () {
       const local = yield* startServer();
       const result = yield* Effect.result(
-        createClicksignSignatureRequest(
+        reconcileClicksignSignatureRequest(
           {
             baseUrl: `${local.baseUrl}/missing`,
             accessToken: Redacted.make("clicksign-secret"),
           },
           input,
-        ).pipe(Effect.provide(signatureHttpClientLive)),
+        ),
       );
 
       expect(Result.isFailure(result)).toBe(true);
@@ -516,13 +533,13 @@ describe("Clicksign remote signatures", () => {
   it.effect("rejects multiple uploaded documents before HTTP", () =>
     Effect.gen(function* () {
       const result = yield* Effect.result(
-        createClicksignSignatureRequest(
+        reconcileClicksignSignatureRequest(
           {
             baseUrl: "http://127.0.0.1:1",
             accessToken: Redacted.make("clicksign-token"),
           },
           { ...input, documents: [pdfDocument, pdfDocument] },
-        ).pipe(Effect.provide(signatureHttpClientLive)),
+        ),
       );
 
       expect(Result.isFailure(result)).toBe(true);

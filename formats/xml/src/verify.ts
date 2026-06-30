@@ -3,7 +3,7 @@ import { X509Certificate } from "@peculiar/x509";
 import { base64ToBytes } from "@signature-kit/crypto/base64";
 import type { SignatureAlgorithm } from "@signature-kit/core/config";
 import { Effect, Schema } from "effect";
-import { Parse, SignedXml } from "xmldsigjs";
+import { SignedXml } from "xmldsigjs";
 import {
   type XmlVerificationRequest,
   type XmlVerificationResult,
@@ -77,30 +77,22 @@ export const verifyXml = (
   request: XmlVerificationRequest,
 ): Effect.Effect<XmlVerificationResult, XmlError, XmlRuntime> =>
   Effect.gen(function* () {
-    yield* XmlRuntime;
+    const xmlRuntime = yield* XmlRuntime;
     const input = yield* Schema.decodeUnknownEffect(XmlVerificationRequestSchema)(request).pipe(
       Effect.mapError(
-        () =>
+        (issue) =>
           new XmlError({
             code: XmlErrorCodeValue.invalidInput,
             retryable: false,
             operation: XmlOperationValue.verify,
             schemaName: XmlSchemaNameValue.verificationRequest,
-            reason: "XML verification request failed schema validation.",
+            reason: String(issue),
           }),
       ),
     );
     const algorithm = input.algorithm ?? "rsa-sha256";
 
-    const document = yield* Effect.try({
-      try: () => Parse(input.xml),
-      catch: () =>
-        new XmlError({
-          code: XmlErrorCodeValue.invalidXml,
-          retryable: false,
-          operation: XmlOperationValue.parse,
-        }),
-    });
+    const document = yield* xmlRuntime.parse(input.xml);
 
     const signatures = document.getElementsByTagNameNS(XMLDSIG_NAMESPACE, "Signature");
     const signatureElement = signatures.item(0);

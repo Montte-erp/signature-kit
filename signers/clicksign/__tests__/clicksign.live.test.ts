@@ -1,8 +1,14 @@
 import { describe, expect, it } from "@effect/vitest";
 import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
+import { reconcileInput } from "../../__tests__/alchemy-provider";
 import { Effect, Redacted } from "effect";
-import { createClicksignSignatureRequest } from "../src/index";
+import {
+  ClicksignSignatureRequest,
+  ClicksignSignatureRequestProvider,
+  clicksignCredentialsLayer,
+  type ClicksignProviderOptions,
+} from "../src/index";
 
 const liveConfig = () => {
   if (process.env.SIGNATURE_KIT_LIVE_REMOTE_SIGNERS !== "1") return undefined;
@@ -42,6 +48,19 @@ const livePdf = (): Uint8Array => {
   );
 };
 
+const reconcileClicksignSignatureRequest = (
+  options: ClicksignProviderOptions,
+  request: RemoteSignatureRequestInput,
+) =>
+  Effect.gen(function* () {
+    const provider = yield* ClicksignSignatureRequest.Provider;
+    return yield* provider.reconcile(reconcileInput("clicksign-live-request", request));
+  }).pipe(
+    Effect.provide(ClicksignSignatureRequestProvider()),
+    Effect.provide(clicksignCredentialsLayer(options)),
+    Effect.provide(signatureHttpClientLive),
+  );
+
 const config = liveConfig();
 
 if (config === undefined) {
@@ -74,7 +93,7 @@ if (config === undefined) {
           expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         } satisfies RemoteSignatureRequestInput;
 
-        const request = yield* createClicksignSignatureRequest(
+        const request = yield* reconcileClicksignSignatureRequest(
           {
             accessToken: Redacted.make(config.accessToken),
             environment: "sandbox",
@@ -83,7 +102,7 @@ if (config === undefined) {
             ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
           },
           input,
-        ).pipe(Effect.provide(signatureHttpClientLive));
+        );
 
         expect(request.provider).toBe("clicksign");
         expect(request.state).toBe("draft");

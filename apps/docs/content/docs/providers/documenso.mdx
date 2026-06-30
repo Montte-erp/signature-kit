@@ -22,25 +22,29 @@ Use Documenso when envelope ownership, routing, and recipient actions live in Do
 ## Minimal request
 
 ```ts title="documenso.ts"
+import * as Alchemy from "alchemy"
+import { DocumensoSignatureRequest, providers as documensoProviders } from "@signature-kit/documenso"
 import { signatureHttpClientLive } from "@signature-kit/core/http"
-import { createDocumensoSignatureRequest } from "@signature-kit/documenso"
-import { Effect, Redacted } from "effect"
+import { Effect, Layer, Redacted } from "effect"
 
-const program = createDocumensoSignatureRequest(
+export default Alchemy.Stack(
+  "Contracts",
   {
-    apiKey: Redacted.make(process.env.DOCUMENSO_API_KEY ?? ""),
-    baseUrl: "https://app.documenso.com/api/v2",
+    providers: documensoProviders({
+      apiKey: Redacted.make(process.env.DOCUMENSO_API_KEY ?? ""),
+      baseUrl: "https://app.documenso.com/api/v2",
+    }).pipe(Layer.provide(signatureHttpClientLive)),
   },
-  {
-    title: "Service agreement",
-    message: "Review and sign this document.",
-    documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", content: pdfBytes }],
-    recipients: [{ name: "Ada Lovelace", email: "ada@example.com", role: "signer" }],
-    send: true,
-  },
-).pipe(Effect.provide(signatureHttpClientLive))
-
-const request = await Effect.runPromise(program)
+  Effect.gen(function* () {
+    return yield* DocumensoSignatureRequest("service-agreement", {
+      title: "Service agreement",
+      message: "Review and sign this document.",
+      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
+      recipients: [{ name: "Ada Lovelace", email: "ada@example.com", role: "signer" }],
+      send: true,
+    })
+  }),
+)
 ```
 
 

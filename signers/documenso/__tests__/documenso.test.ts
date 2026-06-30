@@ -3,10 +3,14 @@ import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
+import { reconcileInput } from "../../__tests__/alchemy-provider";
 import { Effect, Redacted, Result } from "effect";
 import {
+  DocumensoSignatureRequest,
+  DocumensoSignatureRequestProvider,
   cancelDocumensoSignatureRequest,
-  createDocumensoSignatureRequest,
+  documensoCredentialsLayer,
+  type DocumensoProviderOptions,
   deleteDocumensoSignatureRequest,
   downloadDocumensoSignedDocument,
   getDocumensoSignatureRequest,
@@ -232,17 +236,30 @@ const closeServer = (server: Server): Effect.Effect<void> =>
 
 const parseBody = (call: CapturedCall): unknown => JSON.parse(call.bodyText);
 
+const reconcileDocumensoSignatureRequest = (
+  options: DocumensoProviderOptions,
+  request: RemoteSignatureRequestInput,
+) =>
+  Effect.gen(function* () {
+    const provider = yield* DocumensoSignatureRequest.Provider;
+    return yield* provider.reconcile(reconcileInput("documenso-request", request));
+  }).pipe(
+    Effect.provide(DocumensoSignatureRequestProvider()),
+    Effect.provide(documensoCredentialsLayer(options)),
+    Effect.provide(signatureHttpClientLive),
+  );
+
 describe("Documenso remote signatures", () => {
   it.effect("creates and distributes an envelope over HTTP", () =>
     Effect.gen(function* () {
       const local = yield* startServer();
-      const result = yield* createDocumensoSignatureRequest(
+      const result = yield* reconcileDocumensoSignatureRequest(
         {
           apiKey: Redacted.make("documenso-token"),
           baseUrl: `${local.baseUrl}/`,
         },
         input,
-      ).pipe(Effect.provide(signatureHttpClientLive));
+      );
 
       expect(result).toEqual({
         provider: "documenso",
@@ -291,14 +308,14 @@ describe("Documenso remote signatures", () => {
   it.effect("keeps envelopes as draft without distribute HTTP calls", () =>
     Effect.gen(function* () {
       const local = yield* startServer();
-      const result = yield* createDocumensoSignatureRequest(
+      const result = yield* reconcileDocumensoSignatureRequest(
         {
           apiKey: Redacted.make("documenso-token"),
           authorizationScheme: "bearer",
           baseUrl: local.baseUrl,
         },
         { ...input, send: false },
-      ).pipe(Effect.provide(signatureHttpClientLive));
+      );
 
       expect(result).toEqual({
         provider: "documenso",
@@ -317,13 +334,13 @@ describe("Documenso remote signatures", () => {
     Effect.gen(function* () {
       const local = yield* startServer();
       const result = yield* Effect.result(
-        createDocumensoSignatureRequest(
+        reconcileDocumensoSignatureRequest(
           {
             apiKey: Redacted.make("documenso-token"),
             baseUrl: `${local.baseUrl}/bad`,
           },
           input,
-        ).pipe(Effect.provide(signatureHttpClientLive)),
+        ),
       );
 
       expect(Result.isFailure(result)).toBe(true);

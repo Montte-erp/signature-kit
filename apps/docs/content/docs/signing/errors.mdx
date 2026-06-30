@@ -141,15 +141,13 @@ For provider APIs, input, HTTP, and response-shape failures arrive as `Signature
 
 ```ts title="remote-signer-error.ts"
 import { Effect } from "effect"
-import { createClicksignSignatureRequest } from "@signature-kit/clicksign"
-import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { ClicksignSignatureRequest } from "@signature-kit/clicksign"
 
-const request = createClicksignSignatureRequest(options, {
+const request = ClicksignSignatureRequest("contract", {
   title: "Contract",
-  documents,
+  documents: documentProps,
   recipients,
 }).pipe(
-  Effect.provide(signatureHttpClientLive),
   Effect.catchTag("SignatureKitError", (error) => {
     switch (error.code) {
       case "signature-kit.HTTP":

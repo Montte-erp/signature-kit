@@ -38,9 +38,9 @@ certificate.
   (`Context.Service` + `Layer`). Apps choose a signer layer once and all byte,
   XML, PDF, and React flows consume that seam.
 - PayKit centers provider portability on one configured instance and separate
-  provider packages. SignatureKit deliberately does not add a gateway: Clicksign,
-  Assinafy, ZapSign, DocuSeal, and Documenso expose direct
-  `create*SignatureRequest(...)` functions and Alchemy provider layers over
+  provider packages. SignatureKit centers remote providers on Alchemy resources:
+  Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso expose retained
+  `*SignatureRequest` resource constructors plus `providers(options)` layers over
   `SignatureHttpClient`.
 - Deliberate difference: SignatureKit is a cryptographic runtime, not a SaaS
   workflow app. Core does not import XML, PDF, A1, or provider packages; each seam
@@ -124,21 +124,27 @@ const documentProgram = Effect.gen(function* () {
 ### Remote provider workflows
 
 ```ts
-import { createClicksignSignatureRequest } from "@signature-kit/clicksign";
+import * as Alchemy from "alchemy";
+import { ClicksignSignatureRequest, providers as clicksignProviders } from "@signature-kit/clicksign";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
-import { Effect, Redacted } from "effect";
+import { Effect, Layer, Redacted } from "effect";
 
-const request = createClicksignSignatureRequest(
+export default Alchemy.Stack(
+  "Contracts",
   {
-    environment: "sandbox",
-    accessToken: Redacted.make("clicksign-token"),
+    providers: clicksignProviders({
+      environment: "sandbox",
+      accessToken: Redacted.make("clicksign-token"),
+    }).pipe(Layer.provide(signatureHttpClientLive)),
   },
-  {
-    title: "Contract",
-    documents: [document],
-    recipients: [{ name: "Ana Silva", email: "ana@example.com" }],
-  },
-).pipe(Effect.provide(signatureHttpClientLive));
+  Effect.gen(function* () {
+    return yield* ClicksignSignatureRequest("contract", {
+      title: "Contract",
+      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
+      recipients: [{ name: "Ana Silva", email: "ana@example.com" }],
+    });
+  }),
+);
 ```
 
 ## Validation

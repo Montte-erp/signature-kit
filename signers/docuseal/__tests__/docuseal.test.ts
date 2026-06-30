@@ -4,10 +4,14 @@ import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
+import { reconcileInput } from "../../__tests__/alchemy-provider";
 import { Effect, Redacted, Result } from "effect";
 import {
+  DocuSealSignatureRequest,
+  DocuSealSignatureRequestProvider,
   cancelDocuSealSignatureRequest,
-  createDocuSealSignatureRequest,
+  docuSealCredentialsLayer,
+  type DocuSealProviderOptions,
   deleteDocuSealSignatureRequest,
   downloadDocuSealSignedDocument,
   getDocuSealSignatureRequest,
@@ -234,18 +238,31 @@ const closeServer = (server: Server): Effect.Effect<void> =>
 
 const parseBody = (call: CapturedCall): unknown => JSON.parse(call.bodyText);
 
+const reconcileDocuSealSignatureRequest = (
+  options: DocuSealProviderOptions,
+  request: RemoteSignatureRequestInput,
+) =>
+  Effect.gen(function* () {
+    const provider = yield* DocuSealSignatureRequest.Provider;
+    return yield* provider.reconcile(reconcileInput("docuseal-request", request));
+  }).pipe(
+    Effect.provide(DocuSealSignatureRequestProvider()),
+    Effect.provide(docuSealCredentialsLayer(options)),
+    Effect.provide(signatureHttpClientLive),
+  );
+
 describe("DocuSeal remote signatures", () => {
   it.effect("creates a one-off PDF submission over HTTP", () =>
     Effect.gen(function* () {
       const local = yield* startServer();
-      const result = yield* createDocuSealSignatureRequest(
+      const result = yield* reconcileDocuSealSignatureRequest(
         {
           apiKey: Redacted.make("docuseal-secret"),
           baseUrl: local.baseUrl,
           sendSms: false,
         },
         input,
-      ).pipe(Effect.provide(signatureHttpClientLive));
+      );
 
       expect(result).toEqual({
         provider: "docuseal",
@@ -480,10 +497,10 @@ describe("DocuSeal remote signatures", () => {
     Effect.gen(function* () {
       const local = yield* startServer();
       const result = yield* Effect.result(
-        createDocuSealSignatureRequest(
+        reconcileDocuSealSignatureRequest(
           { apiKey: Redacted.make("docuseal-secret"), baseUrl: `${local.baseUrl}/empty` },
           input,
-        ).pipe(Effect.provide(signatureHttpClientLive)),
+        ),
       );
 
       expect(Result.isFailure(result)).toBe(true);

@@ -1,8 +1,14 @@
 import { describe, expect, it } from "@effect/vitest";
 import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
+import { reconcileInput } from "../../__tests__/alchemy-provider";
 import { Effect, Redacted, Result } from "effect";
-import { createDocumensoSignatureRequest } from "../src/index";
+import {
+  DocumensoSignatureRequest,
+  DocumensoSignatureRequestProvider,
+  documensoCredentialsLayer,
+  type DocumensoProviderOptions,
+} from "../src/index";
 
 const liveConfig = () => {
   if (process.env.SIGNATURE_KIT_LIVE_REMOTE_SIGNERS !== "1") return undefined;
@@ -43,6 +49,19 @@ const livePdf = (): Uint8Array => {
   );
 };
 
+const reconcileDocumensoSignatureRequest = (
+  options: DocumensoProviderOptions,
+  request: RemoteSignatureRequestInput,
+) =>
+  Effect.gen(function* () {
+    const provider = yield* DocumensoSignatureRequest.Provider;
+    return yield* provider.reconcile(reconcileInput("documenso-live-request", request));
+  }).pipe(
+    Effect.provide(DocumensoSignatureRequestProvider()),
+    Effect.provide(documensoCredentialsLayer(options)),
+    Effect.provide(signatureHttpClientLive),
+  );
+
 const config = liveConfig();
 
 if (config === undefined) {
@@ -76,14 +95,14 @@ if (config === undefined) {
         } satisfies RemoteSignatureRequestInput;
 
         const result = yield* Effect.result(
-          createDocumensoSignatureRequest(
+          reconcileDocumensoSignatureRequest(
             {
               apiKey: Redacted.make(config.apiKey),
               ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
               ...(config.authorizationScheme === "bearer" ? { authorizationScheme: "bearer" } : {}),
             },
             input,
-          ).pipe(Effect.provide(signatureHttpClientLive)),
+          ),
         );
 
         if (Result.isFailure(result)) {

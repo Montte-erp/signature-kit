@@ -2,13 +2,16 @@ import { describe, expect, it } from "@effect/vitest";
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
-import { SignatureKitSchemaNameValue } from "@signature-kit/core/config";
-import { decodeRemoteOptions, signatureHttpClientLive } from "@signature-kit/core/http";
-import { Effect, Redacted, Result } from "effect";
+import { signatureHttpClientLive } from "@signature-kit/core/http";
+import { reconcileInput } from "../../__tests__/alchemy-provider";
+import { Effect, Redacted, Result, Schema } from "effect";
 import {
   AssinafyProviderOptionsSchema,
+  AssinafySignatureRequest,
+  AssinafySignatureRequestProvider,
+  assinafyCredentialsLayer,
+  type AssinafyProviderOptions,
   cancelAssinafySignatureRequest,
-  createAssinafySignatureRequest,
   deleteAssinafySignatureRequest,
   downloadAssinafySignedDocument,
   getAssinafySignatureRequest,
@@ -227,18 +230,31 @@ const closeServer = (server: Server): Effect.Effect<void> =>
 
 const parseBody = (call: CapturedCall): unknown => JSON.parse(call.bodyText);
 
+const reconcileAssinafySignatureRequest = (
+  options: AssinafyProviderOptions,
+  request: RemoteSignatureRequestInput,
+) =>
+  Effect.gen(function* () {
+    const provider = yield* AssinafySignatureRequest.Provider;
+    return yield* provider.reconcile(reconcileInput("assinafy-request", request));
+  }).pipe(
+    Effect.provide(AssinafySignatureRequestProvider()),
+    Effect.provide(assinafyCredentialsLayer(options)),
+    Effect.provide(signatureHttpClientLive),
+  );
+
 describe("Assinafy remote signatures", () => {
   it.effect("uploads the document, creates a signer, and creates an assignment", () =>
     Effect.gen(function* () {
       const local = yield* startServer();
-      const result = yield* createAssinafySignatureRequest(
+      const result = yield* reconcileAssinafySignatureRequest(
         {
           baseUrl: local.baseUrl,
           accountId: "account-123",
           apiKey: Redacted.make("assinafy-key"),
         },
         input,
-      ).pipe(Effect.provide(signatureHttpClientLive));
+      );
 
       expect(result).toEqual({
         provider: "assinafy",
@@ -299,14 +315,14 @@ describe("Assinafy remote signatures", () => {
   it.effect("supports bearer-token credentials through the same HTTP flow", () =>
     Effect.gen(function* () {
       const local = yield* startServer();
-      const result = yield* createAssinafySignatureRequest(
+      const result = yield* reconcileAssinafySignatureRequest(
         {
           baseUrl: local.baseUrl,
           accountId: "account-123",
           accessToken: Redacted.make("assinafy-access-token"),
         },
         { ...input, send: false },
-      ).pipe(Effect.provide(signatureHttpClientLive));
+      );
 
       expect(result.state).toBe("draft");
       expect(local.calls[0]?.authorization).toBe("Bearer assinafy-access-token");
@@ -502,23 +518,16 @@ describe("Assinafy remote signatures", () => {
     }),
   );
 
-  it.effect("requires an API key or access token", () =>
+  it.effect("requires an API key or access token in provider options", () =>
     Effect.gen(function* () {
       const result = yield* Effect.result(
-        decodeRemoteOptions(
-          AssinafyProviderOptionsSchema,
-          SignatureKitSchemaNameValue.assinafyProviderOptions,
-          "assinafy",
-          { baseUrl: "http://127.0.0.1:1", accountId: "account-123" },
-        ),
+        Schema.decodeUnknownEffect(AssinafyProviderOptionsSchema)({
+          baseUrl: "http://127.0.0.1:1",
+          accountId: "account-123",
+        }),
       );
 
       expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect(result.failure.code).toBe("signature-kit.INVALID_INPUT");
-        expect(result.failure.provider).toBe("assinafy");
-        expect(result.failure.schemaName).toBe("AssinafyProviderOptions");
-      }
     }),
   );
 });

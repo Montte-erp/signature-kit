@@ -1,10 +1,14 @@
 import { DOMImplementation, DOMParser, XMLSerializer } from "@xmldom/xmldom";
-import { Application } from "xmldsigjs";
+import { Application, Parse } from "xmldsigjs";
 import { setNodeDependencies } from "xml-core";
 import { Context, Effect, Layer } from "effect";
 import { XmlError, XmlErrorCodeValue, XmlOperationValue } from "./config";
 
-export class XmlRuntime extends Context.Service<XmlRuntime, { readonly configured: boolean }>()(
+export type XmlRuntimeService = {
+  readonly parse: (xml: string) => Effect.Effect<Document, XmlError>;
+};
+
+export class XmlRuntime extends Context.Service<XmlRuntime, XmlRuntimeService>()(
   "@signature-kit/xml/Runtime",
 ) {}
 
@@ -25,7 +29,22 @@ const configureXmlRuntime: Effect.Effect<void, XmlError> = Effect.suspend(() => 
   return Effect.void;
 });
 
+const parseXml = (xml: string): Effect.Effect<Document, XmlError> =>
+  Effect.try({
+    try: () => Parse(xml),
+    catch: () =>
+      new XmlError({
+        code: XmlErrorCodeValue.invalidXml,
+        retryable: false,
+        operation: XmlOperationValue.parse,
+      }),
+  });
+
 export const xmlRuntimeLayer: Layer.Layer<XmlRuntime, XmlError> = Layer.effect(
   XmlRuntime,
-  configureXmlRuntime.pipe(Effect.map(() => ({ configured: true }))),
+  configureXmlRuntime.pipe(
+    Effect.map(() => ({
+      parse: parseXml,
+    })),
+  ),
 );

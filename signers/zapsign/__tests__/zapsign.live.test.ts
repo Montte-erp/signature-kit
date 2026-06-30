@@ -1,8 +1,14 @@
 import { describe, expect, it } from "@effect/vitest";
 import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
+import { reconcileInput } from "../../__tests__/alchemy-provider";
 import { Effect, Redacted } from "effect";
-import { createZapSignSignatureRequest } from "../src/index";
+import {
+  ZapSignSignatureRequest,
+  ZapSignSignatureRequestProvider,
+  type ZapSignProviderOptions,
+  zapSignCredentialsLayer,
+} from "../src/index";
 
 const liveConfig = () => {
   if (process.env.SIGNATURE_KIT_LIVE_REMOTE_SIGNERS !== "1") return undefined;
@@ -42,6 +48,19 @@ const livePdf = (): Uint8Array => {
   );
 };
 
+const reconcileZapSignSignatureRequest = (
+  options: ZapSignProviderOptions,
+  request: RemoteSignatureRequestInput,
+) =>
+  Effect.gen(function* () {
+    const provider = yield* ZapSignSignatureRequest.Provider;
+    return yield* provider.reconcile(reconcileInput("zapsign-live-request", request));
+  }).pipe(
+    Effect.provide(ZapSignSignatureRequestProvider()),
+    Effect.provide(zapSignCredentialsLayer(options)),
+    Effect.provide(signatureHttpClientLive),
+  );
+
 const config = liveConfig();
 
 if (config === undefined) {
@@ -73,7 +92,7 @@ if (config === undefined) {
           expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         } satisfies RemoteSignatureRequestInput;
 
-        const request = yield* createZapSignSignatureRequest(
+        const request = yield* reconcileZapSignSignatureRequest(
           {
             apiToken: Redacted.make(config.apiToken),
             environment: "sandbox",
@@ -82,7 +101,7 @@ if (config === undefined) {
             ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
           },
           input,
-        ).pipe(Effect.provide(signatureHttpClientLive));
+        );
 
         expect(request.provider).toBe("zapsign");
         expect(request.state).toBe("draft");

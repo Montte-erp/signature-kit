@@ -58,6 +58,10 @@ describe("declarative smell rules", () => {
     expect(anyCheckMatches(typeSafetyChecks, "const codes = ['A'] as const;")).toBe(true);
   });
 
+  it("allows Effect.as because it is a method call, not a TypeScript cast", () => {
+    expect(anyCheckMatches(typeSafetyChecks, "Effect.as({ ok: true })")).toBe(false);
+  });
+
   it("rejects re-export-only package index barrels", () => {
     expect(
       anyCheckMatchesSource(

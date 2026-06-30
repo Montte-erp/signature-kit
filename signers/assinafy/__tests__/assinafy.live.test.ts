@@ -4,8 +4,14 @@ import type {
   RemoteSignatureRequestInput,
 } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
+import { reconcileInput } from "../../__tests__/alchemy-provider";
 import { Effect, Redacted, Schema } from "effect";
-import { createAssinafySignatureRequest } from "../src/index";
+import {
+  AssinafySignatureRequest,
+  AssinafySignatureRequestProvider,
+  assinafyCredentialsLayer,
+  type AssinafyProviderOptions,
+} from "../src/index";
 
 const liveConfig = () => {
   if (process.env.SIGNATURE_KIT_LIVE_REMOTE_SIGNERS !== "1") return undefined;
@@ -154,6 +160,19 @@ const deleteAssinafyArtifacts = (
   });
 };
 
+const reconcileAssinafySignatureRequest = (
+  options: AssinafyProviderOptions,
+  request: RemoteSignatureRequestInput,
+) =>
+  Effect.gen(function* () {
+    const provider = yield* AssinafySignatureRequest.Provider;
+    return yield* provider.reconcile(reconcileInput("assinafy-live-request", request));
+  }).pipe(
+    Effect.provide(AssinafySignatureRequestProvider()),
+    Effect.provide(assinafyCredentialsLayer(options)),
+    Effect.provide(signatureHttpClientLive),
+  );
+
 const config = liveConfig();
 
 if (config === undefined) {
@@ -190,7 +209,7 @@ if (config === undefined) {
           } satisfies RemoteSignatureRequestInput;
 
           yield* Effect.acquireUseRelease(
-            createAssinafySignatureRequest(
+            reconcileAssinafySignatureRequest(
               {
                 accountId: config.accountId,
                 apiKey: Redacted.make(config.apiKey),
@@ -198,7 +217,7 @@ if (config === undefined) {
                 ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
               },
               input,
-            ).pipe(Effect.provide(signatureHttpClientLive)),
+            ),
             (request) =>
               Effect.sync(() => {
                 expect(request.provider).toBe("assinafy");

@@ -3,6 +3,11 @@ import type { Check } from "../model";
 const hasTypeAssertion = (line: string): boolean => {
   for (const match of line.matchAll(/\bas\b/g)) {
     const rest = line.slice((match.index ?? 0) + match[0].length).trimLeft();
+    const previous = line[(match.index ?? 0) - 1];
+    if (previous === ".") {
+      continue;
+    }
+
     if (!rest) {
       continue;
     }

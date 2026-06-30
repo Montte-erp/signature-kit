@@ -3,7 +3,7 @@ import { signatures } from "@signature-kit/core/signatures";
 import type { Signatures } from "@signature-kit/core/signatures";
 import type { SignatureAlgorithm, SignatureKitError } from "@signature-kit/core/config";
 import { Effect, Schema } from "effect";
-import { Parse, SignedXml } from "xmldsigjs";
+import { SignedXml } from "xmldsigjs";
 import type { OptionsSignReference } from "xmldsigjs";
 import {
   XmlError,
@@ -29,16 +29,16 @@ export const signXml = (
   request: XmlSigningRequest,
 ): Effect.Effect<string, XmlError | SignatureKitError, Signatures | XmlRuntime> =>
   Effect.gen(function* () {
-    yield* XmlRuntime;
+    const xmlRuntime = yield* XmlRuntime;
     const input = yield* Schema.decodeUnknownEffect(XmlSigningRequestSchema)(request).pipe(
       Effect.mapError(
-        () =>
+        (issue) =>
           new XmlError({
             code: XmlErrorCodeValue.invalidInput,
             retryable: false,
             operation: XmlOperationValue.sign,
             schemaName: XmlSchemaNameValue.signingRequest,
-            reason: "XML signing request failed schema validation.",
+            reason: String(issue),
           }),
       ),
     );
@@ -46,15 +46,7 @@ export const signXml = (
     const certificate = yield* signatures.certificate();
     const signingKey = yield* signatures.importSigningKey(algorithm);
 
-    const document = yield* Effect.try({
-      try: () => Parse(input.xml),
-      catch: () =>
-        new XmlError({
-          code: XmlErrorCodeValue.invalidXml,
-          retryable: false,
-          operation: XmlOperationValue.parse,
-        }),
-    });
+    const document = yield* xmlRuntime.parse(input.xml);
 
     const reference: OptionsSignReference =
       input.referenceId === undefined

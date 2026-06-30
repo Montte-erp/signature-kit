@@ -324,6 +324,127 @@ export const SignatureKitErrorCodeValue = {
   unknown: "signature-kit.UNKNOWN",
 } satisfies Record<string, SignatureKitErrorCode>;
 
+export const SignatureKitErrorCatalogEntrySchema = Schema.Struct({
+  code: SignatureKitErrorCodeSchema,
+  message: Schema.String,
+  overridable: Schema.Boolean,
+});
+export type SignatureKitErrorCatalogEntry = (typeof SignatureKitErrorCatalogEntrySchema)["Type"];
+
+const signatureKitErrorCatalogByCode = {
+  "signature-kit.EMPTY_FILE": {
+    code: "signature-kit.EMPTY_FILE",
+    message: "Certificate file is empty (0 bytes).",
+    overridable: false,
+  },
+  "signature-kit.INVALID_FORMAT": {
+    code: "signature-kit.INVALID_FORMAT",
+    message: "The file is not a PKCS#12 (.pfx/.p12) certificate.",
+    overridable: true,
+  },
+  "signature-kit.INVALID_INPUT": {
+    code: "signature-kit.INVALID_INPUT",
+    message: "Invalid signing input.",
+    overridable: true,
+  },
+  "signature-kit.WRONG_PASSWORD": {
+    code: "signature-kit.WRONG_PASSWORD",
+    message: "Wrong certificate password.",
+    overridable: false,
+  },
+  "signature-kit.UNSUPPORTED_ALGORITHM": {
+    code: "signature-kit.UNSUPPORTED_ALGORITHM",
+    message: "The certificate uses an unsupported encryption algorithm.",
+    overridable: true,
+  },
+  "signature-kit.NO_CERTIFICATE": {
+    code: "signature-kit.NO_CERTIFICATE",
+    message: "The file does not contain a certificate.",
+    overridable: false,
+  },
+  "signature-kit.NO_PRIVATE_KEY": {
+    code: "signature-kit.NO_PRIVATE_KEY",
+    message: "The file does not contain a private key.",
+    overridable: false,
+  },
+  "signature-kit.CORRUPTED_FILE": {
+    code: "signature-kit.CORRUPTED_FILE",
+    message: "The file is corrupted or not a valid PKCS#12 certificate.",
+    overridable: false,
+  },
+  "signature-kit.X509_PARSE_FAILED": {
+    code: "signature-kit.X509_PARSE_FAILED",
+    message: "X.509 parsing failed.",
+    overridable: true,
+  },
+  "signature-kit.PEM_EXTRACTION_FAILED": {
+    code: "signature-kit.PEM_EXTRACTION_FAILED",
+    message: "Failed to extract PEM material from the PFX.",
+    overridable: false,
+  },
+  "signature-kit.KEY_IMPORT_FAILED": {
+    code: "signature-kit.KEY_IMPORT_FAILED",
+    message: "Failed to import the key into Web Crypto.",
+    overridable: true,
+  },
+  "signature-kit.DIGEST_FAILED": {
+    code: "signature-kit.DIGEST_FAILED",
+    message: "Failed to compute the certificate digest.",
+    overridable: false,
+  },
+  "signature-kit.SIGN_FAILED": {
+    code: "signature-kit.SIGN_FAILED",
+    message: "Failed to sign the content.",
+    overridable: true,
+  },
+  "signature-kit.VERIFY_FAILED": {
+    code: "signature-kit.VERIFY_FAILED",
+    message: "Failed to verify the signature.",
+    overridable: true,
+  },
+  "signature-kit.HTTP": {
+    code: "signature-kit.HTTP",
+    message: "Remote signature HTTP request failed.",
+    overridable: true,
+  },
+  "signature-kit.RESPONSE_SHAPE": {
+    code: "signature-kit.RESPONSE_SHAPE",
+    message: "Remote signature response shape was invalid.",
+    overridable: true,
+  },
+  "signature-kit.UNSUPPORTED_OPERATION": {
+    code: "signature-kit.UNSUPPORTED_OPERATION",
+    message: "Remote signature operation is unsupported.",
+    overridable: true,
+  },
+  "signature-kit.UNKNOWN": {
+    code: "signature-kit.UNKNOWN",
+    message: "Unknown SignatureKit failure.",
+    overridable: true,
+  },
+} satisfies Record<SignatureKitErrorCode, SignatureKitErrorCatalogEntry>;
+
+export const signatureKitErrorCatalog: readonly SignatureKitErrorCatalogEntry[] = [
+  signatureKitErrorCatalogByCode["signature-kit.EMPTY_FILE"],
+  signatureKitErrorCatalogByCode["signature-kit.INVALID_FORMAT"],
+  signatureKitErrorCatalogByCode["signature-kit.INVALID_INPUT"],
+  signatureKitErrorCatalogByCode["signature-kit.WRONG_PASSWORD"],
+  signatureKitErrorCatalogByCode["signature-kit.UNSUPPORTED_ALGORITHM"],
+  signatureKitErrorCatalogByCode["signature-kit.NO_CERTIFICATE"],
+  signatureKitErrorCatalogByCode["signature-kit.NO_PRIVATE_KEY"],
+  signatureKitErrorCatalogByCode["signature-kit.CORRUPTED_FILE"],
+  signatureKitErrorCatalogByCode["signature-kit.X509_PARSE_FAILED"],
+  signatureKitErrorCatalogByCode["signature-kit.PEM_EXTRACTION_FAILED"],
+  signatureKitErrorCatalogByCode["signature-kit.KEY_IMPORT_FAILED"],
+  signatureKitErrorCatalogByCode["signature-kit.DIGEST_FAILED"],
+  signatureKitErrorCatalogByCode["signature-kit.SIGN_FAILED"],
+  signatureKitErrorCatalogByCode["signature-kit.VERIFY_FAILED"],
+  signatureKitErrorCatalogByCode["signature-kit.HTTP"],
+  signatureKitErrorCatalogByCode["signature-kit.RESPONSE_SHAPE"],
+  signatureKitErrorCatalogByCode["signature-kit.UNSUPPORTED_OPERATION"],
+  signatureKitErrorCatalogByCode["signature-kit.UNKNOWN"],
+];
+
 export const SignatureKitOperationSchema = Schema.Literals([
   "pkcs12.parse",
   "x509.parse",
@@ -435,43 +556,7 @@ export class SignatureKitError extends Schema.TaggedErrorClass<SignatureKitError
   },
 ) {
   get message(): string {
-    switch (this.code) {
-      case "signature-kit.EMPTY_FILE":
-        return "Certificate file is empty (0 bytes).";
-      case "signature-kit.INVALID_FORMAT":
-        return this.reason ?? "The file is not a PKCS#12 (.pfx/.p12) certificate.";
-      case "signature-kit.INVALID_INPUT":
-        return this.reason ?? "Invalid signing input.";
-      case "signature-kit.WRONG_PASSWORD":
-        return "Wrong certificate password.";
-      case "signature-kit.UNSUPPORTED_ALGORITHM":
-        return this.reason ?? "The certificate uses an unsupported encryption algorithm.";
-      case "signature-kit.NO_CERTIFICATE":
-        return "The file does not contain a certificate.";
-      case "signature-kit.NO_PRIVATE_KEY":
-        return "The file does not contain a private key.";
-      case "signature-kit.CORRUPTED_FILE":
-        return "The file is corrupted or not a valid PKCS#12 certificate.";
-      case "signature-kit.X509_PARSE_FAILED":
-        return this.reason ?? "X.509 parsing failed.";
-      case "signature-kit.PEM_EXTRACTION_FAILED":
-        return "Failed to extract PEM material from the PFX.";
-      case "signature-kit.KEY_IMPORT_FAILED":
-        return this.reason ?? "Failed to import the key into Web Crypto.";
-      case "signature-kit.DIGEST_FAILED":
-        return "Failed to compute the certificate digest.";
-      case "signature-kit.SIGN_FAILED":
-        return this.reason ?? "Failed to sign the content.";
-      case "signature-kit.VERIFY_FAILED":
-        return this.reason ?? "Failed to verify the signature.";
-      case "signature-kit.HTTP":
-        return this.reason ?? "Remote signature HTTP request failed.";
-      case "signature-kit.RESPONSE_SHAPE":
-        return this.reason ?? "Remote signature response shape was invalid.";
-      case "signature-kit.UNSUPPORTED_OPERATION":
-        return this.reason ?? "Remote signature operation is unsupported.";
-      case "signature-kit.UNKNOWN":
-        return this.reason ?? "Unknown SignatureKit failure.";
-    }
+    const catalogEntry = signatureKitErrorCatalogByCode[this.code];
+    return catalogEntry.overridable ? (this.reason ?? catalogEntry.message) : catalogEntry.message;
   }
 }

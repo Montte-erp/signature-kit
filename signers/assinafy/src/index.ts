@@ -19,17 +19,14 @@ import type {
 import {
   SignatureHttpClient,
   bearerAuthorization,
-  decodeRemoteOptions,
-  decodeRemoteShape,
   normalizedBaseUrl,
 } from "@signature-kit/core/http";
 import type { SignatureHttpClientService, SignatureHttpHeaders } from "@signature-kit/core/http";
-import { Resource } from "alchemy/Resource";
+import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
 import { Context, Effect, Layer, Redacted, Schema } from "effect";
 
 const PROVIDER: RemoteSignatureProvider = "assinafy";
-const ASSINAFY_SIGNATURE_REQUEST_RESOURCE = "SignatureKit.AssinafySignatureRequest";
 const ASSINAFY_PROVIDER_COLLECTION_ID = "@signature-kit/assinafy/Providers";
 const SANDBOX_BASE_URL = "https://sandbox.assinafy.com.br";
 const PRODUCTION_BASE_URL = "https://api.assinafy.com.br";
@@ -112,13 +109,13 @@ const AssinafyGetAssignmentsResultSchema = Schema.Union([
 ]);
 
 export type AssinafySignatureRequest = Resource<
-  typeof ASSINAFY_SIGNATURE_REQUEST_RESOURCE,
+  "SignatureKit.AssinafySignatureRequest",
   RemoteSignatureRequestProps,
   RemoteSignatureRequest
 >;
 
 export const AssinafySignatureRequest = Resource<AssinafySignatureRequest>(
-  ASSINAFY_SIGNATURE_REQUEST_RESOURCE,
+  "SignatureKit.AssinafySignatureRequest",
   { defaultRemovalPolicy: "retain" },
 );
 
@@ -132,11 +129,18 @@ export const assinafyCredentialsLayer = (
 ): Layer.Layer<AssinafyCredentials, SignatureKitError> =>
   Layer.effect(
     AssinafyCredentials,
-    decodeRemoteOptions(
-      AssinafyProviderOptionsSchema,
-      SignatureKitSchemaNameValue.assinafyProviderOptions,
-      PROVIDER,
-      options,
+    Schema.decodeUnknownEffect(AssinafyProviderOptionsSchema)(options).pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.assinafyProviderOptions,
+            reason: String(issue),
+          }),
+      ),
     ),
   );
 
@@ -180,11 +184,18 @@ const uploadDocument = (
     })
     .pipe(
       Effect.flatMap((body) =>
-        decodeRemoteShape(
-          AssinafyDocumentResultSchema,
-          SignatureKitSchemaNameValue.assinafyDocumentResult,
-          PROVIDER,
-          body,
+        Schema.decodeUnknownEffect(AssinafyDocumentResultSchema)(body).pipe(
+          Effect.mapError(
+            (issue) =>
+              new SignatureKitError({
+                code: SignatureKitErrorCodeValue.responseShape,
+                retryable: false,
+                provider: PROVIDER,
+                operation: SignatureKitOperationValue.httpDecode,
+                schemaName: SignatureKitSchemaNameValue.assinafyDocumentResult,
+                reason: String(issue),
+              }),
+          ),
         ),
       ),
       Effect.map((result) => ({ id: result.data.id, signingUrl: result.data.signing_url })),
@@ -210,11 +221,18 @@ const createSigner = (
     })
     .pipe(
       Effect.flatMap((body) =>
-        decodeRemoteShape(
-          AssinafySignerResultSchema,
-          SignatureKitSchemaNameValue.assinafySignerResult,
-          PROVIDER,
-          body,
+        Schema.decodeUnknownEffect(AssinafySignerResultSchema)(body).pipe(
+          Effect.mapError(
+            (issue) =>
+              new SignatureKitError({
+                code: SignatureKitErrorCodeValue.responseShape,
+                retryable: false,
+                provider: PROVIDER,
+                operation: SignatureKitOperationValue.httpDecode,
+                schemaName: SignatureKitSchemaNameValue.assinafySignerResult,
+                reason: String(issue),
+              }),
+          ),
         ),
       ),
       Effect.map((result) => result.data.id),
@@ -251,11 +269,18 @@ const createAssignment = (
     })
     .pipe(
       Effect.flatMap((body) =>
-        decodeRemoteShape(
-          AssinafyAssignmentResultSchema,
-          SignatureKitSchemaNameValue.assinafyAssignmentResult,
-          PROVIDER,
-          body,
+        Schema.decodeUnknownEffect(AssinafyAssignmentResultSchema)(body).pipe(
+          Effect.mapError(
+            (issue) =>
+              new SignatureKitError({
+                code: SignatureKitErrorCodeValue.responseShape,
+                retryable: false,
+                provider: PROVIDER,
+                operation: SignatureKitOperationValue.httpDecode,
+                schemaName: SignatureKitSchemaNameValue.assinafyAssignmentResult,
+                reason: String(issue),
+              }),
+          ),
         ),
       ),
       Effect.map((result) => ({
@@ -341,11 +366,18 @@ const getAssinafySignatureRequestInternal = (
     })
     .pipe(
       Effect.flatMap((body) =>
-        decodeRemoteShape(
-          AssinafyGetAssignmentsResultSchema,
-          SignatureKitSchemaNameValue.assinafyAssignmentResult,
-          PROVIDER,
-          body,
+        Schema.decodeUnknownEffect(AssinafyGetAssignmentsResultSchema)(body).pipe(
+          Effect.mapError(
+            (issue) =>
+              new SignatureKitError({
+                code: SignatureKitErrorCodeValue.responseShape,
+                retryable: false,
+                provider: PROVIDER,
+                operation: SignatureKitOperationValue.httpDecode,
+                schemaName: SignatureKitSchemaNameValue.assinafyAssignmentResult,
+                reason: String(issue),
+              }),
+          ),
         ),
       ),
       Effect.map((result) => toRemoteSignatureRequest(baseUrl, assignmentFromResponse(result))),
@@ -364,11 +396,18 @@ const listAssinafySignatureRequestsInternal = (
     })
     .pipe(
       Effect.flatMap((body) =>
-        decodeRemoteShape(
-          AssinafyListAssignmentsResultSchema,
-          SignatureKitSchemaNameValue.assinafyAssignmentsResult,
-          PROVIDER,
-          body,
+        Schema.decodeUnknownEffect(AssinafyListAssignmentsResultSchema)(body).pipe(
+          Effect.mapError(
+            (issue) =>
+              new SignatureKitError({
+                code: SignatureKitErrorCodeValue.responseShape,
+                retryable: false,
+                provider: PROVIDER,
+                operation: SignatureKitOperationValue.httpDecode,
+                schemaName: SignatureKitSchemaNameValue.assinafyAssignmentsResult,
+                reason: String(issue),
+              }),
+          ),
         ),
       ),
       Effect.map((result) => listAssignmentsFromResponse(result)),
@@ -510,11 +549,20 @@ export const AssinafySignatureRequestProvider = () =>
         }),
         reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
-          const props = yield* decodeRemoteOptions(
-            RemoteSignatureRequestPropsSchema,
-            SignatureKitSchemaNameValue.remoteSignatureRequestProps,
-            PROVIDER,
+          const props = yield* Schema.decodeUnknownEffect(RemoteSignatureRequestPropsSchema)(
             news,
+          ).pipe(
+            Effect.mapError(
+              (issue) =>
+                new SignatureKitError({
+                  code: SignatureKitErrorCodeValue.invalidInput,
+                  retryable: false,
+                  provider: PROVIDER,
+                  operation: SignatureKitOperationValue.schemaDecode,
+                  schemaName: SignatureKitSchemaNameValue.remoteSignatureRequestProps,
+                  reason: String(issue),
+                }),
+            ),
           );
           const input = yield* validRemoteSignatureRequest(remoteSignatureInputFromProps(props));
           return yield* createRemoteRequest(http, options, baseUrl, input);
@@ -536,110 +584,136 @@ export const providers = (options: AssinafyProviderOptions) =>
     Layer.provideMerge(assinafyCredentialsLayer(options)),
   );
 
-export const createAssinafySignatureRequest = (
-  options: AssinafyProviderOptions,
-  input: RemoteSignatureRequestInput,
-): Effect.Effect<RemoteSignatureRequest, SignatureKitError, SignatureHttpClient> =>
-  decodeRemoteOptions(
-    AssinafyProviderOptionsSchema,
-    SignatureKitSchemaNameValue.assinafyProviderOptions,
-    PROVIDER,
-    options,
-  ).pipe(
-    Effect.map((valid) => ({ valid, baseUrl: assinafyBaseUrl(valid) })),
-    Effect.flatMap(({ valid, baseUrl }) =>
-      validRemoteSignatureRequest(input).pipe(
-        Effect.flatMap((checked) =>
-          SignatureHttpClient.use((http) => createRemoteRequest(http, valid, baseUrl, checked)),
-        ),
-      ),
-    ),
-  );
 export const getAssinafySignatureRequest = (
   options: AssinafyProviderOptions,
   id: string,
 ): Effect.Effect<RemoteSignatureRequest, SignatureKitError, SignatureHttpClient> =>
-  decodeRemoteOptions(
-    AssinafyProviderOptionsSchema,
-    SignatureKitSchemaNameValue.assinafyProviderOptions,
-    PROVIDER,
-    options,
-  ).pipe(
-    Effect.map((valid) => ({ valid, baseUrl: assinafyBaseUrl(valid) })),
-    Effect.flatMap(({ valid, baseUrl }) =>
-      SignatureHttpClient.use((http) =>
-        getAssinafySignatureRequestInternal(http, valid, baseUrl, id),
+  Schema.decodeUnknownEffect(AssinafyProviderOptionsSchema)(options)
+    .pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.assinafyProviderOptions,
+            reason: String(issue),
+          }),
       ),
-    ),
-  );
+    )
+    .pipe(
+      Effect.map((valid) => ({ valid, baseUrl: assinafyBaseUrl(valid) })),
+      Effect.flatMap(({ valid, baseUrl }) =>
+        SignatureHttpClient.use((http) =>
+          getAssinafySignatureRequestInternal(http, valid, baseUrl, id),
+        ),
+      ),
+    );
 
 export const listAssinafySignatureRequests = (
   options: AssinafyProviderOptions,
 ): Effect.Effect<readonly RemoteSignatureRequest[], SignatureKitError, SignatureHttpClient> =>
-  decodeRemoteOptions(
-    AssinafyProviderOptionsSchema,
-    SignatureKitSchemaNameValue.assinafyProviderOptions,
-    PROVIDER,
-    options,
-  ).pipe(
-    Effect.map((valid) => ({ valid, baseUrl: assinafyBaseUrl(valid) })),
-    Effect.flatMap(({ valid, baseUrl }) =>
-      SignatureHttpClient.use((http) =>
-        listAssinafySignatureRequestsInternal(http, valid, baseUrl),
+  Schema.decodeUnknownEffect(AssinafyProviderOptionsSchema)(options)
+    .pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.assinafyProviderOptions,
+            reason: String(issue),
+          }),
       ),
-    ),
-  );
+    )
+    .pipe(
+      Effect.map((valid) => ({ valid, baseUrl: assinafyBaseUrl(valid) })),
+      Effect.flatMap(({ valid, baseUrl }) =>
+        SignatureHttpClient.use((http) =>
+          listAssinafySignatureRequestsInternal(http, valid, baseUrl),
+        ),
+      ),
+    );
 
 export const cancelAssinafySignatureRequest = (
   options: AssinafyProviderOptions,
   id: string,
 ): Effect.Effect<void, SignatureKitError, SignatureHttpClient> =>
-  decodeRemoteOptions(
-    AssinafyProviderOptionsSchema,
-    SignatureKitSchemaNameValue.assinafyProviderOptions,
-    PROVIDER,
-    options,
-  ).pipe(
-    Effect.map((valid) => ({ valid, baseUrl: assinafyBaseUrl(valid) })),
-    Effect.flatMap(({ valid, baseUrl }) =>
-      SignatureHttpClient.use((http) =>
-        cancelAssinafySignatureRequestInternal(http, valid, baseUrl, id),
+  Schema.decodeUnknownEffect(AssinafyProviderOptionsSchema)(options)
+    .pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.assinafyProviderOptions,
+            reason: String(issue),
+          }),
       ),
-    ),
-  );
+    )
+    .pipe(
+      Effect.map((valid) => ({ valid, baseUrl: assinafyBaseUrl(valid) })),
+      Effect.flatMap(({ valid, baseUrl }) =>
+        SignatureHttpClient.use((http) =>
+          cancelAssinafySignatureRequestInternal(http, valid, baseUrl, id),
+        ),
+      ),
+    );
 
 export const deleteAssinafySignatureRequest = (
   options: AssinafyProviderOptions,
   id: string,
 ): Effect.Effect<void, SignatureKitError, SignatureHttpClient> =>
-  decodeRemoteOptions(
-    AssinafyProviderOptionsSchema,
-    SignatureKitSchemaNameValue.assinafyProviderOptions,
-    PROVIDER,
-    options,
-  ).pipe(
-    Effect.map((valid) => ({ valid, baseUrl: assinafyBaseUrl(valid) })),
-    Effect.flatMap(({ valid, baseUrl }) =>
-      SignatureHttpClient.use((http) =>
-        deleteAssinafySignatureRequestInternal(http, valid, baseUrl, id),
+  Schema.decodeUnknownEffect(AssinafyProviderOptionsSchema)(options)
+    .pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.assinafyProviderOptions,
+            reason: String(issue),
+          }),
       ),
-    ),
-  );
+    )
+    .pipe(
+      Effect.map((valid) => ({ valid, baseUrl: assinafyBaseUrl(valid) })),
+      Effect.flatMap(({ valid, baseUrl }) =>
+        SignatureHttpClient.use((http) =>
+          deleteAssinafySignatureRequestInternal(http, valid, baseUrl, id),
+        ),
+      ),
+    );
 
 export const downloadAssinafySignedDocument = (
   options: AssinafyProviderOptions,
   id: string,
 ): Effect.Effect<Uint8Array, SignatureKitError, SignatureHttpClient> =>
-  decodeRemoteOptions(
-    AssinafyProviderOptionsSchema,
-    SignatureKitSchemaNameValue.assinafyProviderOptions,
-    PROVIDER,
-    options,
-  ).pipe(
-    Effect.map((valid) => ({ valid, baseUrl: assinafyBaseUrl(valid) })),
-    Effect.flatMap(({ valid, baseUrl }) =>
-      SignatureHttpClient.use((http) =>
-        downloadAssinafySignedDocumentInternal(http, valid, baseUrl, id),
+  Schema.decodeUnknownEffect(AssinafyProviderOptionsSchema)(options)
+    .pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.assinafyProviderOptions,
+            reason: String(issue),
+          }),
       ),
-    ),
-  );
+    )
+    .pipe(
+      Effect.map((valid) => ({ valid, baseUrl: assinafyBaseUrl(valid) })),
+      Effect.flatMap(({ valid, baseUrl }) =>
+        SignatureHttpClient.use((http) =>
+          downloadAssinafySignedDocumentInternal(http, valid, baseUrl, id),
+        ),
+      ),
+    );

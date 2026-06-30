@@ -2,6 +2,7 @@ import {
   RemoteSignatureRequestPropsSchema,
   SignatureKitError,
   SignatureKitErrorCodeValue,
+  SignatureKitOperationValue,
   SignatureKitSchemaNameValue,
   redactedStringSchema,
   remoteSignatureInputFromProps,
@@ -13,19 +14,13 @@ import type {
   RemoteSignatureRequestInput,
   RemoteSignatureRequestProps,
 } from "@signature-kit/core/config";
-import {
-  SignatureHttpClient,
-  decodeRemoteOptions,
-  decodeRemoteShape,
-  normalizedBaseUrl,
-} from "@signature-kit/core/http";
+import { SignatureHttpClient, normalizedBaseUrl } from "@signature-kit/core/http";
 import type { SignatureHttpClientService } from "@signature-kit/core/http";
-import { Resource } from "alchemy/Resource";
+import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
 import { Context, Effect, Layer, Redacted, Schema } from "effect";
 
 const PROVIDER: RemoteSignatureProvider = "documenso";
-const DOCUMENSO_SIGNATURE_REQUEST_RESOURCE = "SignatureKit.DocumensoSignatureRequest";
 const DOCUMENSO_PROVIDER_COLLECTION_ID = "@signature-kit/documenso/Providers";
 const DEFAULT_BASE_URL = "https://app.documenso.com/api/v2";
 
@@ -84,13 +79,13 @@ const DocumensoEnvelopeListResultSchema = Schema.Struct({
 
 type DocumensoEnvelopeResult = (typeof DocumensoEnvelopeResultSchema)["Type"];
 export type DocumensoSignatureRequest = Resource<
-  typeof DOCUMENSO_SIGNATURE_REQUEST_RESOURCE,
+  "SignatureKit.DocumensoSignatureRequest",
   RemoteSignatureRequestProps,
   RemoteSignatureRequest
 >;
 
 export const DocumensoSignatureRequest = Resource<DocumensoSignatureRequest>(
-  DOCUMENSO_SIGNATURE_REQUEST_RESOURCE,
+  "SignatureKit.DocumensoSignatureRequest",
   { defaultRemovalPolicy: "retain" },
 );
 export class DocumensoCredentials extends Context.Service<
@@ -103,11 +98,18 @@ export const documensoCredentialsLayer = (
 ): Layer.Layer<DocumensoCredentials, SignatureKitError> =>
   Layer.effect(
     DocumensoCredentials,
-    decodeRemoteOptions(
-      DocumensoProviderOptionsSchema,
-      SignatureKitSchemaNameValue.documensoProviderOptions,
-      PROVIDER,
-      options,
+    Schema.decodeUnknownEffect(DocumensoProviderOptionsSchema)(options).pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            reason: String(issue),
+          }),
+      ),
     ),
   );
 
@@ -167,11 +169,18 @@ const createEnvelope = (
     })
     .pipe(
       Effect.flatMap((body) =>
-        decodeRemoteShape(
-          DocumensoCreateEnvelopeResultSchema,
-          SignatureKitSchemaNameValue.documensoCreateEnvelopeResult,
-          PROVIDER,
-          body,
+        Schema.decodeUnknownEffect(DocumensoCreateEnvelopeResultSchema)(body).pipe(
+          Effect.mapError(
+            (issue) =>
+              new SignatureKitError({
+                code: SignatureKitErrorCodeValue.responseShape,
+                retryable: false,
+                provider: PROVIDER,
+                operation: SignatureKitOperationValue.httpDecode,
+                schemaName: SignatureKitSchemaNameValue.documensoCreateEnvelopeResult,
+                reason: String(issue),
+              }),
+          ),
         ),
       ),
     );
@@ -196,11 +205,18 @@ const distributeEnvelope = (
     })
     .pipe(
       Effect.flatMap((body) =>
-        decodeRemoteShape(
-          DocumensoDistributeEnvelopeResultSchema,
-          SignatureKitSchemaNameValue.documensoDistributeEnvelopeResult,
-          PROVIDER,
-          body,
+        Schema.decodeUnknownEffect(DocumensoDistributeEnvelopeResultSchema)(body).pipe(
+          Effect.mapError(
+            (issue) =>
+              new SignatureKitError({
+                code: SignatureKitErrorCodeValue.responseShape,
+                retryable: false,
+                provider: PROVIDER,
+                operation: SignatureKitOperationValue.httpDecode,
+                schemaName: SignatureKitSchemaNameValue.documensoDistributeEnvelopeResult,
+                reason: String(issue),
+              }),
+          ),
         ),
       ),
       Effect.map((result) => ({
@@ -287,11 +303,18 @@ const getEnvelope = (
     })
     .pipe(
       Effect.flatMap((body) =>
-        decodeRemoteShape(
-          DocumensoEnvelopeResultSchema,
-          SignatureKitSchemaNameValue.documensoEnvelopeResult,
-          PROVIDER,
-          body,
+        Schema.decodeUnknownEffect(DocumensoEnvelopeResultSchema)(body).pipe(
+          Effect.mapError(
+            (issue) =>
+              new SignatureKitError({
+                code: SignatureKitErrorCodeValue.responseShape,
+                retryable: false,
+                provider: PROVIDER,
+                operation: SignatureKitOperationValue.httpDecode,
+                schemaName: SignatureKitSchemaNameValue.documensoEnvelopeResult,
+                reason: String(issue),
+              }),
+          ),
         ),
       ),
       Effect.map((result) => mapEnvelopeToRemoteRequest(baseUrl, result)),
@@ -311,11 +334,18 @@ const listEnvelopes = (
     })
     .pipe(
       Effect.flatMap((body) =>
-        decodeRemoteShape(
-          DocumensoEnvelopeListResultSchema,
-          SignatureKitSchemaNameValue.documensoEnvelopeListResult,
-          PROVIDER,
-          body,
+        Schema.decodeUnknownEffect(DocumensoEnvelopeListResultSchema)(body).pipe(
+          Effect.mapError(
+            (issue) =>
+              new SignatureKitError({
+                code: SignatureKitErrorCodeValue.responseShape,
+                retryable: false,
+                provider: PROVIDER,
+                operation: SignatureKitOperationValue.httpDecode,
+                schemaName: SignatureKitSchemaNameValue.documensoEnvelopeListResult,
+                reason: String(issue),
+              }),
+          ),
         ),
       ),
       Effect.map((result) =>
@@ -447,11 +477,20 @@ export const DocumensoSignatureRequestProvider = () =>
         }),
         reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
-          const props = yield* decodeRemoteOptions(
-            RemoteSignatureRequestPropsSchema,
-            SignatureKitSchemaNameValue.remoteSignatureRequestProps,
-            PROVIDER,
+          const props = yield* Schema.decodeUnknownEffect(RemoteSignatureRequestPropsSchema)(
             news,
+          ).pipe(
+            Effect.mapError(
+              (issue) =>
+                new SignatureKitError({
+                  code: SignatureKitErrorCodeValue.invalidInput,
+                  retryable: false,
+                  provider: PROVIDER,
+                  operation: SignatureKitOperationValue.schemaDecode,
+                  schemaName: SignatureKitSchemaNameValue.remoteSignatureRequestProps,
+                  reason: String(issue),
+                }),
+            ),
           );
           const input = yield* validRemoteSignatureRequest(remoteSignatureInputFromProps(props));
           return yield* createRemoteRequest(http, options, baseUrl, input);
@@ -473,102 +512,128 @@ export const providers = (options: DocumensoProviderOptions) =>
     Layer.provideMerge(documensoCredentialsLayer(options)),
   );
 
-export const createDocumensoSignatureRequest = (
-  options: DocumensoProviderOptions,
-  input: RemoteSignatureRequestInput,
-): Effect.Effect<RemoteSignatureRequest, SignatureKitError, SignatureHttpClient> =>
-  decodeRemoteOptions(
-    DocumensoProviderOptionsSchema,
-    SignatureKitSchemaNameValue.documensoProviderOptions,
-    PROVIDER,
-    options,
-  ).pipe(
-    Effect.map((valid) => ({ valid, baseUrl: documensoBaseUrl(valid) })),
-    Effect.flatMap(({ valid, baseUrl }) =>
-      validRemoteSignatureRequest(input).pipe(
-        Effect.flatMap((checked) =>
-          SignatureHttpClient.use((http) => createRemoteRequest(http, valid, baseUrl, checked)),
-        ),
-      ),
-    ),
-  );
 export const getDocumensoSignatureRequest = (
   options: DocumensoProviderOptions,
   id: string,
 ): Effect.Effect<RemoteSignatureRequest, SignatureKitError, SignatureHttpClient> =>
-  decodeRemoteOptions(
-    DocumensoProviderOptionsSchema,
-    SignatureKitSchemaNameValue.documensoProviderOptions,
-    PROVIDER,
-    options,
-  ).pipe(
-    Effect.map((valid) => ({ valid, baseUrl: documensoBaseUrl(valid) })),
-    Effect.flatMap(({ valid, baseUrl }) =>
-      SignatureHttpClient.use((http) => getEnvelope(http, valid, baseUrl, id)),
-    ),
-  );
+  Schema.decodeUnknownEffect(DocumensoProviderOptionsSchema)(options)
+    .pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            reason: String(issue),
+          }),
+      ),
+    )
+    .pipe(
+      Effect.map((valid) => ({ valid, baseUrl: documensoBaseUrl(valid) })),
+      Effect.flatMap(({ valid, baseUrl }) =>
+        SignatureHttpClient.use((http) => getEnvelope(http, valid, baseUrl, id)),
+      ),
+    );
 
 export const listDocumensoSignatureRequests = (
   options: DocumensoProviderOptions,
 ): Effect.Effect<ReadonlyArray<RemoteSignatureRequest>, SignatureKitError, SignatureHttpClient> =>
-  decodeRemoteOptions(
-    DocumensoProviderOptionsSchema,
-    SignatureKitSchemaNameValue.documensoProviderOptions,
-    PROVIDER,
-    options,
-  ).pipe(
-    Effect.map((valid) => ({ valid, baseUrl: documensoBaseUrl(valid) })),
-    Effect.flatMap(({ valid, baseUrl }) =>
-      SignatureHttpClient.use((http) => listEnvelopes(http, valid, baseUrl)),
-    ),
-  );
+  Schema.decodeUnknownEffect(DocumensoProviderOptionsSchema)(options)
+    .pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            reason: String(issue),
+          }),
+      ),
+    )
+    .pipe(
+      Effect.map((valid) => ({ valid, baseUrl: documensoBaseUrl(valid) })),
+      Effect.flatMap(({ valid, baseUrl }) =>
+        SignatureHttpClient.use((http) => listEnvelopes(http, valid, baseUrl)),
+      ),
+    );
 
 export const cancelDocumensoSignatureRequest = (
   options: DocumensoProviderOptions,
   id: string,
 ): Effect.Effect<void, SignatureKitError, SignatureHttpClient> =>
-  decodeRemoteOptions(
-    DocumensoProviderOptionsSchema,
-    SignatureKitSchemaNameValue.documensoProviderOptions,
-    PROVIDER,
-    options,
-  ).pipe(
-    Effect.map((valid) => ({ valid, baseUrl: documensoBaseUrl(valid) })),
-    Effect.flatMap(({ valid, baseUrl }) =>
-      SignatureHttpClient.use((http) => cancelEnvelope(http, valid, baseUrl, id)),
-    ),
-  );
+  Schema.decodeUnknownEffect(DocumensoProviderOptionsSchema)(options)
+    .pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            reason: String(issue),
+          }),
+      ),
+    )
+    .pipe(
+      Effect.map((valid) => ({ valid, baseUrl: documensoBaseUrl(valid) })),
+      Effect.flatMap(({ valid, baseUrl }) =>
+        SignatureHttpClient.use((http) => cancelEnvelope(http, valid, baseUrl, id)),
+      ),
+    );
 
 export const deleteDocumensoSignatureRequest = (
   options: DocumensoProviderOptions,
   id: string,
 ): Effect.Effect<void, SignatureKitError, SignatureHttpClient> =>
-  decodeRemoteOptions(
-    DocumensoProviderOptionsSchema,
-    SignatureKitSchemaNameValue.documensoProviderOptions,
-    PROVIDER,
-    options,
-  ).pipe(
-    Effect.map((valid) => ({ valid, baseUrl: documensoBaseUrl(valid) })),
-    Effect.flatMap(({ valid, baseUrl }) =>
-      SignatureHttpClient.use((http) => deleteEnvelope(http, valid, baseUrl, id)),
-    ),
-  );
+  Schema.decodeUnknownEffect(DocumensoProviderOptionsSchema)(options)
+    .pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            reason: String(issue),
+          }),
+      ),
+    )
+    .pipe(
+      Effect.map((valid) => ({ valid, baseUrl: documensoBaseUrl(valid) })),
+      Effect.flatMap(({ valid, baseUrl }) =>
+        SignatureHttpClient.use((http) => deleteEnvelope(http, valid, baseUrl, id)),
+      ),
+    );
 
 export const downloadDocumensoSignedDocument = (
   options: DocumensoProviderOptions,
   envelopeId: string,
 ): Effect.Effect<Uint8Array, SignatureKitError, SignatureHttpClient> =>
-  decodeRemoteOptions(
-    DocumensoProviderOptionsSchema,
-    SignatureKitSchemaNameValue.documensoProviderOptions,
-    PROVIDER,
-    options,
-  ).pipe(
-    Effect.map((valid) => ({ valid, baseUrl: documensoBaseUrl(valid) })),
-    Effect.flatMap(({ valid, baseUrl }) =>
-      SignatureHttpClient.use((http) =>
-        downloadSignedEnvelopeDocument(http, valid, baseUrl, envelopeId),
+  Schema.decodeUnknownEffect(DocumensoProviderOptionsSchema)(options)
+    .pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            reason: String(issue),
+          }),
       ),
-    ),
-  );
+    )
+    .pipe(
+      Effect.map((valid) => ({ valid, baseUrl: documensoBaseUrl(valid) })),
+      Effect.flatMap(({ valid, baseUrl }) =>
+        SignatureHttpClient.use((http) =>
+          downloadSignedEnvelopeDocument(http, valid, baseUrl, envelopeId),
+        ),
+      ),
+    );

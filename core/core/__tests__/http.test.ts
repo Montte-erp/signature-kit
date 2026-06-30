@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import { SignatureHttpClient, signatureHttpClientLive } from "@signature-kit/core/http";
+import { SignatureKitError, signatureKitErrorCatalog } from "@signature-kit/core/config";
 import { Effect, Result } from "effect";
 
 type LocalServer = {
@@ -123,4 +124,21 @@ describe("SignatureHttpClient", () => {
       yield* closeServer(local.server);
     }),
   );
+});
+
+describe("SignatureKitError catalog", () => {
+  it("keeps exported catalog messages aligned with the tagged error", () => {
+    for (const entry of signatureKitErrorCatalog) {
+      const defaultError = new SignatureKitError({ code: entry.code, retryable: false });
+      expect(defaultError.message).toBe(entry.message);
+
+      const customReason = `custom reason for ${entry.code}`;
+      const reasonError = new SignatureKitError({
+        code: entry.code,
+        retryable: false,
+        reason: customReason,
+      });
+      expect(reasonError.message).toBe(entry.overridable ? customReason : entry.message);
+    }
+  });
 });
