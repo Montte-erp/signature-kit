@@ -19,7 +19,7 @@ import { useForm } from "@tanstack/react-form";
 
 import type { A1CertificateProfile } from "@signature-kit/a1/config";
 import { a1SignaturesLayer, parseA1CertificateProfile } from "@signature-kit/a1/signer";
-import { stampPdfRubric } from "@signature-kit/pdf/stamp";
+import { rubricRectForPage, stampPdfRubricOnPages, stampPdfVisibleSignature } from "@signature-kit/pdf/stamp";
 import {
   createBrowserPdfSignatureBuilderState,
   readBrowserFileBytes,
@@ -31,11 +31,15 @@ import {
   placePdfSignatureFieldsBatch,
   type PdfSignatureBuilderStore,
 } from "@signature-kit/pdf/builder-store";
+import { parsePdfTextBoxesBrowser } from "@signature-kit/pdf/liteparse-browser";
 import type {
   PdfSignatureBuilderState,
   PdfSignatureFieldDraft,
   PdfSigningBatchItem,
+  PdfSignaturePage,
+  PdfSignatureRect,
   PdfSignatureTemplate,
+  PdfTextBox,
 } from "@signature-kit/pdf/config";
 
 import { Button } from "@/components/ui/button";
@@ -58,7 +62,6 @@ import {
   type PdfDocumentProxy,
   type PdfLoadingTask,
 } from "@/components/pdf-page";
-import { bakeStamp, toBottomLeft } from "@/components/pdf-stamp";
 import { Store, useStore } from "@tanstack/react-store";
 import { caveat } from "@/lib/handwriting-font";
 import { cn } from "@/lib/utils";
@@ -114,29 +117,17 @@ const SIGNATURE_DRAFT: PdfSignatureFieldDraft = {
   required: true,
 };
 
-type DocRect = {
-  readonly pageIndex: number;
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-};
-
-type PageDim = {
-  readonly index: number;
-  readonly width: number;
-  readonly height: number;
-};
 
 interface DocEntry {
   readonly id: string;
   readonly name: string;
   readonly pdfBytes: Uint8Array;
   readonly documentId: string;
-  readonly pageDims: ReadonlyArray<PageDim>;
+  readonly pageDims: ReadonlyArray<PdfSignaturePage>;
+  readonly pageTextBoxes: ReadonlyArray<ReadonlyArray<PdfTextBox>>;
   readonly template: PdfSignatureTemplate;
   readonly store: PdfSignatureBuilderStore;
-  readonly rect?: DocRect;
+  readonly rect?: PdfSignatureRect;
 }
 
 type BatchRow =
@@ -233,20 +224,8 @@ const dropPdfDocument = (id: string): void => {
   });
 };
 
-// Per-page rubricas sit in the RIGHT MARGIN, flush to the right edge and
-// vertically CENTERED on the page — repeating the placed-signature's x/y would
-// stamp the rubrica on top of page content. Keeps the placed mark's size; x
-// shifts to the right margin and y centers on the page height (both clamped so a
-// large mark still fits).
-const RUBRIC_RIGHT_MARGIN_PT = 18;
-const toRightMargin = (rect: DocRect, pageWidth: number, pageHeight: number): DocRect => ({
-  ...rect,
-  x: Math.max(RUBRIC_RIGHT_MARGIN_PT, pageWidth - RUBRIC_RIGHT_MARGIN_PT - rect.width),
-  y: Math.max(0, (pageHeight - rect.height) / 2),
-});
-
-// Raw PNG bytes from a data URL (the rubric path needs bytes; the local bakeStamp
-// path passes the data URL straight to embedPng).
+// Raw PNG bytes from a data URL; the PDF package stamps images from bytes, not
+// browser-only data URLs.
 const dataUrlToBytes = (dataUrl: string): Uint8Array => {
   const base64 = dataUrl.split(",")[1] ?? "";
   const binary = atob(base64);
@@ -489,13 +468,13 @@ function DocumentCanvas({
       {pages.map((page, index) => {
         const isPlacedPage = placedField !== undefined && placedField.rect.pageIndex === index;
         // With "every page" on, every page that doesn't own the signature shows a
-        // faint repeat of the rubric so the toggle reads as having a consequence.
+        // faint compact rubric in the right-side middle. This ignores the placed
+        // signature x/y so repeated rubrics do not collide with text/signature
+        // content on the page body.
         const ghost =
           !isPlacedPage && rubricEveryPage && placedField
             ? {
-                // Mirror the baked placement: rubricas repeat in the right margin,
-                // vertically centered, not at the placed signature's x/y.
-                rect: toRightMargin(placedField.rect, page.width, page.height),
+                rect: rubricRectForPage(page, activeDoc.pageTextBoxes[index] ?? []),
                 label: `Repeats on all ${pages.length} pages`,
               }
             : undefined;
@@ -995,13 +974,21 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
         continue;
       }
       const template = state.success.template;
+      const pageDims = template.documents[0].pages;
+      const pageTextBoxesFallback: PdfTextBox[][] = Array.from({ length: pageDims.length }, () => []);
+      const pageTextBoxes = await Effect.runPromise(
+        parsePdfTextBoxesBrowser(bytes.success, pageDims.length).pipe(
+          Effect.catchTag("PdfError", () => Effect.succeed(pageTextBoxesFallback)),
+        ),
+      );
       const store = createPdfSignatureBuilderStore(state.success);
       const entry: DocEntry = {
         id,
         name: file.name,
         pdfBytes: bytes.success,
         documentId: id,
-        pageDims: template.documents[0].pages,
+        pageDims,
+        pageTextBoxes,
         template,
         store,
       };
@@ -1246,73 +1233,56 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
           // (others empty) skip the rubric pass — only the main block bakes.
           const others = d.pageDims.map((_, i) => i).filter((i) => i !== rect.pageIndex);
           if (rubricaPng && others.length > 0) {
-            // Group target pages by dimension so same-sized pages share ONE
-            // stampPdfRubric call. Each call re-loads + re-saves the whole PDF, so
-            // stamping page-by-page is O(P²) and hangs long, multi-doc batches.
-            // Most PDFs are uniform → one call covers every page; mixed-size PDFs
-            // get one call per distinct page size, each with that size's geometry.
-            type RubricGroup = {
-              dim: { width: number; height: number };
-              pages: number[];
-            };
-            const byDim = new Map<string, RubricGroup>();
-            for (const i of others) {
-              const odim = d.pageDims[i];
-              if (!odim) continue;
-              const key = `${odim.width}x${odim.height}`;
-              const group: RubricGroup = byDim.get(key) ?? {
-                dim: odim,
-                pages: [],
-              };
-              group.pages.push(i);
-              byDim.set(key, group);
-            }
-            for (const { dim: odim, pages } of byDim.values()) {
-              const stamped = await Effect.runPromise(
-                Effect.result(
-                  stampPdfRubric(pdf, {
-                    // Right margin, vertically centered, flipped to bottom-left using
-                    // this size's width/height so it clears the content column.
-                    rect: toBottomLeft(toRightMargin(rect, odim.width, odim.height), odim.height),
-                    pages,
-                    border: false, // the bracket is baked into the PNG; no lib rectangle
-                    imagePng: rubricaPng, // initials only — no caption lines on every page
-                  }),
-                ),
-              );
-              if (Result.isFailure(stamped)) {
-                markFailed(stamped.failure.message);
-                break;
-              }
+            const stamped = await Effect.runPromise(
+              Effect.result(
+                stampPdfRubricOnPages({
+                  pdf,
+                  pageDimensions: d.pageDims,
+                  pageTextBoxes: d.pageTextBoxes,
+                  pages: others,
+                  border: false,
+                  imagePng: rubricaPng,
+                }),
+              ),
+            );
+            if (Result.isFailure(stamped)) {
+              markFailed(stamped.failure.message);
+            } else {
               pdf = stamped.success;
             }
           }
           if (!failed) {
-            try {
-              pdf = await bakeStamp(pdf, {
-                pageIndex: rect.pageIndex,
-                rect,
-                inkDataUrl: sig,
-                lines,
-                border: false,
-              });
-            } catch {
-              markFailed(m.signer_err_prepare_doc());
-            }
+            const stamped = await Effect.runPromise(
+              Effect.result(
+                stampPdfVisibleSignature({
+                  pdf,
+                  pageIndex: rect.pageIndex,
+                  rect,
+                  lines,
+                  border: false,
+                  ...(mainPng === undefined ? {} : { inkPng: mainPng }),
+                }),
+              ),
+            );
+            if (Result.isFailure(stamped)) markFailed(stamped.failure.message);
+            else pdf = stamped.success;
           }
         }
       } else if (hasStamp) {
-        try {
-          pdf = await bakeStamp(d.pdfBytes, {
-            pageIndex: rect.pageIndex,
-            rect,
-            inkDataUrl: sig,
-            lines,
-            border: false,
-          });
-        } catch {
-          markFailed(m.signer_err_prepare_doc());
-        }
+        const stamped = await Effect.runPromise(
+          Effect.result(
+            stampPdfVisibleSignature({
+              pdf: d.pdfBytes,
+              pageIndex: rect.pageIndex,
+              rect,
+              lines,
+              border: false,
+              ...(mainPng === undefined ? {} : { inkPng: mainPng }),
+            }),
+          ),
+        );
+        if (Result.isFailure(stamped)) markFailed(stamped.failure.message);
+        else pdf = stamped.success;
       }
 
       if (!failed) {

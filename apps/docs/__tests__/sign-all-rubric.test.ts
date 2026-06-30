@@ -1,10 +1,9 @@
 import { Effect } from "effect";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { stampPdfRubric } from "@signature-kit/pdf/stamp";
+import { rubricRectForPage, stampPdfRubricOnPages, stampPdfVisibleSignature } from "@signature-kit/pdf/stamp";
+import type { PdfSignaturePage, PdfTextBox } from "@signature-kit/pdf/config";
 import { Store } from "@tanstack/react-store";
-
-import { bakeStamp, toBottomLeft } from "../components/pdf-stamp";
 import { AsyncQueuer, queuerBusy, waitFor } from "./helpers/queue";
 import { isPdf, makeDummyPdf, pdfPageCount, type PageSize, A4, LETTER, LEGAL } from "./helpers/dummy-pdf";
 
@@ -22,25 +21,59 @@ const DOC_COUNT = 20;
 const SIG_W = 168;
 const SIG_H = 48;
 const MARGIN = 36;
+const RUBRIC_W = 72;
+const RUBRIC_H = 32;
+const RUBRIC_RIGHT_MARGIN = 18;
 
 const STAMP_LINES = ["Maria A. Costa", "CPF/CNPJ: 000.000.000-00", "Assinado digitalmente"];
-
-type PageDim = { readonly index: number; readonly width: number; readonly height: number };
 
 type MultiPageDoc = {
   readonly id: string;
   readonly name: string;
   readonly bytes: Uint8Array;
-  readonly pageDims: ReadonlyArray<PageDim>;
+  readonly pageDims: ReadonlyArray<PdfSignaturePage>;
 };
 
-// A bottom-right rubric rect (top-left origin builder rect) for a given page size.
-const rubricRect = (page: PageSize) => ({
+// A bottom-right main signature rect (top-left origin builder rect) for a given page size.
+const signatureRect = (page: PageSize) => ({
   pageIndex: 0,
   x: page.width - MARGIN - SIG_W,
   y: page.height - MARGIN - SIG_H,
   width: SIG_W,
   height: SIG_H,
+});
+
+it("places repeated rubrics compactly in the right side middle", () => {
+  const legalTarget = { index: 1, width: LEGAL.width, height: LEGAL.height };
+
+  const repeated = rubricRectForPage(legalTarget);
+
+  expect(repeated).toStrictEqual({
+    pageIndex: legalTarget.index,
+    x: LEGAL.width - RUBRIC_RIGHT_MARGIN - RUBRIC_W,
+    y: (LEGAL.height - RUBRIC_H) / 2,
+    width: RUBRIC_W,
+    height: RUBRIC_H,
+  });
+  expect(repeated.x).toBeGreaterThan(LEGAL.width - MARGIN - SIG_W);
+});
+
+it("nudges repeated rubrics away from LiteParse text boxes", () => {
+  const legalTarget = { index: 1, width: LEGAL.width, height: LEGAL.height };
+  const centered = rubricRectForPage(legalTarget);
+  const textBox = {
+    x: centered.x - 2,
+    y: centered.y - 2,
+    width: centered.width + 4,
+    height: centered.height + 4,
+  };
+
+  const nudged = rubricRectForPage(legalTarget, [textBox]);
+
+  expect(nudged.x).toBe(centered.x);
+  expect(nudged.y).not.toBe(centered.y);
+  expect(textBox.x < nudged.x + nudged.width && textBox.x + textBox.width > nudged.x).toBe(true);
+  expect(textBox.y < nudged.y + nudged.height && textBox.y + textBox.height > nudged.y).toBe(false);
 });
 
 describe("signAll + rubricEveryPage", () => {
@@ -54,7 +87,7 @@ describe("signAll + rubricEveryPage", () => {
         const size: PageSize | ReadonlyArray<PageSize> =
           i % 3 === 0 ? [A4, LETTER, LEGAL, A4, LETTER].slice(0, pages) : i % 2 === 0 ? A4 : LETTER;
         const bytes = await makeDummyPdf({ pages, size, label: `Rubric doc ${i + 1}` });
-        const dims: PageDim[] = Array.from({ length: pages }, (_u, p) => {
+        const dims: PdfSignaturePage[] = Array.from({ length: pages }, (_u, p) => {
           const ps = Array.isArray(size) ? (size[Math.min(p, size.length - 1)] ?? A4) : size;
           return { index: p, width: ps.width, height: ps.height };
         });
@@ -73,39 +106,32 @@ describe("signAll + rubricEveryPage", () => {
         const placedPage = doc.pageDims.length - 1;
         const others = doc.pageDims.map((_d, i) => i).filter((i) => i !== placedPage);
 
-        let pdf = doc.bytes;
-
-        // Group "other" pages by dimension so same-sized pages share ONE
-        // stampPdfRubric call (the fix for the O(P²) hang).
-        type Group = { dim: PageDim; pages: number[] };
-        const byDim = new Map<string, Group>();
-        for (const i of others) {
-          const dim = doc.pageDims[i]!;
-          const key = `${dim.width}x${dim.height}`;
-          const group = byDim.get(key) ?? { dim, pages: [] };
-          group.pages.push(i);
-          byDim.set(key, group);
-        }
-
-        for (const { dim, pages } of byDim.values()) {
-          pdf = await Effect.runPromise(
-            stampPdfRubric(pdf, {
-              rect: toBottomLeft(rubricRect(dim), dim.height),
-              pages,
-              lines: ["MAC"],
-              border: true,
-            }),
-          );
-        }
-
-        // The placed page gets the full "Signed by" block baked in.
+        const pageTextBoxes: PdfTextBox[][] = Array.from({ length: doc.pageDims.length }, () => []);
         const main = doc.pageDims[placedPage]!;
-        pdf = await bakeStamp(pdf, {
-          pageIndex: placedPage,
-          rect: rubricRect(main),
-          lines: STAMP_LINES,
-          border: true,
-        });
+        const sourceRect = signatureRect(main);
+        const rubricPdf =
+          others.length > 0
+            ? await Effect.runPromise(
+                stampPdfRubricOnPages({
+                  pdf: doc.bytes,
+                  pageDimensions: doc.pageDims,
+                  pageTextBoxes,
+                  pages: others,
+                  lines: ["MAC"],
+                  border: true,
+                }),
+              )
+            : doc.bytes;
+
+        const pdf = await Effect.runPromise(
+          stampPdfVisibleSignature({
+            pdf: rubricPdf,
+            pageIndex: placedPage,
+            rect: sourceRect,
+            lines: STAMP_LINES,
+            border: true,
+          }),
+        );
 
         out.setState((s) => ({ stamped: { ...s.stamped, [doc.id]: pdf } }));
         return doc.id;

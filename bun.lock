@@ -88,6 +88,8 @@
       "version": "0.0.0",
       "dependencies": {
         "@cantoo/pdf-lib": "2.7.1",
+        "@llamaindex/liteparse": "^2.4.0",
+        "@llamaindex/liteparse-wasm": "^2.4.0",
         "@signature-kit/cms": "workspace:*",
         "@signature-kit/core": "workspace:*",
         "effect": "4.0.0-beta.86",
@@ -511,6 +513,24 @@
     "@lix-js/sdk": ["@lix-js/sdk@0.4.10", "", { "dependencies": { "@lix-js/server-protocol-schema": "0.1.1", "dedent": "1.5.1", "human-id": "^4.1.1", "js-sha256": "^0.11.0", "kysely": "^0.28.12", "sqlite-wasm-kysely": "0.3.0", "uuid": "^14.0.0" } }, "sha512-0dMInAJK/67guTG5rRZaCEhvzC5cCXENOjaePA5AqMXrCE97kaY7SRor9e2vnoGsFIiGqXKlT0MCIoZj36G0gg=="],
 
     "@lix-js/server-protocol-schema": ["@lix-js/server-protocol-schema@0.1.1", "", {}, "sha512-jBeALB6prAbtr5q4vTuxnRZZv1M2rKe8iNqRQhFJ4Tv7150unEa0vKyz0hs8Gl3fUGsWaNJBh3J8++fpbrpRBQ=="],
+
+    "@llamaindex/liteparse": ["@llamaindex/liteparse@2.4.0", "", { "dependencies": { "commander": "^12.0.0" }, "optionalDependencies": { "@llamaindex/liteparse-darwin-arm64": "2.4.0", "@llamaindex/liteparse-darwin-x64": "2.4.0", "@llamaindex/liteparse-linux-arm64-gnu": "2.4.0", "@llamaindex/liteparse-linux-x64-gnu": "2.4.0", "@llamaindex/liteparse-linux-x64-musl": "2.4.0", "@llamaindex/liteparse-win32-arm64-msvc": "2.4.0", "@llamaindex/liteparse-win32-x64-msvc": "2.4.0" }, "bin": { "lit": "dist/cli.js", "liteparse": "dist/cli.js" } }, "sha512-UuS8ISkBXhknLe38p8Osi6p15JZcva9cjFVzbxHWxT+qzFSLEnYfhLZqBgiZthjYGF2GOVgq8FEblf5TZwrX1Q=="],
+
+    "@llamaindex/liteparse-darwin-arm64": ["@llamaindex/liteparse-darwin-arm64@2.4.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-q58fz2imeCE0JrUJyIV4+zzR223LnAr56sgAUsPnHTxbcMjtbPw2TznGNWKgECd25wOoghlBNJrvYWuDOhrkeQ=="],
+
+    "@llamaindex/liteparse-darwin-x64": ["@llamaindex/liteparse-darwin-x64@2.4.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-7tsTNooVY+qlspu/Qtp30/nCNl0Jdcv5qgncUHLzU7Ygj7qn8r54Q5zurGnPU8Lby3YgQ7B3dQHzr35uNqow8Q=="],
+
+    "@llamaindex/liteparse-linux-arm64-gnu": ["@llamaindex/liteparse-linux-arm64-gnu@2.4.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-eCEmbSsCr25gRfZiG/Sr+wE+ZHgo3O5p2Y4pEmhTpSZEEa2d0gsc5ARPixxtov9/TmuyJYIOLdUinItCmf6eQg=="],
+
+    "@llamaindex/liteparse-linux-x64-gnu": ["@llamaindex/liteparse-linux-x64-gnu@2.4.0", "", { "os": "linux", "cpu": "x64" }, "sha512-8pWwcsjtNUu7ZUhI9qMZQcbwL3McxB6Bed7BXqVv70UtzNg1fk5cZc885bvicdpQaqnmaqcV5wk2WnhJHu/uxg=="],
+
+    "@llamaindex/liteparse-linux-x64-musl": ["@llamaindex/liteparse-linux-x64-musl@2.4.0", "", { "os": "linux", "cpu": "x64" }, "sha512-QMZfVDzlWVb/eBMEVYRtcpVI7QLK8C+cXrETrzCGymPRsvIFIGQL8B4mr45dIy2ndak5PcFEMD2NOTl/RjpbJA=="],
+
+    "@llamaindex/liteparse-wasm": ["@llamaindex/liteparse-wasm@2.4.0", "", {}, "sha512-Q4gAyyN8J8+IGS/W4evBh7j1FEU/7psvzIMGCBGmyN1Z9QWr5cvmP3FXDEYgjHyh5yVoAlh7ynSq8xRfoLFS0A=="],
+
+    "@llamaindex/liteparse-win32-arm64-msvc": ["@llamaindex/liteparse-win32-arm64-msvc@2.4.0", "", { "os": "win32", "cpu": "arm64" }, "sha512-rQ/vIvWtRidTU7hWyC/lHZIqyrWXqaU+9wc/g1gPsJPGNVPEYGOmY/SmCxGT+unZ7ibI4a7hoBRScaP49V1GTw=="],
+
+    "@llamaindex/liteparse-win32-x64-msvc": ["@llamaindex/liteparse-win32-x64-msvc@2.4.0", "", { "os": "win32", "cpu": "x64" }, "sha512-VjdFVC5J2HP/iKVLMYjAjoCjO0Sj192ZgaqKKlmIa6LcZ4cU0q6YjUUHR9WH9shozbQm4n2KrV+tvpqPN4/9+w=="],
 
     "@mdx-js/mdx": ["@mdx-js/mdx@3.1.1", "", { "dependencies": { "@types/estree": "^1.0.0", "@types/estree-jsx": "^1.0.0", "@types/hast": "^3.0.0", "@types/mdx": "^2.0.0", "acorn": "^8.0.0", "collapse-white-space": "^2.0.0", "devlop": "^1.0.0", "estree-util-is-identifier-name": "^3.0.0", "estree-util-scope": "^1.0.0", "estree-walker": "^3.0.0", "hast-util-to-jsx-runtime": "^2.0.0", "markdown-extensions": "^2.0.0", "recma-build-jsx": "^1.0.0", "recma-jsx": "^1.0.0", "recma-stringify": "^1.0.0", "rehype-recma": "^1.0.0", "remark-mdx": "^3.0.0", "remark-parse": "^11.0.0", "remark-rehype": "^11.0.0", "source-map": "^0.7.0", "unified": "^11.0.0", "unist-util-position-from-estree": "^2.0.0", "unist-util-stringify-position": "^4.0.0", "unist-util-visit": "^5.0.0", "vfile": "^6.0.0" } }, "sha512-f6ZO2ifpwAQIpzGWaBQT2TXxPv6z3RBzQKpVftEWN78Vl/YweF1uwussDx8ECAXVtr3Rs89fKyG9YlzUs9DyGQ=="],
 
@@ -2181,6 +2201,8 @@
     "zwitch": ["zwitch@2.0.4", "", {}, "sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A=="],
 
     "@img/sharp-wasm32/@emnapi/runtime": ["@emnapi/runtime@1.11.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-vgj7R3y3Wgx24IQaGPA/R6YFXLHVMOZ0uVEyIQPaWs+rd1AzfEMXlAC22FYwO1XkKR6NPsq7mUandH8oIRdZFw=="],
+
+    "@llamaindex/liteparse/commander": ["commander@12.1.0", "", {}, "sha512-Vw8qHK3bZM9y/P10u3Vib8o/DdkvA2OtPtZvD871QKjy74Wj1WSKFILMPRPSdUSx5RFK1arlJzEtA4PkFgnbuA=="],
 
     "@react-pdf/pdfkit/@noble/hashes": ["@noble/hashes@1.8.0", "", {}, "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A=="],
 

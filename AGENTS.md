@@ -222,6 +222,12 @@ hooks, and expose `data-slot` anatomy plus class/style seams.
   queue workers; provide layers at that call site with `.pipe(Effect.provide(...))`.
   Never hide `runPromise` or `Effect.provide` in package internals — return the
   `Effect` and let the app boundary run it.
+- **Docs display capabilities; packages own capabilities.** `apps/docs` can wire UI
+  events and call package APIs, but PDF parsing, text-box collision detection,
+  visible stamping, rubric placement, and signing behavior live in
+  `@signature-kit/pdf` (or the owning format package). Browser-specific adapters
+  such as LiteParse WASM still belong behind `@signature-kit/pdf` exports; docs
+  imports those capabilities and shows the flow.
 - Use external apps (e.g. `app-licitei-next`) only to discover product needs; never
   copy their hook shapes, hardcoded options, or state leakage into public packages.
 

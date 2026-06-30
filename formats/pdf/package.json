@@ -34,6 +34,14 @@
       "types": "./dist/stamp.d.ts",
       "import": "./dist/stamp.js"
     },
+    "./liteparse-node": {
+      "types": "./dist/liteparse-node.d.ts",
+      "import": "./dist/liteparse-node.js"
+    },
+    "./liteparse-browser": {
+      "types": "./dist/liteparse-browser.d.ts",
+      "import": "./dist/liteparse-browser.js"
+    },
     "./verify": {
       "types": "./dist/verify.d.ts",
       "import": "./dist/verify.js"
@@ -46,6 +54,8 @@
   },
   "dependencies": {
     "@cantoo/pdf-lib": "2.7.1",
+    "@llamaindex/liteparse": "^2.4.0",
+    "@llamaindex/liteparse-wasm": "^2.4.0",
     "@signature-kit/cms": "workspace:*",
     "@signature-kit/core": "workspace:*",
     "effect": "4.0.0-beta.86"

@@ -1,8 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
 import { PDFDocument } from "@cantoo/pdf-lib";
 import { Effect, Result } from "effect";
-import { stampPdfRubric } from "../src/stamp";
-import { PdfErrorCodeValue, type PdfCoordinateTuple } from "../src/config";
+import {
+  rubricRectForPage,
+  stampPdfRubric,
+  stampPdfRubricOnPages,
+  stampPdfVisibleSignature,
+} from "../src/stamp";
+import { PdfErrorCodeValue, type PdfCoordinateTuple, type PdfSignaturePage } from "../src/config";
 
 // A three-page PDF so "all" vs a page list is observable.
 const createThreePagePdf: Effect.Effect<Uint8Array> = Effect.promise(async () => {
@@ -24,6 +29,39 @@ const ONE_BY_ONE_PNG = Uint8Array.from(
 );
 
 const RUBRIC_RECT: PdfCoordinateTuple = [20, 20, 140, 64];
+const LEGAL_PAGE: PdfSignaturePage = { index: 1, width: 612, height: 1008 };
+const SIGNATURE_RECT = {
+  pageIndex: 2,
+  x: 320,
+  y: 120,
+  width: 168,
+  height: 48,
+};
+
+it("places repeated rubrics compactly in the right-side middle", () => {
+  const rect = rubricRectForPage(LEGAL_PAGE);
+  expect(rect).toStrictEqual({
+    pageIndex: 1,
+    x: 522,
+    y: 488,
+    width: 72,
+    height: 32,
+  });
+});
+
+it("nudges repeated rubrics away from LiteParse text boxes", () => {
+  const centered = rubricRectForPage(LEGAL_PAGE);
+  const textBox = {
+    x: centered.x - 2,
+    y: centered.y - 2,
+    width: centered.width + 4,
+    height: centered.height + 4,
+  };
+  const nudged = rubricRectForPage(LEGAL_PAGE, [textBox]);
+  expect(nudged.x).toBe(centered.x);
+  expect(nudged.y).not.toBe(centered.y);
+  expect(textBox.y < nudged.y + nudged.height && textBox.y + textBox.height > nudged.y).toBe(false);
+});
 
 const pageCount = (bytes: Uint8Array): Effect.Effect<number> =>
   Effect.promise(async () => (await PDFDocument.load(bytes)).getPageCount());
@@ -65,6 +103,34 @@ describe("stampPdfRubric", () => {
         imagePng: ONE_BY_ONE_PNG,
         lines: ["Signed"],
       });
+      expect(yield* pageCount(stamped)).toBe(3);
+      expect(stamped.byteLength).toBeGreaterThan(pdf.byteLength);
+    }),
+  );
+
+  it.effect("stamps side rubrics and the visible signature through PDF format APIs", () =>
+    Effect.gen(function* () {
+      const pdf = yield* createThreePagePdf;
+      const pageDimensions: PdfSignaturePage[] = [
+        { index: 0, width: 320, height: 180 },
+        { index: 1, width: 320, height: 180 },
+        { index: 2, width: 320, height: 180 },
+      ];
+      const withRubrics = yield* stampPdfRubricOnPages({
+        pdf,
+        pageDimensions,
+        pages: [0, 1],
+        imagePng: ONE_BY_ONE_PNG,
+        border: false,
+      });
+      const stamped = yield* stampPdfVisibleSignature({
+        pdf: withRubrics,
+        pageIndex: 2,
+        rect: SIGNATURE_RECT,
+        lines: ["Maria A. Costa"],
+        border: true,
+      });
+
       expect(yield* pageCount(stamped)).toBe(3);
       expect(stamped.byteLength).toBeGreaterThan(pdf.byteLength);
     }),

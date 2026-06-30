@@ -107,6 +107,9 @@ export const PdfSchemaNameSchema = Schema.Literals([
   "PdfTemplateInput",
   "PdfSigningInput",
   "PdfSignatureBuilderInput",
+  "PdfLiteParseResult",
+  "PdfRubricPageStampInput",
+  "PdfVisibleStampInput",
 ]);
 export type PdfSchemaName = (typeof PdfSchemaNameSchema)["Type"];
 export const PdfSchemaNameValue = {
@@ -121,6 +124,9 @@ export const PdfSchemaNameValue = {
   pdfTemplateInput: "PdfTemplateInput",
   pdfSigningInput: "PdfSigningInput",
   pdfSignatureBuilderInput: "PdfSignatureBuilderInput",
+  pdfLiteParseResult: "PdfLiteParseResult",
+  pdfRubricPageStampInput: "PdfRubricPageStampInput",
+  pdfVisibleStampInput: "PdfVisibleStampInput",
 } satisfies Record<string, PdfSchemaName>;
 
 export class PdfError extends Schema.TaggedErrorClass<PdfError>()("PdfError", {
@@ -165,6 +171,34 @@ export const PdfRubricStampSchema = Schema.Struct({
   border: Schema.optional(Schema.Boolean),
 });
 export type PdfRubricStamp = (typeof PdfRubricStampSchema)["Type"];
+
+export const PdfTextBoxSchema = Schema.Struct({
+  x: Schema.Number,
+  y: Schema.Number,
+  width: Schema.Number,
+  height: Schema.Number,
+});
+export type PdfTextBox = (typeof PdfTextBoxSchema)["Type"];
+
+export const PdfLiteParseTextItemSchema = Schema.Struct({
+  text: Schema.String,
+  x: Schema.Number,
+  y: Schema.Number,
+  width: Schema.Number,
+  height: Schema.Number,
+});
+export type PdfLiteParseTextItem = (typeof PdfLiteParseTextItemSchema)["Type"];
+
+export const PdfLiteParsePageSchema = Schema.Struct({
+  pageNum: Schema.Number,
+  textItems: Schema.Array(PdfLiteParseTextItemSchema),
+});
+export type PdfLiteParsePage = (typeof PdfLiteParsePageSchema)["Type"];
+
+export const PdfLiteParseResultSchema = Schema.Struct({
+  pages: Schema.Array(PdfLiteParsePageSchema),
+});
+export type PdfLiteParseResult = (typeof PdfLiteParseResultSchema)["Type"];
 
 export const PdfSignatureAnchorSchema = Schema.Literals([
   "bottom-left",
@@ -327,6 +361,27 @@ export const PdfSignaturePageSchema = Schema.Struct({
   label: Schema.optional(Schema.String),
 });
 export type PdfSignaturePage = (typeof PdfSignaturePageSchema)["Type"];
+
+export const PdfVisibleStampInputSchema = Schema.Struct({
+  pdf: Schema.Uint8Array,
+  pageIndex: Schema.Number,
+  rect: PdfSignatureRectSchema,
+  inkPng: Schema.optional(Schema.Uint8Array),
+  lines: Schema.Array(Schema.String),
+  border: Schema.optional(Schema.Boolean),
+});
+export type PdfVisibleStampInput = (typeof PdfVisibleStampInputSchema)["Type"];
+
+export const PdfRubricPageStampInputSchema = Schema.Struct({
+  pdf: Schema.Uint8Array,
+  pageDimensions: Schema.Array(PdfSignaturePageSchema),
+  pages: Schema.Array(Schema.Number),
+  pageTextBoxes: Schema.optional(Schema.Array(Schema.Array(PdfTextBoxSchema))),
+  lines: Schema.optional(Schema.Array(Schema.String)),
+  imagePng: Schema.optional(Schema.Uint8Array),
+  border: Schema.optional(Schema.Boolean),
+});
+export type PdfRubricPageStampInput = (typeof PdfRubricPageStampInputSchema)["Type"];
 
 export const PdfDocumentSourceSchema = Schema.Struct({
   type: PdfDocumentSourceTypeSchema,
