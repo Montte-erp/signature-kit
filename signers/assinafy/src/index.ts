@@ -21,7 +21,6 @@ import {
   bearerAuthorization,
   decodeRemoteOptions,
   decodeRemoteShape,
-  signatureHttpClientLive,
   normalizedBaseUrl,
 } from "@signature-kit/core/http";
 import type { SignatureHttpClientService, SignatureHttpHeaders } from "@signature-kit/core/http";
@@ -146,9 +145,7 @@ const assinafyBaseUrl = (options: AssinafyProviderOptions): string => {
   if (options.environment !== undefined) {
     return options.environment === "production" ? PRODUCTION_BASE_URL : SANDBOX_BASE_URL;
   }
-  return typeof process !== "undefined" && process.env.NODE_ENV === "production"
-    ? PRODUCTION_BASE_URL
-    : SANDBOX_BASE_URL;
+  return SANDBOX_BASE_URL;
 };
 
 const authHeaders = (options: AssinafyProviderOptions): SignatureHttpHeaders => {
@@ -168,9 +165,11 @@ const uploadDocument = (
   SignatureKitError
 > => {
   const formData = new FormData();
-  const bytes = new Uint8Array(document.content.length);
-  bytes.set(document.content);
-  formData.append("file", new Blob([bytes], { type: document.mimeType }), document.fileName);
+  formData.append(
+    "file",
+    new Blob([Uint8Array.from(document.content)], { type: document.mimeType }),
+    document.fileName,
+  );
   return http
     .requestJson({
       provider: PROVIDER,
@@ -355,7 +354,7 @@ const listAssinafySignatureRequestsInternal = (
   http: SignatureHttpClientService,
   options: AssinafyProviderOptions,
   baseUrl: string,
-): Effect.Effect<readonly RemoteSignatureRequest[], SignatureKitError> =>
+): Effect.Effect<RemoteSignatureRequest[], SignatureKitError> =>
   http
     .requestJson({
       provider: PROVIDER,
@@ -497,10 +496,18 @@ export const AssinafySignatureRequestProvider = () =>
       const baseUrl = assinafyBaseUrl(options);
 
       return AssinafySignatureRequest.Provider.of({
-        list: () =>
-          listAssinafySignatureRequestsInternal(http, options, baseUrl).pipe(
-            Effect.map((requests) => Array.from(requests)),
-          ),
+        diff: () => Effect.succeed({ action: "noop" }),
+        list: () => listAssinafySignatureRequestsInternal(http, options, baseUrl),
+        read: Effect.fn(function* ({ output }) {
+          if (output === undefined) return undefined;
+          return yield* getAssinafySignatureRequestInternal(http, options, baseUrl, output.id).pipe(
+            Effect.catchTag("SignatureKitError", (error) =>
+              error.code === SignatureKitErrorCodeValue.http && error.status === 404
+                ? Effect.succeed(undefined)
+                : Effect.fail(error),
+            ),
+          );
+        }),
         reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
           const props = yield* decodeRemoteOptions(
@@ -513,13 +520,6 @@ export const AssinafySignatureRequestProvider = () =>
           return yield* createRemoteRequest(http, options, baseUrl, input);
         }),
         delete: Effect.fn(function* ({ output }) {
-          if (output === undefined) {
-            const requests = yield* listAssinafySignatureRequestsInternal(http, options, baseUrl);
-            yield* Effect.forEach(requests, (request) =>
-              deleteAssinafySignatureRequestInternal(http, options, baseUrl, request.id),
-            );
-            return;
-          }
           yield* deleteAssinafySignatureRequestInternal(http, options, baseUrl, output.id);
         }),
       });
@@ -534,7 +534,6 @@ export const providers = (options: AssinafyProviderOptions) =>
   Layer.effect(AssinafyProviders, Provider.collection([AssinafySignatureRequest])).pipe(
     Layer.provide(AssinafySignatureRequestProvider()),
     Layer.provideMerge(assinafyCredentialsLayer(options)),
-    Layer.provide(signatureHttpClientLive),
   );
 
 export const createAssinafySignatureRequest = (

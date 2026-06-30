@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import type { RequiredSpanCall } from "./model";
 
-export const checkedExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
+export const checkedExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json"]);
 
 export const skippedSegments = new Set(["dist", "node_modules", "outputs", "docs", "__tests__"]);
 export const skippedSuffixes = new Set([".d.ts", ".tsbuildinfo", "README.md"]);

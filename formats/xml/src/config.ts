@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { SignatureAlgorithmSchema } from "@signature-kit/core/config";
 
 export const XmlErrorCodeSchema = Schema.Literals([
+  "xml.INVALID_INPUT",
   "xml.RUNTIME_UNAVAILABLE",
   "xml.INVALID_XML",
   "xml.SIGNATURE_NOT_FOUND",
@@ -13,6 +14,7 @@ export const XmlErrorCodeSchema = Schema.Literals([
 export type XmlErrorCode = (typeof XmlErrorCodeSchema)["Type"];
 
 export const XmlErrorCodeValue = {
+  invalidInput: "xml.INVALID_INPUT",
   runtimeUnavailable: "xml.RUNTIME_UNAVAILABLE",
   invalidXml: "xml.INVALID_XML",
   signatureNotFound: "xml.SIGNATURE_NOT_FOUND",
@@ -38,6 +40,14 @@ export const XmlOperationValue = {
   sign: "xml.sign",
   verify: "xml.verify",
 } satisfies Record<string, XmlOperation>;
+
+export const XmlSchemaNameSchema = Schema.Literals(["XmlSigningRequest", "XmlVerificationRequest"]);
+export type XmlSchemaName = (typeof XmlSchemaNameSchema)["Type"];
+
+export const XmlSchemaNameValue = {
+  signingRequest: "XmlSigningRequest",
+  verificationRequest: "XmlVerificationRequest",
+} satisfies Record<string, XmlSchemaName>;
 
 export const XmlSigningRequestSchema = Schema.Struct({
   xml: Schema.String,
@@ -68,6 +78,7 @@ export class XmlError extends Schema.TaggedErrorClass<XmlError>()("XmlError", {
   retryable: Schema.Boolean,
   reason: Schema.optional(Schema.String),
   operation: Schema.optional(XmlOperationSchema),
+  schemaName: Schema.optional(XmlSchemaNameSchema),
 }) {
   get message(): string {
     return this.reason ?? this.code;

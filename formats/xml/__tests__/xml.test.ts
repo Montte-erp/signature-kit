@@ -5,7 +5,7 @@ import { readA1Fixture } from "../../../tooling/testing/fixtures";
 import { a1SignaturesLayer } from "@signature-kit/a1/signer";
 import { signXml } from "@signature-kit/xml/sign";
 import { verifyXml } from "@signature-kit/xml/verify";
-import { xmlRuntimeLayer } from "@signature-kit/xml/engine";
+import { xmlRuntimeLayer } from "@signature-kit/xml/runtime";
 
 const PASSWORD = Redacted.make("changeit");
 

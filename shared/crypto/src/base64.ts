@@ -25,7 +25,7 @@ export const bytesToBase64 = (bytes: Uint8Array): string => {
   return output;
 };
 
-export const base64ToBytes = (base64: string): Uint8Array => {
+export const base64ToBytes = (base64: string): Uint8Array<ArrayBuffer> => {
   const clean = base64.replace(/[\t\n\r ]/g, "");
   const padding = clean.endsWith("==") ? 2 : clean.endsWith("=") ? 1 : 0;
   const output = new Uint8Array(Math.floor((clean.length * 3) / 4) - padding);

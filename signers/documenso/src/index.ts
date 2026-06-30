@@ -8,7 +8,6 @@ import {
   validRemoteSignatureRequest,
 } from "@signature-kit/core/config";
 import type {
-  RemoteSignatureDocument,
   RemoteSignatureProvider,
   RemoteSignatureRequest,
   RemoteSignatureRequestInput,
@@ -18,7 +17,6 @@ import {
   SignatureHttpClient,
   decodeRemoteOptions,
   decodeRemoteShape,
-  signatureHttpClientLive,
   normalizedBaseUrl,
 } from "@signature-kit/core/http";
 import type { SignatureHttpClientService } from "@signature-kit/core/http";
@@ -121,13 +119,6 @@ const documensoAuthorization = (options: DocumensoProviderOptions): string => {
   return options.authorizationScheme === "bearer" ? `Bearer ${token}` : token;
 };
 
-const documentArrayBuffer = (document: RemoteSignatureDocument): ArrayBuffer => {
-  const buffer = new ArrayBuffer(document.content.byteLength);
-  const bytes = new Uint8Array(buffer);
-  bytes.set(document.content);
-  return buffer;
-};
-
 const requestMeta = (input: RemoteSignatureRequestInput) => ({
   ...(input.subject === undefined ? {} : { subject: input.subject }),
   ...(input.message === undefined ? {} : { message: input.message }),
@@ -153,7 +144,7 @@ const createEnvelopeBody = (input: RemoteSignatureRequestInput): FormData => {
   input.documents.forEach((document) =>
     formData.append(
       "files",
-      new Blob([documentArrayBuffer(document)], { type: document.mimeType }),
+      new Blob([Uint8Array.from(document.content)], { type: document.mimeType }),
       document.fileName,
     ),
   );
@@ -247,8 +238,6 @@ const mapEnvelopeStatus = (status: string): RemoteSignatureRequest["state"] => {
       return "sent";
   }
 };
-const isHttpNotFound = (error: SignatureKitError): boolean =>
-  error.code === SignatureKitErrorCodeValue.http && error.status === 404;
 
 const envelopeSignedDownloadUrl = (baseUrl: string, envelopeItemId: string): string => {
   const url = new URL(`${baseUrl}/envelope/item/${envelopeItemId}/download`);
@@ -312,7 +301,7 @@ const listEnvelopes = (
   http: SignatureHttpClientService,
   options: DocumensoProviderOptions,
   baseUrl: string,
-): Effect.Effect<ReadonlyArray<RemoteSignatureRequest>, SignatureKitError> =>
+): Effect.Effect<RemoteSignatureRequest[], SignatureKitError> =>
   http
     .requestJson({
       provider: PROVIDER,
@@ -370,7 +359,9 @@ const deleteEnvelope = (
     })
     .pipe(
       Effect.catchTag("SignatureKitError", (error) =>
-        isHttpNotFound(error) ? Effect.void : Effect.fail(error),
+        error.code === SignatureKitErrorCodeValue.http && error.status === 404
+          ? Effect.void
+          : Effect.fail(error),
       ),
     );
 
@@ -408,7 +399,7 @@ const downloadSignedEnvelopeDocument = (
           }),
     ),
     Effect.catchTag("SignatureKitError", (error) =>
-      isHttpNotFound(error)
+      error.code === SignatureKitErrorCodeValue.http && error.status === 404
         ? downloadSignedEnvelopeItem(http, options, baseUrl, envelopeId)
         : Effect.fail(error),
     ),
@@ -442,10 +433,18 @@ export const DocumensoSignatureRequestProvider = () =>
       const baseUrl = documensoBaseUrl(options);
 
       return DocumensoSignatureRequest.Provider.of({
-        list: () =>
-          listEnvelopes(http, options, baseUrl).pipe(
-            Effect.map((requests) => Array.from(requests)),
-          ),
+        diff: () => Effect.succeed({ action: "noop" }),
+        list: () => listEnvelopes(http, options, baseUrl),
+        read: Effect.fn(function* ({ output }) {
+          if (output === undefined) return undefined;
+          return yield* getEnvelope(http, options, baseUrl, output.id).pipe(
+            Effect.catchTag("SignatureKitError", (error) =>
+              error.code === SignatureKitErrorCodeValue.http && error.status === 404
+                ? Effect.succeed(undefined)
+                : Effect.fail(error),
+            ),
+          );
+        }),
         reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
           const props = yield* decodeRemoteOptions(
@@ -458,13 +457,6 @@ export const DocumensoSignatureRequestProvider = () =>
           return yield* createRemoteRequest(http, options, baseUrl, input);
         }),
         delete: Effect.fn(function* ({ output }) {
-          if (output === undefined) {
-            const requests = yield* listEnvelopes(http, options, baseUrl);
-            yield* Effect.forEach(requests, (request) =>
-              deleteEnvelope(http, options, baseUrl, request.id),
-            );
-            return;
-          }
           yield* deleteEnvelope(http, options, baseUrl, output.id);
         }),
       });
@@ -479,7 +471,6 @@ export const providers = (options: DocumensoProviderOptions) =>
   Layer.effect(DocumensoProviders, Provider.collection([DocumensoSignatureRequest])).pipe(
     Layer.provide(DocumensoSignatureRequestProvider()),
     Layer.provideMerge(documensoCredentialsLayer(options)),
-    Layer.provide(signatureHttpClientLive),
   );
 
 export const createDocumensoSignatureRequest = (
@@ -566,7 +557,7 @@ export const deleteDocumensoSignatureRequest = (
 
 export const downloadDocumensoSignedDocument = (
   options: DocumensoProviderOptions,
-  envelopeItemId: string,
+  envelopeId: string,
 ): Effect.Effect<Uint8Array, SignatureKitError, SignatureHttpClient> =>
   decodeRemoteOptions(
     DocumensoProviderOptionsSchema,
@@ -577,7 +568,7 @@ export const downloadDocumensoSignedDocument = (
     Effect.map((valid) => ({ valid, baseUrl: documensoBaseUrl(valid) })),
     Effect.flatMap(({ valid, baseUrl }) =>
       SignatureHttpClient.use((http) =>
-        downloadSignedEnvelopeDocument(http, valid, baseUrl, envelopeItemId),
+        downloadSignedEnvelopeDocument(http, valid, baseUrl, envelopeId),
       ),
     ),
   );

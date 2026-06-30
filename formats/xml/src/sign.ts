@@ -1,20 +1,47 @@
 import { bytesToBase64 } from "@signature-kit/crypto/base64";
 import { signatures } from "@signature-kit/core/signatures";
 import type { Signatures } from "@signature-kit/core/signatures";
-import type { SignatureKitError } from "@signature-kit/core/config";
-import { Effect } from "effect";
+import type { SignatureAlgorithm, SignatureKitError } from "@signature-kit/core/config";
+import { Effect, Schema } from "effect";
 import { Parse, SignedXml } from "xmldsigjs";
 import type { OptionsSignReference } from "xmldsigjs";
-import { XmlError, XmlErrorCodeValue, XmlOperationValue } from "./config";
+import {
+  XmlError,
+  XmlErrorCodeValue,
+  XmlOperationValue,
+  XmlSchemaNameValue,
+  XmlSigningRequestSchema,
+} from "./config";
 import type { XmlSigningRequest } from "./config";
-import { XmlRuntime, xmlDigestAlgorithm, xmlSignatureAlgorithm } from "./engine";
+import { XmlRuntime } from "./runtime";
+
+const XML_RSA_ALGORITHM_NAME = "RSASSA-PKCS1-v1_5";
+
+const xmlSignatureAlgorithm = (algorithm: SignatureAlgorithm): RsaHashedImportParams => ({
+  name: XML_RSA_ALGORITHM_NAME,
+  hash: algorithm === "rsa-sha1" ? "SHA-1" : algorithm === "rsa-sha512" ? "SHA-512" : "SHA-256",
+});
+
+const xmlDigestAlgorithm = (algorithm: SignatureAlgorithm): "SHA-1" | "SHA-256" | "SHA-512" =>
+  algorithm === "rsa-sha1" ? "SHA-1" : algorithm === "rsa-sha512" ? "SHA-512" : "SHA-256";
 
 export const signXml = (
-  input: XmlSigningRequest,
+  request: XmlSigningRequest,
 ): Effect.Effect<string, XmlError | SignatureKitError, Signatures | XmlRuntime> =>
   Effect.gen(function* () {
-    const xmlRuntime = yield* XmlRuntime;
-    yield* xmlRuntime.ensure;
+    yield* XmlRuntime;
+    const input = yield* Schema.decodeUnknownEffect(XmlSigningRequestSchema)(request).pipe(
+      Effect.mapError(
+        () =>
+          new XmlError({
+            code: XmlErrorCodeValue.invalidInput,
+            retryable: false,
+            operation: XmlOperationValue.sign,
+            schemaName: XmlSchemaNameValue.signingRequest,
+            reason: "XML signing request failed schema validation.",
+          }),
+      ),
+    );
     const algorithm = input.algorithm ?? "rsa-sha256";
     const certificate = yield* signatures.certificate();
     const signingKey = yield* signatures.importSigningKey(algorithm);

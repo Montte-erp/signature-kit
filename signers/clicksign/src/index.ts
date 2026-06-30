@@ -21,7 +21,6 @@ import {
   SignatureHttpClient,
   decodeRemoteOptions,
   decodeRemoteShape,
-  signatureHttpClientLive,
   normalizedBaseUrl,
 } from "@signature-kit/core/http";
 import type { SignatureHttpClientService, SignatureHttpRequest } from "@signature-kit/core/http";
@@ -140,7 +139,7 @@ const listClicksignSignatureRequestsInternal = (
   http: SignatureHttpClientService,
   options: ClicksignProviderOptions,
   baseUrl: string,
-): Effect.Effect<readonly RemoteSignatureRequest[], SignatureKitError> =>
+): Effect.Effect<RemoteSignatureRequest[], SignatureKitError> =>
   http
     .requestJson({
       provider: PROVIDER,
@@ -264,9 +263,7 @@ const clicksignBaseUrl = (options: ClicksignProviderOptions): string => {
   if (options.environment !== undefined) {
     return options.environment === "production" ? PRODUCTION_BASE_URL : SANDBOX_BASE_URL;
   }
-  return typeof process !== "undefined" && process.env.NODE_ENV === "production"
-    ? PRODUCTION_BASE_URL
-    : SANDBOX_BASE_URL;
+  return SANDBOX_BASE_URL;
 };
 
 const withAccessToken = (
@@ -477,10 +474,23 @@ export const ClicksignSignatureRequestProvider = () =>
       const baseUrl = clicksignBaseUrl(options);
 
       return ClicksignSignatureRequest.Provider.of({
-        list: () =>
-          listClicksignSignatureRequestsInternal(http, options, baseUrl).pipe(
-            Effect.map((requests) => Array.from(requests)),
-          ),
+        diff: () => Effect.succeed({ action: "noop" }),
+        list: () => listClicksignSignatureRequestsInternal(http, options, baseUrl),
+        read: Effect.fn(function* ({ output }) {
+          if (output === undefined) return undefined;
+          return yield* getClicksignSignatureRequestInternal(
+            http,
+            options,
+            baseUrl,
+            output.id,
+          ).pipe(
+            Effect.catchTag("SignatureKitError", (error) =>
+              error.code === SignatureKitErrorCodeValue.http && error.status === 404
+                ? Effect.succeed(undefined)
+                : Effect.fail(error),
+            ),
+          );
+        }),
         reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
           const props = yield* decodeRemoteOptions(
@@ -493,13 +503,6 @@ export const ClicksignSignatureRequestProvider = () =>
           return yield* createRemoteRequest(http, options, baseUrl, input);
         }),
         delete: Effect.fn(function* ({ output }) {
-          if (output === undefined) {
-            const requests = yield* listClicksignSignatureRequestsInternal(http, options, baseUrl);
-            yield* Effect.forEach(requests, (request) =>
-              deleteClicksignSignatureRequestInternal(http, options, baseUrl, request.id),
-            );
-            return;
-          }
           yield* deleteClicksignSignatureRequestInternal(http, options, baseUrl, output.id);
         }),
       });
@@ -514,7 +517,6 @@ export const providers = (options: ClicksignProviderOptions) =>
   Layer.effect(ClicksignProviders, Provider.collection([ClicksignSignatureRequest])).pipe(
     Layer.provide(ClicksignSignatureRequestProvider()),
     Layer.provideMerge(clicksignCredentialsLayer(options)),
-    Layer.provide(signatureHttpClientLive),
   );
 
 export const createClicksignSignatureRequest = (

@@ -69,26 +69,27 @@ export const verifyDetachedSignedData = (
     const serial = signerSerialHex(signed);
     const checkChain = trustedCerts.length > 0;
 
-    const verification = yield* Effect.promise(() =>
-      signed
-        .verify({
+    const verification = yield* Effect.tryPromise({
+      try: () =>
+        signed.verify({
           signer: 0,
           data: toArrayBuffer(input.content),
           checkChain,
           trustedCerts,
           extendedMode: true,
-        })
-        .then(
-          (result) => ({ result }),
-          (cause) => {
-            const decoded = Schema.decodeUnknownOption(SignedDataVerifyErrorSchema)(cause);
-            if (Option.isSome(decoded)) return {};
-            return Promise.reject(cause);
-          },
-        ),
+        }),
+      catch: (cause) => cause,
+    }).pipe(
+      Effect.matchEffect({
+        onFailure: (cause) =>
+          Option.isSome(Schema.decodeUnknownOption(SignedDataVerifyErrorSchema)(cause))
+            ? Effect.succeed(undefined)
+            : Effect.die(cause),
+        onSuccess: (result) => Effect.succeed(result),
+      }),
     );
 
-    if (!("result" in verification)) {
+    if (verification === undefined) {
       return {
         valid: false,
         chainValid: false,
@@ -97,8 +98,8 @@ export const verifyDetachedSignedData = (
     }
 
     return {
-      valid: verification.result.signatureVerified === true,
-      chainValid: checkChain ? verification.result.signerCertificateVerified === true : true,
+      valid: verification.signatureVerified === true,
+      chainValid: checkChain ? verification.signerCertificateVerified === true : true,
       signerSerialNumber: serial,
     };
   });

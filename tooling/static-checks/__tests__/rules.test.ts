@@ -3,6 +3,7 @@ import type { Check, CheckContext } from "../src/model";
 import { errorHandlingChecks } from "../src/rules/error-handling";
 import { typeSafetyChecks } from "../src/rules/type-safety";
 import { architectureChecks } from "../src/rules/architecture";
+import { hasCheckedExtension } from "../src/filesystem";
 
 const context = (line: string): CheckContext => ({
   line,
@@ -18,19 +19,27 @@ const context = (line: string): CheckContext => ({
 const anyCheckMatches = (checks: readonly Check[], line: string): boolean =>
   checks.some((check) => check.test(context(line)));
 
-const contextForSource = (path: string, source: string): CheckContext => ({
-  line: source.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "",
-  rawLine: source.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "",
-  window: source,
-  path,
-  source,
-  lineNumber: 1,
-  lines: source.split(/\r?\n/),
-  rawLines: source.split(/\r?\n/),
-});
-
-const anyCheckMatchesSource = (checks: readonly Check[], path: string, source: string): boolean =>
-  checks.some((check) => check.test(contextForSource(path, source)));
+const anyCheckMatchesSource = (checks: readonly Check[], path: string, source: string): boolean => {
+  const rawLines = source.split(/\r?\n/);
+  const lines = rawLines.map((line) => line.trim());
+  return rawLines.some((rawLine, index) =>
+    checks.some((check) =>
+      check.test({
+        line: lines[index] ?? "",
+        rawLine,
+        window: lines
+          .slice(index, index + 3)
+          .join(" ")
+          .trim(),
+        path,
+        source,
+        lineNumber: index + 1,
+        lines,
+        rawLines,
+      }),
+    ),
+  );
+};
 
 describe("declarative smell rules", () => {
   it("rejects instanceof-based cause classification", () => {
@@ -67,5 +76,101 @@ describe("declarative smell rules", () => {
         'import { Effect } from "effect";\nexport const clicksign = () => Effect.void;',
       ),
     ).toBe(false);
+  });
+
+  it("scans package manifests so dependency checks are live", () => {
+    expect(hasCheckedExtension("core/core/package.json")).toBe(true);
+  });
+
+  it("rejects retained Alchemy providers without an explicit no-op diff seam", () => {
+    expect(
+      anyCheckMatchesSource(
+        architectureChecks,
+        "signers/example/src/index.ts",
+        `
+export const Example = Resource<ExampleResource>("Example.Resource", { defaultRemovalPolicy: "retain" });
+export const ExampleProvider = () =>
+  Provider.effect(
+    Example,
+    Effect.gen(function* () {
+      return Example.Provider.of({
+        list: () => Effect.succeed([]),
+        reconcile: Effect.fn(function* ({ output }) {
+          return output ?? { id: "created" };
+        }),
+        delete: Effect.fn(function* ({ output }) {
+          yield* deleteRemote(output.id);
+        }),
+      });
+    }),
+  );
+`,
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects retained Alchemy provider delete branches without output", () => {
+    expect(
+      anyCheckMatchesSource(
+        architectureChecks,
+        "signers/example/src/index.ts",
+        `
+export const Example = Resource<ExampleResource>("Example.Resource", { defaultRemovalPolicy: "retain" });
+export const ExampleProvider = () =>
+  Provider.effect(
+    Example,
+    Effect.gen(function* () {
+      return Example.Provider.of({
+        diff: Effect.fn(function* () {
+          return { action: "noop" };
+        }),
+        list: () => Effect.succeed([]),
+        reconcile: Effect.fn(function* ({ output }) {
+          return output ?? { id: "created" };
+        }),
+        delete: Effect.fn(function* ({ output }) {
+          if (output === undefined) {
+            const all = yield* listEverything();
+            yield* Effect.forEach(all, deleteRemote);
+            return;
+          }
+          yield* deleteRemote(output.id);
+        }),
+      });
+    }),
+  );
+`,
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects ambient NODE_ENV base URL selection in remote signers", () => {
+    expect(
+      anyCheckMatchesSource(
+        architectureChecks,
+        "signers/example/src/index.ts",
+        'const baseUrl = process.env.NODE_ENV === "production" ? productionUrl : sandboxUrl;',
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects hidden live HTTP transport in remote signer provider layers", () => {
+    expect(
+      anyCheckMatchesSource(
+        architectureChecks,
+        "signers/example/src/index.ts",
+        "Layer.provide(signatureHttpClientLive)",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects provider list array clones", () => {
+    expect(
+      anyCheckMatchesSource(
+        architectureChecks,
+        "signers/example/src/index.ts",
+        "list: () => listRequests().pipe(Effect.map((requests) => Array.from(requests))),",
+      ),
+    ).toBe(true);
   });
 });

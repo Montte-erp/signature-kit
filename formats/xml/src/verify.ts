@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { X509Certificate } from "@peculiar/x509";
 import { base64ToBytes } from "@signature-kit/crypto/base64";
 import type { SignatureAlgorithm } from "@signature-kit/core/config";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { Parse, SignedXml } from "xmldsigjs";
 import {
   type XmlVerificationRequest,
@@ -10,10 +10,18 @@ import {
   XmlError,
   XmlErrorCodeValue,
   XmlOperationValue,
+  XmlSchemaNameValue,
+  XmlVerificationRequestSchema,
 } from "./config";
-import { XmlRuntime, toBufferSource, xmlSignatureAlgorithm } from "./engine";
+import { XmlRuntime } from "./runtime";
 
 const XMLDSIG_NAMESPACE = "http://www.w3.org/2000/09/xmldsig#";
+const XML_RSA_ALGORITHM_NAME = "RSASSA-PKCS1-v1_5";
+
+const xmlSignatureAlgorithm = (algorithm: SignatureAlgorithm): RsaHashedImportParams => ({
+  name: XML_RSA_ALGORITHM_NAME,
+  hash: algorithm === "rsa-sha1" ? "SHA-1" : algorithm === "rsa-sha512" ? "SHA-512" : "SHA-256",
+});
 
 const importVerificationKey = (
   publicKeyDer: Uint8Array,
@@ -23,7 +31,7 @@ const importVerificationKey = (
     try: () =>
       crypto.subtle.importKey(
         "spki",
-        toBufferSource(publicKeyDer),
+        new Uint8Array(publicKeyDer),
         xmlSignatureAlgorithm(algorithm),
         true,
         ["verify"],
@@ -52,7 +60,7 @@ const embeddedVerificationKey = (
 
   return Effect.tryPromise({
     try: () =>
-      new X509Certificate(toBufferSource(base64ToBytes(certificateText))).publicKey.export(
+      new X509Certificate(base64ToBytes(certificateText)).publicKey.export(
         xmlSignatureAlgorithm(algorithm),
         ["verify"],
       ),
@@ -66,11 +74,22 @@ const embeddedVerificationKey = (
 };
 
 export const verifyXml = (
-  input: XmlVerificationRequest,
+  request: XmlVerificationRequest,
 ): Effect.Effect<XmlVerificationResult, XmlError, XmlRuntime> =>
   Effect.gen(function* () {
-    const xmlRuntime = yield* XmlRuntime;
-    yield* xmlRuntime.ensure;
+    yield* XmlRuntime;
+    const input = yield* Schema.decodeUnknownEffect(XmlVerificationRequestSchema)(request).pipe(
+      Effect.mapError(
+        () =>
+          new XmlError({
+            code: XmlErrorCodeValue.invalidInput,
+            retryable: false,
+            operation: XmlOperationValue.verify,
+            schemaName: XmlSchemaNameValue.verificationRequest,
+            reason: "XML verification request failed schema validation.",
+          }),
+      ),
+    );
     const algorithm = input.algorithm ?? "rsa-sha256";
 
     const document = yield* Effect.try({

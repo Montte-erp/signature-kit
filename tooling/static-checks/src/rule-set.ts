@@ -29,4 +29,6 @@ export const checks: readonly Check[] = [
   dependencyChecks[0],
   dependencyChecks[1],
   architectureChecks[0],
+  architectureChecks[1],
+  architectureChecks[2],
 ];

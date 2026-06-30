@@ -14,6 +14,11 @@ type WorkspacePackage = {
   readonly tsconfigReferences: readonly string[];
 };
 
+type WorkspaceExport = {
+  readonly specifier: string;
+  readonly sourcePath: string;
+};
+
 export type WorkspaceLayerDiagnostic = {
   readonly path: string;
   readonly message: string;
@@ -88,6 +93,144 @@ const tsconfigReferences = (rootDirectory: string, packageDirectory: string): re
     ];
   });
 };
+
+const compilerPathAliases = (rootDirectory: string): ReadonlyMap<string, readonly string[]> => {
+  const tsconfigPath = `${rootDirectory}/tooling/typescript/base.json`;
+  if (!existsSync(tsconfigPath)) {
+    return new Map();
+  }
+  const tsconfig = readJsonObject(tsconfigPath);
+  if (tsconfig === undefined) {
+    return new Map();
+  }
+  const compilerOptions = tsconfig.compilerOptions;
+  if (!isJsonObject(compilerOptions)) {
+    return new Map();
+  }
+  const paths = compilerOptions.paths;
+  if (!isJsonObject(paths)) {
+    return new Map();
+  }
+
+  const aliases = new Map<string, readonly string[]>();
+  for (const [specifier, value] of Object.entries(paths)) {
+    if (!Array.isArray(value)) {
+      continue;
+    }
+    const targets = value.filter((target): target is string => typeof target === "string");
+    if (targets.length === value.length) {
+      aliases.set(specifier, targets);
+    }
+  }
+  return aliases;
+};
+
+const exportedImportPath = (value: unknown): string | undefined => {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (!isJsonObject(value)) {
+    return undefined;
+  }
+  return typeof value.import === "string" ? value.import : undefined;
+};
+
+const sourcePathFromDistImport = (
+  packageDirectory: string,
+  importPath: string,
+): string | undefined => {
+  const prefix = "./dist/";
+  const suffix = ".js";
+  if (!importPath.startsWith(prefix) || !importPath.endsWith(suffix)) {
+    return undefined;
+  }
+  return `${packageDirectory}/src/${importPath.slice(prefix.length, -suffix.length)}.ts`;
+};
+
+const exportedSourcePaths = (
+  rootDirectory: string,
+  workspacePackage: WorkspacePackage,
+): readonly WorkspaceExport[] => {
+  const packageJson = readJsonObject(`${rootDirectory}/${workspacePackage.directory}/package.json`);
+  if (packageJson === undefined || !isJsonObject(packageJson.exports)) {
+    return [];
+  }
+
+  return Object.entries(packageJson.exports).flatMap(([subpath, value]) => {
+    const importPath = exportedImportPath(value);
+    if (importPath === undefined) {
+      return [];
+    }
+    const sourcePath = sourcePathFromDistImport(workspacePackage.directory, importPath);
+    if (sourcePath === undefined) {
+      return [];
+    }
+    return [
+      {
+        specifier:
+          subpath === "."
+            ? workspacePackage.name
+            : `${workspacePackage.name}/${subpath.replace(/^\.\//, "")}`,
+        sourcePath,
+      },
+    ];
+  });
+};
+
+const exportPathDiagnostics = (
+  rootDirectory: string,
+  workspacePackage: WorkspacePackage,
+  aliases: ReadonlyMap<string, readonly string[]>,
+): readonly WorkspaceLayerDiagnostic[] =>
+  exportedSourcePaths(rootDirectory, workspacePackage).flatMap((entry) => {
+    const targets = aliases.get(entry.specifier);
+    return targets?.includes(entry.sourcePath) === true
+      ? []
+      : [
+          {
+            path: "tooling/typescript/base.json",
+            message: `${entry.specifier} is exported by ${workspacePackage.name} but does not resolve to ${entry.sourcePath} in tooling/typescript/base.json.`,
+          },
+        ];
+  });
+
+const distJavaScriptFiles = (directory: string): readonly string[] => {
+  if (!existsSync(directory) || !statSync(directory).isDirectory()) {
+    return [];
+  }
+  return readdirSync(directory).flatMap((entry) => {
+    const path = `${directory}/${entry}`;
+    const stats = statSync(path);
+    if (stats.isDirectory()) {
+      return distJavaScriptFiles(path);
+    }
+    return stats.isFile() && entry.endsWith(".js") ? [path] : [];
+  });
+};
+
+const hasSourceForDistFile = (distPath: string): boolean => {
+  const sourceBase = distPath.replace("/dist/", "/src/").slice(0, -".js".length);
+  return [".ts", ".tsx", ".js", ".jsx"].some((extension) =>
+    existsSync(`${sourceBase}${extension}`),
+  );
+};
+
+const distParityDiagnostics = (
+  rootDirectory: string,
+  workspacePackage: WorkspacePackage,
+): readonly WorkspaceLayerDiagnostic[] =>
+  distJavaScriptFiles(`${rootDirectory}/${workspacePackage.directory}/dist`).flatMap((distPath) => {
+    if (hasSourceForDistFile(distPath)) {
+      return [];
+    }
+    const relativePath = normalizePath(relative(rootDirectory, distPath));
+    return [
+      {
+        path: relativePath,
+        message: `${relativePath} is committed generated output without a matching source module.`,
+      },
+    ];
+  });
 
 const sourceFilePaths = (directory: string): readonly string[] => {
   const entries = readdirSync(directory);
@@ -332,9 +475,13 @@ export const collectWorkspaceLayerDiagnostics = (
     packages.map((workspacePackage) => [workspacePackage.directory, workspacePackage]),
   );
 
+  const pathAliases = compilerPathAliases(rootDirectory);
+
   return packages.flatMap((workspacePackage) => [
     ...dependencyDiagnostics(workspacePackage, byName),
     ...referenceDiagnostics(workspacePackage, byName, byDirectory),
+    ...exportPathDiagnostics(rootDirectory, workspacePackage, pathAliases),
+    ...distParityDiagnostics(rootDirectory, workspacePackage),
     ...importDiagnostics(rootDirectory, workspacePackage, packages, byName),
   ]);
 };

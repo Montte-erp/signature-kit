@@ -362,7 +362,7 @@ function DocumentCanvas({
     lines: string[];
   };
   rubricEveryPage: boolean;
-  onTemplateChange: (docId: string, template: PdfSignatureTemplate, rect?: DocRect) => void;
+  onTemplateChange: (docId: string, template: PdfSignatureTemplate, rect?: PdfSignatureRect) => void;
   onPlaced: () => void;
   onError: (message: string) => void;
 }) {
@@ -920,7 +920,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
   const step2Done = Boolean(pfxBytes && password.length > 0);
 
   const onTemplateChange = React.useCallback(
-    (docId: string, template: PdfSignatureTemplate, rect?: DocRect) => {
+    (docId: string, template: PdfSignatureTemplate, rect?: PdfSignatureRect) => {
       updateSignerRuntime((state) => {
         const nextDocs = state.docs.map((doc) =>
           doc.id === docId ? { ...doc, template, rect } : doc,

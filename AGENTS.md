@@ -28,6 +28,9 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
 - Stateful/global setup is a service dependency. Example: XML-DSig requires
   `XmlRuntime`/`xmlRuntimeLayer`; callers provide it explicitly instead of relying
   on import-time mutation or hidden module flags.
+- Never read ambient process state (`NODE_ENV`, env vars, globals) inside package
+  internals to choose behavior. Decode explicit config through Schema or require a
+  provided service/layer.
 
 ## Error rules
 
@@ -120,6 +123,9 @@ with a `Provider.effect` and a collection layer); follow that shape.
 - **Wire by visibility.** `Layer.provide` for private resource providers;
   `Layer.provideMerge` for public credential/auth machinery a consumer also needs.
   Bundle a provider collection as a `providers()` layer.
+  A signer `providers(options)` layer may provide private credentials, but it must
+  not bake in `signatureHttpClientLive`; transport remains a caller-provided
+  `SignatureHttpClient` requirement.
 - **Retained remote-signature requests are immutable.** If the upstream workflow
   cannot be safely updated or deleted after creation, say so in the provider:
   `reconcile` may return the cached `output`, `delete` may retain, and `diff`
@@ -134,6 +140,9 @@ with a `Provider.effect` and a collection layer); follow that shape.
   without lossy string helpers, and test path/method/auth redaction/binary
   downloads against a local HTTP server. Never fake list/delete behavior through
   Alchemy when the provider cannot perform it.
+  Retained request providers use an explicit no-op `diff`, `read` a cached output
+  to detect missing remotes, and `delete` only the provided output id. They must
+  not enumerate account-wide resources when `output` is absent.
 - **Infrastructure is layered: Service → Layer → Binding → Runtime.** A runtime
   contract is a `Context.Service`; a
   `Layer.effect(Service, Effect.gen(function* () { const r = yield* ResourceDecl; const client = yield* Binding(r); return { ...methods } }))`
@@ -155,6 +164,8 @@ with a `Provider.effect` and a collection layer); follow that shape.
 - No barrel files that only re-export. Package exports point at the real module
   (`@signature-kit/pdf/sign`, `@signature-kit/core/signatures`,
   `@signature-kit/xml/engine`) unless the package has one genuine root module.
+  Keep package `exports`, `tooling/typescript/base.json` paths, and committed
+  `dist/` entrypoints in lockstep; CI static checks should fail drift.
 - Avoid `types.ts`. Keep schemas, `Schema.TaggedErrorClass` catalogs, and config
   together in `config.ts` when they belong to the same package.
 - The signer backend is not the document format. A `SignerAdapter` owns "where the
@@ -172,6 +183,8 @@ with a `Provider.effect` and a collection layer); follow that shape.
   re-guards something readable inline (a `toSafeMetadata`-style wrapper) just adds
   a reading hop and hides intent — inline it. With Effect + Alchemy the failure
   surface is known; an unexpected cause is a defect/panic, not a value to launder.
+- Avoid copies that only placate types. If an API requires a mutable array, make
+  the decoded schema or internal return type mutable instead of `Array.from(...)`.
 
 ## React and TanStack
 
@@ -261,6 +274,9 @@ formats/react     @signature-kit/react      React builder state and browser A1 P
   - no `throw`, `instanceof`, or library `try/catch`
   - no legacy Effect service APIs
   - no manual config/data contracts when `Schema` can derive the type
+  - no hidden live transport in provider layers
+  - no ambient `NODE_ENV` behavior selection
+  - no stale `dist/` files or export/path alias drift
   - secrets use `Redacted`
 - Tests for Effect workflows use `@effect/vitest` (or `bun test`).
 

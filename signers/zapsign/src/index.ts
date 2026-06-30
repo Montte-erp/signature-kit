@@ -21,7 +21,6 @@ import {
   bearerAuthorization,
   decodeRemoteOptions,
   decodeRemoteShape,
-  signatureHttpClientLive,
   normalizedBaseUrl,
 } from "@signature-kit/core/http";
 import type { SignatureHttpClientService } from "@signature-kit/core/http";
@@ -123,9 +122,7 @@ const zapSignBaseUrl = (options: ZapSignProviderOptions): string => {
   if (options.environment !== undefined) {
     return options.environment === "production" ? PRODUCTION_BASE_URL : SANDBOX_BASE_URL;
   }
-  return typeof process !== "undefined" && process.env.NODE_ENV === "production"
-    ? PRODUCTION_BASE_URL
-    : SANDBOX_BASE_URL;
+  return SANDBOX_BASE_URL;
 };
 
 const signerPayload = (
@@ -278,7 +275,7 @@ const listZapSignSignatureRequestsInternal = (
   http: SignatureHttpClientService,
   options: ZapSignProviderOptions,
   baseUrl: string,
-): Effect.Effect<readonly RemoteSignatureRequest[], SignatureKitError> =>
+): Effect.Effect<RemoteSignatureRequest[], SignatureKitError> =>
   Effect.gen(function* () {
     const requests: RemoteSignatureRequest[] = [];
     const initialUrl = new URL(`${baseUrl}/docs/`);
@@ -395,10 +392,18 @@ export const ZapSignSignatureRequestProvider = () =>
       const baseUrl = zapSignBaseUrl(options);
 
       return ZapSignSignatureRequest.Provider.of({
-        list: () =>
-          listZapSignSignatureRequestsInternal(http, options, baseUrl).pipe(
-            Effect.map((requests) => Array.from(requests)),
-          ),
+        diff: () => Effect.succeed({ action: "noop" }),
+        list: () => listZapSignSignatureRequestsInternal(http, options, baseUrl),
+        read: Effect.fn(function* ({ output }) {
+          if (output === undefined) return undefined;
+          return yield* getZapSignSignatureRequestInternal(http, options, baseUrl, output.id).pipe(
+            Effect.catchTag("SignatureKitError", (error) =>
+              error.code === SignatureKitErrorCodeValue.http && error.status === 404
+                ? Effect.succeed(undefined)
+                : Effect.fail(error),
+            ),
+          );
+        }),
         reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
           const props = yield* decodeRemoteOptions(
@@ -411,13 +416,6 @@ export const ZapSignSignatureRequestProvider = () =>
           return yield* createRemoteRequest(http, options, baseUrl, input);
         }),
         delete: Effect.fn(function* ({ output }) {
-          if (output === undefined) {
-            const requests = yield* listZapSignSignatureRequestsInternal(http, options, baseUrl);
-            yield* Effect.forEach(requests, (request) =>
-              deleteZapSignSignatureRequestInternal(http, options, baseUrl, request.id),
-            );
-            return;
-          }
           yield* deleteZapSignSignatureRequestInternal(http, options, baseUrl, output.id);
         }),
       });
@@ -432,7 +430,6 @@ export const providers = (options: ZapSignProviderOptions) =>
   Layer.effect(ZapSignProviders, Provider.collection([ZapSignSignatureRequest])).pipe(
     Layer.provide(ZapSignSignatureRequestProvider()),
     Layer.provideMerge(zapSignCredentialsLayer(options)),
-    Layer.provide(signatureHttpClientLive),
   );
 
 export const createZapSignSignatureRequest = (

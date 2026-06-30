@@ -263,7 +263,9 @@ Purpose:
 
 - one package per provider: Clicksign, Assinafy, ZapSign, DocuSeal, and
   Documenso;
-- expose direct `create*SignatureRequest(...)` functions over `SignatureHttpClient`;
+- expose direct `create*SignatureRequest(...)` plus provider-backed
+  `get` / `list` / `cancel` / `delete` / `download` helpers only when the
+  upstream has those endpoints, all over explicit `SignatureHttpClient`;
 - keep provider HTTP protocol details inside that provider adapter;
 - let users install only the providers they use.
 
@@ -273,7 +275,8 @@ Alchemy v2 is used inside signer packages, not as a separate integration package
 
 - signer packages declare resource constructors with `Resource<T>(type)`;
 - resource providers use `Provider.effect(...)`;
-- each signer package may expose a `providers(options)` layer;
+- each signer package may expose a `providers(options)` layer that still requires
+  the caller's `SignatureHttpClient` layer instead of baking in live transport;
 - state-store-safe props stay at the Alchemy boundary and decode into runtime inputs.
 
 ### 5.6 `@signature-kit/xml`
@@ -529,7 +532,9 @@ Use simple, stable names:
 - bytes API: `signatures.sign`, `signatures.verify`
 - remote signer API: `createClicksignSignatureRequest`,
   `createAssinafySignatureRequest`, `createZapSignSignatureRequest`,
-  `createDocuSealSignatureRequest`, `createDocumensoSignatureRequest`
+  `createDocuSealSignatureRequest`, `createDocumensoSignatureRequest`; provider
+  lifecycle helpers use the same verb prefixes (`get`, `list`, `cancel`,
+  `delete`, `download`) only when the upstream supports that operation.
 
 Do not introduce synonyms for the same concept. Use `signer` for signing
 capability backends; use `provider` only for remote workflow vendors such as

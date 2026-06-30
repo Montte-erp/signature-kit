@@ -41,6 +41,16 @@ const writePackage = async (
   await writeFile(join(packageDirectory, "src/index.ts"), source);
 };
 
+const writeBaseConfig = async (
+  root: string,
+  paths: Record<string, readonly string[]>,
+): Promise<void> => {
+  await mkdir(join(root, "tooling/typescript"), { recursive: true });
+  await writeJson(join(root, "tooling/typescript/base.json"), {
+    compilerOptions: { paths },
+  });
+};
+
 afterEach(async () => {
   for (const root of temporaryRoots) {
     await rm(root, { recursive: true, force: true });
@@ -128,6 +138,60 @@ describe("workspace layer checks", () => {
       path: "formats/pdf/src/index.ts",
       message:
         "@signature-kit/pdf reaches into @signature-kit/a1 through a relative import; import the package entry point instead.",
+    });
+  });
+
+  it("requires package exports to resolve through source path aliases", async () => {
+    const root = await createTempWorkspace();
+    await writePackage(
+      root,
+      "shared/crypto",
+      "@signature-kit/crypto",
+      {},
+      [],
+      "export const index = true;\n",
+    );
+    await writeFile(join(root, "shared/crypto/src/pem.ts"), "export const pem = true;\n");
+    await writeJson(join(root, "shared/crypto/package.json"), {
+      name: "@signature-kit/crypto",
+      version: "0.0.0",
+      private: true,
+      type: "module",
+      exports: {
+        "./pem": {
+          import: "./dist/pem.js",
+          types: "./dist/pem.d.ts",
+        },
+      },
+      dependencies: {},
+    });
+    await writeBaseConfig(root, {});
+
+    expect(collectWorkspaceLayerDiagnostics(root)).toContainEqual({
+      path: "tooling/typescript/base.json",
+      message:
+        "@signature-kit/crypto/pem is exported by @signature-kit/crypto but does not resolve to shared/crypto/src/pem.ts in tooling/typescript/base.json.",
+    });
+  });
+
+  it("rejects committed dist modules without matching source", async () => {
+    const root = await createTempWorkspace();
+    await writePackage(
+      root,
+      "shared/crypto",
+      "@signature-kit/crypto",
+      {},
+      [],
+      "export const index = true;\n",
+    );
+    await mkdir(join(root, "shared/crypto/dist"), { recursive: true });
+    await writeFile(join(root, "shared/crypto/dist/hash.js"), "export const hash = true;\n");
+    await writeBaseConfig(root, {});
+
+    expect(collectWorkspaceLayerDiagnostics(root)).toContainEqual({
+      path: "shared/crypto/dist/hash.js",
+      message:
+        "shared/crypto/dist/hash.js is committed generated output without a matching source module.",
     });
   });
 });

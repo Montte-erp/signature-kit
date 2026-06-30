@@ -62,13 +62,6 @@ const OID_SHA512 = "2.16.840.1.101.3.4.2.3";
 
 type Pkcs12Error = CryptoError | Asn1Error;
 
-const decodeEff = (bytes: Uint8Array): Effect.Effect<Asn1Node, Asn1Error> => decode(bytes);
-const childrenEff = (node: Asn1Node): Effect.Effect<readonly Asn1Node[], Asn1Error> =>
-  childrenOf(node);
-const bytesEff = (node: Asn1Node): Effect.Effect<Uint8Array, Asn1Error> => bytesOf(node);
-const oidEff = (node: Asn1Node): Effect.Effect<string, Asn1Error> => oidString(node);
-const intEff = (node: Asn1Node): Effect.Effect<bigint, Asn1Error> => integerBigInt(node);
-
 const elementAt = (
   nodes: readonly Asn1Node[],
   index: number,
@@ -132,7 +125,7 @@ const unwrapContextTag = (
       ? Effect.succeed(first)
       : Effect.succeed(node);
   }
-  return decodeEff(node.bytes);
+  return decode(node.bytes);
 };
 
 // =============================================================================
@@ -256,16 +249,16 @@ const verifyMac = (
   bmpPassword: Uint8Array,
 ): Effect.Effect<void, Pkcs12Error> =>
   Effect.gen(function* () {
-    const macFields = yield* childrenEff(macNode);
-    const digestInfo = yield* childrenEff(yield* elementAt(macFields, 0, "DigestInfo"));
-    const algorithmSeq = yield* childrenEff(yield* elementAt(digestInfo, 0, "AlgorithmIdentifier"));
-    const macAlgOid = yield* oidEff(yield* elementAt(algorithmSeq, 0, "MAC algorithm OID"));
-    const expectedDigest = yield* bytesEff(yield* elementAt(digestInfo, 1, "MAC digest"));
-    const macSalt = yield* bytesEff(yield* elementAt(macFields, 1, "MAC salt"));
+    const macFields = yield* childrenOf(macNode);
+    const digestInfo = yield* childrenOf(yield* elementAt(macFields, 0, "DigestInfo"));
+    const algorithmSeq = yield* childrenOf(yield* elementAt(digestInfo, 0, "AlgorithmIdentifier"));
+    const macAlgOid = yield* oidString(yield* elementAt(algorithmSeq, 0, "MAC algorithm OID"));
+    const expectedDigest = yield* bytesOf(yield* elementAt(digestInfo, 1, "MAC digest"));
+    const macSalt = yield* bytesOf(yield* elementAt(macFields, 1, "MAC salt"));
 
     const iterations =
       macFields.length >= 3
-        ? Number(yield* intEff(yield* elementAt(macFields, 2, "MAC iterations")))
+        ? Number(yield* integerBigInt(yield* elementAt(macFields, 2, "MAC iterations")))
         : 1;
 
     const algorithm = macHashAlgorithm(macAlgOid);
@@ -308,11 +301,11 @@ const decryptPbes2 = (
   passwordBytes: Uint8Array,
 ): Effect.Effect<Uint8Array, Pkcs12Error> =>
   Effect.gen(function* () {
-    const pbes2Params = yield* childrenEff(params);
-    const kdfInfo = yield* childrenEff(yield* elementAt(pbes2Params, 0, "KeyDerivationFunc"));
-    const encScheme = yield* childrenEff(yield* elementAt(pbes2Params, 1, "EncryptionScheme"));
+    const pbes2Params = yield* childrenOf(params);
+    const kdfInfo = yield* childrenOf(yield* elementAt(pbes2Params, 0, "KeyDerivationFunc"));
+    const encScheme = yield* childrenOf(yield* elementAt(pbes2Params, 1, "EncryptionScheme"));
 
-    const kdfOid = yield* oidEff(yield* elementAt(kdfInfo, 0, "KDF OID"));
+    const kdfOid = yield* oidString(yield* elementAt(kdfInfo, 0, "KDF OID"));
     if (kdfOid !== OID_PBKDF2) {
       return yield* Effect.fail(
         new CryptoError({
@@ -323,23 +316,23 @@ const decryptPbes2 = (
       );
     }
 
-    const pbkdf2Params = yield* childrenEff(yield* elementAt(kdfInfo, 1, "PBKDF2-params"));
-    const salt = yield* bytesEff(yield* elementAt(pbkdf2Params, 0, "PBKDF2 salt"));
+    const pbkdf2Params = yield* childrenOf(yield* elementAt(kdfInfo, 1, "PBKDF2-params"));
+    const salt = yield* bytesOf(yield* elementAt(pbkdf2Params, 0, "PBKDF2 salt"));
     const iterations = Number(
-      yield* intEff(yield* elementAt(pbkdf2Params, 1, "PBKDF2 iterations")),
+      yield* integerBigInt(yield* elementAt(pbkdf2Params, 1, "PBKDF2 iterations")),
     );
 
     let prf: HmacHashAlgorithm = "sha1";
     for (let i = 2; i < pbkdf2Params.length; i++) {
       const param = pbkdf2Params[i];
       if (param !== undefined && param.kind === "constructed" && param.tag === 0x10) {
-        const prfOid = yield* oidEff(yield* elementAt(param.children, 0, "PRF OID"));
+        const prfOid = yield* oidString(yield* elementAt(param.children, 0, "PRF OID"));
         prf = pbkdf2HashAlgorithm(prfOid);
       }
     }
 
-    const encOid = yield* oidEff(yield* elementAt(encScheme, 0, "encryption OID"));
-    const iv = yield* bytesEff(yield* elementAt(encScheme, 1, "encryption IV"));
+    const encOid = yield* oidString(yield* elementAt(encScheme, 0, "encryption OID"));
+    const iv = yield* bytesOf(yield* elementAt(encScheme, 1, "encryption IV"));
 
     if (encOid === OID_AES_128_CBC || encOid === OID_AES_192_CBC || encOid === OID_AES_256_CBC) {
       const keyLen = encOid === OID_AES_128_CBC ? 16 : encOid === OID_AES_192_CBC ? 24 : 32;
@@ -377,9 +370,9 @@ const decryptPbe = (
   }
 
   return Effect.gen(function* () {
-    const params = yield* childrenEff(algorithmParams);
-    const salt = yield* bytesEff(yield* elementAt(params, 0, "PBE salt"));
-    const iterations = Number(yield* intEff(yield* elementAt(params, 1, "PBE iterations")));
+    const params = yield* childrenOf(algorithmParams);
+    const salt = yield* bytesOf(yield* elementAt(params, 0, "PBE salt"));
+    const iterations = Number(yield* integerBigInt(yield* elementAt(params, 1, "PBE iterations")));
     const derive = (length: number, purpose: number): Uint8Array =>
       pkcs12Kdf(bmpPassword, salt, iterations, purpose, length, "sha1");
 
@@ -414,10 +407,10 @@ const decryptEncryptedData = (
   passwordBytes: Uint8Array,
 ): Effect.Effect<Uint8Array, Pkcs12Error> =>
   Effect.gen(function* () {
-    const edChildren = yield* childrenEff(node);
-    const eci = yield* childrenEff(yield* elementAt(edChildren, 1, "EncryptedContentInfo"));
-    const algSeq = yield* childrenEff(yield* elementAt(eci, 1, "AlgorithmIdentifier"));
-    const algOid = yield* oidEff(yield* elementAt(algSeq, 0, "algorithm OID"));
+    const edChildren = yield* childrenOf(node);
+    const eci = yield* childrenOf(yield* elementAt(edChildren, 1, "EncryptedContentInfo"));
+    const algSeq = yield* childrenOf(yield* elementAt(eci, 1, "AlgorithmIdentifier"));
+    const algOid = yield* oidString(yield* elementAt(algSeq, 0, "algorithm OID"));
     const algParams = yield* elementAt(algSeq, 1, "algorithm parameters");
 
     const encryptedContentNode = yield* elementAt(eci, 2, "encrypted content");
@@ -473,13 +466,13 @@ const readLocalKeyId = (
     if (attributesNode === undefined || attributesNode.kind !== "constructed") return null;
     for (const attribute of attributesNode.children) {
       if (attribute.kind !== "constructed") continue;
-      const attrId = yield* oidEff(yield* elementAt(attribute.children, 0, "attrId"));
+      const attrId = yield* oidString(yield* elementAt(attribute.children, 0, "attrId"));
       if (attrId !== OID_LOCAL_KEY_ID) continue;
       const valuesNode = attribute.children[1];
       if (valuesNode === undefined || valuesNode.kind !== "constructed") continue;
       const valueNode = valuesNode.children[0];
       if (valueNode === undefined) continue;
-      return bytesToHex(yield* bytesEff(valueNode));
+      return bytesToHex(yield* bytesOf(valueNode));
     }
     return null;
   });
@@ -488,8 +481,8 @@ const extractCertFromBag = (
   certBagNode: Asn1Node,
 ): Effect.Effect<readonly Uint8Array[], Pkcs12Error> =>
   Effect.gen(function* () {
-    const fields = yield* childrenEff(certBagNode);
-    const certId = yield* oidEff(yield* elementAt(fields, 0, "certId"));
+    const fields = yield* childrenOf(certBagNode);
+    const certId = yield* oidString(yield* elementAt(fields, 0, "certId"));
     if (certId !== OID_X509_CERT) return [];
     const certValue = yield* unwrapContextTag(yield* elementAt(fields, 1, "certValue"), 0);
     return [yield* readOctetString(certValue)];
@@ -497,11 +490,11 @@ const extractCertFromBag = (
 
 const parseSafeBags = (safeContents: Asn1Node): Effect.Effect<readonly SafeBag[], Pkcs12Error> =>
   Effect.gen(function* () {
-    const children = yield* childrenEff(safeContents);
+    const children = yield* childrenOf(safeContents);
     const bags: SafeBag[] = [];
     for (const bagNode of children) {
-      const bagFields = yield* childrenEff(bagNode);
-      const bagId = yield* oidEff(yield* elementAt(bagFields, 0, "bagId"));
+      const bagFields = yield* childrenOf(bagNode);
+      const bagId = yield* oidString(yield* elementAt(bagFields, 0, "bagId"));
       const bagValue = yield* unwrapContextTag(yield* elementAt(bagFields, 1, "bagValue"), 0);
       const localKeyId = yield* readLocalKeyId(bagFields);
 
@@ -521,12 +514,12 @@ const decryptShroudedKeyBag = (
   passwordBytes: Uint8Array,
 ): Effect.Effect<Uint8Array, Pkcs12Error> =>
   Effect.gen(function* () {
-    const node = yield* decodeEff(encryptedKeyInfoDer);
-    const fields = yield* childrenEff(node);
-    const algSeq = yield* childrenEff(yield* elementAt(fields, 0, "AlgorithmIdentifier"));
-    const algOid = yield* oidEff(yield* elementAt(algSeq, 0, "algorithm OID"));
+    const node = yield* decode(encryptedKeyInfoDer);
+    const fields = yield* childrenOf(node);
+    const algSeq = yield* childrenOf(yield* elementAt(fields, 0, "AlgorithmIdentifier"));
+    const algOid = yield* oidString(yield* elementAt(algSeq, 0, "algorithm OID"));
     const algParams = yield* elementAt(algSeq, 1, "algorithm parameters");
-    const encryptedData = yield* bytesEff(yield* elementAt(fields, 1, "encrypted key"));
+    const encryptedData = yield* bytesOf(yield* elementAt(fields, 1, "encrypted key"));
 
     const pkcs8 = yield* decryptPbe(
       encryptedData,
@@ -571,10 +564,10 @@ export const parsePkcs12 = (
     const bmpPassword = toBmpString(phrase);
     const passwordBytes = new TextEncoder().encode(phrase);
 
-    const pfx = yield* decodeEff(data);
-    const pfxChildren = yield* childrenEff(pfx);
+    const pfx = yield* decode(data);
+    const pfxChildren = yield* childrenOf(pfx);
 
-    const version = yield* intEff(yield* elementAt(pfxChildren, 0, "PFX version"));
+    const version = yield* integerBigInt(yield* elementAt(pfxChildren, 0, "PFX version"));
     if (version !== 3n) {
       return yield* Effect.fail(
         new CryptoError({
@@ -585,8 +578,8 @@ export const parsePkcs12 = (
       );
     }
 
-    const authSafe = yield* childrenEff(yield* elementAt(pfxChildren, 1, "authSafe ContentInfo"));
-    const authSafeOid = yield* oidEff(yield* elementAt(authSafe, 0, "authSafe OID"));
+    const authSafe = yield* childrenOf(yield* elementAt(pfxChildren, 1, "authSafe ContentInfo"));
+    const authSafeOid = yield* oidString(yield* elementAt(authSafe, 0, "authSafe OID"));
     if (authSafeOid !== OID_DATA) {
       return yield* Effect.fail(
         new CryptoError({
@@ -607,15 +600,15 @@ export const parsePkcs12 = (
       yield* verifyMac(yield* elementAt(pfxChildren, 2, "MacData"), authSafeData, bmpPassword);
     }
 
-    const safeContents = yield* childrenEff(yield* decodeEff(authSafeData));
+    const safeContents = yield* childrenOf(yield* decode(authSafeData));
 
     type CertEntry = { readonly data: Uint8Array; readonly localKeyId: string | null };
     const certificates: CertEntry[] = [];
     const keyBags: CertEntry[] = [];
 
     for (const contentInfo of safeContents) {
-      const ciChildren = yield* childrenEff(contentInfo);
-      const ciOid = yield* oidEff(yield* elementAt(ciChildren, 0, "ContentInfo OID"));
+      const ciChildren = yield* childrenOf(contentInfo);
+      const ciOid = yield* oidString(yield* elementAt(ciChildren, 0, "ContentInfo OID"));
 
       const safeBagsDer =
         ciOid === OID_DATA
@@ -632,7 +625,7 @@ export const parsePkcs12 = (
 
       if (safeBagsDer === undefined) continue;
 
-      const bags = yield* parseSafeBags(yield* decodeEff(safeBagsDer));
+      const bags = yield* parseSafeBags(yield* decode(safeBagsDer));
       for (const bag of bags) {
         if (bag.kind === "cert") certificates.push({ data: bag.data, localKeyId: bag.localKeyId });
         else keyBags.push({ data: bag.data, localKeyId: bag.localKeyId });

@@ -1,4 +1,4 @@
-import { Asn1Error, bytesOf, childrenOf, decode, oidString } from "@signature-kit/asn1";
+import { bytesOf, childrenOf, decode, oidString } from "@signature-kit/asn1";
 import { Duration, Effect, Schema } from "effect";
 import {
   type CmsHashAlgorithm,
@@ -21,7 +21,6 @@ export const IcpBrasilPadesPolicy = {
 };
 
 const DEFAULT_POLICY_TIMEOUT_MILLIS = 10000;
-let cachedAdRbV11: IcpBrasilPolicy | null = null;
 
 const cmsHashAlgorithmFromOid = (oid: string): Effect.Effect<CmsHashAlgorithm, CmsError> => {
   switch (oid) {
@@ -46,7 +45,7 @@ const cmsHashAlgorithmFromOid = (oid: string): Effect.Effect<CmsHashAlgorithm, C
 
 export const parseIcpBrasilPadesPolicy = (
   policyDer: Uint8Array,
-): Effect.Effect<IcpBrasilPolicy, CmsError | Asn1Error> =>
+): Effect.Effect<IcpBrasilPolicy, CmsError> =>
   Effect.gen(function* () {
     const root = yield* decode(policyDer);
     const policyFields = yield* childrenOf(root);
@@ -84,18 +83,22 @@ export const parseIcpBrasilPadesPolicy = (
       policyHashAlgorithm,
       policyUri: IcpBrasilPadesPolicy.adRbV11.policyUri,
     };
-  });
-
-export const clearIcpBrasilPolicyCache = (): void => {
-  cachedAdRbV11 = null;
-};
+  }).pipe(
+    Effect.mapError((error) =>
+      error._tag === "Asn1Error"
+        ? new CmsError({
+            code: CmsErrorCodeValue.policyError,
+            reason: error.message,
+            operation: CmsOperationValue.policy,
+          })
+        : error,
+    ),
+  );
 
 export const fetchIcpBrasilPadesPolicy = (
   options?: FetchIcpBrasilPadesPolicyOptions,
-): Effect.Effect<IcpBrasilPolicy, CmsError> => {
-  if (cachedAdRbV11 !== null) return Effect.succeed(cachedAdRbV11);
-
-  return Effect.gen(function* () {
+): Effect.Effect<IcpBrasilPolicy, CmsError> =>
+  Effect.gen(function* () {
     const response = yield* Effect.tryPromise({
       try: (signal) => fetch(IcpBrasilPadesPolicy.adRbV11.policyUri, { signal }),
       catch: () =>
@@ -137,19 +140,6 @@ export const fetchIcpBrasilPadesPolicy = (
           operation: CmsOperationValue.policy,
         }),
     });
-
-    const policy = yield* parseIcpBrasilPadesPolicy(new Uint8Array(policyDer)).pipe(
-      Effect.mapError((error) =>
-        error._tag === "Asn1Error"
-          ? new CmsError({
-              code: CmsErrorCodeValue.policyError,
-              reason: error.message,
-              operation: CmsOperationValue.policy,
-            })
-          : error,
-      ),
-    );
-    cachedAdRbV11 = policy;
+    const policy = yield* parseIcpBrasilPadesPolicy(new Uint8Array(policyDer));
     return policy;
   });
-};

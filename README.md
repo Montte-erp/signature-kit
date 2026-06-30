@@ -98,7 +98,7 @@ import { signaturesLayer } from "@signature-kit/core/signatures";
 import { signPdf } from "@signature-kit/pdf/sign";
 import { verifyPdf } from "@signature-kit/pdf/verify";
 import { signXml } from "@signature-kit/xml/sign";
-import { xmlRuntimeLayer } from "@signature-kit/xml/engine";
+import { xmlRuntimeLayer } from "@signature-kit/xml/runtime";
 import { verifyXml } from "@signature-kit/xml/verify";
 import { Effect } from "effect";
 

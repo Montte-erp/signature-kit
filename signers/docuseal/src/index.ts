@@ -19,7 +19,6 @@ import {
   SignatureHttpClient,
   decodeRemoteOptions,
   decodeRemoteShape,
-  signatureHttpClientLive,
   normalizedBaseUrl,
 } from "@signature-kit/core/http";
 import type { SignatureHttpClientService } from "@signature-kit/core/http";
@@ -300,7 +299,7 @@ const listSubmissions = (
   http: SignatureHttpClientService,
   options: DocuSealProviderOptions,
   baseUrl: string,
-): Effect.Effect<readonly RemoteSignatureRequest[], SignatureKitError> =>
+): Effect.Effect<RemoteSignatureRequest[], SignatureKitError> =>
   http
     .requestJson({
       provider: PROVIDER,
@@ -407,10 +406,19 @@ export const DocuSealSignatureRequestProvider = () =>
       const baseUrl = docuSealBaseUrl(options);
 
       return DocuSealSignatureRequest.Provider.of({
-        list: () =>
-          listSubmissions(http, options, baseUrl).pipe(
-            Effect.map((requests) => Array.from(requests)),
-          ),
+        diff: () => Effect.succeed({ action: "noop" }),
+        list: () => listSubmissions(http, options, baseUrl),
+        read: Effect.fn(function* ({ output }) {
+          if (output === undefined) return undefined;
+          return yield* fetchSubmission(http, options, baseUrl, output.id).pipe(
+            Effect.map((result) => toRemoteSignatureRequest(baseUrl, result)),
+            Effect.catchTag("SignatureKitError", (error) =>
+              error.code === SignatureKitErrorCodeValue.http && error.status === 404
+                ? Effect.succeed(undefined)
+                : Effect.fail(error),
+            ),
+          );
+        }),
         reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
           const props = yield* decodeRemoteOptions(
@@ -423,13 +431,6 @@ export const DocuSealSignatureRequestProvider = () =>
           return yield* createSubmission(http, options, baseUrl, input);
         }),
         delete: Effect.fn(function* ({ output }) {
-          if (output === undefined) {
-            const requests = yield* listSubmissions(http, options, baseUrl);
-            yield* Effect.forEach(requests, (request: RemoteSignatureRequest) =>
-              deleteSubmission(http, options, baseUrl, request.id),
-            );
-            return;
-          }
           yield* deleteSubmission(http, options, baseUrl, output.id);
         }),
       });
@@ -443,7 +444,6 @@ export const providers = (options: DocuSealProviderOptions) =>
   Layer.effect(DocuSealProviders, Provider.collection([DocuSealSignatureRequest])).pipe(
     Layer.provide(DocuSealSignatureRequestProvider()),
     Layer.provideMerge(docuSealCredentialsLayer(options)),
-    Layer.provide(signatureHttpClientLive),
   );
 
 export const createDocuSealSignatureRequest = (
