@@ -1,6 +1,7 @@
 node_modules/
 **/dist/
 **/.cache/
+.nx/
 apps/web/.astro/
 apps/web/dist/
 .env

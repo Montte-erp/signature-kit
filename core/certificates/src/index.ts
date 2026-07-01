@@ -14,6 +14,7 @@ import {
   SignatureKitError,
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
+  SignatureKitSchemaNameValue,
   type BrazilianFields,
   type Certificate,
   type SignerIdentity,
@@ -27,6 +28,8 @@ const OID_STATE = "2.5.4.8";
 const OID_ORGANIZATION = "2.5.4.10";
 const OID_ORGANIZATIONAL_UNIT = "2.5.4.11";
 const OID_SUBJECT_ALT_NAME = "2.5.29.17";
+const HEX_ALPHABET = "0123456789abcdef";
+
 const ICP_BRASIL_OID_LABELS: Record<string, string> = {
   "2.16.76.1.3.1": "CPF",
   "2.16.76.1.3.2": "ICP-Brasil-Name",
@@ -54,7 +57,16 @@ export const X509InfoSchema = Schema.Struct({
 });
 export type X509Info = (typeof X509InfoSchema)["Type"];
 
-export type CertificateSource = string | ArrayBuffer | ArrayBufferView;
+const ArrayBufferViewSchema = Schema.declare<ArrayBufferView>((source): source is ArrayBufferView =>
+  ArrayBuffer.isView(source),
+);
+
+export const CertificateSourceSchema = Schema.Union([
+  Schema.String,
+  Schema.instanceOf(ArrayBuffer),
+  ArrayBufferViewSchema,
+]);
+export type CertificateSource = (typeof CertificateSourceSchema)["Type"];
 
 /** Parse a `.pfx`/`.p12` container into a normalized certificate. */
 export const parseCertificate = (
@@ -62,7 +74,20 @@ export const parseCertificate = (
   password: Redacted.Redacted<string>,
 ): Effect.Effect<Certificate, SignatureKitError> =>
   Effect.gen(function* () {
-    const pfx = certificateBytes(source);
+    const validSource = yield* Schema.decodeUnknownEffect(CertificateSourceSchema)(source).pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            reason: "Invalid certificate source.",
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.certificateSource,
+            issueMessage: String(issue),
+          }),
+      ),
+    );
+    const pfx = certificateBytes(validSource);
     if (pfx.length === 0) {
       return yield* Effect.fail(
         new SignatureKitError({ code: SignatureKitErrorCodeValue.emptyFile, retryable: false }),
@@ -85,7 +110,7 @@ export const parseCertificate = (
           new SignatureKitError({
             code: cryptoErrorCode(error),
             retryable: false,
-            reason: error.message,
+            reason: error.reason ?? error.message,
             operation: SignatureKitOperationValue.pkcs12Parse,
           }),
       ),
@@ -196,13 +221,7 @@ const digestSha256Hex = (data: Uint8Array): Effect.Effect<string, SignatureKitEr
         retryable: false,
         operation: SignatureKitOperationValue.cryptoDigest,
       }),
-  }).pipe(
-    Effect.map((buffer) =>
-      Array.from(new Uint8Array(buffer))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join(""),
-    ),
-  );
+  }).pipe(Effect.map((buffer) => bytesToHex(new Uint8Array(buffer))));
 
 const isLikelyPkcs12 = (data: Uint8Array): boolean => data.length >= 4 && data[0] === 0x30;
 
@@ -232,10 +251,14 @@ const extractCpf = (raw: string): string | null => {
 
 const decodeText = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
 
-const bytesToHex = (bytes: Uint8Array): string =>
-  Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+const bytesToHex = (bytes: Uint8Array): string => {
+  let output = "";
+  for (const byte of bytes) {
+    output += HEX_ALPHABET[(byte >> 4) & 0x0f] ?? "";
+    output += HEX_ALPHABET[byte & 0x0f] ?? "";
+  }
+  return output;
+};
 
 const oidToShortName = (oid: string): string | null => {
   const map: Record<string, string> = {
@@ -571,7 +594,7 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
         ? new SignatureKitError({
             code: SignatureKitErrorCodeValue.x509ParseFailed,
             retryable: false,
-            reason: error.message,
+            reason: error.reason ?? error.message,
             operation: SignatureKitOperationValue.x509Parse,
           })
         : error,

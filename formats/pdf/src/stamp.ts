@@ -423,22 +423,17 @@ export const stampPdfRubricOnPages = (
           groups.set(key, group);
         }
 
-        const initial: Effect.Effect<Uint8Array, PdfError> = Effect.succeed(valid.pdf);
-        return yield* Array.from(groups.values()).reduce<Effect.Effect<Uint8Array, PdfError>>(
-          (effect, group) =>
-            effect.pipe(
-              Effect.flatMap((pdf) =>
-                stampPdfRubric(pdf, {
-                  rect: group.rect,
-                  pages: group.pages,
-                  ...(valid.lines === undefined ? {} : { lines: valid.lines }),
-                  ...(valid.imagePng === undefined ? {} : { imagePng: valid.imagePng }),
-                  ...(valid.border === undefined ? {} : { border: valid.border }),
-                }),
-              ),
-            ),
-          initial,
-        );
+        let pdf = valid.pdf;
+        for (const group of groups.values()) {
+          pdf = yield* stampPdfRubric(pdf, {
+            rect: group.rect,
+            pages: group.pages,
+            ...(valid.lines === undefined ? {} : { lines: valid.lines }),
+            ...(valid.imagePng === undefined ? {} : { imagePng: valid.imagePng }),
+            ...(valid.border === undefined ? {} : { border: valid.border }),
+          });
+        }
+        return pdf;
       }),
     ),
   );

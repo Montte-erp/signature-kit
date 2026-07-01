@@ -107,6 +107,9 @@ new TaggedError({ ..., reason: String(issue) })))` inline at the provider,
 - Use `Effect.fn(function* (args) { ... })` for service and provider methods so
   argument inference is preserved. Reserve `Effect.fnUntraced` for deliberately
   untraced leaf helpers, not lifecycle methods.
+- Do not wrap pure hooks in generator functions. If a provider hook only returns
+  `Effect.succeed(...)`, write a plain function; reserve `Effect.fn(function* ...)`
+  for bodies that actually `yield*`.
 - Use `Match.value(x).pipe(Match.when(...), Match.exhaustive)` for total branching.
 - Use `Effect.forEach` directly for bounded in-memory batches; it is sequential by
   default. Add `discard: true` when the result array is intentionally unused, and
@@ -213,9 +216,10 @@ schema, schemaName)`, not repeated after each remote call. The HTTP seam owns
   root specifier is the real API.
 - The signer backend is not the document format. A `SignerAdapter` owns "where the
   signing power comes from"; it must not own XML/PDF document mutation.
-- `shared/*` packages are internal-only and unpublished (`@signature-kit/asn1`,
-  `@signature-kit/crypto`, `@signature-kit/cms`). Public packages live in `core/`,
-  `signers/`, and `formats/`; there is no `integrations/*` layer.
+- `shared/*` packages are low-level support packages that may be published so
+  public packages install cleanly from npm, but they are not the product surface.
+  Keep their exports narrow and dependency-driven. Public product packages live in
+  `core/`, `signers/`, and `formats/`; there is no `integrations/*` layer.
 - Tests live with the package that owns the behavior. Browser-facing React tests
   belong in `formats/react/__tests__`; app packages keep only page/app smoke tests.
 - No super-atomic files. Split a module only when it owns a genuinely separate

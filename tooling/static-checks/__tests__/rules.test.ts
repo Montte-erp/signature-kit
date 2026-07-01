@@ -80,6 +80,16 @@ describe("declarative smell rules", () => {
     expect(anyCheckMatches(errorHandlingChecks, "reason: String(issue),")).toBe(true);
   });
 
+  it("rejects message-only error laundering", () => {
+    expect(anyCheckMatches(errorHandlingChecks, "reason: error.message,")).toBe(true);
+    expect(anyCheckMatches(errorHandlingChecks, "cause: cause.message,")).toBe(true);
+    expect(anyCheckMatches(errorHandlingChecks, "message: unknown.message,")).toBe(true);
+    expect(anyCheckMatches(errorHandlingChecks, "issueMessage: String(issue),")).toBe(false);
+    expect(anyCheckMatches(errorHandlingChecks, "reason: error.reason ?? error.message,")).toBe(
+      false,
+    );
+  });
+
   it("rejects all TypeScript as casts including const assertions", () => {
     expect(anyCheckMatches(typeSafetyChecks, "const codes = ['A'] as const;")).toBe(true);
   });
@@ -190,6 +200,16 @@ export const ExampleProvider = () =>
         architectureChecks,
         "signers/example/src/index.ts",
         "Layer.provide(signatureHttpClientLive)",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects remote signer provider option decode wrappers", () => {
+    expect(
+      anyCheckMatchesSource(
+        architectureChecks,
+        "signers/example/src/index.ts",
+        "const decodeClicksignProviderOptions = (options: ClicksignProviderOptions) => Effect.void;",
       ),
     ).toBe(true);
   });

@@ -12,19 +12,18 @@ export const A1SignerOptionsSchema = Schema.Struct({
 });
 export type A1SignerOptions = (typeof A1SignerOptionsSchema)["Type"];
 
-export const A1RemoteFetchSchema = Schema.Struct({
+const A1RemoteLocationFields = {
   /** The (presigned) URL the PKCS#12 bytes are fetched from with a GET. */
   url: Schema.NonEmptyString,
   /** Extra request headers (for auth not already baked into the URL). */
   headers: Schema.optional(SignatureHttpHeadersSchema),
-});
+};
+
+export const A1RemoteFetchSchema = Schema.Struct(A1RemoteLocationFields);
 export type A1RemoteFetch = (typeof A1RemoteFetchSchema)["Type"];
 
 export const A1RemoteSourceSchema = Schema.Struct({
-  /** The (presigned) URL the PKCS#12 bytes are fetched from with a GET. */
-  url: Schema.NonEmptyString,
-  /** Extra request headers (for auth not already baked into the URL). */
-  headers: Schema.optional(SignatureHttpHeadersSchema),
+  ...A1RemoteLocationFields,
   password: redactedStringSchema,
 });
 export type A1RemoteSource = (typeof A1RemoteSourceSchema)["Type"];

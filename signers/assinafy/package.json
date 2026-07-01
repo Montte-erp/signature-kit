@@ -1,8 +1,13 @@
 {
   "name": "@signature-kit/assinafy",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "license": "MIT",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.js",
@@ -13,14 +18,35 @@
       "import": "./dist/index.js"
     }
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -b tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "@signature-kit/core": "workspace:*",
+    "@signature-kit/core": "^0.1.0",
     "alchemy": "2.0.0-beta.57",
     "effect": "4.0.0-beta.86"
+  },
+  "nx": {
+    "targets": {
+      "npm-pack": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "npm pack --dry-run --json",
+          "cwd": "{projectRoot}"
+        }
+      },
+      "npm-publish": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "npm publish --access public",
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
   }
 }

@@ -452,10 +452,11 @@ type SafeBag =
   | { readonly kind: "cert"; readonly data: Uint8Array; readonly localKeyId: string | null }
   | { readonly kind: "key"; readonly data: Uint8Array; readonly localKeyId: string | null };
 
-const bytesToHex = (bytes: Uint8Array): string =>
-  Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+const bytesToHex = (bytes: Uint8Array): string => {
+  let output = "";
+  for (const byte of bytes) output += byte.toString(16).padStart(2, "0");
+  return output;
+};
 
 /** Read the localKeyId (OID 1.2.840.113549.1.9.21) from a SafeBag's bagAttributes. */
 const readLocalKeyId = (
@@ -674,7 +675,7 @@ export const parsePkcs12 = (
       error._tag === "Asn1Error"
         ? new CryptoError({
             code: CryptoErrorCodeValue.decodeError,
-            reason: error.message,
+            reason: error.reason ?? error.message,
             operation: CryptoOperationValue.pkcs12Decode,
           })
         : error,

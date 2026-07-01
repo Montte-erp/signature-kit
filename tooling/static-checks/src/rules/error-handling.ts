@@ -87,7 +87,8 @@ const hasErrorFactoryOrClassName = (line: string, _path: string, source: string)
 const hasStringErrorOnlyMapping = (line: string): boolean =>
   /\b(?:reason|cause|message)\s*:\s*String\s*\(\s*(?:error|_error|issue|reason|cause|unknown)\s*\)/.test(
     line,
-  );
+  ) ||
+  /\b(?:reason|cause|message)\s*:\s*(?:error|_error|reason|cause|unknown)\.message\b/.test(line);
 
 const hasGenericCauseMetadataWrapper = (line: string): boolean =>
   /\b(?:safe|to)[A-Za-z_$]*CauseMetadata\b|\bfirstStringField\b/.test(line);
@@ -121,7 +122,8 @@ export const errorHandlingChecks: readonly Check[] = [
     ignoreImportLine: true,
   },
   {
-    message: "Do not use String(error/reason/cause) as the only preserved error data.",
+    message:
+      "Do not use String(error/reason/cause) or error.message as the only preserved error data.",
     test: ({ line }) => hasStringErrorOnlyMapping(line),
     ignoreImportLine: false,
   },

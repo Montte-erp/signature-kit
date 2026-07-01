@@ -35,7 +35,9 @@ const signerSerialHex = (signed: pkijs.SignedData): string | null => {
   if (valueBlock === null || typeof valueBlock !== "object") return null;
   const view = "valueHexView" in valueBlock ? valueBlock.valueHexView : null;
   if (!isUint8Array(view)) return null;
-  return Array.from(view, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  let output = "";
+  for (const byte of view) output += byte.toString(16).padStart(2, "0");
+  return output;
 };
 
 export const verifyDetachedSignedData = (

@@ -137,9 +137,9 @@ const cachedKey = (
   return load(algorithm).pipe(Effect.tap((key) => Effect.sync(() => cache.set(algorithm, key))));
 };
 
-const decodeA1SignerOptions = (
+const loadA1Certificate = (
   options: A1SignerOptions,
-): Effect.Effect<A1SignerOptions, SignatureKitError> =>
+): Effect.Effect<Certificate, SignatureKitError> =>
   Schema.decodeUnknownEffect(A1SignerOptionsSchema)(options).pipe(
     Effect.mapError((issue) => {
       return new SignatureKitError({
@@ -151,12 +151,6 @@ const decodeA1SignerOptions = (
         issueMessage: String(issue),
       });
     }),
-  );
-
-const loadA1Certificate = (
-  options: A1SignerOptions,
-): Effect.Effect<Certificate, SignatureKitError> =>
-  decodeA1SignerOptions(options).pipe(
     Effect.flatMap((valid) => parseCertificate(valid.pfx, valid.password)),
   );
 

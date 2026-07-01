@@ -4,13 +4,13 @@ import type {
 } from "@signature-kit/core/config";
 import { Effect } from "effect";
 
-export const noopPlanStatusSession = {
+const noopPlanStatusSession = {
   emit: () => Effect.void,
   done: () => Effect.void,
   note: () => Effect.void,
 };
 
-export const remoteSignatureRequestProps = (
+const remoteSignatureRequestProps = (
   input: RemoteSignatureRequestInput,
 ): RemoteSignatureRequestProps => {
   const [firstDocument, ...restDocuments] = input.documents;

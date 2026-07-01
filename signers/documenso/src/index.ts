@@ -91,45 +91,28 @@ export class DocumensoCredentials extends Context.Service<
   DocumensoProviderOptions
 >()("@signature-kit/documenso/Credentials") {}
 
-const decodeDocumensoProviderOptions = (
-  options: DocumensoProviderOptions,
-): Effect.Effect<DocumensoProviderOptions, SignatureKitError> =>
-  Schema.decodeUnknownEffect(DocumensoProviderOptionsSchema)(options).pipe(
-    Effect.mapError(
-      (issue) =>
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.invalidInput,
-          retryable: false,
-          provider: PROVIDER,
-          operation: SignatureKitOperationValue.schemaDecode,
-          schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
-          issueMessage: String(issue),
-        }),
-    ),
-  );
-
 export const documensoCredentialsLayer = (
   options: DocumensoProviderOptions,
 ): Layer.Layer<DocumensoCredentials, SignatureKitError> =>
-  Layer.effect(DocumensoCredentials, decodeDocumensoProviderOptions(options));
+  Layer.effect(
+    DocumensoCredentials,
+    Schema.decodeUnknownEffect(DocumensoProviderOptionsSchema)(options).pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            issueMessage: String(issue),
+          }),
+      ),
+    ),
+  );
 
 const documensoBaseUrl = (options: DocumensoProviderOptions): string =>
   options.baseUrl === undefined ? DEFAULT_BASE_URL : normalizedBaseUrl(options.baseUrl);
-
-const withDocumensoHttp = <A>(
-  options: DocumensoProviderOptions,
-  use: (
-    http: SignatureHttpClientService,
-    valid: DocumensoProviderOptions,
-    baseUrl: string,
-  ) => Effect.Effect<A, SignatureKitError>,
-): Effect.Effect<A, SignatureKitError, SignatureHttpClient> =>
-  decodeDocumensoProviderOptions(options).pipe(
-    Effect.map((valid) => ({ valid, baseUrl: documensoBaseUrl(valid) })),
-    Effect.flatMap(({ valid, baseUrl }) =>
-      SignatureHttpClient.use((http) => use(http, valid, baseUrl)),
-    ),
-  );
 
 const documensoAuthorization = (options: DocumensoProviderOptions): string => {
   const token = Redacted.value(options.apiKey);
@@ -354,10 +337,9 @@ const deleteEnvelope = (
       body: JSON.stringify({ envelopeId }),
     })
     .pipe(
-      Effect.catchTag("SignatureKitError", (error) =>
-        error.code === SignatureKitErrorCodeValue.http && error.status === 404
-          ? Effect.void
-          : Effect.fail(error),
+      Effect.catchIf(
+        (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
+        () => Effect.void,
       ),
     );
 
@@ -394,10 +376,9 @@ const downloadSignedEnvelopeDocument = (
             headers: { Authorization: documensoAuthorization(options) },
           }),
     ),
-    Effect.catchTag("SignatureKitError", (error) =>
-      error.code === SignatureKitErrorCodeValue.http && error.status === 404
-        ? downloadSignedEnvelopeItem(http, options, baseUrl, envelopeId)
-        : Effect.fail(error),
+    Effect.catchIf(
+      (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
+      () => downloadSignedEnvelopeItem(http, options, baseUrl, envelopeId),
     ),
   );
 
@@ -429,26 +410,23 @@ export const DocumensoSignatureRequestProvider = () =>
       const baseUrl = documensoBaseUrl(options);
 
       return DocumensoSignatureRequest.Provider.of({
-        diff: () => Effect.succeed({ action: "noop" }),
+        diff: ({ olds }) => Effect.succeed(olds === undefined ? undefined : { action: "noop" }),
         list: () => listEnvelopes(http, options, baseUrl),
-        read: Effect.fn(function* ({ output }) {
-          if (output === undefined) return undefined;
-          return yield* getEnvelope(http, options, baseUrl, output.id).pipe(
-            Effect.catchTag("SignatureKitError", (error) =>
-              error.code === SignatureKitErrorCodeValue.http && error.status === 404
-                ? Effect.succeed(undefined)
-                : Effect.fail(error),
-            ),
-          );
-        }),
+        read: ({ output }) =>
+          output === undefined
+            ? Effect.succeed(undefined)
+            : getEnvelope(http, options, baseUrl, output.id).pipe(
+                Effect.catchIf(
+                  (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
+                  () => Effect.succeed(undefined),
+                ),
+              ),
         reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
           const input = yield* remoteSignatureInputFromResourceProps(PROVIDER, news);
           return yield* createRemoteRequest(http, options, baseUrl, input);
         }),
-        delete: Effect.fn(function* ({ output }) {
-          yield* deleteEnvelope(http, options, baseUrl, output.id);
-        }),
+        delete: ({ output }) => deleteEnvelope(http, options, baseUrl, output.id),
       });
     }),
   );
@@ -467,29 +445,107 @@ export const getDocumensoSignatureRequest = (
   options: DocumensoProviderOptions,
   id: string,
 ): Effect.Effect<RemoteSignatureRequest, SignatureKitError, SignatureHttpClient> =>
-  withDocumensoHttp(options, (http, valid, baseUrl) => getEnvelope(http, valid, baseUrl, id));
+  Effect.gen(function* () {
+    const valid = yield* Schema.decodeUnknownEffect(DocumensoProviderOptionsSchema)(options).pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            issueMessage: String(issue),
+          }),
+      ),
+    );
+    const http = yield* SignatureHttpClient;
+    return yield* getEnvelope(http, valid, documensoBaseUrl(valid), id);
+  });
 
 export const listDocumensoSignatureRequests = (
   options: DocumensoProviderOptions,
 ): Effect.Effect<ReadonlyArray<RemoteSignatureRequest>, SignatureKitError, SignatureHttpClient> =>
-  withDocumensoHttp(options, (http, valid, baseUrl) => listEnvelopes(http, valid, baseUrl));
+  Effect.gen(function* () {
+    const valid = yield* Schema.decodeUnknownEffect(DocumensoProviderOptionsSchema)(options).pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            issueMessage: String(issue),
+          }),
+      ),
+    );
+    const http = yield* SignatureHttpClient;
+    return yield* listEnvelopes(http, valid, documensoBaseUrl(valid));
+  });
 
 export const cancelDocumensoSignatureRequest = (
   options: DocumensoProviderOptions,
   id: string,
 ): Effect.Effect<void, SignatureKitError, SignatureHttpClient> =>
-  withDocumensoHttp(options, (http, valid, baseUrl) => cancelEnvelope(http, valid, baseUrl, id));
+  Effect.gen(function* () {
+    const valid = yield* Schema.decodeUnknownEffect(DocumensoProviderOptionsSchema)(options).pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            issueMessage: String(issue),
+          }),
+      ),
+    );
+    const http = yield* SignatureHttpClient;
+    return yield* cancelEnvelope(http, valid, documensoBaseUrl(valid), id);
+  });
 
 export const deleteDocumensoSignatureRequest = (
   options: DocumensoProviderOptions,
   id: string,
 ): Effect.Effect<void, SignatureKitError, SignatureHttpClient> =>
-  withDocumensoHttp(options, (http, valid, baseUrl) => deleteEnvelope(http, valid, baseUrl, id));
+  Effect.gen(function* () {
+    const valid = yield* Schema.decodeUnknownEffect(DocumensoProviderOptionsSchema)(options).pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            issueMessage: String(issue),
+          }),
+      ),
+    );
+    const http = yield* SignatureHttpClient;
+    return yield* deleteEnvelope(http, valid, documensoBaseUrl(valid), id);
+  });
 
 export const downloadDocumensoSignedDocument = (
   options: DocumensoProviderOptions,
   envelopeId: string,
 ): Effect.Effect<Uint8Array, SignatureKitError, SignatureHttpClient> =>
-  withDocumensoHttp(options, (http, valid, baseUrl) =>
-    downloadSignedEnvelopeDocument(http, valid, baseUrl, envelopeId),
-  );
+  Effect.gen(function* () {
+    const valid = yield* Schema.decodeUnknownEffect(DocumensoProviderOptionsSchema)(options).pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            provider: PROVIDER,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            issueMessage: String(issue),
+          }),
+      ),
+    );
+    const http = yield* SignatureHttpClient;
+    return yield* downloadSignedEnvelopeDocument(http, valid, documensoBaseUrl(valid), envelopeId);
+  });

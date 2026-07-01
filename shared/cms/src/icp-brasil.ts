@@ -88,7 +88,7 @@ export const parseIcpBrasilPadesPolicy = (
       error._tag === "Asn1Error"
         ? new CmsError({
             code: CmsErrorCodeValue.policyError,
-            reason: error.message,
+            reason: error.reason ?? error.message,
             operation: CmsOperationValue.policy,
           })
         : error,

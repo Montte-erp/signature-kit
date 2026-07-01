@@ -97,6 +97,14 @@ export const architectureChecks: readonly Check[] = [
   },
   {
     message:
+      "Remote signer provider options must be decoded inline at the layer or public API boundary; do not hide schema failures behind decode*ProviderOptions wrappers.",
+    test: (context) =>
+      alchemyProviderPathPattern.test(context.path) &&
+      /\bconst\s+decode[A-Z][A-Za-z0-9]*ProviderOptions\b/.test(context.line),
+    ignoreImportLine: false,
+  },
+  {
+    message:
       "Remote signer provider list handlers must not clone request arrays just to satisfy Alchemy types.",
     test: (context) =>
       alchemyProviderPathPattern.test(context.path) &&

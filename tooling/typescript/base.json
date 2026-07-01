@@ -53,7 +53,6 @@
       "@signature-kit/pdf/sign": ["formats/pdf/src/sign.ts"],
       "@signature-kit/pdf/stamp": ["formats/pdf/src/stamp.ts"],
       "@signature-kit/pdf/liteparse-browser": ["formats/pdf/src/liteparse-browser.ts"],
-      "@signature-kit/pdf/liteparse-node": ["formats/pdf/src/liteparse-node.ts"],
       "@signature-kit/pdf/verify": ["formats/pdf/src/verify.ts"],
       "@signature-kit/xml/config": ["formats/xml/src/config.ts"],
       "@signature-kit/xml/sign": ["formats/xml/src/sign.ts"],
