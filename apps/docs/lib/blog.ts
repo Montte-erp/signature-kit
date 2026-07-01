@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { blogSource } from "@/lib/blog-source";
@@ -28,17 +28,15 @@ export function readingMinutes(slug: string, lang: Lang): number {
     lang === "en-US" ? [`${slug}.mdx`] : [`${slug}.${lang}.mdx`, `${slug}.mdx`];
 
   for (const file of candidates) {
-    try {
-      const raw = readFileSync(path.join(BLOG_DIR, file), "utf8");
-      const body = raw
-        .replace(/^---[\s\S]*?---/, "") // frontmatter
-        .replace(/```[\s\S]*?```/g, " ") // fenced code
-        .replace(/[#>*_`[\]()]/g, " "); // markdown punctuation
-      const words = body.split(/\s+/).filter(Boolean).length;
-      return Math.max(1, Math.round(words / 200));
-    } catch {
-      // try the next candidate
-    }
+    const candidate = path.join(BLOG_DIR, file);
+    if (!existsSync(candidate)) continue;
+    const raw = readFileSync(candidate, "utf8");
+    const body = raw
+      .replace(/^---[\s\S]*?---/, "") // frontmatter
+      .replace(/```[\s\S]*?```/g, " ") // fenced code
+      .replace(/[#>*_`[\]()]/g, " "); // markdown punctuation
+    const words = body.split(/\s+/).filter(Boolean).length;
+    return Math.max(1, Math.round(words / 200));
   }
   return 1;
 }

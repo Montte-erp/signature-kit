@@ -14,6 +14,7 @@ import {
 import {
   PdfSignatureBuilderInputSchema,
   PdfDocumentInputSchema,
+  PdfSigningBatchPreparationInputSchema,
   PdfSigningInputSchema,
   PdfTemplateInputSchema,
   PdfDocumentSourceTypeValue,
@@ -25,14 +26,23 @@ import {
 import type {
   PdfDocumentInput,
   PdfBatchResult,
-  PdfSigningInput,
+  PdfSigningBatchDocument,
   PdfSigningBatchItem,
+  PdfSigningBatchPreparationInput,
+  PdfSigningBatchPreparationResult,
+  PdfSigningBatchVisibleStamp,
+  PdfSigningInput,
   PdfSignatureBuilderInput,
   PdfTemplateInput,
   PdfSignatureBuilderState,
   PdfSignatureDocument,
   PdfSignatureTemplate,
 } from "./config";
+import {
+  rubricPageIndexesExcludingSignature,
+  stampPdfRubricOnPages,
+  stampPdfVisibleSignature,
+} from "./stamp";
 
 export const readPdfBlobBytes = (file: Blob): Effect.Effect<Uint8Array, PdfError> =>
   Effect.tryPromise({
@@ -253,6 +263,159 @@ export const signPdfSignatureField = (
             appearance,
           }),
         ),
+      ),
+    ),
+  );
+
+const pdfSigningInputFromPreparedDocument = (
+  document: PdfSigningBatchDocument,
+  pdf: Uint8Array,
+  signing: PdfSigningBatchPreparationInput["signing"],
+): PdfSigningBatchItem => ({
+  id: document.id,
+  input: {
+    pdf,
+    template: document.template,
+    fieldId: document.fieldId,
+    ...(signing.reason === undefined ? {} : { reason: signing.reason }),
+    ...(signing.contactInfo === undefined ? {} : { contactInfo: signing.contactInfo }),
+    ...(signing.name === undefined ? {} : { name: signing.name }),
+    ...(signing.location === undefined ? {} : { location: signing.location }),
+    ...(signing.signingTime === undefined ? {} : { signingTime: signing.signingTime }),
+    ...(signing.signatureLength === undefined ? {} : { signatureLength: signing.signatureLength }),
+    ...(signing.hashAlgorithm === undefined ? {} : { hashAlgorithm: signing.hashAlgorithm }),
+    ...(signing.policy === undefined ? {} : { policy: signing.policy }),
+    ...(signing.icpBrasil === undefined ? {} : { icpBrasil: signing.icpBrasil }),
+    ...(signing.policyTimeoutMillis === undefined
+      ? {}
+      : { policyTimeoutMillis: signing.policyTimeoutMillis }),
+    ...(signing.timestamp === undefined ? {} : { timestamp: signing.timestamp }),
+  },
+});
+
+const stampRubricsForPreparedDocument = (
+  document: PdfSigningBatchDocument,
+  stamp: PdfSigningBatchVisibleStamp,
+  pdf: Uint8Array,
+): Effect.Effect<Uint8Array, PdfError> => {
+  const rubricLines = stamp.rubricLines ?? [];
+  if (
+    stamp.rubricEveryPage !== true ||
+    (stamp.rubricaPng === undefined && rubricLines.length === 0)
+  ) {
+    return Effect.succeed(pdf);
+  }
+  const pages = rubricPageIndexesExcludingSignature(
+    document.pageDimensions,
+    document.rect.pageIndex,
+  );
+  return pages.length === 0
+    ? Effect.succeed(pdf)
+    : stampPdfRubricOnPages({
+        pdf,
+        pageDimensions: document.pageDimensions,
+        ...(document.pageTextBoxes === undefined ? {} : { pageTextBoxes: document.pageTextBoxes }),
+        pages,
+        ...(rubricLines.length === 0 ? {} : { lines: rubricLines }),
+        ...(stamp.rubricaPng === undefined ? {} : { imagePng: stamp.rubricaPng }),
+        ...(stamp.border === undefined ? {} : { border: stamp.border }),
+      });
+};
+
+const stampMainSignatureForPreparedDocument = (
+  document: PdfSigningBatchDocument,
+  stamp: PdfSigningBatchVisibleStamp | undefined,
+  pdf: Uint8Array,
+): Effect.Effect<Uint8Array, PdfError> => {
+  if (stamp === undefined || (stamp.inkPng === undefined && stamp.lines.length === 0)) {
+    return Effect.succeed(pdf);
+  }
+  return stampPdfVisibleSignature({
+    pdf,
+    pageIndex: document.rect.pageIndex,
+    rect: document.rect,
+    lines: stamp.lines,
+    ...(stamp.inkPng === undefined ? {} : { inkPng: stamp.inkPng }),
+    ...(stamp.border === undefined ? {} : { border: stamp.border }),
+  });
+};
+
+const preparePdfSigningBatchDocument = (
+  document: PdfSigningBatchDocument,
+  stamp: PdfSigningBatchVisibleStamp | undefined,
+  signing: PdfSigningBatchPreparationInput["signing"],
+): Effect.Effect<PdfSigningBatchPreparationResult, never> => {
+  const preparedPdf =
+    stamp === undefined
+      ? Effect.succeed(document.pdf)
+      : stampRubricsForPreparedDocument(document, stamp, document.pdf).pipe(
+          Effect.flatMap((pdf) => stampMainSignatureForPreparedDocument(document, stamp, pdf)),
+        );
+
+  return preparedPdf.pipe(
+    Effect.map((pdf): PdfSigningBatchPreparationResult => {
+      const item = pdfSigningInputFromPreparedDocument(document, pdf, signing);
+      return { id: document.id, ok: true, item };
+    }),
+    Effect.match({
+      onSuccess: (result): PdfSigningBatchPreparationResult => result,
+      onFailure: (error): PdfSigningBatchPreparationResult => ({
+        id: document.id,
+        ok: false,
+        error,
+      }),
+    }),
+  );
+};
+
+export type PdfSigningBatchPreparationCallbacks = {
+  readonly onItemSettled?: (
+    result: PdfSigningBatchPreparationResult,
+    index: number,
+    total: number,
+  ) => void;
+  readonly yieldAfterItem?: (
+    result: PdfSigningBatchPreparationResult,
+    index: number,
+    total: number,
+  ) => Effect.Effect<void> | void;
+};
+
+/**
+ * Prepare a browser signing batch entirely inside the PDF package: optional
+ * visible signature, optional repeated rubric on every non-signature page, then
+ * conversion into {@link PdfSigningBatchItem}. Failures are per-document results;
+ * the queue always drains in input order.
+ */
+export const preparePdfSigningBatch = (
+  input: PdfSigningBatchPreparationInput,
+  callbacks: PdfSigningBatchPreparationCallbacks = {},
+): Effect.Effect<ReadonlyArray<PdfSigningBatchPreparationResult>, PdfError> =>
+  Schema.decodeUnknownEffect(PdfSigningBatchPreparationInputSchema)(input).pipe(
+    Effect.mapError(
+      () =>
+        new PdfError({
+          code: PdfErrorCodeValue.invalidBuilderInput,
+          retryable: false,
+          reason: "PDF signing batch preparation input failed schema validation.",
+          operation: PdfOperationValue.signField,
+          schemaName: PdfSchemaNameValue.pdfSigningBatchPreparationInput,
+        }),
+    ),
+    Effect.flatMap((valid) =>
+      Effect.forEach(
+        valid.documents,
+        (document, index) =>
+          preparePdfSigningBatchDocument(document, valid.stamp, valid.signing).pipe(
+            Effect.tap((result) =>
+              Effect.sync(() => callbacks.onItemSettled?.(result, index, valid.documents.length)),
+            ),
+            Effect.tap(
+              (result) =>
+                callbacks.yieldAfterItem?.(result, index, valid.documents.length) ?? Effect.void,
+            ),
+          ),
+        { concurrency: 1 },
       ),
     ),
   );

@@ -110,6 +110,7 @@ export const PdfSchemaNameSchema = Schema.Literals([
   "PdfLiteParseResult",
   "PdfRubricPageStampInput",
   "PdfVisibleStampInput",
+  "PdfSigningBatchPreparationInput",
 ]);
 export type PdfSchemaName = (typeof PdfSchemaNameSchema)["Type"];
 export const PdfSchemaNameValue = {
@@ -127,6 +128,7 @@ export const PdfSchemaNameValue = {
   pdfLiteParseResult: "PdfLiteParseResult",
   pdfRubricPageStampInput: "PdfRubricPageStampInput",
   pdfVisibleStampInput: "PdfVisibleStampInput",
+  pdfSigningBatchPreparationInput: "PdfSigningBatchPreparationInput",
 } satisfies Record<string, PdfSchemaName>;
 
 export class PdfError extends Schema.TaggedErrorClass<PdfError>()("PdfError", {
@@ -587,11 +589,78 @@ export const PdfSigningInputSchema = Schema.Struct({
 });
 export type PdfSigningInput = (typeof PdfSigningInputSchema)["Type"];
 
+export const PdfSigningBatchDocumentSchema = Schema.Struct({
+  id: nonEmptyString,
+  pdf: Schema.Uint8Array,
+  template: PdfSignatureTemplateSchema,
+  fieldId: nonEmptyString,
+  rect: PdfSignatureRectSchema,
+  pageDimensions: Schema.Array(PdfSignaturePageSchema),
+  pageTextBoxes: Schema.optional(Schema.Array(Schema.Array(PdfTextBoxSchema))),
+});
+export type PdfSigningBatchDocument = (typeof PdfSigningBatchDocumentSchema)["Type"];
+
+export const PdfSigningBatchSigningOptionsSchema = Schema.Struct({
+  reason: Schema.optional(Schema.String),
+  contactInfo: Schema.optional(Schema.String),
+  name: Schema.optional(Schema.String),
+  location: Schema.optional(Schema.String),
+  signingTime: Schema.optional(Schema.Date),
+  signatureLength: Schema.optional(Schema.Number),
+  hashAlgorithm: Schema.optional(CmsHashAlgorithmSchema),
+  policy: Schema.optional(PdfSignaturePolicySchema),
+  icpBrasil: Schema.optional(IcpBrasilPolicySchema),
+  policyTimeoutMillis: Schema.optional(Schema.Number),
+  timestamp: Schema.optional(TimestampOptionsSchema),
+});
+export type PdfSigningBatchSigningOptions = (typeof PdfSigningBatchSigningOptionsSchema)["Type"];
+
+export const PdfSigningBatchVisibleStampSchema = Schema.Struct({
+  lines: Schema.Array(Schema.String),
+  inkPng: Schema.optional(Schema.Uint8Array),
+  rubricaPng: Schema.optional(Schema.Uint8Array),
+  rubricLines: Schema.optional(Schema.Array(Schema.String)),
+  rubricEveryPage: Schema.optional(Schema.Boolean),
+  border: Schema.optional(Schema.Boolean),
+});
+export type PdfSigningBatchVisibleStamp = (typeof PdfSigningBatchVisibleStampSchema)["Type"];
+
+export const PdfSigningBatchPreparationInputSchema = Schema.Struct({
+  documents: Schema.Array(PdfSigningBatchDocumentSchema),
+  signing: PdfSigningBatchSigningOptionsSchema,
+  stamp: Schema.optional(PdfSigningBatchVisibleStampSchema),
+});
+export type PdfSigningBatchPreparationInput =
+  (typeof PdfSigningBatchPreparationInputSchema)["Type"];
+
 export const PdfSigningBatchItemSchema = Schema.Struct({
   id: nonEmptyString,
   input: PdfSigningInputSchema,
 });
 export type PdfSigningBatchItem = (typeof PdfSigningBatchItemSchema)["Type"];
+
+export const PdfSigningBatchPreparationSuccessSchema = Schema.Struct({
+  id: nonEmptyString,
+  ok: Schema.Literals([true]),
+  item: PdfSigningBatchItemSchema,
+});
+export type PdfSigningBatchPreparationSuccess =
+  (typeof PdfSigningBatchPreparationSuccessSchema)["Type"];
+
+export const PdfSigningBatchPreparationFailureSchema = Schema.Struct({
+  id: nonEmptyString,
+  ok: Schema.Literals([false]),
+  error: PdfError,
+});
+export type PdfSigningBatchPreparationFailure =
+  (typeof PdfSigningBatchPreparationFailureSchema)["Type"];
+
+export const PdfSigningBatchPreparationResultSchema = Schema.Union([
+  PdfSigningBatchPreparationSuccessSchema,
+  PdfSigningBatchPreparationFailureSchema,
+]);
+export type PdfSigningBatchPreparationResult =
+  (typeof PdfSigningBatchPreparationResultSchema)["Type"];
 
 export const PdfBatchSuccessSchema = Schema.Struct({
   id: nonEmptyString,

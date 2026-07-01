@@ -57,25 +57,25 @@ Isso é possível porque o navegador já traz a primitiva certa. A Web Crypto AP
 
 <Steps>
   <Step title="Ler cada PDF enviado como bytes">
-    `readBrowserFileBytes` transforma um `File`/`Blob` em `Uint8Array`, tudo em memória. Falhas são tipadas
+    `readPdfBlobBytes` transforma um `File`/`Blob` em `Uint8Array`, tudo em memória. Falhas são tipadas
     (`react.FILE_READ_FAILED`), nunca uma exceção solta.
 
     ```ts title="read.ts"
-    import { readBrowserFileBytes } from "@signature-kit/pdf/browser"
+    import { readPdfBlobBytes } from "@signature-kit/pdf/workflow"
 
-    const bytes = await Effect.runPromise(readBrowserFileBytes(file))
+    const bytes = await Effect.runPromise(readPdfBlobBytes(file))
     ```
   </Step>
 
   <Step title="Montar o template e posicionar a assinatura">
-    `createBrowserPdfSignatureBuilderState` carrega as páginas do PDF com o pdf-lib e produz um template validado, com o
+    `createPdfSignatureBuilderStateFromBytes` carrega as páginas do PDF com o pdf-lib e produz um template validado, com o
     campo de assinatura posicionado — de forma explícita ou automática. O `template` dele é o que o assinador consome.
 
     ```ts title="build.ts"
-    import { createBrowserPdfSignatureBuilderState } from "@signature-kit/pdf/browser"
+    import { createPdfSignatureBuilderStateFromBytes } from "@signature-kit/pdf/workflow"
 
     const state = await Effect.runPromise(
-      createBrowserPdfSignatureBuilderState({
+      createPdfSignatureBuilderStateFromBytes({
         id: "proposta",
         name: file.name,
         documentId: "proposta",
@@ -90,19 +90,19 @@ Isso é possível porque o navegador já traz a primitiva certa. A Web Crypto AP
   </Step>
 
   <Step title="Assinar todos os documentos da disputa num lote só">
-    `signBrowserPdfBatch` assina o conjunto inteiro sob **um** `a1SignaturesLayer` — o certificado é destravado uma vez e
+    `signPdfSignatureBatch` assina o conjunto inteiro sob **um** `a1SignaturesLayer` — o certificado é destravado uma vez e
     reusado em cada documento. Ele assina estritamente um por um, e um documento que falha vira `{ ok: false, error }`
     em vez de abortar a execução, então você sempre recebe um resultado por entrada, na ordem. O `onItemSettled` dispara
     a cada documento concluído, então a UI mostra o progresso e devolve cada arquivo assinado direto para a disputa.
 
     ```ts title="sign-batch.ts"
-    import { signBrowserPdfBatch } from "@signature-kit/pdf/browser"
+    import { signPdfSignatureBatch } from "@signature-kit/pdf/workflow"
     import { a1SignaturesLayer } from "@signature-kit/a1/signer"
     import { Effect, Redacted } from "effect"
 
     // `items` = um { id, input } por documento enviado, montado com o passo acima.
     const results = await Effect.runPromise(
-      signBrowserPdfBatch(items, {
+      signPdfSignatureBatch(items, {
         onItemSettled: (result, index, total) => {
           if (result.ok) attachToBid(result.id, result.signedPdf)
           else markFailed(result.id, result.error.message)

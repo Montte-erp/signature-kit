@@ -81,7 +81,7 @@ const CAPABILITIES: Capability[] = [
     title: m.cap7_title,
     description: m.cap7_desc,
     docHref: "/docs/a1-signing/browser-pdf-flow",
-    code: `import { signBrowserPdf } from "@signature-kit/pdf/browser"`,
+    code: `import { signPdfSignatureField } from "@signature-kit/pdf/workflow"`,
     wide: true,
   },
 ];

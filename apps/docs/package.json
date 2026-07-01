@@ -24,8 +24,6 @@
     "@signature-kit/pdf": "workspace:*",
     "@signature-kit/core": "workspace:*",
     "@tanstack/react-form": "0.11.0",
-    "@tanstack/react-pacer": "^0.22.1",
-    "@tanstack/react-store": "0.11.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "effect": "4.0.0-beta.86",

@@ -1,6 +1,6 @@
 "use client";
 
-import { Effect, Redacted, Result } from "effect";
+import { Duration, Effect, Redacted, Result } from "effect";
 import {
   BadgeCheck,
   Check,
@@ -19,12 +19,13 @@ import { useForm } from "@tanstack/react-form";
 
 import type { A1CertificateProfile } from "@signature-kit/a1/config";
 import { a1SignaturesLayer, parseA1CertificateProfile } from "@signature-kit/a1/signer";
-import { rubricRectForPage, stampPdfRubricOnPages, stampPdfVisibleSignature } from "@signature-kit/pdf/stamp";
+import { rubricRectForPage } from "@signature-kit/pdf/stamp";
 import {
-  createBrowserPdfSignatureBuilderState,
-  readBrowserFileBytes,
-  signBrowserPdfBatch,
-} from "@signature-kit/pdf/browser";
+  createPdfSignatureBuilderStateFromBytes,
+  preparePdfSigningBatch,
+  readPdfBlobBytes,
+  signPdfSignatureBatch,
+} from "@signature-kit/pdf/workflow";
 import {
   createPdfSignatureBuilderStore,
   pdfSignatureBuilderSelectors,
@@ -35,7 +36,6 @@ import { parsePdfTextBoxesBrowser } from "@signature-kit/pdf/liteparse-browser";
 import type {
   PdfSignatureBuilderState,
   PdfSignatureFieldDraft,
-  PdfSigningBatchItem,
   PdfSignaturePage,
   PdfSignatureRect,
   PdfSignatureTemplate,
@@ -62,7 +62,7 @@ import {
   type PdfDocumentProxy,
   type PdfLoadingTask,
 } from "@/components/pdf-page";
-import { Store, useStore } from "@tanstack/react-store";
+import { createSyncStore, useSyncStore } from "@/lib/sync-store";
 import { caveat } from "@/lib/handwriting-font";
 import { cn } from "@/lib/utils";
 import { captureDocsEvent } from "@/lib/posthog/client";
@@ -73,7 +73,7 @@ import { m } from "@/paraglide/messages";
  *
  * Flow: upload your own PDFs (rendered with pdf.js so you see them) → click each
  * page to drop the PAdES signature rectangle → load your A1 (.pfx/.p12) +
- * password → sign every document locally with WebCrypto (one `signBrowserPdfBatch`
+ * password → sign every document locally with WebCrypto (one `signPdfSignatureBatch`
  * under a single `a1SignaturesLayer`) → download each signed PDF. Nothing leaves
  * the browser.
  *
@@ -85,10 +85,9 @@ import { m } from "@/paraglide/messages";
 
 const SIGNATURE_FIELD_ID = "a1-signature";
 
-// "Has a best-guess run happened?" — the one bit of state the Pacer queue's own
-// store can't express. The canonical TanStack pattern is a module-level store
-// (instantiated outside React); the component only subscribes via useStore.
-const placeRunStore = new Store<{ ran: boolean }>({ ran: false });
+// "Has a best-guess run happened?" — one bit of module-level state. React only
+// subscribes through `useSyncExternalStore`; async work stays in Effect handlers.
+const placeRunStore = createSyncStore<{ ran: boolean }>({ ran: false });
 
 const usePdfSignatureBuilderSelector = <Selected,>(
   store: PdfSignatureBuilderStore,
@@ -201,8 +200,7 @@ const signerRuntimeInitial: SignerRuntimeState = {
   activeStep: 1,
 };
 
-const signerRuntimeStore = new Store<SignerRuntimeState>(signerRuntimeInitial);
-const pdfDocumentStore = new Store<Record<string, PdfDocumentProxy | undefined>>({});
+const signerRuntimeStore = createSyncStore<SignerRuntimeState>(signerRuntimeInitial);
 
 const patchSignerRuntime = (patch: Partial<SignerRuntimeState>): void => {
   signerRuntimeStore.setState((state) => ({ ...state, ...patch }));
@@ -212,27 +210,95 @@ const updateSignerRuntime = (update: (state: SignerRuntimeState) => SignerRuntim
   signerRuntimeStore.setState(update);
 };
 
-const putPdfDocument = (id: string, document: PdfDocumentProxy | undefined): void => {
-  pdfDocumentStore.setState((state) => ({ ...state, [id]: document }));
+type PdfDocumentLoadLifecycle = {
+  active: boolean;
+  task?: PdfLoadingTask;
 };
 
-const dropPdfDocument = (id: string): void => {
-  pdfDocumentStore.setState((state) => {
-    const next = { ...state };
-    delete next[id];
-    return next;
+const destroyPdfLoadingTask = (
+  task: PdfLoadingTask | undefined,
+): Effect.Effect<void> =>
+  task?.destroy === undefined
+    ? Effect.void
+    : Effect.tryPromise({
+        try: () => task.destroy?.() ?? Promise.resolve(),
+        catch: () => "pdf-task-destroy-failed",
+      }).pipe(Effect.ignore, Effect.asVoid);
+
+const destroyPdfDocument = (doc: PdfDocumentProxy): Effect.Effect<void> =>
+  doc.destroy === undefined
+    ? Effect.void
+    : Effect.tryPromise({
+        try: () => doc.destroy?.() ?? Promise.resolve(),
+        catch: () => "pdf-document-destroy-failed",
+      }).pipe(Effect.ignore, Effect.asVoid);
+
+const loadPdfDocumentFromBytes = (
+  bytes: Uint8Array,
+  lifecycle: PdfDocumentLoadLifecycle,
+): Effect.Effect<PdfDocumentProxy | undefined> =>
+  Effect.gen(function* () {
+    const pdfjs = yield* Effect.tryPromise({
+      try: () => loadPdfjs(),
+      catch: () => "pdfjs-load-failed",
+    }).pipe(Effect.orElseSucceed(() => undefined));
+    if (pdfjs === undefined || !lifecycle.active) return undefined;
+    const task = pdfjs.getDocument({ data: bytes.slice() });
+    lifecycle.task = task;
+    const loaded = yield* Effect.tryPromise({
+      try: () => task.promise,
+      catch: () => "pdf-load-failed",
+    }).pipe(Effect.orElseSucceed(() => undefined));
+    if (loaded === undefined) return undefined;
+    if (lifecycle.active) return loaded;
+    yield* destroyPdfDocument(loaded);
+    return undefined;
   });
+
+
+type StampPreviewImages = {
+  readonly signatureDataUrl?: string;
+  readonly rubricaDataUrl?: string;
+};
+
+const stampPreviewText = (
+  source: RubricSource,
+  typedText: string,
+  profile: A1CertificateProfile | undefined,
+): string | undefined => {
+  if (source === "type") {
+    const text = typedText.trim();
+    return text.length === 0 ? undefined : text;
+  }
+  return profile?.subject;
+};
+
+const renderStampPreviewImages = (
+  source: RubricSource,
+  typedText: string,
+  profile: A1CertificateProfile | undefined,
+): Effect.Effect<StampPreviewImages> => {
+  const text = stampPreviewText(source, typedText, profile);
+  if (text === undefined) return Effect.succeed({});
+  return Effect.all(
+    {
+      signatureDataUrl: Effect.tryPromise({
+        try: () => renderHandwritingPng(text),
+        catch: () => "signature-preview-render-failed",
+      }).pipe(Effect.orElseSucceed(() => undefined)),
+      rubricaDataUrl: Effect.tryPromise({
+        try: () => renderRubricaInitialsPng(deriveInitials(text)),
+        catch: () => "rubrica-preview-render-failed",
+      }).pipe(Effect.orElseSucceed(() => undefined)),
+    },
+    { concurrency: 2 },
+  );
 };
 
 // Raw PNG bytes from a data URL; the PDF package stamps images from bytes, not
 // browser-only data URLs.
-const dataUrlToBytes = (dataUrl: string): Uint8Array => {
-  const base64 = dataUrl.split(",")[1] ?? "";
-  const binary = atob(base64);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-  return out;
-};
+const dataUrlToBytes = (dataUrl: string): Uint8Array =>
+  Uint8Array.from(atob(dataUrl.split(",")[1] ?? ""), (char) => char.charCodeAt(0));
 
 // ---------------------------------------------------------------------------
 // Handwriting marks. The visible appearance is either typed by the user or
@@ -259,18 +325,23 @@ const inkScale = (min: number): number =>
 // Load a specific font for canvas drawing, but NEVER block on it. `document.fonts.ready`
 // waits for EVERY page font, so a single perpetually-pending face hangs it forever
 // (which froze signing at "Reading the A1 identity…"). We only request THIS face and
-// cap the wait — a fallback-font render beats a frozen signer.
-async function ensureFontLoaded(spec: string): Promise<void> {
-  if (typeof document === "undefined" || !document.fonts?.load) return;
-  try {
-    await Promise.race([
-      document.fonts.load(spec),
-      new Promise((resolve) => window.setTimeout(resolve, 1200)),
-    ]);
-  } catch {
-    /* a fallback font is acceptable; never block signing on font loading */
-  }
-}
+// cap the wait with Effect scheduling — a fallback-font render beats a frozen signer.
+const ensureFontLoaded = (spec: string): Promise<void> => {
+  if (typeof document === "undefined" || !document.fonts?.load) return Promise.resolve();
+  return Effect.runPromise(
+    Effect.tryPromise({
+      try: () => document.fonts.load(spec),
+      catch: () => "font-load-failed",
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: Duration.millis(1200),
+        orElse: () => Effect.void,
+      }),
+      Effect.ignore,
+      Effect.asVoid,
+    ),
+  );
+};
 
 // Full handwriting mark -> transparent dark-ink PNG data URL (the MAIN signature
 // on the placed page). Awaits the font before drawing or Caveat falls back/blank.
@@ -371,60 +442,28 @@ function DocumentCanvas({
   const placedField = template.fields.find((f) => f.id === SIGNATURE_FIELD_ID);
 
   const pages = template.documents[0]?.pages ?? [];
-  const doc = useStore(pdfDocumentStore, (state) => state[activeDoc.id]);
-
-  // Load the pdf.js document for this canvas. pdf.js detaches the buffer it's
-  // given, so render from a slice and keep `activeDoc.pdfBytes` intact for signing.
-  React.useEffect(() => {
-    let cancelled = false;
-    // pdf.js DocumentLoadingTask — has `.promise` and `.destroy()`. Keep a handle
-    // so cleanup tears down the worker-side document. Without this, loading and
-    // removing many PDFs (clicking the X) leaks undestroyed PDFDocumentProxy
-    // objects in the worker → main-thread jank/freeze. Destroying the task also
-    // destroys the document it produced.
-    let loadingTask: PdfLoadingTask | undefined;
-    putPdfDocument(activeDoc.id, undefined);
-    (async () => {
-      try {
-        const pdfjs = await loadPdfjs();
-        if (cancelled) return; // unmounted before the worker even started
-        loadingTask = pdfjs.getDocument({ data: activeDoc.pdfBytes.slice() });
-        const loaded = await loadingTask.promise;
-        if (cancelled) {
-          // Raced past cleanup before we could set state — destroy what we loaded
-          // so it doesn't leak (cleanup ran when loadingTask was still undefined).
-          try {
-            await loadingTask.destroy?.();
-          } catch {
-            /* already torn down */
-          }
+  const [doc, setDoc] = React.useState<PdfDocumentProxy | null>(null);
+  const mountPdfDocument = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node === null) return;
+      const lifecycle: PdfDocumentLoadLifecycle = { active: true };
+      setDoc(null);
+      void Effect.runPromise(loadPdfDocumentFromBytes(activeDoc.pdfBytes, lifecycle)).then((loaded) => {
+        if (!lifecycle.active) return;
+        if (loaded === undefined) {
+          onError(m.signer_err_render());
           return;
         }
-        putPdfDocument(activeDoc.id, loaded);
-      } catch {
-        if (!cancelled) onError(m.signer_err_render());
-      }
-    })();
-    return () => {
-      cancelled = true;
-      dropPdfDocument(activeDoc.id);
-      // Destroy the loading task (and, transitively, the PDFDocumentProxy it
-      // produced) so the pdf.js worker frees the document on every doc switch or
-      // remove. Child PdfPage render-task cancellations run first (children unmount
-      // before parent cleanup), so no render touches the doc after it's destroyed.
-      // destroy() returns a Promise; await it inside a fire-and-forget IIFE so a
-      // rejection (task never resolved / already torn down) is swallowed instead of
-      // surfacing as an unhandled rejection. Cleanup still returns synchronously.
-      void (async () => {
-        try {
-          await loadingTask?.destroy?.();
-        } catch {
-          /* already torn down, or the task never resolved — best-effort cleanup */
-        }
-      })();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeDoc.pdfBytes]);
+        setDoc(loaded);
+      });
+      return () => {
+        lifecycle.active = false;
+        setDoc(null);
+        void Effect.runPromise(destroyPdfLoadingTask(lifecycle.task));
+      };
+    },
+    [activeDoc.pdfBytes, onError],
+  );
 
   const place = async (pageIndex: number, fracX: number, fracY: number) => {
     const page = pages[pageIndex];
@@ -455,43 +494,48 @@ function DocumentCanvas({
     onPlaced();
   };
 
-  if (!doc) {
-    return (
-      <div className="flex h-64 items-center justify-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" /> Rendering {activeDoc.name}…
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col gap-3">
-      {pages.map((page, index) => {
-        const isPlacedPage = placedField !== undefined && placedField.rect.pageIndex === index;
-        // With "every page" on, every page that doesn't own the signature shows a
-        // faint compact rubric in the right-side middle. This ignores the placed
-        // signature x/y so repeated rubrics do not collide with text/signature
-        // content on the page body.
-        const ghost =
-          !isPlacedPage && rubricEveryPage && placedField
-            ? {
-                rect: rubricRectForPage(page, activeDoc.pageTextBoxes[index] ?? []),
-                label: `Repeats on all ${pages.length} pages`,
-              }
-            : undefined;
-        return (
-          <PdfPage
-            key={page.index}
-            doc={doc}
-            pageNumber={index + 1}
-            widthPt={page.width}
-            heightPt={page.height}
-            marker={isPlacedPage ? placedField.rect : undefined}
-            ghost={ghost}
-            stampPreview={stampPreview}
-            onPlace={(fx, fy) => void place(index, fx, fy)}
-          />
-        );
-      })}
+    <div
+      ref={mountPdfDocument}
+      className={
+        doc === null
+          ? "flex h-64 items-center justify-center gap-2 text-sm text-muted-foreground"
+          : "flex flex-col gap-3"
+      }
+    >
+      {doc === null ? (
+        <>
+          <Loader2 className="size-4 animate-spin" /> Rendering {activeDoc.name}…
+        </>
+      ) : (
+        pages.map((page, index) => {
+          const isPlacedPage = placedField !== undefined && placedField.rect.pageIndex === index;
+          // With "every page" on, every page that doesn't own the signature shows a
+          // faint compact rubric in the right-side middle. This ignores the placed
+          // signature x/y so repeated rubrics do not collide with text/signature
+          // content on the page body.
+          const ghost =
+            !isPlacedPage && rubricEveryPage && placedField
+              ? {
+                  rect: rubricRectForPage(page, activeDoc.pageTextBoxes[index] ?? []),
+                  label: `Repeats on all ${pages.length} pages`,
+                }
+              : undefined;
+          return (
+            <PdfPage
+              key={page.index}
+              doc={doc}
+              pageNumber={index + 1}
+              widthPt={page.width}
+              heightPt={page.height}
+              marker={isPlacedPage ? placedField.rect : undefined}
+              ghost={ghost}
+              stampPreview={stampPreview}
+              onPlace={(fx, fy) => void place(index, fx, fy)}
+            />
+          );
+        })
+      )}
     </div>
   );
 }
@@ -780,21 +824,21 @@ function BatchResults({
 export function PdfSigner({ className, inDialog }: { className?: string; inDialog?: boolean }) {
   const form = useForm<SignerFormValues>({ defaultValues: signerFormDefaults });
 
-  const docs = useStore(signerRuntimeStore, (state) => state.docs);
-  const activeDocId = useStore(signerRuntimeStore, (state) => state.activeDocId);
-  const pfxBytes = useStore(signerRuntimeStore, (state) => state.pfxBytes);
-  const profile = useStore(signerRuntimeStore, (state) => state.profile);
-  const busy = useStore(signerRuntimeStore, (state) => state.busy);
-  const status = useStore(signerRuntimeStore, (state) => state.status);
-  const error = useStore(signerRuntimeStore, (state) => state.error);
-  const signatureDataUrl = useStore(signerRuntimeStore, (state) => state.signatureDataUrl);
-  const rubricaDataUrl = useStore(signerRuntimeStore, (state) => state.rubricaDataUrl);
-  const rows = useStore(signerRuntimeStore, (state) => state.rows);
-  const run = useStore(signerRuntimeStore, (state) => state.run);
-  const placing = useStore(signerRuntimeStore, (state) => state.placing);
-  const placingIds = useStore(signerRuntimeStore, (state) => state.placingIds);
-  const queuedIds = useStore(signerRuntimeStore, (state) => state.queuedIds);
-  const activeStep = useStore(signerRuntimeStore, (state) => state.activeStep);
+  const docs = useSyncStore(signerRuntimeStore, (state) => state.docs);
+  const activeDocId = useSyncStore(signerRuntimeStore, (state) => state.activeDocId);
+  const pfxBytes = useSyncStore(signerRuntimeStore, (state) => state.pfxBytes);
+  const profile = useSyncStore(signerRuntimeStore, (state) => state.profile);
+  const busy = useSyncStore(signerRuntimeStore, (state) => state.busy);
+  const status = useSyncStore(signerRuntimeStore, (state) => state.status);
+  const error = useSyncStore(signerRuntimeStore, (state) => state.error);
+  const signatureDataUrl = useSyncStore(signerRuntimeStore, (state) => state.signatureDataUrl);
+  const rubricaDataUrl = useSyncStore(signerRuntimeStore, (state) => state.rubricaDataUrl);
+  const rows = useSyncStore(signerRuntimeStore, (state) => state.rows);
+  const run = useSyncStore(signerRuntimeStore, (state) => state.run);
+  const placing = useSyncStore(signerRuntimeStore, (state) => state.placing);
+  const placingIds = useSyncStore(signerRuntimeStore, (state) => state.placingIds);
+  const queuedIds = useSyncStore(signerRuntimeStore, (state) => state.queuedIds);
+  const activeStep = useSyncStore(signerRuntimeStore, (state) => state.activeStep);
 
   const password = form.useStore((state) => state.values.password);
   const rubricSource = form.useStore((state) => state.values.rubricSource);
@@ -808,8 +852,8 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
 
   // "Has a best-guess run happened?" — read from the module-level `placeRunStore`.
   // Never mirrored into component-local state; the final status is DERIVED below
-  // from this plus the live queue counts (no finalize useEffect).
-  const placeRan = useStore(placeRunStore, (s) => s.ran);
+  // from this plus the live queue counts.
+  const placeRan = useSyncStore(placeRunStore, (s) => s.ran);
 
   // Best-guess auto-placement is owned by @signature-kit/pdf/builder-store:
   // pure geometry computes one placement per document, and the PDF batch queue
@@ -889,30 +933,24 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     });
   }, [docs.length, placedCount]);
 
-  // Derive the two marks from the active source. Font load is async, so this runs
-  // in an effect; the `live` guard discards results that resolve after a source
-  // switch (document.fonts.load/ready can settle late).
-  React.useEffect(() => {
-    let live = true;
-    void (async () => {
-      let sig: string | undefined;
-      let rub: string | undefined;
-      if (rubricSource === "type" && typedText.trim()) {
-        sig = await renderHandwritingPng(typedText);
-        rub = await renderRubricaInitialsPng(deriveInitials(typedText));
-      } else if (rubricSource === "cert" && profile) {
-        sig = await renderHandwritingPng(profile.subject);
-        rub = await renderRubricaInitialsPng(deriveInitials(profile.subject));
-      }
-      if (live) {
-        clearBanners();
-        patchSignerRuntime({ signatureDataUrl: sig, rubricaDataUrl: rub });
-      }
-    })();
-    return () => {
-      live = false;
-    };
-  }, [rubricSource, typedText, profile, clearBanners]);
+  const stampPreviewRun = React.useRef(0);
+  const refreshStampPreview = React.useCallback(
+    (
+      nextSource: RubricSource = rubricSource,
+      nextText: string = typedText,
+      nextProfile: A1CertificateProfile | undefined = profile,
+    ) => {
+      const runId = stampPreviewRun.current + 1;
+      stampPreviewRun.current = runId;
+      clearBanners();
+      void Effect.runPromise(renderStampPreviewImages(nextSource, nextText, nextProfile)).then(
+        (preview) => {
+          if (stampPreviewRun.current === runId) patchSignerRuntime(preview);
+        },
+      );
+    },
+    [clearBanners, profile, rubricSource, typedText],
+  );
 
   // Strict: every uploaded document must be placed before the summary goes green,
   // so it never claims more than it signs.
@@ -948,7 +986,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     let failedCount = 0;
     patchSignerRuntime({ busy: true, status: m.signer_status_reading_pdfs() });
     for (const file of files) {
-      const bytes = await Effect.runPromise(Effect.result(readBrowserFileBytes(file)));
+      const bytes = await Effect.runPromise(Effect.result(readPdfBlobBytes(file)));
       if (Result.isFailure(bytes)) {
         failedCount += 1;
         patchSignerRuntime({ error: bytes.failure.message });
@@ -957,7 +995,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       const id = `doc-${crypto.randomUUID()}`;
       const state = await Effect.runPromise(
         Effect.result(
-          createBrowserPdfSignatureBuilderState({
+          createPdfSignatureBuilderStateFromBytes({
             id: "browser-a1-signer",
             name: file.name,
             documentId: id,
@@ -1071,12 +1109,11 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
             patchSignerRuntime({ error: result.error.message });
           }
         },
-        yieldAfterItem: () => {
-          patchSignerRuntime({ placingIds: [] });
-          const { promise, resolve } = Promise.withResolvers<void>();
-          setTimeout(resolve, 24);
-          return promise;
-        },
+        yieldAfterItem: () =>
+          Effect.gen(function* () {
+            patchSignerRuntime({ placingIds: [] });
+            yield* Effect.sleep("24 millis");
+          }),
       }),
     );
 
@@ -1097,8 +1134,14 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       file_size: file.size,
     });
     reset();
-    patchSignerRuntime({ profile: undefined, busy: true, status: m.signer_status_reading_cert() });
-    const bytes = await Effect.runPromise(Effect.result(readBrowserFileBytes(file)));
+    patchSignerRuntime({
+      profile: undefined,
+      signatureDataUrl: undefined,
+      rubricaDataUrl: undefined,
+      busy: true,
+      status: m.signer_status_reading_cert(),
+    });
+    const bytes = await Effect.runPromise(Effect.result(readPdfBlobBytes(file)));
     patchSignerRuntime({ busy: false });
     if (Result.isFailure(bytes)) {
       captureDocsEvent("pdf_signer_certificate_failed", {
@@ -1172,149 +1215,123 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     // rather than read from the async-derived preview state, so a Sign click that
     // lands before the derive effect settles (just typed a name, or "From
     // certificate" right after the profile resolved) still bakes the real mark.
-    let sig: string | undefined;
-    let rub: string | undefined;
-    try {
-      if (rubricSource === "type" && typedText.trim()) {
-        sig = await renderHandwritingPng(typedText);
-        rub = await renderRubricaInitialsPng(deriveInitials(typedText));
-      } else if (rubricSource === "cert" && certValue.subject) {
-        sig = await renderHandwritingPng(certValue.subject);
-        rub = await renderRubricaInitialsPng(deriveInitials(certValue.subject));
-      }
-    } catch {
-      // A mark-render failure must NEVER strand the signer — fall back to no
-      // visible mark (the caption lines still bake) rather than hanging.
-      sig = undefined;
-      rub = undefined;
-    }
+    const marks = await Effect.runPromise(
+      Effect.result(
+        rubricSource === "type" && typedText.trim()
+          ? Effect.all(
+              {
+                sig: Effect.tryPromise({
+                  try: () => renderHandwritingPng(typedText),
+                  catch: () => "signature-mark-render-failed",
+                }),
+                rub: Effect.tryPromise({
+                  try: () => renderRubricaInitialsPng(deriveInitials(typedText)),
+                  catch: () => "rubric-mark-render-failed",
+                }),
+              },
+              { concurrency: 2 },
+            )
+          : rubricSource === "cert" && certValue.subject
+            ? Effect.all(
+                {
+                  sig: Effect.tryPromise({
+                    try: () => renderHandwritingPng(certValue.subject),
+                    catch: () => "signature-mark-render-failed",
+                  }),
+                  rub: Effect.tryPromise({
+                    try: () => renderRubricaInitialsPng(deriveInitials(certValue.subject)),
+                    catch: () => "rubric-mark-render-failed",
+                  }),
+                },
+                { concurrency: 2 },
+              )
+            : Effect.succeed({ sig: undefined, rub: undefined }),
+      ),
+    );
+    const sig = Result.isSuccess(marks) ? marks.success.sig : undefined;
+    const rub = Result.isSuccess(marks) ? marks.success.rub : undefined;
     const mainPng = sig ? dataUrlToBytes(sig) : undefined;
     const rubricaPng = rub ? dataUrlToBytes(rub) : undefined;
-    const hasStamp = mainPng !== undefined || lines.length > 0;
-
-    // Build one batch item per placed document, baking the visible stamp first so
-    // the PAdES ByteRange covers it. "Every page" uses the library's stampPdfRubric
-    // (one signature, rubric repeated per page); otherwise the local single-page bake.
-    //
-    // Each document's prep is fault-isolated: a doc that fails to stamp becomes a
-    // failed ROW (and is skipped) instead of aborting the whole batch — mirroring
-    // signBrowserPdfBatch's per-item ok:false contract for the crypto phase.
-    const nextRows: Record<string, BatchRow> = {};
-    for (const d of placed) nextRows[d.id] = { status: "queued" };
-    patchSignerRuntime({ rows: nextRows });
-    let anyPrepFailed = false;
-    let prepared = 0;
+    const initialRows: Record<string, BatchRow> = Object.fromEntries(
+      placed.map((d) => [d.id, { status: "queued" }]),
+    );
     patchSignerRuntime({
+      rows: initialRows,
       run: { kind: "signing", current: 0, total: placed.length },
       status: m.signer_status_preparing(),
     });
 
-    const items: PdfSigningBatchItem[] = [];
-    for (const d of placed) {
-      const rect = d.rect;
-      if (!rect) continue;
-      let pdf = d.pdfBytes;
-      let failed = false;
-      const markFailed = (message: string): void => {
-        nextRows[d.id] = { status: "failed", error: message };
-        anyPrepFailed = true;
-        failed = true;
-      };
-
-      // Only stamp when there is actual content; an empty rubric would otherwise
-      // bake boxes onto every page with nothing inside them.
-      if (rubricEveryPage && hasStamp) {
-        const dim = d.pageDims[rect.pageIndex];
-        if (dim === undefined) {
-          markFailed(m.signer_err_dimensions());
-        } else {
-          // Every page EXCEPT the placed one gets the small initials rubrica; the
-          // placed page gets the full "Signed by" block below. Single-page docs
-          // (others empty) skip the rubric pass — only the main block bakes.
-          const others = d.pageDims.map((_, i) => i).filter((i) => i !== rect.pageIndex);
-          if (rubricaPng && others.length > 0) {
-            const stamped = await Effect.runPromise(
-              Effect.result(
-                stampPdfRubricOnPages({
-                  pdf,
-                  pageDimensions: d.pageDims,
-                  pageTextBoxes: d.pageTextBoxes,
-                  pages: others,
-                  border: false,
-                  imagePng: rubricaPng,
-                }),
-              ),
-            );
-            if (Result.isFailure(stamped)) {
-              markFailed(stamped.failure.message);
-            } else {
-              pdf = stamped.success;
-            }
-          }
-          if (!failed) {
-            const stamped = await Effect.runPromise(
-              Effect.result(
-                stampPdfVisibleSignature({
-                  pdf,
-                  pageIndex: rect.pageIndex,
-                  rect,
-                  lines,
-                  border: false,
-                  ...(mainPng === undefined ? {} : { inkPng: mainPng }),
-                }),
-              ),
-            );
-            if (Result.isFailure(stamped)) markFailed(stamped.failure.message);
-            else pdf = stamped.success;
-          }
-        }
-      } else if (hasStamp) {
-        const stamped = await Effect.runPromise(
-          Effect.result(
-            stampPdfVisibleSignature({
-              pdf: d.pdfBytes,
-              pageIndex: rect.pageIndex,
-              rect,
+    const preparation = await Effect.runPromise(
+      Effect.result(
+        preparePdfSigningBatch(
+          {
+            documents: placed.flatMap((d) =>
+              d.rect === undefined
+                ? []
+                : [
+                    {
+                      id: d.id,
+                      pdf: d.pdfBytes,
+                      template: d.template,
+                      fieldId: SIGNATURE_FIELD_ID,
+                      rect: d.rect,
+                      pageDimensions: Array.from(d.pageDims),
+                      pageTextBoxes: d.pageTextBoxes.map((page) => Array.from(page)),
+                    },
+                  ],
+            ),
+            stamp: {
               lines,
               border: false,
+              rubricEveryPage,
               ...(mainPng === undefined ? {} : { inkPng: mainPng }),
-            }),
-          ),
-        );
-        if (Result.isFailure(stamped)) markFailed(stamped.failure.message);
-        else pdf = stamped.success;
-      }
-
-      if (!failed) {
-        items.push({
-          id: d.id,
-          input: {
-            pdf,
-            template: d.template,
-            fieldId: SIGNATURE_FIELD_ID,
-            reason: "Signed in the browser with SignatureKit",
-            name: certValue.subject,
-            location: "Browser",
-            signingTime: now,
-            signatureLength: 16384,
-            // Plain PAdES (AdES-BES). The ICP-Brasil policy would require a network
-            // fetch, breaking the "nothing leaves the page" guarantee this demo makes.
-            policy: "pades-ades",
+              ...(rubricaPng === undefined ? {} : { rubricaPng }),
+            },
+            signing: {
+              reason: "Signed in the browser with SignatureKit",
+              name: certValue.subject,
+              location: "Browser",
+              signingTime: now,
+              signatureLength: 16384,
+              // Plain PAdES (AdES-BES). The ICP-Brasil policy would require a network
+              // fetch, breaking the "nothing leaves the page" guarantee this demo makes.
+              policy: "pades-ades",
+            },
           },
-        });
-      }
-      // Surface prep progress and YIELD to the browser between documents. Baking the
-      // rubric on every page of 20+ multi-page PDFs is heavy pure-CPU work; without a
-      // yield it pins the main thread and the counter sticks at "Signing 0 of N" (the
-      // hang the user hit). This timeout-free setTimeout(0) loop terminates for any N.
-      prepared += 1;
-      patchSignerRuntime({ run: { kind: "signing", current: prepared, total: placed.length } });
-      await new Promise((resolve) => setTimeout(resolve, 0));
+          {
+            onItemSettled: (result, index, total) => {
+              updateSignerRuntime((state) => ({
+                ...state,
+                run: { kind: "signing", current: index + 1, total },
+                rows: {
+                  ...state.rows,
+                  [result.id]: result.ok
+                    ? { status: "queued" }
+                    : { status: "failed", error: result.error.message },
+                },
+              }));
+            },
+            yieldAfterItem: () => Effect.sleep("0 millis"),
+          },
+        ),
+      ),
+    );
+
+    if (Result.isFailure(preparation)) {
+      captureDocsEvent("pdf_signer_sign_failed", {
+        attempted_count: placed.length,
+        phase: "prepare_documents",
+        prepared_count: 0,
+      });
+      patchSignerRuntime({
+        busy: false,
+        run: { kind: "idle" },
+        error: preparation.failure.message,
+      });
+      return;
     }
 
-    // Flush all prep failures in a single update with a fresh object reference
-    // (mutating nextRows in place would not re-render). Avoids per-iteration setRows.
-    if (anyPrepFailed) patchSignerRuntime({ rows: { ...nextRows } });
+    const items = preparation.success.flatMap((result) => (result.ok ? [result.item] : []));
 
     if (items.length === 0) {
       captureDocsEvent("pdf_signer_sign_failed", {
@@ -1337,12 +1354,9 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       rows: { ...state.rows, [items[0].id]: { status: "signing" } },
       status: m.signer_status_signing(),
     }));
-    try {
-      // One Signatures layer for the whole batch (the lib runs concurrency:1 so a
-      // single in-browser key signs without races). Failures are captured per item
-      // (ok:false) and never abort the run, so runPromise won't reject from them.
-      await Effect.runPromise(
-        signBrowserPdfBatch(items, {
+    const batch = await Effect.runPromise(
+      Effect.result(
+        signPdfSignatureBatch(items, {
           onItemSettled: (result, index, total) => {
             updateSignerRuntime((state) => {
               const next: Record<string, BatchRow> = {
@@ -1370,8 +1384,9 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
             }),
           ),
         ),
-      );
-    } catch {
+      ),
+    );
+    if (Result.isFailure(batch)) {
       captureDocsEvent("pdf_signer_sign_failed", {
         attempted_count: placed.length,
         phase: "sign_batch",
@@ -1384,7 +1399,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       });
       return;
     }
-    const finalRows = Object.values(signerRuntimeStore.state.rows);
+    const finalRows = Object.values(signerRuntimeStore.getSnapshot().rows);
     const signedCount = finalRows.filter((row) => row.status === "signed").length;
     const failedCount = finalRows.filter((row) => row.status === "failed").length;
     captureDocsEvent("pdf_signer_sign_completed", {
@@ -1458,6 +1473,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     }
     captureDocsEvent("pdf_signer_certificate_profile_loaded");
     patchSignerRuntime({ profile: c.success });
+    refreshStampPreview(rubricSource, typedText, c.success);
     goToStep(3);
   };
 
@@ -1726,8 +1742,11 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                       placeholder={m.signer_cert_password()}
                       onBlur={field.handleBlur}
                       onChange={(e) => {
-                        clearBanners();
-                        patchSignerRuntime({ profile: undefined });
+                        patchSignerRuntime({
+                          profile: undefined,
+                          signatureDataUrl: undefined,
+                          rubricaDataUrl: undefined,
+                        });
                         field.handleChange(e.currentTarget.value);
                       }}
                       className="rounded-md border-border bg-input/30 px-3 py-2 text-sm text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
@@ -1786,8 +1805,8 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                         size="sm"
                         variant={field.state.value === "type" ? "secondary" : "outline"}
                         onClick={() => {
-                          clearBanners();
                           field.handleChange("type");
+                          refreshStampPreview("type", typedText, profile);
                         }}
                         className="justify-center gap-1.5 text-xs"
                       >
@@ -1798,8 +1817,8 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                         size="sm"
                         variant={field.state.value === "cert" ? "secondary" : "outline"}
                         onClick={() => {
-                          clearBanners();
                           field.handleChange("cert");
+                          refreshStampPreview("cert", typedText, profile);
                         }}
                         className="justify-center gap-1.5 text-xs"
                       >
@@ -1821,8 +1840,9 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                             placeholder={profile?.subject ?? m.signer_type_placeholder()}
                             onBlur={field.handleBlur}
                             onChange={(e) => {
-                              clearBanners();
-                              field.handleChange(e.currentTarget.value);
+                              const nextText = e.currentTarget.value;
+                              field.handleChange(nextText);
+                              refreshStampPreview("type", nextText, profile);
                             }}
                             className="rounded-md border-border bg-input/30 px-3 py-2 text-sm text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                           />

@@ -11,11 +11,7 @@ import {
   Wand2,
 } from "lucide-react";
 import * as React from "react";
-import { AsyncQueuer } from "@tanstack/react-pacer/async-queuer";
-// `@tanstack/react-store` re-exports `@tanstack/store`, so `Store`/`useStore` both
-// come through here; the bare `@tanstack/store` specifier isn't resolvable from
-// apps/docs.
-import { Store, useStore } from "@tanstack/react-store";
+import { Effect } from "effect";
 
 import {
   generateFormalContractPdf,
@@ -33,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { captureDocsEvent } from "@/lib/posthog/client";
+import { createSyncStore, useSyncStore } from "@/lib/sync-store";
 import { m } from "@/paraglide/messages";
 
 /*
@@ -46,12 +43,10 @@ import { m } from "@/paraglide/messages";
  * crypto/PAdES step is out of scope (it needs a real .pfx — that is the live
  * <Signer /> section); "signed" here means the field is filled in the real bytes.
  *
- * STATE is idiomatic TanStack: a single module-level `Store` (the canonical
- * pattern — "instantiate the store outside of React components") plus a
- * module-level Pacer `AsyncQueuer`. React only SUBSCRIBES via `useStore(...)`;
- * there is no `useRef`/`useState` store, no state mirror, and no mount effect —
- * the preview pass is seeded once when this client module loads. The only React
- * effect is the pdf.js page loader in AutoDocCanvas (an unavoidable resource load).
+ * STATE is a module-level sync store consumed with `useSyncExternalStore`.
+ * Queue work is an Effect program seeded once at module load, then re-run from
+ * button events. React only subscribes and renders; resource loading uses
+ * callback refs with cleanup.
  */
 
 // --- demo data -------------------------------------------------------------
@@ -120,10 +115,56 @@ type AutoDoc = {
   readonly signed?: boolean;
 };
 
+type PdfDocumentLoadLifecycle = {
+  active: boolean;
+  task?: PdfLoadingTask;
+};
+
+const destroyPdfLoadingTask = (
+  task: PdfLoadingTask | undefined,
+): Effect.Effect<void> =>
+  task?.destroy === undefined
+    ? Effect.void
+    : Effect.tryPromise({
+        try: () => task.destroy?.() ?? Promise.resolve(),
+        catch: () => "pdf-task-destroy-failed",
+      }).pipe(Effect.ignore, Effect.asVoid);
+
+const destroyPdfDocument = (doc: PdfDocumentProxy): Effect.Effect<void> =>
+  doc.destroy === undefined
+    ? Effect.void
+    : Effect.tryPromise({
+        try: () => doc.destroy?.() ?? Promise.resolve(),
+        catch: () => "pdf-document-destroy-failed",
+      }).pipe(Effect.ignore, Effect.asVoid);
+
+const loadPdfDocumentFromBytes = (
+  bytes: Uint8Array,
+  lifecycle: PdfDocumentLoadLifecycle,
+): Effect.Effect<PdfDocumentProxy | undefined> =>
+  Effect.gen(function* () {
+    const pdfjs = yield* Effect.tryPromise({
+      try: () => loadPdfjs(),
+      catch: () => "pdfjs-load-failed",
+    }).pipe(Effect.orElseSucceed(() => undefined));
+    if (pdfjs === undefined || !lifecycle.active) return undefined;
+    const task = pdfjs.getDocument({ data: bytes.slice() });
+    lifecycle.task = task;
+    const loaded = yield* Effect.tryPromise({
+      try: () => task.promise,
+      catch: () => "pdf-load-failed",
+    }).pipe(Effect.orElseSucceed(() => undefined));
+    if (loaded === undefined) return undefined;
+    if (lifecycle.active) return loaded;
+    yield* destroyPdfDocument(loaded);
+    return undefined;
+  });
+
 type AutoState = {
   readonly docs: ReadonlyArray<AutoDoc>;
   readonly status: Readonly<Record<string, DocPhase>>;
   readonly activeIndex: number;
+  readonly busy: boolean;
 };
 
 // A queue task: "prepare" renders the empty-field preview; "sign" re-renders with
@@ -135,13 +176,15 @@ const initialState = (): AutoState => ({
   docs: DEMO_DOCS.map((d) => ({ id: d.id, name: d.name, variantLabel: d.variantLabel })),
   status: Object.fromEntries(DEMO_DOCS.map((d) => statusEntry(d.id, "queued"))),
   activeIndex: 0,
+  busy: false,
 });
 
-// --- module-level state (the idiomatic TanStack pattern) -------------------
-// The store and the Pacer queue live OUTSIDE React; the component only reads them
-// with useStore. No useRef, no useState, no mount effect.
+// --- module-level state and Effect queue ------------------------------------
+// State lives outside React; components subscribe through `useSyncExternalStore`.
+// Sequential work is an Effect program, so no React lifecycle is needed to seed
+// or drain the preview/signing queue.
 
-const store = new Store<AutoState>(initialState());
+const store = createSyncStore<AutoState>(initialState());
 
 const setPhase = (id: string, phase: DocPhase): void =>
   store.setState((s) => ({ ...s, status: { ...s.status, [id]: phase } }));
@@ -154,18 +197,20 @@ const patchDoc = (id: string, patch: Partial<AutoDoc>): void =>
 
 const focusDoc = (index: number): void => store.setState((s) => ({ ...s, activeIndex: index }));
 
-// One document at a time. The worker writes directly into the store, so each step
-// paints live and the carousel snaps to the document being worked.
-const signQueuer = new AsyncQueuer<QueueItem>(
-  async (item) => {
+const queueItemDemo = (item: QueueItem) => DEMO_DOCS.find((d) => d.id === item.id);
+
+const renderQueueItem = (item: QueueItem): Effect.Effect<void> =>
+  Effect.gen(function* () {
     focusDoc(DEMO_DOCS.findIndex((d) => d.id === item.id));
-    const demo = DEMO_DOCS.find((d) => d.id === item.id);
-    const paragraphs = demo ? [...demo.paragraphs] : [];
+    const demo = queueItemDemo(item);
+    const paragraphs = demo?.paragraphs ?? [];
     const variant: SignatureVariant = demo?.variant ?? "line";
 
     if (item.mode === "prepare") {
       setPhase(item.id, "generating");
-      const bytes = await generateFormalContractPdf({ title: item.name, paragraphs, variant });
+      const bytes = yield* Effect.promise(() =>
+        generateFormalContractPdf({ title: item.name, paragraphs, variant }),
+      );
       patchDoc(item.id, { pdfBytes: bytes, signed: false });
       setPhase(item.id, "ready");
       return;
@@ -173,29 +218,29 @@ const signQueuer = new AsyncQueuer<QueueItem>(
 
     setPhase(item.id, "signing");
     const signed: SignedMark = { ...SIGNER, date: new Date().toLocaleString("pt-BR") };
-    const bytes = await generateFormalContractPdf({
-      title: item.name,
-      paragraphs,
-      variant,
-      signed,
-    });
+    const bytes = yield* Effect.promise(() =>
+      generateFormalContractPdf({
+        title: item.name,
+        paragraphs,
+        variant,
+        signed,
+      }),
+    );
     patchDoc(item.id, { pdfBytes: bytes, signed: true });
     setPhase(item.id, "signed");
-  },
-  { concurrency: 1, started: true },
+  });
+
+const runQueueItems = (items: ReadonlyArray<QueueItem>): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    if (store.getSnapshot().busy) return;
+    store.setState((s) => ({ ...s, busy: true }));
+    yield* Effect.forEach(items, renderQueueItem, { concurrency: 1 });
+    store.setState((s) => ({ ...s, busy: false }));
+  });
+
+void Effect.runPromise(
+  runQueueItems(DEMO_DOCS.map((demo) => ({ id: demo.id, name: demo.name, mode: "prepare" }))),
 );
-
-// Seed the preview pass once, when this client module loads. `started: true`
-// auto-processes at concurrency 1, so the carousel fills with real pages with no
-// click and no React lifecycle.
-for (const demo of DEMO_DOCS) {
-  signQueuer.addItem({ id: demo.id, name: demo.name, mode: "prepare" });
-}
-
-const queueBusy = (): boolean => {
-  const s = signQueuer.store.state;
-  return s.activeItems.length + s.items.length > 0;
-};
 
 const go = (to: number): void => {
   const n = DEMO_DOCS.length;
@@ -203,7 +248,7 @@ const go = (to: number): void => {
 };
 
 const autoSign = (): void => {
-  if (queueBusy()) return;
+  if (store.getSnapshot().busy) return;
   captureDocsEvent("auto_sign_demo_started", {
     document_count: DEMO_DOCS.length,
   });
@@ -219,22 +264,22 @@ const autoSign = (): void => {
       }),
     ),
   }));
-  for (const demo of DEMO_DOCS) {
-    signQueuer.addItem({ id: demo.id, name: demo.name, mode: "sign" });
-  }
+  void Effect.runPromise(
+    runQueueItems(DEMO_DOCS.map((demo) => ({ id: demo.id, name: demo.name, mode: "sign" }))),
+  );
 };
 
 // Reset back to fresh previews. The store is module-level, so this — not a React
 // remount — is what clears the demo.
 const resetDemo = (): void => {
-  if (queueBusy()) return;
+  if (store.getSnapshot().busy) return;
   captureDocsEvent("auto_sign_demo_reset", {
     document_count: DEMO_DOCS.length,
   });
   store.setState(() => initialState());
-  for (const demo of DEMO_DOCS) {
-    signQueuer.addItem({ id: demo.id, name: demo.name, mode: "prepare" });
-  }
+  void Effect.runPromise(
+    runQueueItems(DEMO_DOCS.map((demo) => ({ id: demo.id, name: demo.name, mode: "prepare" }))),
+  );
 };
 
 function downloadDoc(doc: AutoDoc): void {
@@ -295,41 +340,42 @@ function DocBadge({ phase }: { phase: DocPhase | undefined }) {
  * Rasterises the current bytes (empty-field preview, then signed) via the shared
  * {@link PdfPage}. pdf.js detaches the buffer it is handed, so we pass a `.slice()`
  * and keep the originals for download. The signature field is part of the PDF
- * itself, so there is no overlay marker. The async pdf.js loader below is the ONLY
- * React effect in this module — an unavoidable resource load with cancel cleanup.
+ * itself, so there is no overlay marker. Resource loading is attached to a
+ * callback ref; React calls the returned cleanup when the node or bytes change.
  */
 function AutoDocCanvas({ doc }: { doc: AutoDoc }) {
   const [pdfDoc, setPdfDoc] = React.useState<PdfDocumentProxy | null>(null);
   const bytes = doc.pdfBytes;
-
-  React.useEffect(() => {
-    if (!bytes) return;
-    let cancelled = false;
-    let task: PdfLoadingTask | undefined;
-    (async () => {
-      const pdfjs = await loadPdfjs();
-      task = pdfjs.getDocument({ data: bytes.slice() });
-      const loaded = await task.promise;
-      if (cancelled) {
-        await loaded.destroy?.();
-        return;
-      }
-      setPdfDoc(loaded);
-    })();
-    return () => {
-      cancelled = true;
-      task?.destroy?.();
-    };
-  }, [bytes]);
+  const mountPdf = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node === null || bytes === undefined) return;
+      const lifecycle: PdfDocumentLoadLifecycle = { active: true };
+      setPdfDoc(null);
+      void Effect.runPromise(loadPdfDocumentFromBytes(bytes, lifecycle)).then((loaded) => {
+        if (lifecycle.active && loaded !== undefined) setPdfDoc(loaded);
+      });
+      return () => {
+        lifecycle.active = false;
+        setPdfDoc(null);
+        void Effect.runPromise(destroyPdfLoadingTask(lifecycle.task));
+      };
+    },
+    [bytes],
+  );
 
   if (bytes && pdfDoc) {
     return (
-      <PdfPage doc={pdfDoc} pageNumber={1} widthPt={595.28} heightPt={841.89} onPlace={() => {}} />
+      <div ref={mountPdf}>
+        <PdfPage doc={pdfDoc} pageNumber={1} widthPt={595.28} heightPt={841.89} onPlace={() => {}} />
+      </div>
     );
   }
 
   return (
-    <div className="flex aspect-[595/842] w-full items-center justify-center gap-2 rounded-md border border-border bg-muted/30 text-xs text-muted-foreground">
+    <div
+      ref={mountPdf}
+      className="flex aspect-[595/842] w-full items-center justify-center gap-2 rounded-md border border-border bg-muted/30 text-xs text-muted-foreground"
+    >
       <Loader2 className="size-4 animate-spin" />
       {m.autosign_doc_generating()}…
     </div>
@@ -339,12 +385,10 @@ function AutoDocCanvas({ doc }: { doc: AutoDoc }) {
 // --- interactive body ------------------------------------------------------
 
 export function AutoSignInner() {
-  const docs = useStore(store, (s) => s.docs);
-  const status = useStore(store, (s) => s.status);
-  const activeIndex = useStore(store, (s) => s.activeIndex);
-  // Busy is derived from the queue's OWN store (active + pending), never from
-  // `isRunning` (which stays true after start — the "never finishes" bug).
-  const busy = useStore(signQueuer.store, (s) => s.activeItems.length + s.items.length > 0);
+  const docs = useSyncStore(store, (s) => s.docs);
+  const status = useSyncStore(store, (s) => s.status);
+  const activeIndex = useSyncStore(store, (s) => s.activeIndex);
+  const busy = useSyncStore(store, (s) => s.busy);
 
   const allSigned = DEMO_DOCS.every((d) => status[d.id] === "signed");
   const count = docs.length;
@@ -408,7 +452,7 @@ export function AutoSignInner() {
         </div>
       </Card>
 
-      {/* Controls + per-document Pacer queue status. */}
+      {/* Controls + per-document Effect queue status. */}
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" onClick={autoSign} disabled={busy}>

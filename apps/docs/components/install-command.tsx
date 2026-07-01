@@ -3,6 +3,7 @@
 import { Check, Copy } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
+import { Effect, Result } from "effect";
 
 import { Button } from "@/components/ui/button";
 import { captureDocsEvent } from "@/lib/posthog/client";
@@ -10,11 +11,11 @@ import { cn } from "@/lib/utils";
 
 const DEFAULT_COMMAND = "bun add @signature-kit/core @signature-kit/a1";
 
-interface InstallCommandProps {
-  command?: string;
-  analyticsLocation?: string;
-  className?: string;
-}
+type InstallCommandProps = {
+  readonly command?: string;
+  readonly analyticsLocation?: string;
+  readonly className?: string;
+};
 
 /**
  * Click-to-copy install command, styled as a mono pill. The `$` prompt is
@@ -28,15 +29,22 @@ export const InstallCommand = ({
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(command);
+    const copiedToClipboard = await Effect.runPromise(
+      Effect.result(
+        Effect.tryPromise({
+          try: () => navigator.clipboard.writeText(command),
+          catch: () => "clipboard-copy-failed",
+        }),
+      ),
+    );
+    if (Result.isSuccess(copiedToClipboard)) {
       setCopied(true);
       captureDocsEvent("install_command_copied", {
         analytics_location: analyticsLocation,
         command,
       });
       setTimeout(() => setCopied(false), 1800);
-    } catch {
+    } else {
       captureDocsEvent("install_command_copy_failed", {
         analytics_location: analyticsLocation,
       });

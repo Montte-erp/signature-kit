@@ -6,6 +6,7 @@ import {
   hexToBytes,
   indexOfByte,
   indexOfBytes,
+  lastIndexOfBytes,
   replaceRange,
   trimTrailingZeroHex,
 } from "./bytes";
@@ -56,7 +57,7 @@ const countByteRanges = (pdf: Uint8Array): number => {
 };
 
 const parseByteRange = (pdf: Uint8Array): Effect.Effect<PdfByteRange, PdfError> => {
-  const byteRangeStart = indexOfBytes(pdf, BYTE_RANGE_PREFIX);
+  const byteRangeStart = lastIndexOfBytes(pdf, BYTE_RANGE_PREFIX);
   if (byteRangeStart === -1) {
     return Effect.fail(
       new PdfError({
@@ -101,7 +102,7 @@ const parseByteRange = (pdf: Uint8Array): Effect.Effect<PdfByteRange, PdfError> 
 export const preparePdfByteRange = (
   pdf: Uint8Array,
 ): Effect.Effect<PreparedPdfSignature, PdfError> => {
-  const byteRangeStart = indexOfBytes(pdf, BYTE_RANGE_PREFIX);
+  const byteRangeStart = lastIndexOfBytes(pdf, BYTE_RANGE_PREFIX);
   if (byteRangeStart === -1) {
     return Effect.fail(
       new PdfError({

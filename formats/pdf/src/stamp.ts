@@ -99,6 +99,12 @@ export const rubricRectForPage = (
   };
 };
 
+export const rubricPageIndexesExcludingSignature = (
+  pageDimensions: ReadonlyArray<PdfSignaturePage>,
+  signaturePageIndex: number,
+): ReadonlyArray<number> =>
+  pageDimensions.flatMap((_page, index) => (index === signaturePageIndex ? [] : [index]));
+
 export const textBoxesFromLiteParseResult = (
   parsed: PdfLiteParseResult,
   pageCount: number,

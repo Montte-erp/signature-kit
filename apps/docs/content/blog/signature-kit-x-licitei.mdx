@@ -51,25 +51,25 @@ So Montte and Licitei asked the obvious question: what if the server isn't in th
 
 <Steps>
   <Step title="Read each uploaded PDF as bytes">
-    `readBrowserFileBytes` turns a `File`/`Blob` into a `Uint8Array`, all in memory. Failures are typed
+    `readPdfBlobBytes` turns a `File`/`Blob` into a `Uint8Array`, all in memory. Failures are typed
     (`react.FILE_READ_FAILED`), never a thrown exception.
 
     ```ts title="read.ts"
-    import { readBrowserFileBytes } from "@signature-kit/pdf/browser"
+    import { readPdfBlobBytes } from "@signature-kit/pdf/workflow"
 
-    const bytes = await Effect.runPromise(readBrowserFileBytes(file))
+    const bytes = await Effect.runPromise(readPdfBlobBytes(file))
     ```
   </Step>
 
   <Step title="Build the template and place the signature">
-    `createBrowserPdfSignatureBuilderState` loads the PDF's pages with pdf-lib and produces a validated template with
+    `createPdfSignatureBuilderStateFromBytes` loads the PDF's pages with pdf-lib and produces a validated template with
     the signature field positioned — explicitly, or auto-placed. Its `template` is what the signer consumes.
 
     ```ts title="build.ts"
-    import { createBrowserPdfSignatureBuilderState } from "@signature-kit/pdf/browser"
+    import { createPdfSignatureBuilderStateFromBytes } from "@signature-kit/pdf/workflow"
 
     const state = await Effect.runPromise(
-      createBrowserPdfSignatureBuilderState({
+      createPdfSignatureBuilderStateFromBytes({
         id: "proposta",
         name: file.name,
         documentId: "proposta",
@@ -84,19 +84,19 @@ So Montte and Licitei asked the obvious question: what if the server isn't in th
   </Step>
 
   <Step title="Sign every bid document in one batch">
-    `signBrowserPdfBatch` signs the whole set under **one** `a1SignaturesLayer` — the certificate is unlocked once and
+    `signPdfSignatureBatch` signs the whole set under **one** `a1SignaturesLayer` — the certificate is unlocked once and
     reused for every document. It signs strictly one-by-one, and a document that fails is captured as
     `{ ok: false, error }` instead of aborting the run, so you always get one result per input, in order. `onItemSettled`
     fires as each finishes, so the UI can stream progress and hand each signed file straight back to the bid.
 
     ```ts title="sign-batch.ts"
-    import { signBrowserPdfBatch } from "@signature-kit/pdf/browser"
+    import { signPdfSignatureBatch } from "@signature-kit/pdf/workflow"
     import { a1SignaturesLayer } from "@signature-kit/a1/signer"
     import { Effect, Redacted } from "effect"
 
     // `items` = one { id, input } per uploaded document, built with the step above.
     const results = await Effect.runPromise(
-      signBrowserPdfBatch(items, {
+      signPdfSignatureBatch(items, {
         onItemSettled: (result, index, total) => {
           if (result.ok) attachToBid(result.id, result.signedPdf)
           else markFailed(result.id, result.error.message)

@@ -106,14 +106,6 @@ const startServer = (options: LocalServerOptions = {}): Effect.Effect<LocalServe
           bodyText,
         };
         calls.push(call);
-
-        let body: unknown = undefined;
-        if (bodyText !== "") {
-          try {
-            body = JSON.parse(bodyText);
-          } catch {}
-        }
-
         if (call.path === "/envelope/create") {
           writeJson(response, { id: "envelope-123" });
           return;
@@ -167,6 +159,7 @@ const startServer = (options: LocalServerOptions = {}): Effect.Effect<LocalServe
           return;
         }
         if (call.path === "/envelope/delete") {
+          const body: unknown = bodyText === "" ? undefined : JSON.parse(bodyText);
           if (
             body !== null &&
             body !== undefined &&

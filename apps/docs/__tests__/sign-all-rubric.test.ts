@@ -1,10 +1,14 @@
 import { Effect } from "effect";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { rubricRectForPage, stampPdfRubricOnPages, stampPdfVisibleSignature } from "@signature-kit/pdf/stamp";
-import type { PdfSignaturePage, PdfTextBox } from "@signature-kit/pdf/config";
-import { Store } from "@tanstack/react-store";
-import { AsyncQueuer, queuerBusy, waitFor } from "./helpers/queue";
+import { rubricPageIndexesExcludingSignature, rubricRectForPage } from "@signature-kit/pdf/stamp";
+import { preparePdfSigningBatch } from "@signature-kit/pdf/workflow";
+import type {
+  PdfSignaturePage,
+  PdfSignatureRect,
+  PdfSignatureTemplate,
+  PdfTextBox,
+} from "@signature-kit/pdf/config";
 import { isPdf, makeDummyPdf, pdfPageCount, type PageSize, A4, LETTER, LEGAL } from "./helpers/dummy-pdf";
 
 /**
@@ -13,8 +17,8 @@ import { isPdf, makeDummyPdf, pdfPageCount, type PageSize, A4, LETTER, LEGAL } f
  * the prep O(P²) and the batch never finished ("nao termina nunca de assinar").
  * The fix groups target pages by SIZE so same-sized pages share ONE call. This
  * test bakes the rubric on 20 MULTI-PAGE dummy PDFs (some with mixed page
- * sizes), driven through a Pacer queue, and asserts every output is a valid PDF
- * with its page count intact and that the batch TERMINATES (real timeout).
+ * sizes), driven through `preparePdfSigningBatch`, and asserts every output is a
+ * valid PDF with its page count intact, no rubric targets the main signature page, and the batch TERMINATES.
  */
 
 const DOC_COUNT = 20;
@@ -35,12 +39,38 @@ type MultiPageDoc = {
 };
 
 // A bottom-right main signature rect (top-left origin builder rect) for a given page size.
-const signatureRect = (page: PageSize) => ({
-  pageIndex: 0,
+const signatureRect = (page: PageSize, pageIndex: number): PdfSignatureRect => ({
+  pageIndex,
   x: page.width - MARGIN - SIG_W,
   y: page.height - MARGIN - SIG_H,
   width: SIG_W,
   height: SIG_H,
+});
+
+const templateForDoc = (
+  doc: MultiPageDoc,
+  rect: PdfSignatureRect,
+): PdfSignatureTemplate => ({
+  id: `template-${doc.id}`,
+  name: doc.name,
+  documents: [
+    {
+      id: doc.id,
+      name: doc.name,
+      source: { type: "uploaded", bytes: doc.bytes },
+      pages: Array.from(doc.pageDims),
+    },
+  ],
+  roles: [{ id: "signer", label: "Signatário", required: true }],
+  fields: [
+    {
+      id: "signature",
+      type: "signature",
+      documentId: doc.id,
+      roleId: "signer",
+      rect,
+    },
+  ],
 });
 
 it("places repeated rubrics compactly in the right side middle", () => {
@@ -76,6 +106,10 @@ it("nudges repeated rubrics away from LiteParse text boxes", () => {
   expect(textBox.y < nudged.y + nudged.height && textBox.y + textBox.height > nudged.y).toBe(false);
 });
 
+
+it("returns no rubric targets when the main signature is on the only page", () => {
+  expect(rubricPageIndexesExcludingSignature([{ index: 0, width: A4.width, height: A4.height }], 0)).toEqual([]);
+});
 describe("signAll + rubricEveryPage", () => {
   let docs: ReadonlyArray<MultiPageDoc>;
 
@@ -97,70 +131,74 @@ describe("signAll + rubricEveryPage", () => {
     docs = built;
   }, 30000);
 
-  it("stamps the rubric on every page of 20 multi-page docs and TERMINATES", async () => {
-    const out = new Store<{ stamped: Record<string, Uint8Array> }>({ stamped: {} });
-
-    const queuer = new AsyncQueuer<MultiPageDoc>(
-      async (doc) => {
-        // Sign on the LAST page; rubric the OTHERS — exactly the component split.
-        const placedPage = doc.pageDims.length - 1;
-        const others = doc.pageDims.map((_d, i) => i).filter((i) => i !== placedPage);
-
-        const pageTextBoxes: PdfTextBox[][] = Array.from({ length: doc.pageDims.length }, () => []);
-        const main = doc.pageDims[placedPage]!;
-        const sourceRect = signatureRect(main);
-        const rubricPdf =
-          others.length > 0
-            ? await Effect.runPromise(
-                stampPdfRubricOnPages({
-                  pdf: doc.bytes,
-                  pageDimensions: doc.pageDims,
-                  pageTextBoxes,
-                  pages: others,
-                  lines: ["MAC"],
-                  border: true,
-                }),
-              )
-            : doc.bytes;
-
-        const pdf = await Effect.runPromise(
-          stampPdfVisibleSignature({
-            pdf: rubricPdf,
-            pageIndex: placedPage,
-            rect: sourceRect,
-            lines: STAMP_LINES,
-            border: true,
-          }),
-        );
-
-        out.setState((s) => ({ stamped: { ...s.stamped, [doc.id]: pdf } }));
-        return doc.id;
-      },
-      { concurrency: 1, started: true },
+  it("stamps rubrics on every non-signature page of 20 multi-page docs and TERMINATES", async () => {
+    const rubricTargetsById = Object.fromEntries(
+      docs.map((doc) => [
+        doc.id,
+        rubricPageIndexesExcludingSignature(doc.pageDims, doc.pageDims.length - 1),
+      ]),
     );
 
     const start = performance.now();
-    for (const doc of docs) queuer.addItem(doc);
-    expect(queuerBusy(queuer)).toBe(true);
-
-    // Real timeout — the "nunca termina" hang fails here instead of stalling.
-    await waitFor(
-      () => Object.keys(out.state.stamped).length === DOC_COUNT && !queuerBusy(queuer),
-      { timeout: 30000, label: "all 20 docs rubric-stamped and the queue drained" },
+    const results = await Effect.runPromise(
+      preparePdfSigningBatch({
+        documents: docs.map((doc) => {
+          // Sign on the LAST page; rubric the OTHERS — exactly the component split.
+          const placedPage = doc.pageDims.length - 1;
+          const main = doc.pageDims[placedPage];
+          if (main === undefined) expect.fail(`doc ${doc.id} missing main signature page`);
+          const rect = signatureRect(main, placedPage);
+          const pageTextBoxes: PdfTextBox[][] = Array.from(
+            { length: doc.pageDims.length },
+            () => [],
+          );
+          return {
+            id: doc.id,
+            pdf: doc.bytes,
+            template: templateForDoc(doc, rect),
+            fieldId: "signature",
+            rect,
+            pageDimensions: Array.from(doc.pageDims),
+            pageTextBoxes,
+          };
+        }),
+        stamp: {
+          lines: STAMP_LINES,
+          rubricLines: ["MAC"],
+          rubricEveryPage: true,
+          border: true,
+        },
+        signing: {
+          reason: "SignatureKit test signature",
+          name: "Maria A. Costa",
+          location: "Vitest",
+        },
+      }),
     );
     const elapsed = performance.now() - start;
 
-    expect(queuerBusy(queuer)).toBe(false);
-    expect(queuer.store.state.settledCount).toBe(DOC_COUNT);
+    expect(results).toHaveLength(DOC_COUNT);
+    expect(results.every((result) => result.ok)).toBe(true);
+
+    const stampedById = Object.fromEntries(
+      results.flatMap((result) =>
+        result.ok ? [[result.id, result.item.input.pdf] satisfies readonly [string, Uint8Array]] : [],
+      ),
+    );
 
     for (const doc of docs) {
-      const stamped = out.state.stamped[doc.id];
+      const stamped = stampedById[doc.id];
       expect(stamped, `doc ${doc.id} must be stamped`).toBeInstanceOf(Uint8Array);
-      expect(isPdf(stamped!)).toBe(true);
+      if (stamped === undefined) expect.fail(`doc ${doc.id} missing stamped bytes`);
+      const placedPage = doc.pageDims.length - 1;
+      const rubricTargets = rubricTargetsById[doc.id] ?? [];
+      expect(rubricTargets).not.toContain(placedPage);
+      expect(rubricTargets).toHaveLength(doc.pageDims.length - 1);
+      expect(isPdf(stamped)).toBe(true);
       // Stamping must NOT add or drop pages.
-      expect(await pdfPageCount(stamped!)).toBe(doc.pageDims.length);
+      expect(await pdfPageCount(stamped)).toBe(doc.pageDims.length);
       // Drawing real content makes the file larger than the bare input.
-      expect(stamped!.byteLength).toBeGreaterThan(doc.bytes.byteLength);
+      expect(stamped.byteLength).toBeGreaterThan(doc.bytes.byteLength);
     }
 
     // Generous ceiling; the grouped path keeps 20 multi-page docs well-bounded.

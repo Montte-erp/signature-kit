@@ -1,5 +1,6 @@
 import { PenLine } from "lucide-react";
 import * as React from "react";
+import { Effect } from "effect";
 
 import { m } from "@/paraglide/messages";
 
@@ -36,6 +37,36 @@ export interface PdfLoadingTask {
   readonly promise: Promise<PdfDocumentProxy>;
   destroy?(): Promise<void>;
 }
+
+type PdfCanvasRenderLifecycle = {
+  active: boolean;
+  task?: PdfRenderTask;
+};
+
+const renderPdfPageCanvas = (
+  canvas: HTMLCanvasElement,
+  doc: PdfDocumentProxy,
+  pageNumber: number,
+  lifecycle: PdfCanvasRenderLifecycle,
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const page = yield* Effect.tryPromise({
+      try: () => doc.getPage(pageNumber),
+      catch: () => "pdf-page-load-failed",
+    }).pipe(Effect.orElseSucceed(() => undefined));
+    if (page === undefined || !lifecycle.active) return;
+    const context = canvas.getContext("2d");
+    if (context === null) return;
+    const viewport = page.getViewport({ scale: 2 });
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const task = page.render({ canvasContext: context, viewport });
+    lifecycle.task = task;
+    yield* Effect.tryPromise({
+      try: () => task.promise,
+      catch: () => "pdf-page-render-cancelled",
+    }).pipe(Effect.ignore);
+  });
 
 export const loadPdfjs = async () => {
   const pdfjs = await import("pdfjs-dist");
@@ -75,34 +106,18 @@ export function PdfPage({
   stampPreview,
   onPlace,
 }: PdfPageProps) {
-  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    let task: PdfRenderTask | undefined;
-    (async () => {
-      const page = await doc.getPage(pageNumber);
-      if (cancelled) return;
-      const scale = 2;
-      const viewport = page.getViewport({ scale });
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const context = canvas.getContext("2d");
-      if (!context) return;
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      task = page.render({ canvasContext: context, viewport });
-      try {
-        await task.promise;
-      } catch {
-        // render cancelled on unmount — ignore
-      }
-    })();
-    return () => {
-      cancelled = true;
-      task?.cancel?.();
-    };
-  }, [doc, pageNumber]);
+  const renderCanvas = React.useCallback(
+    (canvas: HTMLCanvasElement | null) => {
+      if (canvas === null) return;
+      const lifecycle: PdfCanvasRenderLifecycle = { active: true };
+      void Effect.runPromise(renderPdfPageCanvas(canvas, doc, pageNumber, lifecycle));
+      return () => {
+        lifecycle.active = false;
+        lifecycle.task?.cancel();
+      };
+    },
+    [doc, pageNumber],
+  );
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -165,7 +180,7 @@ export function PdfPage({
       onKeyDown={handleKeyDown}
       style={{ aspectRatio: `${widthPt} / ${heightPt}` }}
     >
-      <canvas ref={canvasRef} aria-hidden className="block h-auto w-full select-none" />
+      <canvas ref={renderCanvas} aria-hidden className="block h-auto w-full select-none" />
       {ghost ? (
         <div
           aria-hidden

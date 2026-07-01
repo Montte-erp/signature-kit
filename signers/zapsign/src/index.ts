@@ -463,7 +463,7 @@ export class ZapSignProviders extends Provider.ProviderCollection<ZapSignProvide
 export const providers = (options: ZapSignProviderOptions) =>
   Layer.effect(ZapSignProviders, Provider.collection([ZapSignSignatureRequest])).pipe(
     Layer.provide(ZapSignSignatureRequestProvider()),
-    Layer.provideMerge(zapSignCredentialsLayer(options)),
+    Layer.provide(zapSignCredentialsLayer(options)),
   );
 
 export const getZapSignSignatureRequest = (

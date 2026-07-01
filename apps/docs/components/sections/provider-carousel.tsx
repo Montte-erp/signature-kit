@@ -2,6 +2,7 @@
 
 import { Check, ChevronLeft, ChevronRight, Copy } from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useState } from "react";
+import { Effect, Result } from "effect";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,7 @@ import { m } from "@/paraglide/messages";
 import { captureDocsEvent } from "@/lib/posthog/client";
 import { cn } from "@/lib/utils";
 
-export interface ProviderCarouselItem {
+export type ProviderCarouselItem = {
   /** Display name, also the logo fallback initial. */
   readonly name: string;
   /** CodeBlock label shown in the panel header (e.g. "clicksign.ts"). */
@@ -19,9 +20,9 @@ export interface ProviderCarouselItem {
   readonly logo: string;
   /** Raw snippet copied to the clipboard for this provider. */
   readonly code: string;
-}
+};
 
-interface ProviderCarouselProps {
+type ProviderCarouselProps = {
   readonly items: ProviderCarouselItem[];
   /**
    * Parallel, index-matched, pre-highlighted shiki nodes built SERVER-side in
@@ -29,7 +30,7 @@ interface ProviderCarouselProps {
    * it never calls CodeBlock / highlight itself (that is async-server work).
    */
   readonly panels: ReactNode[];
-}
+};
 
 /**
  * A single brand logo, greyscaled to stay pure-monochrome. logo.dev (fallback=404)
@@ -88,15 +89,22 @@ export function ProviderCarousel({ items, panels }: ProviderCarouselProps) {
   };
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(items[index].code);
+    const copiedToClipboard = await Effect.runPromise(
+      Effect.result(
+        Effect.tryPromise({
+          try: () => navigator.clipboard.writeText(items[index].code),
+          catch: () => "clipboard-copy-failed",
+        }),
+      ),
+    );
+    if (Result.isSuccess(copiedToClipboard)) {
       setCopied(true);
       captureDocsEvent("provider_snippet_copied", {
         filename: items[index].filename,
         provider: items[index].name,
       });
       setTimeout(() => setCopied(false), 1800);
-    } catch {
+    } else {
       captureDocsEvent("provider_snippet_copy_failed", {
         filename: items[index].filename,
         provider: items[index].name,

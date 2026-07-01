@@ -32,6 +32,21 @@ export const indexOfBytes = (data: Uint8Array, pattern: Uint8Array, start = 0): 
   return -1;
 };
 
+export const lastIndexOfBytes = (data: Uint8Array, pattern: Uint8Array): number => {
+  if (pattern.byteLength === 0) return data.byteLength;
+  for (let offset = data.byteLength - pattern.byteLength; offset >= 0; offset--) {
+    let matched = true;
+    for (let index = 0; index < pattern.byteLength; index++) {
+      if (data[offset + index] !== pattern[index]) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) return offset;
+  }
+  return -1;
+};
+
 export const indexOfByte = (data: Uint8Array, byte: number, start = 0): number => {
   for (let offset = start; offset < data.byteLength; offset++) {
     if (data[offset] === byte) return offset;

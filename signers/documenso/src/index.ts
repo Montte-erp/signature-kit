@@ -509,7 +509,7 @@ export class DocumensoProviders extends Provider.ProviderCollection<DocumensoPro
 export const providers = (options: DocumensoProviderOptions) =>
   Layer.effect(DocumensoProviders, Provider.collection([DocumensoSignatureRequest])).pipe(
     Layer.provide(DocumensoSignatureRequestProvider()),
-    Layer.provideMerge(documensoCredentialsLayer(options)),
+    Layer.provide(documensoCredentialsLayer(options)),
   );
 
 export const getDocumensoSignatureRequest = (

@@ -481,7 +481,7 @@ export class DocuSealProviders extends Provider.ProviderCollection<DocuSealProvi
 export const providers = (options: DocuSealProviderOptions) =>
   Layer.effect(DocuSealProviders, Provider.collection([DocuSealSignatureRequest])).pipe(
     Layer.provide(DocuSealSignatureRequestProvider()),
-    Layer.provideMerge(docuSealCredentialsLayer(options)),
+    Layer.provide(docuSealCredentialsLayer(options)),
   );
 
 export const getDocuSealSignatureRequest = (

@@ -1,7 +1,8 @@
 "use client";
 
+import { Effect } from "effect";
 import mermaid from "mermaid";
-import { useEffect, useId, useState } from "react";
+import { useCallback, useId, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 
 type MermaidProps = {
@@ -14,29 +15,30 @@ type RenderState =
   | { readonly status: "ready"; readonly svg: string }
   | { readonly status: "error"; readonly message: string };
 
+type MermaidTheme = "dark" | "default";
 
-export function Mermaid({ chart, className }: MermaidProps) {
-  const id = `mermaid-${useId().replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-  const [theme, setTheme] = useState<"dark" | "default">(() =>
-    typeof document === "undefined"
-      ? "default"
-      : document.documentElement.classList.contains("dark")
-        ? "dark"
-        : "default",
-  );
-  const [state, setState] = useState<RenderState>({ status: "loading" });
+type MermaidRenderLifecycle = {
+  active: boolean;
+};
 
-  useEffect(() => {
-    const observer = new MutationObserver(() =>
-      setTheme(document.documentElement.classList.contains("dark") ? "dark" : "default"),
-    );
-    observer.observe(document.documentElement, { attributeFilter: ["class"], attributes: true });
-    return () => observer.disconnect();
-  }, []);
+const currentMermaidTheme = (): MermaidTheme =>
+  typeof document !== "undefined" && document.documentElement.classList.contains("dark")
+    ? "dark"
+    : "default";
 
-  useEffect(() => {
-    let cancelled = false;
-    setState({ status: "loading" });
+const subscribeMermaidTheme = (listener: () => void): (() => void) => {
+  if (typeof document === "undefined") return () => {};
+  const observer = new MutationObserver(listener);
+  observer.observe(document.documentElement, { attributeFilter: ["class"], attributes: true });
+  return () => observer.disconnect();
+};
+
+const renderMermaidChart = (
+  id: string,
+  chart: string,
+  theme: MermaidTheme,
+): Effect.Effect<RenderState> =>
+  Effect.sync(() =>
     mermaid.initialize({
       securityLevel: "strict",
       startOnLoad: false,
@@ -44,21 +46,46 @@ export function Mermaid({ chart, className }: MermaidProps) {
       themeVariables: {
         fontFamily: "var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif",
       },
-    });
+    }),
+  ).pipe(
+    Effect.flatMap(() =>
+      Effect.tryPromise({
+        try: () => mermaid.render(id, chart),
+        catch: () => "mermaid-render-failed",
+      }),
+    ),
+    Effect.match({
+      onFailure: (): RenderState => ({
+        status: "error",
+        message: "Unable to render Mermaid diagram.",
+      }),
+      onSuccess: (result): RenderState => ({ status: "ready", svg: result.svg }),
+    }),
+  );
 
-    mermaid
-      .render(id, chart)
-      .then((result) => {
-        if (!cancelled) setState({ status: "ready", svg: result.svg });
-      })
-      .catch(() => {
-        if (!cancelled) setState({ status: "error", message: "Unable to render Mermaid diagram." });
+
+export function Mermaid({ chart, className }: MermaidProps) {
+  const id = `mermaid-${useId().replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+  const theme = useSyncExternalStore(
+    subscribeMermaidTheme,
+    currentMermaidTheme,
+    (): MermaidTheme => "default",
+  );
+  const [state, setState] = useState<RenderState>({ status: "loading" });
+  const renderTarget = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node === null) return;
+      const lifecycle: MermaidRenderLifecycle = { active: true };
+      setState({ status: "loading" });
+      void Effect.runPromise(renderMermaidChart(id, chart, theme)).then((next) => {
+        if (lifecycle.active) setState(next);
       });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [chart, id, theme]);
+      return () => {
+        lifecycle.active = false;
+      };
+    },
+    [chart, id, theme],
+  );
 
   return (
     <figure
@@ -67,7 +94,7 @@ export function Mermaid({ chart, className }: MermaidProps) {
         className,
       )}
     >
-      <div className="overflow-x-auto p-4 md:p-6">
+      <div ref={renderTarget} className="overflow-x-auto p-4 md:p-6">
         {state.status === "ready" ? (
           <div
             className="mx-auto min-w-fit [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full"

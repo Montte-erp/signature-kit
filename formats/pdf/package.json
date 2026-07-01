@@ -22,10 +22,6 @@
       "types": "./dist/workflow.d.ts",
       "import": "./dist/workflow.js"
     },
-    "./browser": {
-      "types": "./dist/browser.d.ts",
-      "import": "./dist/browser.js"
-    },
     "./sign": {
       "types": "./dist/sign.d.ts",
       "import": "./dist/sign.js"

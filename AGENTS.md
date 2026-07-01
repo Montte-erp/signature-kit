@@ -215,24 +215,30 @@ hooks, and expose `data-slot` anatomy plus class/style seams.
   Future browser PDF/XML work extends through core document seams, not new
   package-level state machines.
 
-- **The store lives outside React.** Create it as a module-level singleton —
-  `const store = new Store(initial)` (TanStack's own guidance: *"instantiate the
-  store outside of React components"*) — never with `useRef`/`useState`/`useMemo`
-  in render. The component only SUBSCRIBES via `useStore(store, selector)`;
-  module-level functions write with `store.setState((s) => ({ ... }))`. Page-
-  singleton demo state and its Pacer `AsyncQueuer` are module-level too, seeded
-  once at module load — no mount effect. Never mirror store/queue state into
-  `useState`, never add a finalize `useEffect`.
-- **Pacer queues: derive busy from the queue, not a flag.** Busy is
-  `activeItems.length + items.length > 0`; never gate on `isRunning` (it stays true
-  after auto-start — the "never finishes" bug). Run the worker at
-  `{ concurrency, started: true }` so `addItem()` auto-processes; the worker writes
-  store state directly (focus / patch / phase) so each step paints live.
-- **Effects are a last resort.** Use a `useEffect` only for an unavoidable resource
-  load (e.g. pdf.js `getDocument`/`render`) with a `cancelled` flag and a
-  `cancel()`/`destroy()` cleanup; a single `[]`-deps mount seed that enqueues work
-  counts as resource-init, not a state mirror. Otherwise prefer callback refs,
-  `useSyncExternalStore`, TanStack stores/pacer, and event-boundary execution.
+- **The store lives outside React.** Browser demos use a tiny module-level sync
+  store (`createSyncStore`) and subscribe with `useSyncExternalStore`; never
+  allocate app state with `useRef`/`useState`/`useMemo` in render and never mirror
+  external store state into component-local state. Module-level functions write
+  via `store.setState(...)`; React only subscribes and renders.
+- **Signature queues are Effect programs, not Pacer/TanStack state machines.**
+  Keep queue state boring and explicit (`busy`, per-document rows/status,
+  active document id). Seed demo queues at module load or event boundaries with
+  `Effect.runPromise(...)`; derive UI progress from the store fields the worker
+  writes, and reset `busy` in the same Effect program that owns the batch. Do not
+  add `@tanstack/react-pacer`/`@tanstack/react-store` unless a package feature
+  genuinely requires them.
+- **Best-guess placement stays pure geometry.** Do not spin up pdf.js/LiteParse
+  per document just to place the default signature rectangle. Use the parsed
+  `pageDims` already owned by `@signature-kit/pdf` and run the placement queue at
+  concurrency 1 so focus/progress paints per document without racing.
+- **Rubric queues never stamp the main signature page.** "Rubric every page"
+  means every page except the page that receives the full visible signature
+  block. Use `rubricPageIndexesExcludingSignature(...)`; single-page documents
+  skip the rubric pass and receive only the main block.
+- **Effects are a last resort in React.** Prefer callback refs,
+  `useSyncExternalStore`, and event-boundary `Effect.runPromise(...)`. A React
+  effect is allowed only for unavoidable resource loading, with explicit
+  cancellation/cleanup; never add a mount effect solely to seed or drain a queue.
   Create and revoke object URLs inside the action that needs them.
 - **Compose shadcn, not raw chrome.** Build UI from `components/ui/*` primitives
   (`Button` / `Badge` / `Card` / `Dialog` / `ScrollArea`); never hand-style a raw
@@ -253,10 +259,11 @@ hooks, and expose `data-slot` anatomy plus class/style seams.
   `Effect` and let the app boundary run it.
 - **Docs display capabilities; packages own capabilities.** `apps/docs` can wire UI
   events and call package APIs, but PDF parsing, text-box collision detection,
-  visible stamping, rubric placement, and signing behavior live in
-  `@signature-kit/pdf` (or the owning format package). Browser-specific adapters
-  such as LiteParse WASM still belong behind `@signature-kit/pdf` exports; docs
-  imports those capabilities and shows the flow.
+  visible stamping, rubric placement, Effect queues, batch preparation, and
+  signing behavior live in `@signature-kit/pdf` (or the owning format package).
+  Browser-specific adapters such as LiteParse WASM still belong behind
+  `@signature-kit/pdf` exports; docs imports those capabilities and shows the
+  flow instead of reimplementing them.
 - Use external apps (e.g. `app-licitei-next`) only to discover product needs; never
   copy their hook shapes, hardcoded options, or state leakage into public packages.
 

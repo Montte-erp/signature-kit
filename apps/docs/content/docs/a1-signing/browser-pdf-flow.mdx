@@ -8,25 +8,25 @@ The browser helpers are the typed bridge between a file input and the PDF builde
 ## Steps
 
 <Steps>
-  <Step title="Read the file">`readBrowserFileBytes(file)` turns a browser `Blob` into `Uint8Array` inside the typed error channel.</Step>
-  <Step title="Build placement state">`createBrowserPdfSignatureBuilderState(...)` reads page dimensions, creates the template, and optionally auto-places a draft field.</Step>
+  <Step title="Read the file">`readPdfBlobBytes(file)` turns a browser `Blob` into `Uint8Array` inside the typed error channel.</Step>
+  <Step title="Build placement state">`createPdfSignatureBuilderStateFromBytes(...)` reads page dimensions, creates the template, and optionally auto-places a draft field.</Step>
   <Step title="Render your UI">Create a `PdfSignatureBuilderStore` once and let your app subscribe to it with its own React/Vue/Svelte boundary.</Step>
-  <Step title="Sign bytes">`signBrowserPdf(...)` turns the selected field into a PDF appearance and delegates cryptography to `Signatures`.</Step>
+  <Step title="Sign bytes">`signPdfSignatureField(...)` turns the selected field into a PDF appearance and delegates cryptography to `Signatures`.</Step>
 </Steps>
 
 ```ts title="browser-a1-flow.ts"
 import { a1SignaturesLayer } from "@signature-kit/a1/signer"
 import {
-  createBrowserPdfSignatureBuilderState,
-  readBrowserFileBytes,
-  signBrowserPdf,
-} from "@signature-kit/pdf/browser"
+  createPdfSignatureBuilderStateFromBytes,
+  readPdfBlobBytes,
+  signPdfSignatureField,
+} from "@signature-kit/pdf/workflow"
 import { createPdfSignatureBuilderStore } from "@signature-kit/pdf/builder-store"
 import { Effect, Redacted } from "effect"
 
-const pdf = await Effect.runPromise(readBrowserFileBytes(file))
+const pdf = await Effect.runPromise(readPdfBlobBytes(file))
 const state = await Effect.runPromise(
-  createBrowserPdfSignatureBuilderState({
+  createPdfSignatureBuilderStateFromBytes({
     id: "contract-a1",
     name: file.name,
     documentId: "contract",
@@ -41,7 +41,7 @@ const state = await Effect.runPromise(
 const store = createPdfSignatureBuilderStore(state)
 
 const signedPdf = await Effect.runPromise(
-  signBrowserPdf({
+  signPdfSignatureField({
     pdf,
     template: store.getSnapshot().template,
     fieldId: "sig",
@@ -55,7 +55,7 @@ const signedPdf = await Effect.runPromise(
 
 ## Batch signing
 
-Use `signBrowserPdfBatch(items, callbacks)` when one A1 certificate signs many PDFs. It runs sequentially with `concurrency: 1`, captures per-document failures as result values, and keeps one bad document from aborting the batch.
+Use `signPdfSignatureBatch(items, callbacks)` when one A1 certificate signs many PDFs. It runs sequentially with `concurrency: 1`, captures per-document failures as result values, and keeps one bad document from aborting the batch.
 
 ## Related
 

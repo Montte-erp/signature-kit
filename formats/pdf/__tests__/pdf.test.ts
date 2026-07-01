@@ -5,8 +5,8 @@ import { readA1Fixture } from "../../../tooling/testing/fixtures";
 import { a1SignaturesLayer } from "@signature-kit/a1/signer";
 import { signPdf } from "@signature-kit/pdf/sign";
 import { verifyPdf } from "@signature-kit/pdf/verify";
-import { extractPdfSignature } from "../src/byte-range";
-import { indexOfBytes } from "../src/bytes";
+import { extractPdfSignature, preparePdfByteRange } from "../src/byte-range";
+import { encodeAscii, indexOfBytes } from "../src/bytes";
 import { stampPdfRubric } from "../src/stamp";
 import {
   PdfSigningRequestSchema,
@@ -294,6 +294,25 @@ describe("PDF signatures", () => {
       expect(verification.signatureCount).toBe(1);
       // ByteRange starts at 0 — the one signature covers the rubric on every page.
       expect(verification.byteRange[0]).toBe(0);
+    }),
+  );
+
+  it.effect("prepares the newest ByteRange placeholder when older ranges already exist", () =>
+    Effect.gen(function* () {
+      const pdf = encodeAscii(
+        `%PDF-1.7
+1 0 obj << /Type /Sig /ByteRange [0 0 0 0] /Contents <00> >> endobj
+${"x".repeat(1000)}
+2 0 obj << /Type /Sig /ByteRange [0 /********** /********** /**********] /Contents <${"0".repeat(64)}> >> endobj
+%%EOF`,
+      );
+
+      const prepared = yield* preparePdfByteRange(pdf);
+      const text = latin1.decode(prepared.pdf);
+
+      expect(text).toContain("/ByteRange [0 0 0 0]");
+      expect(prepared.byteRange[1]).toBeGreaterThan(1000);
+      expect(indexOfBytes(prepared.signedData, encodeAscii("/**********"))).toBe(-1);
     }),
   );
 

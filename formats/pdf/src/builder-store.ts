@@ -301,7 +301,7 @@ export type PdfSignaturePlacementBatchCallbacks = {
     result: PdfSignaturePlacementBatchResult,
     index: number,
     total: number,
-  ) => Promise<void> | void;
+  ) => Effect.Effect<void> | void;
 };
 
 const placePdfSignatureQueueItem = (
@@ -354,14 +354,9 @@ export const placePdfSignatureFieldsBatch = (
         Effect.tap((result) =>
           Effect.sync(() => callbacks.onItemSettled?.(result, index, items.length)),
         ),
-        Effect.tap((result) => {
-          if (callbacks.yieldAfterItem === undefined) return Effect.void;
-          return Effect.promise(() =>
-            Promise.resolve(callbacks.yieldAfterItem?.(result, index, items.length)).then(
-              () => undefined,
-            ),
-          );
-        }),
+        Effect.tap(
+          (result) => callbacks.yieldAfterItem?.(result, index, items.length) ?? Effect.void,
+        ),
       ),
     { concurrency: 1 },
   );

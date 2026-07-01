@@ -50,7 +50,6 @@
       "@signature-kit/pdf/builder": ["formats/pdf/src/builder.ts"],
       "@signature-kit/pdf/builder-store": ["formats/pdf/src/builder-store.ts"],
       "@signature-kit/pdf/workflow": ["formats/pdf/src/workflow.ts"],
-      "@signature-kit/pdf/browser": ["formats/pdf/src/browser.ts"],
       "@signature-kit/pdf/sign": ["formats/pdf/src/sign.ts"],
       "@signature-kit/pdf/stamp": ["formats/pdf/src/stamp.ts"],
       "@signature-kit/pdf/liteparse-browser": ["formats/pdf/src/liteparse-browser.ts"],
