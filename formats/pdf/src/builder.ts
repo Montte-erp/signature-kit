@@ -349,12 +349,13 @@ export const validatePdfSignatureTemplate = (
   input: PdfSignatureTemplate,
 ): Effect.Effect<PdfSignatureTemplate, PdfError> =>
   Schema.decodeUnknownEffect(PdfSignatureTemplateSchema)(input).pipe(
-    Effect.mapError((_error) => {
+    Effect.mapError((issue) => {
       return new PdfError({
         code: PdfErrorCodeValue.invalidBuilderInput,
         retryable: false,
         operation: PdfOperationValue.validateTemplate,
         schemaName: PdfSchemaNameValue.pdfSignatureTemplate,
+        issueMessage: String(issue),
         reason: "PDF signature template does not match the builder schema.",
       });
     }),
@@ -383,9 +384,9 @@ export const validatePdfSignatureTemplate = (
           }),
         );
       }
-      return Effect.forEach(template.fields, (field) =>
-        validateFieldPlacement(template, field),
-      ).pipe(Effect.map(() => template));
+      return Effect.forEach(template.fields, (field) => validateFieldPlacement(template, field), {
+        discard: true,
+      }).pipe(Effect.as(template));
     }),
   );
 
@@ -393,12 +394,13 @@ export const createPdfSignatureTemplate = (
   input: PdfSignatureTemplateInput,
 ): Effect.Effect<PdfSignatureTemplate, PdfError> =>
   Schema.decodeUnknownEffect(PdfSignatureTemplateInputSchema)(input).pipe(
-    Effect.mapError((_error) => {
+    Effect.mapError((issue) => {
       return new PdfError({
         code: PdfErrorCodeValue.invalidBuilderInput,
         retryable: false,
         operation: PdfOperationValue.createTemplate,
         schemaName: PdfSchemaNameValue.pdfSignatureTemplateInput,
+        issueMessage: String(issue),
         reason: "PDF signature template input does not match the builder schema.",
       });
     }),
@@ -436,12 +438,13 @@ export const createPdfSignatureBuilderStateFromTemplate = (
   input: PdfSignatureBuilderStateInput,
 ): Effect.Effect<PdfSignatureBuilderState, PdfError> =>
   Schema.decodeUnknownEffect(PdfSignatureBuilderStateInputSchema)(input).pipe(
-    Effect.mapError((_error) => {
+    Effect.mapError((issue) => {
       return new PdfError({
         code: PdfErrorCodeValue.invalidBuilderInput,
         retryable: false,
         operation: PdfOperationValue.createBuilderState,
         schemaName: PdfSchemaNameValue.pdfSignatureBuilderStateInput,
+        issueMessage: String(issue),
         reason: "PDF signature builder state input does not match the builder schema.",
       });
     }),
@@ -458,12 +461,13 @@ export const pdfSignatureFieldFromPlacement = (
   placement: PdfSignatureFieldPlacement,
 ): Effect.Effect<PdfSignatureField, PdfError> =>
   Schema.decodeUnknownEffect(PdfSignatureFieldPlacementSchema)(placement).pipe(
-    Effect.mapError((_error) => {
+    Effect.mapError((issue) => {
       return new PdfError({
         code: PdfErrorCodeValue.invalidBuilderInput,
         retryable: false,
         operation: PdfOperationValue.addField,
         schemaName: PdfSchemaNameValue.pdfSignatureFieldPlacement,
+        issueMessage: String(issue),
         reason: "PDF signature field placement does not match the builder schema.",
       });
     }),
@@ -526,12 +530,13 @@ export const autoPlacePdfSignatureField = (
   placement: PdfSignatureAutoPlacementInput,
 ): Effect.Effect<PdfSignatureTemplate, PdfError> =>
   Schema.decodeUnknownEffect(PdfSignatureAutoPlacementInputSchema)(placement).pipe(
-    Effect.mapError((_error) => {
+    Effect.mapError((issue) => {
       return new PdfError({
         code: PdfErrorCodeValue.invalidBuilderInput,
         retryable: false,
         operation: PdfOperationValue.autoPlaceField,
         schemaName: PdfSchemaNameValue.pdfSignatureAutoPlacementInput,
+        issueMessage: String(issue),
         reason: "PDF signature auto-placement input does not match the builder schema.",
       });
     }),
@@ -677,12 +682,13 @@ export const addPdfSignatureField = (
   validatePdfSignatureTemplate(template).pipe(
     Effect.flatMap((checked) =>
       Schema.decodeUnknownEffect(PdfSignatureFieldSchema)(field).pipe(
-        Effect.mapError((_error) => {
+        Effect.mapError((issue) => {
           return new PdfError({
             code: PdfErrorCodeValue.invalidBuilderInput,
             retryable: false,
             operation: PdfOperationValue.addField,
             schemaName: PdfSchemaNameValue.pdfSignatureField,
+            issueMessage: String(issue),
             reason: "PDF signature field does not match the builder schema.",
           });
         }),
@@ -712,12 +718,13 @@ export const replacePdfSignatureField = (
   validatePdfSignatureTemplate(template).pipe(
     Effect.flatMap((checked) =>
       Schema.decodeUnknownEffect(PdfSignatureFieldSchema)(field).pipe(
-        Effect.mapError((_error) => {
+        Effect.mapError((issue) => {
           return new PdfError({
             code: PdfErrorCodeValue.invalidBuilderInput,
             retryable: false,
             operation: PdfOperationValue.replaceField,
             schemaName: PdfSchemaNameValue.pdfSignatureField,
+            issueMessage: String(issue),
             reason: "PDF signature field does not match the builder schema.",
           });
         }),
@@ -775,12 +782,13 @@ export const movePdfSignatureField = (
   validatePdfSignatureTemplate(template).pipe(
     Effect.flatMap((checked) =>
       Schema.decodeUnknownEffect(PdfSignatureRectSchema)(rect).pipe(
-        Effect.mapError((_error) => {
+        Effect.mapError((issue) => {
           return new PdfError({
             code: PdfErrorCodeValue.invalidBuilderInput,
             retryable: false,
             operation: PdfOperationValue.moveField,
             schemaName: PdfSchemaNameValue.pdfSignatureRect,
+            issueMessage: String(issue),
             reason: "PDF signature field rect does not match the builder schema.",
           });
         }),

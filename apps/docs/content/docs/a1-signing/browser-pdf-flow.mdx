@@ -55,7 +55,7 @@ const signedPdf = await Effect.runPromise(
 
 ## Batch signing
 
-Use `signPdfSignatureBatch(items, callbacks)` when one A1 certificate signs many PDFs. It runs sequentially with `concurrency: 1`, captures per-document failures as result values, and keeps one bad document from aborting the batch.
+Use `signPdfSignatureBatch(items, callbacks)` when one A1 certificate signs many PDFs. It runs sequentially, captures per-document failures as result values, and keeps one bad document from aborting the batch.
 
 ## Related
 

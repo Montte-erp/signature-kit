@@ -26,7 +26,7 @@ export const parsePdfTextBoxesNode = (
           outputFormat: "json",
           preserveVerySmallText: true,
           quiet: true,
-        }).parse(pdf.slice()),
+        }).parse(pdf),
       catch: () =>
         new PdfError({
           code: PdfErrorCodeValue.pdfLoadFailed,
@@ -51,13 +51,14 @@ export const parsePdfTextBoxesNode = (
 
     const parsed = yield* Schema.decodeUnknownEffect(PdfLiteParseResultSchema)(parsedUnknown).pipe(
       Effect.mapError(
-        () =>
+        (issue) =>
           new PdfError({
             code: PdfErrorCodeValue.invalidPdf,
             retryable: false,
             operation: PdfOperationValue.parse,
             schemaName: PdfSchemaNameValue.pdfLiteParseResult,
             reason: "LiteParse Node returned an invalid text-box result.",
+            issueMessage: String(issue),
           }),
       ),
     );

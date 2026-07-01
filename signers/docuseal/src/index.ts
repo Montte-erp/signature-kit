@@ -1,13 +1,11 @@
 import { bytesToBase64 } from "@signature-kit/crypto/base64";
 import {
-  RemoteSignatureRequestPropsSchema,
   SignatureKitError,
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
   SignatureKitSchemaNameValue,
   redactedStringSchema,
-  remoteSignatureInputFromProps,
-  validRemoteSignatureRequest,
+  remoteSignatureInputFromResourceProps,
 } from "@signature-kit/core/config";
 import type {
   RemoteSignatureProvider,
@@ -110,28 +108,45 @@ export class DocuSealCredentials extends Context.Service<
   DocuSealProviderOptions
 >()("@signature-kit/docuseal/Credentials") {}
 
-export const docuSealCredentialsLayer = (
+const decodeDocuSealProviderOptions = (
   options: DocuSealProviderOptions,
-): Layer.Layer<DocuSealCredentials, SignatureKitError> =>
-  Layer.effect(
-    DocuSealCredentials,
-    Schema.decodeUnknownEffect(DocuSealProviderOptionsSchema)(options).pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.docuSealProviderOptions,
-            reason: String(issue),
-          }),
-      ),
+): Effect.Effect<DocuSealProviderOptions, SignatureKitError> =>
+  Schema.decodeUnknownEffect(DocuSealProviderOptionsSchema)(options).pipe(
+    Effect.mapError(
+      (issue) =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.invalidInput,
+          retryable: false,
+          provider: PROVIDER,
+          operation: SignatureKitOperationValue.schemaDecode,
+          schemaName: SignatureKitSchemaNameValue.docuSealProviderOptions,
+          issueMessage: String(issue),
+        }),
     ),
   );
 
+export const docuSealCredentialsLayer = (
+  options: DocuSealProviderOptions,
+): Layer.Layer<DocuSealCredentials, SignatureKitError> =>
+  Layer.effect(DocuSealCredentials, decodeDocuSealProviderOptions(options));
+
 const docuSealBaseUrl = (options: DocuSealProviderOptions): string =>
   options.baseUrl === undefined ? DEFAULT_BASE_URL : normalizedBaseUrl(options.baseUrl);
+
+const withDocuSealHttp = <A>(
+  options: DocuSealProviderOptions,
+  use: (
+    http: SignatureHttpClientService,
+    valid: DocuSealProviderOptions,
+    baseUrl: string,
+  ) => Effect.Effect<A, SignatureKitError>,
+): Effect.Effect<A, SignatureKitError, SignatureHttpClient> =>
+  decodeDocuSealProviderOptions(options).pipe(
+    Effect.map((valid) => ({ valid, baseUrl: docuSealBaseUrl(valid) })),
+    Effect.flatMap(({ valid, baseUrl }) =>
+      SignatureHttpClient.use((http) => use(http, valid, baseUrl)),
+    ),
+  );
 
 const authHeaders = (options: DocuSealProviderOptions): { readonly "X-Auth-Token": string } => ({
   "X-Auth-Token": Redacted.value(options.apiKey),
@@ -207,53 +222,44 @@ const createSubmission = (
   input: RemoteSignatureRequestInput,
 ): Effect.Effect<RemoteSignatureRequest, SignatureKitError> =>
   http
-    .requestJson({
-      provider: PROVIDER,
-      method: "POST",
-      url: `${baseUrl}/submissions/pdf`,
-      headers: {
-        "Content-Type": "application/json",
-        ...authHeaders(options),
-      },
-      body: JSON.stringify({
-        name: input.title,
-        send_email: input.send !== false,
-        order: options.submittersOrder ?? "preserved",
-        documents: input.documents.map((document, index) => ({
-          name: document.fileName,
-          file: bytesToBase64(document.content),
-          position: index,
-        })),
-        submitters: input.recipients.map((recipient, index) => ({
-          name: recipient.name,
-          email: recipient.email,
-          role: recipient.role ?? recipient.name,
-          order: recipient.routingOrder ?? index,
+    .requestJson(
+      {
+        provider: PROVIDER,
+        method: "POST",
+        url: `${baseUrl}/submissions/pdf`,
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders(options),
+        },
+        body: JSON.stringify({
+          name: input.title,
+          send_email: input.send !== false,
+          order: options.submittersOrder ?? "preserved",
+          documents: input.documents.map((document, index) => ({
+            name: document.fileName,
+            file: bytesToBase64(document.content),
+            position: index,
+          })),
+          submitters: input.recipients.map((recipient, index) => ({
+            name: recipient.name,
+            email: recipient.email,
+            role: recipient.role ?? recipient.name,
+            order: recipient.routingOrder ?? index,
+            ...(input.redirectUrl === undefined
+              ? {}
+              : { completed_redirect_url: input.redirectUrl }),
+          })),
+          ...(options.sendSms === undefined ? {} : { send_sms: options.sendSms }),
           ...(input.redirectUrl === undefined ? {} : { completed_redirect_url: input.redirectUrl }),
-        })),
-        ...(options.sendSms === undefined ? {} : { send_sms: options.sendSms }),
-        ...(input.redirectUrl === undefined ? {} : { completed_redirect_url: input.redirectUrl }),
-        ...(input.expiresAt === undefined ? {} : { expire_at: input.expiresAt.toISOString() }),
-        ...(input.subject === undefined ? {} : { subject: input.subject }),
-        ...(input.message === undefined ? {} : { message: { body: input.message } }),
-      }),
-    })
+          ...(input.expiresAt === undefined ? {} : { expire_at: input.expiresAt.toISOString() }),
+          ...(input.subject === undefined ? {} : { subject: input.subject }),
+          ...(input.message === undefined ? {} : { message: { body: input.message } }),
+        }),
+      },
+      DocuSealCreateSubmissionResultSchema,
+      SignatureKitSchemaNameValue.docuSealSubmissionResult,
+    )
     .pipe(
-      Effect.flatMap((body) =>
-        Schema.decodeUnknownEffect(DocuSealCreateSubmissionResultSchema)(body).pipe(
-          Effect.mapError(
-            (issue) =>
-              new SignatureKitError({
-                code: SignatureKitErrorCodeValue.responseShape,
-                retryable: false,
-                provider: PROVIDER,
-                operation: SignatureKitOperationValue.httpDecode,
-                schemaName: SignatureKitSchemaNameValue.docuSealSubmissionResult,
-                reason: String(issue),
-              }),
-          ),
-        ),
-      ),
       Effect.map((result) => {
         if ("id" in result) {
           const mapped = toRemoteSignatureRequest(baseUrl, result);
@@ -285,30 +291,16 @@ const fetchSubmission = (
   baseUrl: string,
   id: string,
 ): Effect.Effect<DocuSealSubmissionResult, SignatureKitError> =>
-  http
-    .requestJson({
+  http.requestJson(
+    {
       provider: PROVIDER,
       method: "GET",
       url: `${baseUrl}/submissions/${id}`,
       headers: authHeaders(options),
-    })
-    .pipe(
-      Effect.flatMap((body) =>
-        Schema.decodeUnknownEffect(DocuSealSubmissionResultSchema)(body).pipe(
-          Effect.mapError(
-            (issue) =>
-              new SignatureKitError({
-                code: SignatureKitErrorCodeValue.responseShape,
-                retryable: false,
-                provider: PROVIDER,
-                operation: SignatureKitOperationValue.httpDecode,
-                schemaName: SignatureKitSchemaNameValue.docuSealSubmissionResult,
-                reason: String(issue),
-              }),
-          ),
-        ),
-      ),
-    );
+    },
+    DocuSealSubmissionResultSchema,
+    SignatureKitSchemaNameValue.docuSealSubmissionResult,
+  );
 
 const listSubmissions = (
   http: SignatureHttpClientService,
@@ -316,28 +308,17 @@ const listSubmissions = (
   baseUrl: string,
 ): Effect.Effect<RemoteSignatureRequest[], SignatureKitError> =>
   http
-    .requestJson({
-      provider: PROVIDER,
-      method: "GET",
-      url: `${baseUrl}/submissions`,
-      headers: authHeaders(options),
-    })
+    .requestJson(
+      {
+        provider: PROVIDER,
+        method: "GET",
+        url: `${baseUrl}/submissions`,
+        headers: authHeaders(options),
+      },
+      DocuSealSubmissionsResultSchema,
+      SignatureKitSchemaNameValue.docuSealSubmissionsResult,
+    )
     .pipe(
-      Effect.flatMap((body) =>
-        Schema.decodeUnknownEffect(DocuSealSubmissionsResultSchema)(body).pipe(
-          Effect.mapError(
-            (issue) =>
-              new SignatureKitError({
-                code: SignatureKitErrorCodeValue.responseShape,
-                retryable: false,
-                provider: PROVIDER,
-                operation: SignatureKitOperationValue.httpDecode,
-                schemaName: SignatureKitSchemaNameValue.docuSealSubmissionsResult,
-                reason: String(issue),
-              }),
-          ),
-        ),
-      ),
       Effect.map((result) => {
         const submissions = Array.isArray(result) ? result : "data" in result ? result.data : [];
         return submissions.map((submission) => toRemoteSignatureRequest(baseUrl, submission));
@@ -371,30 +352,16 @@ const fetchSubmissionDocuments = (
   baseUrl: string,
   id: string,
 ): Effect.Effect<DocuSealSubmissionDocumentsResult, SignatureKitError> =>
-  http
-    .requestJson({
+  http.requestJson(
+    {
       provider: PROVIDER,
       method: "GET",
       url: `${baseUrl}/submissions/${id}/documents?merge=true`,
       headers: authHeaders(options),
-    })
-    .pipe(
-      Effect.flatMap((body) =>
-        Schema.decodeUnknownEffect(DocuSealSubmissionDocumentsResultSchema)(body).pipe(
-          Effect.mapError(
-            (issue) =>
-              new SignatureKitError({
-                code: SignatureKitErrorCodeValue.responseShape,
-                retryable: false,
-                provider: PROVIDER,
-                operation: SignatureKitOperationValue.httpDecode,
-                schemaName: SignatureKitSchemaNameValue.docuSealSubmissionsResult,
-                reason: String(issue),
-              }),
-          ),
-        ),
-      ),
-    );
+    },
+    DocuSealSubmissionDocumentsResultSchema,
+    SignatureKitSchemaNameValue.docuSealSubmissionDocumentsResult,
+  );
 
 const downloadDocumentFromSubmission = (
   http: SignatureHttpClientService,
@@ -450,22 +417,7 @@ export const DocuSealSignatureRequestProvider = () =>
         }),
         reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
-          const props = yield* Schema.decodeUnknownEffect(RemoteSignatureRequestPropsSchema)(
-            news,
-          ).pipe(
-            Effect.mapError(
-              (issue) =>
-                new SignatureKitError({
-                  code: SignatureKitErrorCodeValue.invalidInput,
-                  retryable: false,
-                  provider: PROVIDER,
-                  operation: SignatureKitOperationValue.schemaDecode,
-                  schemaName: SignatureKitSchemaNameValue.remoteSignatureRequestProps,
-                  reason: String(issue),
-                }),
-            ),
-          );
-          const input = yield* validRemoteSignatureRequest(remoteSignatureInputFromProps(props));
+          const input = yield* remoteSignatureInputFromResourceProps(PROVIDER, news);
           return yield* createSubmission(http, options, baseUrl, input);
         }),
         delete: Effect.fn(function* ({ output }) {
@@ -488,115 +440,27 @@ export const getDocuSealSignatureRequest = (
   options: DocuSealProviderOptions,
   id: string,
 ): Effect.Effect<RemoteSignatureRequest, SignatureKitError, SignatureHttpClient> =>
-  Schema.decodeUnknownEffect(DocuSealProviderOptionsSchema)(options)
-    .pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.docuSealProviderOptions,
-            reason: String(issue),
-          }),
-      ),
-    )
-    .pipe(
-      Effect.map((valid) => ({ valid, baseUrl: docuSealBaseUrl(valid) })),
-      Effect.flatMap(({ valid, baseUrl }) =>
-        SignatureHttpClient.use((http) =>
-          fetchSubmission(http, valid, baseUrl, id).pipe(
-            Effect.map((result) => toRemoteSignatureRequest(baseUrl, result)),
-          ),
-        ),
-      ),
-    );
+  withDocuSealHttp(options, (http, valid, baseUrl) =>
+    fetchSubmission(http, valid, baseUrl, id).pipe(
+      Effect.map((result) => toRemoteSignatureRequest(baseUrl, result)),
+    ),
+  );
 
 export const listDocuSealSignatureRequests = (
   options: DocuSealProviderOptions,
 ): Effect.Effect<readonly RemoteSignatureRequest[], SignatureKitError, SignatureHttpClient> =>
-  Schema.decodeUnknownEffect(DocuSealProviderOptionsSchema)(options)
-    .pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.docuSealProviderOptions,
-            reason: String(issue),
-          }),
-      ),
-    )
-    .pipe(
-      Effect.map((valid) => ({ valid, baseUrl: docuSealBaseUrl(valid) })),
-      Effect.flatMap(({ valid, baseUrl }) =>
-        SignatureHttpClient.use((http) => listSubmissions(http, valid, baseUrl)),
-      ),
-    );
-
-export const cancelDocuSealSignatureRequest = (
-  _options: DocuSealProviderOptions,
-  _id: string,
-): Effect.Effect<void, SignatureKitError> =>
-  Effect.fail(
-    new SignatureKitError({
-      code: SignatureKitErrorCodeValue.unsupportedOperation,
-      retryable: false,
-      provider: PROVIDER,
-      operation: SignatureKitOperationValue.remoteCancel,
-      reason: "DocuSeal does not support cancellation; archive to remove a submission.",
-    }),
-  );
+  withDocuSealHttp(options, (http, valid, baseUrl) => listSubmissions(http, valid, baseUrl));
 
 export const deleteDocuSealSignatureRequest = (
   options: DocuSealProviderOptions,
   id: string,
 ): Effect.Effect<void, SignatureKitError, SignatureHttpClient> =>
-  Schema.decodeUnknownEffect(DocuSealProviderOptionsSchema)(options)
-    .pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.docuSealProviderOptions,
-            reason: String(issue),
-          }),
-      ),
-    )
-    .pipe(
-      Effect.map((valid) => ({ valid, baseUrl: docuSealBaseUrl(valid) })),
-      Effect.flatMap(({ valid, baseUrl }) =>
-        SignatureHttpClient.use((http) => deleteSubmission(http, valid, baseUrl, id)),
-      ),
-    );
+  withDocuSealHttp(options, (http, valid, baseUrl) => deleteSubmission(http, valid, baseUrl, id));
 
 export const downloadDocuSealSignedDocument = (
   options: DocuSealProviderOptions,
   id: string,
 ): Effect.Effect<Uint8Array, SignatureKitError, SignatureHttpClient> =>
-  Schema.decodeUnknownEffect(DocuSealProviderOptionsSchema)(options)
-    .pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.docuSealProviderOptions,
-            reason: String(issue),
-          }),
-      ),
-    )
-    .pipe(
-      Effect.map((valid) => ({ valid, baseUrl: docuSealBaseUrl(valid) })),
-      Effect.flatMap(({ valid, baseUrl }) =>
-        SignatureHttpClient.use((http) => downloadDocumentFromSubmission(http, valid, baseUrl, id)),
-      ),
-    );
+  withDocuSealHttp(options, (http, valid, baseUrl) =>
+    downloadDocumentFromSubmission(http, valid, baseUrl, id),
+  );

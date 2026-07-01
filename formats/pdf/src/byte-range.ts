@@ -173,8 +173,8 @@ export const preparePdfByteRange = (
   paddedByteRange.set(actualByteRange);
   const withByteRange = replaceRange(pdf, byteRangeStart, byteRangeEnd + 1, paddedByteRange);
   const signedData = concatBytes([
-    withByteRange.slice(byteRange[0], byteRange[0] + byteRange[1]),
-    withByteRange.slice(byteRange[2], byteRange[2] + byteRange[3]),
+    withByteRange.subarray(byteRange[0], byteRange[0] + byteRange[1]),
+    withByteRange.subarray(byteRange[2], byteRange[2] + byteRange[3]),
   ]);
 
   return Effect.succeed({
@@ -193,8 +193,8 @@ export const extractPdfSignature = (
   Effect.gen(function* () {
     const byteRange = yield* parseByteRange(pdf);
     const signedData = concatBytes([
-      pdf.slice(byteRange[0], byteRange[0] + byteRange[1]),
-      pdf.slice(byteRange[2], byteRange[2] + byteRange[3]),
+      pdf.subarray(byteRange[0], byteRange[0] + byteRange[1]),
+      pdf.subarray(byteRange[2], byteRange[2] + byteRange[3]),
     ]);
     const signatureHexStart = byteRange[0] + byteRange[1] + 1;
     const signatureHexEnd = byteRange[2] - 1;

@@ -134,12 +134,13 @@ export const stampPdfRubric = (
 ): Effect.Effect<Uint8Array, PdfError> =>
   Schema.decodeUnknownEffect(PdfRubricStampSchema)(stamp).pipe(
     Effect.mapError(
-      () =>
+      (issue) =>
         new PdfError({
           code: PdfErrorCodeValue.stampFailed,
           retryable: false,
           operation: PdfOperationValue.stamp,
           reason: "Rubric stamp input failed schema validation.",
+          issueMessage: String(issue),
         }),
     ),
     Effect.flatMap((valid) => {
@@ -267,13 +268,14 @@ export const stampPdfVisibleSignature = (
 ): Effect.Effect<Uint8Array, PdfError> =>
   Schema.decodeUnknownEffect(PdfVisibleStampInputSchema)(input).pipe(
     Effect.mapError(
-      () =>
+      (issue) =>
         new PdfError({
           code: PdfErrorCodeValue.stampFailed,
           retryable: false,
           operation: PdfOperationValue.stamp,
           schemaName: PdfSchemaNameValue.pdfVisibleStampInput,
           reason: "Visible PDF stamp input failed schema validation.",
+          issueMessage: String(issue),
         }),
     ),
     Effect.flatMap((valid) =>
@@ -385,13 +387,14 @@ export const stampPdfRubricOnPages = (
 ): Effect.Effect<Uint8Array, PdfError> =>
   Schema.decodeUnknownEffect(PdfRubricPageStampInputSchema)(input).pipe(
     Effect.mapError(
-      () =>
+      (issue) =>
         new PdfError({
           code: PdfErrorCodeValue.stampFailed,
           retryable: false,
           operation: PdfOperationValue.stamp,
           schemaName: PdfSchemaNameValue.pdfRubricPageStampInput,
           reason: "Rubric page stamp input failed schema validation.",
+          issueMessage: String(issue),
         }),
     ),
     Effect.flatMap((valid) =>

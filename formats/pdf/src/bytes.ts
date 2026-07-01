@@ -59,10 +59,16 @@ export const replaceRange = (
   start: number,
   end: number,
   replacement: Uint8Array,
-): Uint8Array => concatBytes([data.slice(0, start), replacement, data.slice(end)]);
+): Uint8Array => {
+  const output = new Uint8Array(start + replacement.byteLength + data.byteLength - end);
+  output.set(data.subarray(0, start));
+  output.set(replacement, start);
+  output.set(data.subarray(end), start + replacement.byteLength);
+  return output;
+};
 
 export const asciiSlice = (data: Uint8Array, start: number, end: number): string =>
-  ASCII_DECODER.decode(data.slice(start, end));
+  ASCII_DECODER.decode(data.subarray(start, end));
 
 export const bytesToHex = (bytes: Uint8Array): string => {
   let output = "";

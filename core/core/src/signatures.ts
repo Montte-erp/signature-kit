@@ -12,9 +12,7 @@ import type {
   VerifyInput,
 } from "./config";
 
-export type SignaturesService = SignerAdapter;
-
-export class Signatures extends Context.Service<Signatures, SignaturesService>()(
+export class Signatures extends Context.Service<Signatures, SignerAdapter>()(
   "@signature-kit/core/Signatures",
 ) {}
 

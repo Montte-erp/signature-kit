@@ -2,6 +2,7 @@
  * The first e-signature adapter: A1 / PKCS#12.
  */
 import { Signatures } from "@signature-kit/core/signatures";
+import { SignatureHttpClient } from "@signature-kit/core/http";
 import type { Certificate, SignatureAlgorithm, SignerAdapter } from "@signature-kit/core/config";
 import {
   SignatureKitError,
@@ -14,7 +15,15 @@ import {
 import { daysUntilExpiry, parseCertificate, toSignerIdentity } from "@signature-kit/certificates";
 import { pemToDer } from "@signature-kit/crypto/pem";
 import { Context, Effect, Layer, Redacted, Schema } from "effect";
-import { A1SignerOptionsSchema, type A1CertificateProfile, type A1SignerOptions } from "./config";
+import {
+  A1RemoteFetchSchema,
+  A1RemoteSourceSchema,
+  A1SignerOptionsSchema,
+  type A1CertificateProfile,
+  type A1RemoteFetch,
+  type A1RemoteSource,
+  type A1SignerOptions,
+} from "./config";
 
 const RSA_ALGORITHM_NAME = "RSASSA-PKCS1-v1_5";
 
@@ -132,13 +141,14 @@ const decodeA1SignerOptions = (
   options: A1SignerOptions,
 ): Effect.Effect<A1SignerOptions, SignatureKitError> =>
   Schema.decodeUnknownEffect(A1SignerOptionsSchema)(options).pipe(
-    Effect.mapError((_error) => {
+    Effect.mapError((issue) => {
       return new SignatureKitError({
         code: SignatureKitErrorCodeValue.invalidInput,
         retryable: false,
         reason: "Invalid A1 signer options.",
         operation: SignatureKitOperationValue.schemaDecode,
         schemaName: SignatureKitSchemaNameValue.a1SignerOptions,
+        issueMessage: String(issue),
       });
     }),
   );
@@ -210,13 +220,14 @@ export const createA1SignerAdapter = (certificate: Certificate): SignerAdapter =
     importSigningKey: signingKey,
     sign: (input) =>
       Schema.decodeUnknownEffect(SignInputSchema)(input).pipe(
-        Effect.mapError((_error) => {
+        Effect.mapError((issue) => {
           return new SignatureKitError({
             code: SignatureKitErrorCodeValue.invalidInput,
             retryable: false,
             reason: "Invalid sign input.",
             operation: SignatureKitOperationValue.schemaDecode,
             schemaName: SignatureKitSchemaNameValue.signInput,
+            issueMessage: String(issue),
           });
         }),
         Effect.flatMap((valid) =>
@@ -228,13 +239,14 @@ export const createA1SignerAdapter = (certificate: Certificate): SignerAdapter =
       ),
     verify: (input) =>
       Schema.decodeUnknownEffect(VerifyInputSchema)(input).pipe(
-        Effect.mapError((_error) => {
+        Effect.mapError((issue) => {
           return new SignatureKitError({
             code: SignatureKitErrorCodeValue.invalidInput,
             retryable: false,
             reason: "Invalid verify input.",
             operation: SignatureKitOperationValue.schemaDecode,
             schemaName: SignatureKitSchemaNameValue.verifyInput,
+            issueMessage: String(issue),
           });
         }),
         Effect.flatMap((valid) =>
@@ -298,87 +310,90 @@ export const a1SignaturesLayer = (
 // locally with the Redacted password.
 // ---------------------------------------------------------------------------
 
-export type A1RemoteFetch = {
-  /** The (presigned) URL the PKCS#12 bytes are fetched from with a GET. */
-  readonly url: string;
-  /** Extra request headers (for auth not already baked into the URL). */
-  readonly headers?: Record<string, string>;
-  /** Abort signal to cancel the request. */
-  readonly signal?: AbortSignal;
-};
-
-export type A1RemoteSource = A1RemoteFetch & {
-  readonly password: A1SignerOptions["password"];
-};
-
 /** Fetch the A1 PKCS#12 (.pfx) bytes from a (presigned) URL via a GET. */
 export const fetchA1Pkcs12 = (
   source: A1RemoteFetch,
-): Effect.Effect<Uint8Array, SignatureKitError> =>
-  Effect.tryPromise({
-    try: (abort) =>
-      fetch(source.url, {
-        ...(source.headers === undefined ? {} : { headers: source.headers }),
-        signal: source.signal ?? abort,
-      }),
-    catch: () =>
-      new SignatureKitError({
-        code: SignatureKitErrorCodeValue.http,
-        retryable: true,
-        reason: "Failed to fetch the A1 certificate.",
-        operation: SignatureKitOperationValue.httpRequest,
-      }),
-  }).pipe(
-    Effect.flatMap((response) =>
-      response.ok
-        ? Effect.tryPromise({
-            try: async () => new Uint8Array(await response.arrayBuffer()),
-            catch: () =>
-              new SignatureKitError({
-                code: SignatureKitErrorCodeValue.corruptedFile,
-                retryable: false,
-                reason: "The fetched A1 certificate response body could not be read.",
-                operation: SignatureKitOperationValue.httpDecode,
-              }),
-          })
-        : Effect.fail(
-            new SignatureKitError({
-              code: SignatureKitErrorCodeValue.http,
-              retryable: response.status >= 500 || response.status === 429,
-              reason: `The A1 certificate request failed with HTTP ${response.status} ${response.statusText}.`,
-              operation: SignatureKitOperationValue.httpRequest,
-            }),
-          ),
+): Effect.Effect<Uint8Array, SignatureKitError, SignatureHttpClient> =>
+  Schema.decodeUnknownEffect(A1RemoteFetchSchema)(source).pipe(
+    Effect.mapError(
+      (issue) =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.invalidInput,
+          retryable: false,
+          operation: SignatureKitOperationValue.schemaDecode,
+          schemaName: SignatureKitSchemaNameValue.a1RemoteFetch,
+          issueMessage: String(issue),
+        }),
     ),
-    Effect.flatMap((bytes) =>
-      bytes.byteLength === 0
-        ? Effect.fail(
-            new SignatureKitError({
-              code: SignatureKitErrorCodeValue.emptyFile,
-              retryable: false,
-              reason: "The fetched A1 certificate is empty.",
-            }),
-          )
-        : Effect.succeed(bytes),
+    Effect.flatMap((valid) =>
+      SignatureHttpClient.use((http) =>
+        http
+          .requestBytes({
+            method: "GET",
+            url: valid.url,
+            ...(valid.headers === undefined ? {} : { headers: valid.headers }),
+          })
+          .pipe(
+            Effect.flatMap((bytes) =>
+              bytes.byteLength === 0
+                ? Effect.fail(
+                    new SignatureKitError({
+                      code: SignatureKitErrorCodeValue.emptyFile,
+                      retryable: false,
+                      reason: "The fetched A1 certificate is empty.",
+                    }),
+                  )
+                : Effect.succeed(bytes),
+            ),
+          ),
+      ),
     ),
   );
 
 /** Provide the agnostic core Signatures service from a remote (URL) A1 container. */
 export const a1SignaturesLayerFromUrl = (
   source: A1RemoteSource,
-): Layer.Layer<Signatures, SignatureKitError> =>
+): Layer.Layer<Signatures, SignatureKitError, SignatureHttpClient> =>
   Layer.effect(
     Signatures,
-    fetchA1Pkcs12(source).pipe(
-      Effect.flatMap((pfx) => loadA1Certificate({ pfx, password: source.password })),
-      Effect.map(createA1SignerAdapter),
+    Schema.decodeUnknownEffect(A1RemoteSourceSchema)(source).pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.a1RemoteSource,
+            issueMessage: String(issue),
+          }),
+      ),
+      Effect.flatMap((valid) =>
+        fetchA1Pkcs12(valid).pipe(
+          Effect.flatMap((pfx) => loadA1Certificate({ pfx, password: valid.password })),
+          Effect.map(createA1SignerAdapter),
+        ),
+      ),
     ),
   );
 
 /** Parse and validate the A1 certificate metadata from a remote (URL) container. */
 export const parseA1CertificateProfileFromUrl = (
   source: A1RemoteSource,
-): Effect.Effect<A1CertificateProfile, SignatureKitError> =>
-  fetchA1Pkcs12(source).pipe(
-    Effect.flatMap((pfx) => parseA1CertificateProfile({ pfx, password: source.password })),
+): Effect.Effect<A1CertificateProfile, SignatureKitError, SignatureHttpClient> =>
+  Schema.decodeUnknownEffect(A1RemoteSourceSchema)(source).pipe(
+    Effect.mapError(
+      (issue) =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.invalidInput,
+          retryable: false,
+          operation: SignatureKitOperationValue.schemaDecode,
+          schemaName: SignatureKitSchemaNameValue.a1RemoteSource,
+          issueMessage: String(issue),
+        }),
+    ),
+    Effect.flatMap((valid) =>
+      fetchA1Pkcs12(valid).pipe(
+        Effect.flatMap((pfx) => parseA1CertificateProfile({ pfx, password: valid.password })),
+      ),
+    ),
   );

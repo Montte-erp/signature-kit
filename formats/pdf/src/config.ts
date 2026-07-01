@@ -137,6 +137,7 @@ export class PdfError extends Schema.TaggedErrorClass<PdfError>()("PdfError", {
   reason: Schema.optional(Schema.String),
   operation: Schema.optional(PdfOperationSchema),
   schemaName: Schema.optional(PdfSchemaNameSchema),
+  issueMessage: Schema.optional(Schema.String),
 }) {
   get message(): string {
     return this.reason ?? this.code;

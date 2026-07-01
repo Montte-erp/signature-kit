@@ -11,8 +11,8 @@
       "import": "./dist/config.js"
     },
     "./signer": {
-      "types": "./dist/create-a1-signer-adapter.d.ts",
-      "import": "./dist/create-a1-signer-adapter.js"
+      "types": "./dist/signer.d.ts",
+      "import": "./dist/signer.js"
     }
   },
   "scripts": {

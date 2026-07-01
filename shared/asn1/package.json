@@ -5,12 +5,12 @@
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
-  "main": "./dist/config.js",
-  "types": "./dist/config.d.ts",
+  "main": "./dist/asn1.js",
+  "types": "./dist/asn1.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/config.d.ts",
-      "import": "./dist/config.js"
+      "types": "./dist/asn1.d.ts",
+      "import": "./dist/asn1.js"
     }
   },
   "scripts": {

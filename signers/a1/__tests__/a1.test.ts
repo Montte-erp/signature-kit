@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { signatures } from "@signature-kit/core/signatures";
+import { signatureHttpClientLive } from "@signature-kit/core/http";
 import { Effect, Redacted, Result } from "effect";
 import { readA1Fixture } from "../../../tooling/testing/fixtures";
 import {
@@ -188,16 +189,21 @@ describe("A1 signatures", () => {
       // fetch path is identical (GET -> arrayBuffer).
       const url = `data:application/x-pkcs12;base64,${Buffer.from(pfx).toString("base64")}`;
 
-      const fetched = yield* fetchA1Pkcs12({ url });
+      const fetched = yield* fetchA1Pkcs12({ url }).pipe(Effect.provide(signatureHttpClientLive));
       expect(fetched.byteLength).toBe(pfx.byteLength);
 
-      const profile = yield* parseA1CertificateProfileFromUrl({ url, password: PASSWORD });
+      const profile = yield* parseA1CertificateProfileFromUrl({ url, password: PASSWORD }).pipe(
+        Effect.provide(signatureHttpClientLive),
+      );
       expect(profile.document.length).toBeGreaterThan(0);
 
       const content = textEncoder.encode("signature-kit remote A1 payload");
       const artifact = yield* signatures
         .sign({ content, algorithm: "rsa-sha256" })
-        .pipe(Effect.provide(a1SignaturesLayerFromUrl({ url, password: PASSWORD })));
+        .pipe(
+          Effect.provide(a1SignaturesLayerFromUrl({ url, password: PASSWORD })),
+          Effect.provide(signatureHttpClientLive),
+        );
       expect(artifact.signature.byteLength).toBeGreaterThan(0);
     }),
   );
@@ -205,7 +211,9 @@ describe("A1 signatures", () => {
   it.effect("fails with EMPTY_FILE when the remote A1 has no body", () =>
     Effect.gen(function* () {
       const result = yield* Effect.result(
-        fetchA1Pkcs12({ url: "data:application/x-pkcs12;base64," }),
+        fetchA1Pkcs12({ url: "data:application/x-pkcs12;base64," }).pipe(
+          Effect.provide(signatureHttpClientLive),
+        ),
       );
       expect(Result.isFailure(result)).toBe(true);
       if (Result.isFailure(result)) {

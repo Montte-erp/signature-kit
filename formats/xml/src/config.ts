@@ -79,6 +79,7 @@ export class XmlError extends Schema.TaggedErrorClass<XmlError>()("XmlError", {
   reason: Schema.optional(Schema.String),
   operation: Schema.optional(XmlOperationSchema),
   schemaName: Schema.optional(XmlSchemaNameSchema),
+  issueMessage: Schema.optional(Schema.String),
 }) {
   get message(): string {
     return this.reason ?? this.code;

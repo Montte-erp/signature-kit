@@ -116,7 +116,6 @@ const SIGNATURE_DRAFT: PdfSignatureFieldDraft = {
   required: true,
 };
 
-
 interface DocEntry {
   readonly id: string;
   readonly name: string;
@@ -215,9 +214,7 @@ type PdfDocumentLoadLifecycle = {
   task?: PdfLoadingTask;
 };
 
-const destroyPdfLoadingTask = (
-  task: PdfLoadingTask | undefined,
-): Effect.Effect<void> =>
+const destroyPdfLoadingTask = (task: PdfLoadingTask | undefined): Effect.Effect<void> =>
   task?.destroy === undefined
     ? Effect.void
     : Effect.tryPromise({
@@ -254,7 +251,6 @@ const loadPdfDocumentFromBytes = (
     yield* destroyPdfDocument(loaded);
     return undefined;
   });
-
 
 type StampPreviewImages = {
   readonly signatureDataUrl?: string;
@@ -433,7 +429,11 @@ function DocumentCanvas({
     lines: string[];
   };
   rubricEveryPage: boolean;
-  onTemplateChange: (docId: string, template: PdfSignatureTemplate, rect?: PdfSignatureRect) => void;
+  onTemplateChange: (
+    docId: string,
+    template: PdfSignatureTemplate,
+    rect?: PdfSignatureRect,
+  ) => void;
   onPlaced: () => void;
   onError: (message: string) => void;
 }) {
@@ -448,14 +448,16 @@ function DocumentCanvas({
       if (node === null) return;
       const lifecycle: PdfDocumentLoadLifecycle = { active: true };
       setDoc(null);
-      void Effect.runPromise(loadPdfDocumentFromBytes(activeDoc.pdfBytes, lifecycle)).then((loaded) => {
-        if (!lifecycle.active) return;
-        if (loaded === undefined) {
-          onError(m.signer_err_render());
-          return;
-        }
-        setDoc(loaded);
-      });
+      void Effect.runPromise(loadPdfDocumentFromBytes(activeDoc.pdfBytes, lifecycle)).then(
+        (loaded) => {
+          if (!lifecycle.active) return;
+          if (loaded === undefined) {
+            onError(m.signer_err_render());
+            return;
+          }
+          setDoc(loaded);
+        },
+      );
       return () => {
         lifecycle.active = false;
         setDoc(null);
@@ -490,7 +492,7 @@ function DocumentCanvas({
     }
     const field = placed.success.fields.find((candidate) => candidate.id === SIGNATURE_FIELD_ID);
     if (field) onTemplateChange(activeDoc.id, placed.success, field.rect);
-    store.selectField(SIGNATURE_FIELD_ID);
+    await Effect.runPromise(store.selectField(SIGNATURE_FIELD_ID));
     onPlaced();
   };
 
@@ -1013,7 +1015,10 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       }
       const template = state.success.template;
       const pageDims = template.documents[0].pages;
-      const pageTextBoxesFallback: PdfTextBox[][] = Array.from({ length: pageDims.length }, () => []);
+      const pageTextBoxesFallback: PdfTextBox[][] = Array.from(
+        { length: pageDims.length },
+        () => [],
+      );
       const pageTextBoxes = await Effect.runPromise(
         parsePdfTextBoxesBrowser(bytes.success, pageDims.length).pipe(
           Effect.catchTag("PdfError", () => Effect.succeed(pageTextBoxesFallback)),

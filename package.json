@@ -1,8 +1,6 @@
 {
   "name": "signature-kit",
   "private": true,
-  "type": "module",
-  "packageManager": "bun@1.3.14",
   "workspaces": [
     "apps/*",
     "core/*",
@@ -11,6 +9,7 @@
     "shared/*",
     "tooling/*"
   ],
+  "type": "module",
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b",
@@ -21,7 +20,7 @@
     "test:integration:server": "bun --cwd tooling/integration-tests test:server",
     "test:integration:browser": "vitest run --config tooling/vitest/browser.config.ts signers/a1/__tests__/a1.browser.test.ts formats/pdf/__tests__/pdf-a1.browser.test.ts",
     "test:e2e:pdf-a1": "vitest run --config tooling/vitest/browser.config.ts formats/pdf/__tests__/pdf-a1.browser.test.ts",
-    "test:performance": "vitest run core/certificates/__tests__/certificates.performance.test.ts signers/a1/__tests__/a1.performance.test.ts",
+    "test:performance": "vitest run core/certificates/__tests__/certificates.performance.test.ts signers/a1/__tests__/a1.performance.test.ts formats/pdf/__tests__/pdf.performance.test.ts",
     "test:live:remote-signers": "SIGNATURE_KIT_LIVE_REMOTE_SIGNERS=1 vitest run signers/clicksign/__tests__/clicksign.live.test.ts signers/assinafy/__tests__/assinafy.live.test.ts signers/zapsign/__tests__/zapsign.live.test.ts signers/documenso/__tests__/documenso.live.test.ts signers/docuseal/__tests__/docuseal.live.test.ts",
     "site:dev": "bun --cwd apps/docs dev",
     "site:build": "bun --cwd apps/docs build",
@@ -46,5 +45,6 @@
     "playwright": "^1.61.0",
     "typescript": "latest",
     "vitest": "^4.0.0"
-  }
+  },
+  "packageManager": "bun@1.3.14"
 }

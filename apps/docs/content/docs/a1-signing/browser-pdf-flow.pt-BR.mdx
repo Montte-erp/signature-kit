@@ -55,7 +55,7 @@ const signedPdf = await Effect.runPromise(
 
 ## Assinatura em lote
 
-Use `signPdfSignatureBatch(items, callbacks)` quando um certificado A1 assina muitos PDFs. Ele roda em sequência com `concurrency: 1`, captura falhas por documento como valores de resultado e impede que um documento ruim aborte o lote.
+Use `signPdfSignatureBatch(items, callbacks)` quando um certificado A1 assina muitos PDFs. Ele roda em sequência, captura falhas por documento como valores de resultado e impede que um documento ruim aborte o lote.
 
 ## Relacionados
 

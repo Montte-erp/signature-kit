@@ -2,9 +2,16 @@ import { describe, expect, it } from "@effect/vitest";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import { SignatureHttpClient, signatureHttpClientLive } from "@signature-kit/core/http";
-import { SignatureKitError, signatureKitErrorCatalog } from "@signature-kit/core/config";
-import { Effect, Result } from "effect";
+import {
+  SignatureKitError,
+  SignatureKitSchemaNameValue,
+  signatureKitErrorCatalog,
+} from "@signature-kit/core/config";
+import { Effect, Result, Schema } from "effect";
 
+const JsonResponseSchema = Schema.Struct({
+  ok: Schema.Boolean,
+});
 type LocalServer = {
   readonly server: Server;
   readonly baseUrl: string;
@@ -58,7 +65,11 @@ describe("SignatureHttpClient", () => {
     Effect.gen(function* () {
       const local = yield* startServer();
       const body = yield* SignatureHttpClient.use((http) =>
-        http.requestJson({ method: "GET", url: `${local.baseUrl}/json` }),
+        http.requestJson(
+          { method: "GET", url: `${local.baseUrl}/json` },
+          JsonResponseSchema,
+          SignatureKitSchemaNameValue.providerHttpRequest,
+        ),
       ).pipe(Effect.provide(signatureHttpClientLive));
 
       expect(body).toEqual({ ok: true });
@@ -71,7 +82,11 @@ describe("SignatureHttpClient", () => {
       const local = yield* startServer();
       const result = yield* Effect.result(
         SignatureHttpClient.use((http) =>
-          http.requestJson({ method: "GET", url: `${local.baseUrl}/status` }),
+          http.requestJson(
+            { method: "GET", url: `${local.baseUrl}/status` },
+            JsonResponseSchema,
+            SignatureKitSchemaNameValue.providerHttpRequest,
+          ),
         ).pipe(Effect.provide(signatureHttpClientLive)),
       );
 
@@ -90,11 +105,15 @@ describe("SignatureHttpClient", () => {
       const local = yield* startServer();
       const result = yield* Effect.result(
         SignatureHttpClient.use((http) =>
-          http.requestJson({
-            method: "GET",
-            url: `${local.baseUrl}/status?access_token=clicksign-secret`,
-            diagnosticUrl: `${local.baseUrl}/status?access_token=<redacted>`,
-          }),
+          http.requestJson(
+            {
+              method: "GET",
+              url: `${local.baseUrl}/status?access_token=clicksign-secret`,
+              diagnosticUrl: `${local.baseUrl}/status?access_token=<redacted>`,
+            },
+            JsonResponseSchema,
+            SignatureKitSchemaNameValue.providerHttpRequest,
+          ),
         ).pipe(Effect.provide(signatureHttpClientLive)),
       );
 
@@ -112,7 +131,11 @@ describe("SignatureHttpClient", () => {
       const local = yield* startServer();
       const result = yield* Effect.result(
         SignatureHttpClient.use((http) =>
-          http.requestJson({ method: "GET", url: `${local.baseUrl}/bad-json` }),
+          http.requestJson(
+            { method: "GET", url: `${local.baseUrl}/bad-json` },
+            JsonResponseSchema,
+            SignatureKitSchemaNameValue.providerHttpRequest,
+          ),
         ).pipe(Effect.provide(signatureHttpClientLive)),
       );
 

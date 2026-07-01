@@ -3,6 +3,7 @@
  */
 
 import { redactedStringSchema } from "@signature-kit/core/config";
+import { SignatureHttpHeadersSchema } from "@signature-kit/core/http";
 import { Schema } from "effect";
 
 export const A1SignerOptionsSchema = Schema.Struct({
@@ -10,6 +11,23 @@ export const A1SignerOptionsSchema = Schema.Struct({
   password: redactedStringSchema,
 });
 export type A1SignerOptions = (typeof A1SignerOptionsSchema)["Type"];
+
+export const A1RemoteFetchSchema = Schema.Struct({
+  /** The (presigned) URL the PKCS#12 bytes are fetched from with a GET. */
+  url: Schema.NonEmptyString,
+  /** Extra request headers (for auth not already baked into the URL). */
+  headers: Schema.optional(SignatureHttpHeadersSchema),
+});
+export type A1RemoteFetch = (typeof A1RemoteFetchSchema)["Type"];
+
+export const A1RemoteSourceSchema = Schema.Struct({
+  /** The (presigned) URL the PKCS#12 bytes are fetched from with a GET. */
+  url: Schema.NonEmptyString,
+  /** Extra request headers (for auth not already baked into the URL). */
+  headers: Schema.optional(SignatureHttpHeadersSchema),
+  password: redactedStringSchema,
+});
+export type A1RemoteSource = (typeof A1RemoteSourceSchema)["Type"];
 
 export const A1CertificateProfileSchema = Schema.Struct({
   document: Schema.NonEmptyString,

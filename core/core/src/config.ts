@@ -190,8 +190,8 @@ export const RemoteSignatureRequestInputSchema = Schema.Struct({
   title: nonEmptyString,
   subject: Schema.optional(nonEmptyString),
   message: Schema.optional(nonEmptyString),
-  documents: Schema.Array(RemoteSignatureDocumentSchema),
-  recipients: Schema.Array(RemoteSignatureRecipientSchema),
+  documents: Schema.NonEmptyArray(RemoteSignatureDocumentSchema),
+  recipients: Schema.NonEmptyArray(RemoteSignatureRecipientSchema),
   send: Schema.optional(Schema.Boolean),
   expiresAt: Schema.optional(Schema.Date),
   redirectUrl: Schema.optional(nonEmptyString),
@@ -211,8 +211,8 @@ export const RemoteSignatureRequestPropsSchema = Schema.Struct({
   title: nonEmptyString,
   subject: Schema.optional(nonEmptyString),
   message: Schema.optional(nonEmptyString),
-  documents: Schema.Array(RemoteSignatureDocumentPropsSchema),
-  recipients: Schema.Array(RemoteSignatureRecipientSchema),
+  documents: Schema.NonEmptyArray(RemoteSignatureDocumentPropsSchema),
+  recipients: Schema.NonEmptyArray(RemoteSignatureRecipientSchema),
   send: Schema.optional(Schema.Boolean),
   expiresAt: Schema.optional(Schema.Date),
   redirectUrl: Schema.optional(nonEmptyString),
@@ -221,20 +221,30 @@ export type RemoteSignatureRequestProps = (typeof RemoteSignatureRequestPropsSch
 
 export const remoteSignatureInputFromProps = (
   props: RemoteSignatureRequestProps,
-): RemoteSignatureRequestInput => ({
-  title: props.title,
-  documents: props.documents.map((document) => ({
-    fileName: document.fileName,
-    mimeType: document.mimeType,
-    content: Uint8Array.fromBase64(document.contentBase64),
-  })),
-  recipients: props.recipients,
-  ...(props.subject === undefined ? {} : { subject: props.subject }),
-  ...(props.message === undefined ? {} : { message: props.message }),
-  ...(props.send === undefined ? {} : { send: props.send }),
-  ...(props.expiresAt === undefined ? {} : { expiresAt: props.expiresAt }),
-  ...(props.redirectUrl === undefined ? {} : { redirectUrl: props.redirectUrl }),
-});
+): RemoteSignatureRequestInput => {
+  const [firstDocument, ...restDocuments] = props.documents;
+  return {
+    title: props.title,
+    documents: [
+      {
+        fileName: firstDocument.fileName,
+        mimeType: firstDocument.mimeType,
+        content: Uint8Array.fromBase64(firstDocument.contentBase64),
+      },
+      ...restDocuments.map((document) => ({
+        fileName: document.fileName,
+        mimeType: document.mimeType,
+        content: Uint8Array.fromBase64(document.contentBase64),
+      })),
+    ],
+    recipients: props.recipients,
+    ...(props.subject === undefined ? {} : { subject: props.subject }),
+    ...(props.message === undefined ? {} : { message: props.message }),
+    ...(props.send === undefined ? {} : { send: props.send }),
+    ...(props.expiresAt === undefined ? {} : { expiresAt: props.expiresAt }),
+    ...(props.redirectUrl === undefined ? {} : { redirectUrl: props.redirectUrl }),
+  };
+};
 
 export const RemoteSignatureRequestSchema = Schema.Struct({
   provider: RemoteSignatureProviderSchema,
@@ -247,23 +257,24 @@ export const RemoteSignatureRequestSchema = Schema.Struct({
 });
 export type RemoteSignatureRequest = (typeof RemoteSignatureRequestSchema)["Type"];
 
-const hasDocumentsAndRecipients = (input: RemoteSignatureRequestInput): boolean =>
-  input.documents.length > 0 && input.recipients.length > 0;
-
-export const validRemoteSignatureRequest = (
-  input: RemoteSignatureRequestInput,
-): Effect.Effect<RemoteSignatureRequestInput, SignatureKitError> => {
-  if (hasDocumentsAndRecipients(input)) return Effect.succeed(input);
-  return Effect.fail(
-    new SignatureKitError({
-      code: SignatureKitErrorCodeValue.invalidInput,
-      retryable: false,
-      operation: SignatureKitOperationValue.schemaDecode,
-      schemaName: SignatureKitSchemaNameValue.remoteSignatureRequestInput,
-      reason: "At least one document and one recipient are required.",
-    }),
+export const remoteSignatureInputFromResourceProps = (
+  provider: RemoteSignatureProvider,
+  props: unknown,
+): Effect.Effect<RemoteSignatureRequestInput, SignatureKitError> =>
+  Schema.decodeUnknownEffect(RemoteSignatureRequestPropsSchema)(props).pipe(
+    Effect.mapError(
+      (issue) =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.invalidInput,
+          retryable: false,
+          provider,
+          operation: SignatureKitOperationValue.schemaDecode,
+          schemaName: SignatureKitSchemaNameValue.remoteSignatureRequestProps,
+          issueMessage: String(issue),
+        }),
+    ),
+    Effect.map(remoteSignatureInputFromProps),
   );
-};
 
 /**
  * The capability seam. A signer owns "where the signing power comes from".
@@ -486,6 +497,8 @@ export const SignatureKitSchemaNameSchema = Schema.Literals([
   "SignInput",
   "VerifyInput",
   "A1SignerOptions",
+  "A1RemoteFetch",
+  "A1RemoteSource",
   "RemoteSignatureRequestInput",
   "RemoteSignatureRequestProps",
   "ProviderHttpRequest",
@@ -505,6 +518,7 @@ export const SignatureKitSchemaNameSchema = Schema.Literals([
   "DocuSealProviderOptions",
   "DocuSealSubmissionResult",
   "DocuSealSubmissionsResult",
+  "DocuSealSubmissionDocumentsResult",
   "DocumensoProviderOptions",
   "DocumensoCreateEnvelopeResult",
   "DocumensoDistributeEnvelopeResult",
@@ -535,12 +549,15 @@ export const SignatureKitSchemaNameValue = {
   docuSealProviderOptions: "DocuSealProviderOptions",
   docuSealSubmissionResult: "DocuSealSubmissionResult",
   docuSealSubmissionsResult: "DocuSealSubmissionsResult",
+  docuSealSubmissionDocumentsResult: "DocuSealSubmissionDocumentsResult",
   documensoProviderOptions: "DocumensoProviderOptions",
   documensoCreateEnvelopeResult: "DocumensoCreateEnvelopeResult",
   documensoDistributeEnvelopeResult: "DocumensoDistributeEnvelopeResult",
   documensoEnvelopeResult: "DocumensoEnvelopeResult",
   documensoEnvelopeListResult: "DocumensoEnvelopeListResult",
   a1SignerOptions: "A1SignerOptions",
+  a1RemoteFetch: "A1RemoteFetch",
+  a1RemoteSource: "A1RemoteSource",
 } satisfies Record<string, SignatureKitSchemaName>;
 
 export class SignatureKitError extends Schema.TaggedErrorClass<SignatureKitError>()(
@@ -551,6 +568,7 @@ export class SignatureKitError extends Schema.TaggedErrorClass<SignatureKitError
     reason: Schema.optional(Schema.String),
     operation: Schema.optional(SignatureKitOperationSchema),
     schemaName: Schema.optional(SignatureKitSchemaNameSchema),
+    issueMessage: Schema.optional(Schema.String),
     provider: Schema.optional(RemoteSignatureProviderSchema),
     status: Schema.optional(Schema.Number),
   },

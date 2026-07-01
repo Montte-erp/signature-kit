@@ -2,7 +2,7 @@ import { PDFDocument } from "@cantoo/pdf-lib";
 import type { CmsError } from "@signature-kit/cms/config";
 import type { SignatureKitError } from "@signature-kit/core/config";
 import type { Signatures } from "@signature-kit/core/signatures";
-import { signPdf as signPdfDocument } from "@signature-kit/pdf/sign";
+import { signPdf as signPdfDocument } from "./sign";
 import { Effect, Schema } from "effect";
 import {
   autoPlacePdfSignatureField,
@@ -60,13 +60,14 @@ export const loadPdfSignatureDocument = (
   input: PdfDocumentInput,
 ): Effect.Effect<PdfSignatureDocument, PdfError> =>
   Schema.decodeUnknownEffect(PdfDocumentInputSchema)(input).pipe(
-    Effect.mapError((_error) => {
+    Effect.mapError((issue) => {
       return new PdfError({
         code: PdfErrorCodeValue.invalidBuilderInput,
         retryable: false,
         reason: "PDF document input failed schema validation.",
         operation: PdfOperationValue.loadDocument,
         schemaName: PdfSchemaNameValue.pdfDocumentInput,
+        issueMessage: String(issue),
       });
     }),
     Effect.flatMap((valid) =>
@@ -117,13 +118,14 @@ export const createPdfSignatureTemplateFromBytes = (
   input: PdfTemplateInput,
 ): Effect.Effect<PdfSignatureTemplate, PdfError> =>
   Schema.decodeUnknownEffect(PdfTemplateInputSchema)(input).pipe(
-    Effect.mapError((_error) => {
+    Effect.mapError((issue) => {
       return new PdfError({
         code: PdfErrorCodeValue.invalidBuilderInput,
         retryable: false,
         reason: "PDF template input failed schema validation.",
         operation: PdfOperationValue.createTemplateFromBytes,
         schemaName: PdfSchemaNameValue.pdfTemplateInput,
+        issueMessage: String(issue),
       });
     }),
     Effect.flatMap((valid) =>
@@ -148,13 +150,14 @@ export const createPdfSignatureBuilderStateFromBytes = (
   input: PdfSignatureBuilderInput,
 ): Effect.Effect<PdfSignatureBuilderState, PdfError> =>
   Schema.decodeUnknownEffect(PdfSignatureBuilderInputSchema)(input).pipe(
-    Effect.mapError((_error) => {
+    Effect.mapError((issue) => {
       return new PdfError({
         code: PdfErrorCodeValue.invalidBuilderInput,
         retryable: false,
         reason: "PDF signature builder input failed schema validation.",
         operation: PdfOperationValue.createBuilderStateFromBytes,
         schemaName: PdfSchemaNameValue.pdfSignatureBuilderInput,
+        issueMessage: String(issue),
       });
     }),
     Effect.flatMap((valid) =>
@@ -235,13 +238,14 @@ export const signPdfSignatureField = (
   input: PdfSigningInput,
 ): Effect.Effect<Uint8Array, PdfError | CmsError | SignatureKitError, Signatures> =>
   Schema.decodeUnknownEffect(PdfSigningInputSchema)(input).pipe(
-    Effect.mapError((_error) => {
+    Effect.mapError((issue) => {
       return new PdfError({
         code: PdfErrorCodeValue.invalidBuilderInput,
         retryable: false,
         reason: "PDF signing input failed schema validation.",
         operation: PdfOperationValue.signField,
         schemaName: PdfSchemaNameValue.pdfSigningInput,
+        issueMessage: String(issue),
       });
     }),
     Effect.flatMap((valid) =>
@@ -393,29 +397,27 @@ export const preparePdfSigningBatch = (
 ): Effect.Effect<ReadonlyArray<PdfSigningBatchPreparationResult>, PdfError> =>
   Schema.decodeUnknownEffect(PdfSigningBatchPreparationInputSchema)(input).pipe(
     Effect.mapError(
-      () =>
+      (issue) =>
         new PdfError({
           code: PdfErrorCodeValue.invalidBuilderInput,
           retryable: false,
           reason: "PDF signing batch preparation input failed schema validation.",
           operation: PdfOperationValue.signField,
           schemaName: PdfSchemaNameValue.pdfSigningBatchPreparationInput,
+          issueMessage: String(issue),
         }),
     ),
     Effect.flatMap((valid) =>
-      Effect.forEach(
-        valid.documents,
-        (document, index) =>
-          preparePdfSigningBatchDocument(document, valid.stamp, valid.signing).pipe(
-            Effect.tap((result) =>
-              Effect.sync(() => callbacks.onItemSettled?.(result, index, valid.documents.length)),
-            ),
-            Effect.tap(
-              (result) =>
-                callbacks.yieldAfterItem?.(result, index, valid.documents.length) ?? Effect.void,
-            ),
+      Effect.forEach(valid.documents, (document, index) =>
+        preparePdfSigningBatchDocument(document, valid.stamp, valid.signing).pipe(
+          Effect.tap((result) =>
+            Effect.sync(() => callbacks.onItemSettled?.(result, index, valid.documents.length)),
           ),
-        { concurrency: 1 },
+          Effect.tap(
+            (result) =>
+              callbacks.yieldAfterItem?.(result, index, valid.documents.length) ?? Effect.void,
+          ),
+        ),
       ),
     ),
   );
@@ -448,5 +450,4 @@ export const signPdfSignatureBatch = (
           Effect.sync(() => callbacks.onItemSettled?.(result, index, items.length)),
         ),
       ),
-    { concurrency: 1 },
   );

@@ -1,5 +1,6 @@
 import {
   RemoteSignatureProviderSchema,
+  type SignatureKitSchemaName,
   SignatureKitError,
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
@@ -34,9 +35,11 @@ const diagnosticRequestUrl = (request: SignatureHttpRequest): string =>
   request.diagnosticUrl ?? request.url;
 
 export type SignatureHttpClientService = {
-  readonly requestJson: (
+  readonly requestJson: <A>(
     request: SignatureHttpRequest,
-  ) => Effect.Effect<unknown, SignatureKitError>;
+    schema: Schema.ConstraintDecoder<A>,
+    schemaName: SignatureKitSchemaName,
+  ) => Effect.Effect<A, SignatureKitError>;
   readonly requestBytes: (
     request: SignatureHttpRequest,
   ) => Effect.Effect<Uint8Array, SignatureKitError>;
@@ -133,6 +136,31 @@ const parseJsonBody = (
       }),
   });
 
+const decodeJsonBody = <A>(
+  request: SignatureHttpRequest,
+  response: Response,
+  schema: Schema.ConstraintDecoder<A>,
+  schemaName: SignatureKitSchemaName,
+): Effect.Effect<A, SignatureKitError> =>
+  parseJsonBody(request, response).pipe(
+    Effect.flatMap((body) =>
+      Schema.decodeUnknownEffect(schema)(body).pipe(
+        Effect.mapError(
+          (issue) =>
+            new SignatureKitError({
+              code: SignatureKitErrorCodeValue.responseShape,
+              retryable: false,
+              provider: request.provider,
+              operation: SignatureKitOperationValue.httpDecode,
+              status: response.status,
+              schemaName,
+              issueMessage: String(issue),
+            }),
+        ),
+      ),
+    ),
+  );
+
 const readResponseBytes = (
   request: SignatureHttpRequest,
   response: Response,
@@ -153,8 +181,14 @@ const readResponseBytes = (
 export const signatureHttpClientLive: Layer.Layer<SignatureHttpClient> = Layer.succeed(
   SignatureHttpClient,
   {
-    requestJson: (request: SignatureHttpRequest) =>
-      fetchResponse(request).pipe(Effect.flatMap((response) => parseJsonBody(request, response))),
+    requestJson: <A>(
+      request: SignatureHttpRequest,
+      schema: Schema.ConstraintDecoder<A>,
+      schemaName: SignatureKitSchemaName,
+    ) =>
+      fetchResponse(request).pipe(
+        Effect.flatMap((response) => decodeJsonBody(request, response, schema, schemaName)),
+      ),
     requestBytes: (request: SignatureHttpRequest) =>
       fetchResponse(request).pipe(
         Effect.flatMap((response) => readResponseBytes(request, response)),

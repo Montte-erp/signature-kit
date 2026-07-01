@@ -38,7 +38,7 @@ export const signXml = (
             retryable: false,
             operation: XmlOperationValue.sign,
             schemaName: XmlSchemaNameValue.signingRequest,
-            reason: String(issue),
+            issueMessage: String(issue),
           }),
       ),
     );

@@ -27,8 +27,8 @@
     "baseUrl": "../..",
     "paths": {
       "@signature-kit/a1/config": ["signers/a1/src/config.ts"],
-      "@signature-kit/a1/signer": ["signers/a1/src/create-a1-signer-adapter.ts"],
-      "@signature-kit/asn1": ["shared/asn1/src/config.ts"],
+      "@signature-kit/a1/signer": ["signers/a1/src/signer.ts"],
+      "@signature-kit/asn1": ["shared/asn1/src/asn1.ts"],
       "@signature-kit/assinafy": ["signers/assinafy/src/index.ts"],
       "@signature-kit/certificates": ["core/certificates/src/index.ts"],
       "@signature-kit/clicksign": ["signers/clicksign/src/index.ts"],

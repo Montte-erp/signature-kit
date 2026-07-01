@@ -71,7 +71,7 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
 - Schema decode failures are mapped where the schema is decoded. Do not add
   shared `decodeRemoteShape` / `decodeRemoteOptions`-style wrappers that hide the
   decision point; use `Schema.decodeUnknownEffect(...).pipe(Effect.mapError((issue) =>
-  new TaggedError({ ..., reason: String(issue) })))` inline at the provider,
+new TaggedError({ ..., reason: String(issue) })))` inline at the provider,
   resource, or public API boundary.
 - Default error-message catalogs are source-of-truth data next to the
   `TaggedErrorClass`, backed by Schema-derived entry types. Docs/apps import that
@@ -108,6 +108,20 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
   argument inference is preserved. Reserve `Effect.fnUntraced` for deliberately
   untraced leaf helpers, not lifecycle methods.
 - Use `Match.value(x).pipe(Match.when(...), Match.exhaustive)` for total branching.
+- Use `Effect.forEach` directly for bounded in-memory batches; it is sequential by
+  default. Add `discard: true` when the result array is intentionally unused, and
+  put UI/runtime cleanup in `Effect.ensuring` instead of relying on a final state
+  write after the loop.
+- Use `Stream` for paginated or unbounded sequences (`Stream.paginate` +
+  `Stream.runCollect` for provider list endpoints). Use `Sink` when a stream
+  should be folded, counted, validated, or written without retaining every item.
+- Use `Cache` for overlapping expensive lookups and Effect batching (`Request` /
+  `Resolver`) for N+1 service/API reads. Keep both behind a service/layer seam;
+  do not hand-roll mutable maps at call sites.
+- Use `Ref` only for cross-fiber mutable state owned by a service/layer. Pure
+  builder/config data stays immutable values.
+- Long-lived resources live in `Layer.scoped` with `Effect.acquireRelease`;
+  short critical cleanup uses `Effect.ensuring`/`onExit`.
 
 ## Alchemy v2 — a core architecture primitive
 
@@ -116,6 +130,7 @@ declarable, reconcilable, or persisted contract passes through. If something mus
 be declared, reconciled, or stored, it takes Alchemy's shape — never a bespoke
 wrapper. The signer adapters are already modeled this way (each is a `Resource`
 with a `Provider.effect` and a collection layer); follow that shape.
+
 - Read the upstream v2 guides before changing provider or state-store shape:
   `https://v2.alchemy.run/guides/custom-provider/#declare-the-resource-constructor-the-tag`,
   `https://v2.alchemy.run/guides/infrastructure-layers/`, and
@@ -156,6 +171,14 @@ with a `Provider.effect` and a collection layer); follow that shape.
   without lossy string helpers, and test path/method/auth redaction/binary
   downloads against a local HTTP server. Never fake list/delete behavior through
   Alchemy when the provider cannot perform it.
+  JSON response decoding belongs in `SignatureHttpClient.requestJson(request,
+schema, schemaName)`, not repeated after each remote call. The HTTP seam owns
+  parse failures, schema decode failures, provider/status metadata, and redacted
+  diagnostic URLs.
+  Decode Alchemy resource `news` through the shared resource-props Schema boundary
+  (`remoteSignatureInputFromResourceProps`) so all remote providers reject empty
+  document/recipient arrays, bad base64, and malformed props with the same typed
+  metadata.
   Retained request providers use an explicit no-op `diff`, `read` a cached output
   to detect missing remotes, and `delete` only the provided output id. They must
   not enumerate account-wide resources when `output` is absent.
@@ -182,8 +205,12 @@ with a `Provider.effect` and a collection layer); follow that shape.
   `@signature-kit/xml/engine`) unless the package has one genuine root module.
   Keep package `exports`, `tooling/typescript/base.json` paths, and committed
   `dist/` entrypoints in lockstep; CI static checks should fail drift.
-- Avoid `types.ts`. Keep schemas, `Schema.TaggedErrorClass` catalogs, and config
-  together in `config.ts` when they belong to the same package.
+  Source filenames should name the real seam too: keep `@signature-kit/a1/signer`
+  backed by `src/signer.ts`, and keep `@signature-kit/asn1` backed by an ASN.1 API
+  module rather than a misleading `config.ts` root.
+- Avoid `types.ts`. Keep schemas and `Schema.TaggedErrorClass` catalogs beside
+  the API they validate — usually `config.ts`, or the package root module when the
+  root specifier is the real API.
 - The signer backend is not the document format. A `SignerAdapter` owns "where the
   signing power comes from"; it must not own XML/PDF document mutation.
 - `shared/*` packages are internal-only and unpublished (`@signature-kit/asn1`,
@@ -292,7 +319,7 @@ formats/react     @signature-kit/react      React builder state and browser A1 P
 - Generated `dist/` artifacts must mirror current package exports; delete stale
   generated files when a source/export is removed.
 - Prefer static checks over ad-hoc review:
-  - no `runSync`/`runPromise`/`runFork`
+  - no `runSync`/`runPromise`/`runFork` in library internals
   - no `as` casts (`as Foo`/`as any`/`as unknown as`/`as const`)
   - no `throw`, `instanceof`, or library `try/catch`
   - no legacy Effect service APIs
@@ -302,6 +329,13 @@ formats/react     @signature-kit/react      React builder state and browser A1 P
   - no stale `dist/` files or export/path alias drift
   - secrets use `Redacted`
 - Tests for Effect workflows use `@effect/vitest` (or `bun test`).
+- PDF/PAdES changes must run the local PDF suite plus the relevant matrix:
+  `bunx vitest run formats/pdf/__tests__` for local behavior,
+  `bun run test:integration:browser` for Chromium A1 signing,
+  `bun run test:validar-iti` (with `SIGNATURE_KIT_ITI_VALIDATE=1` and optional
+  external certificate env) for the live ITI validator, and
+  `bun run test:performance` when byte-range, stamping, signing, or parsing hot
+  paths change.
 
 ## Done means
 

@@ -1,10 +1,26 @@
 import { describe, expect, it } from "vitest";
 import type { Check, CheckContext } from "../src/model";
+import { checks } from "../src/rule-set";
+import { schemaContractChecks } from "../src/rules/schema-contracts";
 import { errorHandlingChecks } from "../src/rules/error-handling";
 import { typeSafetyChecks } from "../src/rules/type-safety";
 import { architectureChecks } from "../src/rules/architecture";
+import { effectBoundaryChecks } from "../src/rules/effect-boundaries";
+import { observabilityCatalogChecks } from "../src/rules/observability-catalogs";
+import { configChecks } from "../src/rules/config";
+import { dependencyChecks } from "../src/rules/dependencies";
 import { hasCheckedExtension } from "../src/filesystem";
 
+const expectedChecks = [
+  ...schemaContractChecks,
+  ...errorHandlingChecks,
+  ...typeSafetyChecks,
+  ...effectBoundaryChecks,
+  ...observabilityCatalogChecks,
+  ...configChecks,
+  ...dependencyChecks,
+  ...architectureChecks,
+];
 const context = (line: string): CheckContext => ({
   line,
   rawLine: line,
@@ -42,6 +58,12 @@ const anyCheckMatchesSource = (checks: readonly Check[], path: string, source: s
 };
 
 describe("declarative smell rules", () => {
+  it("registers every authored check in the composed rule set", () => {
+    expect(checks.map((check) => check.message)).toEqual(
+      expectedChecks.map((check) => check.message),
+    );
+  });
+
   it("rejects instanceof-based cause classification", () => {
     expect(
       anyCheckMatches(errorHandlingChecks, "if (cause instanceof Error) return cause.message;"),
@@ -52,6 +74,10 @@ describe("declarative smell rules", () => {
     expect(
       anyCheckMatches(errorHandlingChecks, "export const safeCauseMetadata = () => ({})"),
     ).toBe(true);
+  });
+
+  it("rejects schema issue string laundering", () => {
+    expect(anyCheckMatches(errorHandlingChecks, "reason: String(issue),")).toBe(true);
   });
 
   it("rejects all TypeScript as casts including const assertions", () => {

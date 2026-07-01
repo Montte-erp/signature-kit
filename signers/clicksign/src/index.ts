@@ -1,13 +1,11 @@
 import { bytesToBase64 } from "@signature-kit/crypto/base64";
 import {
-  RemoteSignatureRequestPropsSchema,
   SignatureKitError,
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
   SignatureKitSchemaNameValue,
   redactedStringSchema,
-  remoteSignatureInputFromProps,
-  validRemoteSignatureRequest,
+  remoteSignatureInputFromResourceProps,
 } from "@signature-kit/core/config";
 import type {
   RemoteSignatureDocument,
@@ -111,30 +109,17 @@ const getClicksignSignatureRequestInternal = (
   id: string,
 ): Effect.Effect<RemoteSignatureRequest, SignatureKitError> =>
   http
-    .requestJson({
-      provider: PROVIDER,
-      method: "GET",
-      ...withAccessToken(baseUrl, `/documents/${id}`, options.accessToken),
-      headers: { "Content-Type": "application/json" },
-    })
-    .pipe(
-      Effect.flatMap((body) =>
-        Schema.decodeUnknownEffect(ClicksignGetDocumentResponseSchema)(body).pipe(
-          Effect.mapError(
-            (issue) =>
-              new SignatureKitError({
-                code: SignatureKitErrorCodeValue.responseShape,
-                retryable: false,
-                provider: PROVIDER,
-                operation: SignatureKitOperationValue.httpDecode,
-                schemaName: SignatureKitSchemaNameValue.clicksignDocumentResult,
-                reason: String(issue),
-              }),
-          ),
-        ),
-      ),
-      Effect.map((result) => toRemoteSignatureRequest(baseUrl, result.document)),
-    );
+    .requestJson(
+      {
+        provider: PROVIDER,
+        method: "GET",
+        ...withAccessToken(baseUrl, `/documents/${id}`, options.accessToken),
+        headers: { "Content-Type": "application/json" },
+      },
+      ClicksignGetDocumentResponseSchema,
+      SignatureKitSchemaNameValue.clicksignDocumentResult,
+    )
+    .pipe(Effect.map((result) => toRemoteSignatureRequest(baseUrl, result.document)));
 
 const listClicksignSignatureRequestsInternal = (
   http: SignatureHttpClientService,
@@ -142,27 +127,16 @@ const listClicksignSignatureRequestsInternal = (
   baseUrl: string,
 ): Effect.Effect<RemoteSignatureRequest[], SignatureKitError> =>
   http
-    .requestJson({
-      provider: PROVIDER,
-      method: "GET",
-      ...withAccessToken(baseUrl, "/documents", options.accessToken),
-    })
+    .requestJson(
+      {
+        provider: PROVIDER,
+        method: "GET",
+        ...withAccessToken(baseUrl, "/documents", options.accessToken),
+      },
+      ClicksignDocumentsResultSchema,
+      SignatureKitSchemaNameValue.clicksignDocumentsResult,
+    )
     .pipe(
-      Effect.flatMap((body) =>
-        Schema.decodeUnknownEffect(ClicksignDocumentsResultSchema)(body).pipe(
-          Effect.mapError(
-            (issue) =>
-              new SignatureKitError({
-                code: SignatureKitErrorCodeValue.responseShape,
-                retryable: false,
-                provider: PROVIDER,
-                operation: SignatureKitOperationValue.httpDecode,
-                schemaName: SignatureKitSchemaNameValue.clicksignDocumentsResult,
-                reason: String(issue),
-              }),
-          ),
-        ),
-      ),
       Effect.map((result) =>
         result.documents.map((document) => toRemoteSignatureRequest(baseUrl, document)),
       ),
@@ -253,25 +227,27 @@ export class ClicksignCredentials extends Context.Service<
   ClicksignProviderOptions
 >()("@signature-kit/clicksign/Credentials") {}
 
+const decodeClicksignProviderOptions = (
+  options: ClicksignProviderOptions,
+): Effect.Effect<ClicksignProviderOptions, SignatureKitError> =>
+  Schema.decodeUnknownEffect(ClicksignProviderOptionsSchema)(options).pipe(
+    Effect.mapError(
+      (issue) =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.invalidInput,
+          retryable: false,
+          provider: PROVIDER,
+          operation: SignatureKitOperationValue.schemaDecode,
+          schemaName: SignatureKitSchemaNameValue.clicksignProviderOptions,
+          issueMessage: String(issue),
+        }),
+    ),
+  );
+
 export const clicksignCredentialsLayer = (
   options: ClicksignProviderOptions,
 ): Layer.Layer<ClicksignCredentials, SignatureKitError> =>
-  Layer.effect(
-    ClicksignCredentials,
-    Schema.decodeUnknownEffect(ClicksignProviderOptionsSchema)(options).pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.clicksignProviderOptions,
-            reason: String(issue),
-          }),
-      ),
-    ),
-  );
+  Layer.effect(ClicksignCredentials, decodeClicksignProviderOptions(options));
 
 const clicksignBaseUrl = (options: ClicksignProviderOptions): string => {
   if (options.baseUrl !== undefined) return normalizedBaseUrl(options.baseUrl);
@@ -280,6 +256,21 @@ const clicksignBaseUrl = (options: ClicksignProviderOptions): string => {
   }
   return SANDBOX_BASE_URL;
 };
+
+const withClicksignHttp = <A>(
+  options: ClicksignProviderOptions,
+  use: (
+    http: SignatureHttpClientService,
+    valid: ClicksignProviderOptions,
+    baseUrl: string,
+  ) => Effect.Effect<A, SignatureKitError>,
+): Effect.Effect<A, SignatureKitError, SignatureHttpClient> =>
+  decodeClicksignProviderOptions(options).pipe(
+    Effect.map((valid) => ({ valid, baseUrl: clicksignBaseUrl(valid) })),
+    Effect.flatMap(({ valid, baseUrl }) =>
+      SignatureHttpClient.use((http) => use(http, valid, baseUrl)),
+    ),
+  );
 
 const withAccessToken = (
   baseUrl: string,
@@ -307,42 +298,29 @@ const createDocument = (
   document: RemoteSignatureDocument,
 ): Effect.Effect<string, SignatureKitError> =>
   http
-    .requestJson({
-      provider: PROVIDER,
-      method: "POST",
-      ...withAccessToken(baseUrl, "/documents", options.accessToken),
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        document: {
-          path: documentPath(document),
-          content_base64: `data:${document.mimeType};base64,${bytesToBase64(document.content)}`,
-          deadline_at: input.expiresAt?.toISOString(),
-          auto_close: options.autoClose ?? true,
-          locale: options.locale ?? "pt-BR",
-          sequence_enabled:
-            input.recipients.length > 1 ||
-            input.recipients.some((recipient) => recipient.routingOrder !== undefined),
-        },
-      }),
-    })
-    .pipe(
-      Effect.flatMap((body) =>
-        Schema.decodeUnknownEffect(ClicksignDocumentResultSchema)(body).pipe(
-          Effect.mapError(
-            (issue) =>
-              new SignatureKitError({
-                code: SignatureKitErrorCodeValue.responseShape,
-                retryable: false,
-                provider: PROVIDER,
-                operation: SignatureKitOperationValue.httpDecode,
-                schemaName: SignatureKitSchemaNameValue.clicksignDocumentResult,
-                reason: String(issue),
-              }),
-          ),
-        ),
-      ),
-      Effect.map((result) => result.document.key),
-    );
+    .requestJson(
+      {
+        provider: PROVIDER,
+        method: "POST",
+        ...withAccessToken(baseUrl, "/documents", options.accessToken),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          document: {
+            path: documentPath(document),
+            content_base64: `data:${document.mimeType};base64,${bytesToBase64(document.content)}`,
+            deadline_at: input.expiresAt?.toISOString(),
+            auto_close: options.autoClose ?? true,
+            locale: options.locale ?? "pt-BR",
+            sequence_enabled:
+              input.recipients.length > 1 ||
+              input.recipients.some((recipient) => recipient.routingOrder !== undefined),
+          },
+        }),
+      },
+      ClicksignDocumentResultSchema,
+      SignatureKitSchemaNameValue.clicksignDocumentResult,
+    )
+    .pipe(Effect.map((result) => result.document.key));
 
 const createSigner = (
   http: SignatureHttpClientService,
@@ -351,38 +329,25 @@ const createSigner = (
   recipient: RemoteSignatureRecipient,
 ): Effect.Effect<string, SignatureKitError> =>
   http
-    .requestJson({
-      provider: PROVIDER,
-      method: "POST",
-      ...withAccessToken(baseUrl, "/signers", options.accessToken),
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        signer: {
-          email: recipient.email,
-          name: recipient.name,
-          auths: ["email"],
-          has_documentation: false,
-        },
-      }),
-    })
-    .pipe(
-      Effect.flatMap((body) =>
-        Schema.decodeUnknownEffect(ClicksignSignerResultSchema)(body).pipe(
-          Effect.mapError(
-            (issue) =>
-              new SignatureKitError({
-                code: SignatureKitErrorCodeValue.responseShape,
-                retryable: false,
-                provider: PROVIDER,
-                operation: SignatureKitOperationValue.httpDecode,
-                schemaName: SignatureKitSchemaNameValue.clicksignSignerResult,
-                reason: String(issue),
-              }),
-          ),
-        ),
-      ),
-      Effect.map((result) => result.signer.key),
-    );
+    .requestJson(
+      {
+        provider: PROVIDER,
+        method: "POST",
+        ...withAccessToken(baseUrl, "/signers", options.accessToken),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          signer: {
+            email: recipient.email,
+            name: recipient.name,
+            auths: ["email"],
+            has_documentation: false,
+          },
+        }),
+      },
+      ClicksignSignerResultSchema,
+      SignatureKitSchemaNameValue.clicksignSignerResult,
+    )
+    .pipe(Effect.map((result) => result.signer.key));
 
 const linkRecipient = (
   http: SignatureHttpClientService,
@@ -395,39 +360,26 @@ const linkRecipient = (
   message: string | undefined,
 ): Effect.Effect<string, SignatureKitError> =>
   http
-    .requestJson({
-      provider: PROVIDER,
-      method: "POST",
-      ...withAccessToken(baseUrl, "/lists", options.accessToken),
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        list: {
-          document_key: documentKey,
-          signer_key: signerKey,
-          sign_as: recipient.role === "approver" ? "approve" : "sign",
-          group: recipientGroup(recipient, index),
-          message,
-        },
-      }),
-    })
-    .pipe(
-      Effect.flatMap((body) =>
-        Schema.decodeUnknownEffect(ClicksignListResultSchema)(body).pipe(
-          Effect.mapError(
-            (issue) =>
-              new SignatureKitError({
-                code: SignatureKitErrorCodeValue.responseShape,
-                retryable: false,
-                provider: PROVIDER,
-                operation: SignatureKitOperationValue.httpDecode,
-                schemaName: SignatureKitSchemaNameValue.clicksignListResult,
-                reason: String(issue),
-              }),
-          ),
-        ),
-      ),
-      Effect.map((result) => result.list.request_signature_key),
-    );
+    .requestJson(
+      {
+        provider: PROVIDER,
+        method: "POST",
+        ...withAccessToken(baseUrl, "/lists", options.accessToken),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          list: {
+            document_key: documentKey,
+            signer_key: signerKey,
+            sign_as: recipient.role === "approver" ? "approve" : "sign",
+            group: recipientGroup(recipient, index),
+            message,
+          },
+        }),
+      },
+      ClicksignListResultSchema,
+      SignatureKitSchemaNameValue.clicksignListResult,
+    )
+    .pipe(Effect.map((result) => result.list.request_signature_key));
 
 const notifyRecipient = (
   http: SignatureHttpClientService,
@@ -487,12 +439,16 @@ const createRemoteRequest = (
         ),
       ).pipe(Effect.map((requestSignatureKeys) => ({ documentKey, requestSignatureKeys }))),
     ),
-    Effect.flatMap(({ documentKey, requestSignatureKeys }) => {
-      if (input.send === false) return Effect.succeed({ documentKey });
-      return Effect.forEach(requestSignatureKeys, (requestSignatureKey) =>
-        notifyRecipient(http, options, baseUrl, requestSignatureKey, input),
-      ).pipe(Effect.map(() => ({ documentKey })));
-    }),
+    Effect.flatMap(({ documentKey, requestSignatureKeys }) =>
+      input.send === false
+        ? Effect.succeed({ documentKey })
+        : Effect.forEach(
+            requestSignatureKeys,
+            (requestSignatureKey) =>
+              notifyRecipient(http, options, baseUrl, requestSignatureKey, input),
+            { discard: true },
+          ).pipe(Effect.as({ documentKey })),
+    ),
     Effect.map(({ documentKey }) => ({
       provider: PROVIDER,
       id: documentKey,
@@ -529,22 +485,7 @@ export const ClicksignSignatureRequestProvider = () =>
         }),
         reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
-          const props = yield* Schema.decodeUnknownEffect(RemoteSignatureRequestPropsSchema)(
-            news,
-          ).pipe(
-            Effect.mapError(
-              (issue) =>
-                new SignatureKitError({
-                  code: SignatureKitErrorCodeValue.invalidInput,
-                  retryable: false,
-                  provider: PROVIDER,
-                  operation: SignatureKitOperationValue.schemaDecode,
-                  schemaName: SignatureKitSchemaNameValue.remoteSignatureRequestProps,
-                  reason: String(issue),
-                }),
-            ),
-          );
-          const input = yield* validRemoteSignatureRequest(remoteSignatureInputFromProps(props));
+          const input = yield* remoteSignatureInputFromResourceProps(PROVIDER, news);
           return yield* createRemoteRequest(http, options, baseUrl, input);
         }),
         delete: Effect.fn(function* ({ output }) {
@@ -568,132 +509,37 @@ export const getClicksignSignatureRequest = (
   options: ClicksignProviderOptions,
   id: string,
 ): Effect.Effect<RemoteSignatureRequest, SignatureKitError, SignatureHttpClient> =>
-  Schema.decodeUnknownEffect(ClicksignProviderOptionsSchema)(options)
-    .pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.clicksignProviderOptions,
-            reason: String(issue),
-          }),
-      ),
-    )
-    .pipe(
-      Effect.map((valid) => ({ valid, baseUrl: clicksignBaseUrl(valid) })),
-      Effect.flatMap(({ valid, baseUrl }) =>
-        SignatureHttpClient.use((http) =>
-          getClicksignSignatureRequestInternal(http, valid, baseUrl, id),
-        ),
-      ),
-    );
+  withClicksignHttp(options, (http, valid, baseUrl) =>
+    getClicksignSignatureRequestInternal(http, valid, baseUrl, id),
+  );
 
 export const listClicksignSignatureRequests = (
   options: ClicksignProviderOptions,
 ): Effect.Effect<readonly RemoteSignatureRequest[], SignatureKitError, SignatureHttpClient> =>
-  Schema.decodeUnknownEffect(ClicksignProviderOptionsSchema)(options)
-    .pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.clicksignProviderOptions,
-            reason: String(issue),
-          }),
-      ),
-    )
-    .pipe(
-      Effect.map((valid) => ({ valid, baseUrl: clicksignBaseUrl(valid) })),
-      Effect.flatMap(({ valid, baseUrl }) =>
-        SignatureHttpClient.use((http) =>
-          listClicksignSignatureRequestsInternal(http, valid, baseUrl),
-        ),
-      ),
-    );
+  withClicksignHttp(options, (http, valid, baseUrl) =>
+    listClicksignSignatureRequestsInternal(http, valid, baseUrl),
+  );
 
 export const cancelClicksignSignatureRequest = (
   options: ClicksignProviderOptions,
   id: string,
 ): Effect.Effect<void, SignatureKitError, SignatureHttpClient> =>
-  Schema.decodeUnknownEffect(ClicksignProviderOptionsSchema)(options)
-    .pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.clicksignProviderOptions,
-            reason: String(issue),
-          }),
-      ),
-    )
-    .pipe(
-      Effect.map((valid) => ({ valid, baseUrl: clicksignBaseUrl(valid) })),
-      Effect.flatMap(({ valid, baseUrl }) =>
-        SignatureHttpClient.use((http) =>
-          cancelClicksignSignatureRequestInternal(http, valid, baseUrl, id),
-        ),
-      ),
-    );
+  withClicksignHttp(options, (http, valid, baseUrl) =>
+    cancelClicksignSignatureRequestInternal(http, valid, baseUrl, id),
+  );
 
 export const deleteClicksignSignatureRequest = (
   options: ClicksignProviderOptions,
   id: string,
 ): Effect.Effect<void, SignatureKitError, SignatureHttpClient> =>
-  Schema.decodeUnknownEffect(ClicksignProviderOptionsSchema)(options)
-    .pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.clicksignProviderOptions,
-            reason: String(issue),
-          }),
-      ),
-    )
-    .pipe(
-      Effect.map((valid) => ({ valid, baseUrl: clicksignBaseUrl(valid) })),
-      Effect.flatMap(({ valid, baseUrl }) =>
-        SignatureHttpClient.use((http) =>
-          deleteClicksignSignatureRequestInternal(http, valid, baseUrl, id),
-        ),
-      ),
-    );
+  withClicksignHttp(options, (http, valid, baseUrl) =>
+    deleteClicksignSignatureRequestInternal(http, valid, baseUrl, id),
+  );
 
 export const downloadClicksignSignedDocument = (
   options: ClicksignProviderOptions,
   id: string,
 ): Effect.Effect<Uint8Array, SignatureKitError, SignatureHttpClient> =>
-  Schema.decodeUnknownEffect(ClicksignProviderOptionsSchema)(options)
-    .pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.clicksignProviderOptions,
-            reason: String(issue),
-          }),
-      ),
-    )
-    .pipe(
-      Effect.map((valid) => ({ valid, baseUrl: clicksignBaseUrl(valid) })),
-      Effect.flatMap(({ valid, baseUrl }) =>
-        SignatureHttpClient.use((http) =>
-          downloadClicksignSignedDocumentInternal(http, valid, baseUrl, id),
-        ),
-      ),
-    );
+  withClicksignHttp(options, (http, valid, baseUrl) =>
+    downloadClicksignSignedDocumentInternal(http, valid, baseUrl, id),
+  );

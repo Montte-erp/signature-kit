@@ -6,7 +6,7 @@ import { a1SignaturesLayer } from "@signature-kit/a1/signer";
 import { signPdf } from "@signature-kit/pdf/sign";
 import { verifyPdf } from "@signature-kit/pdf/verify";
 import { extractPdfSignature, preparePdfByteRange } from "../src/byte-range";
-import { encodeAscii, indexOfBytes } from "../src/bytes";
+import { encodeAscii, indexOfBytes, replaceRange } from "../src/bytes";
 import { stampPdfRubric } from "../src/stamp";
 import {
   PdfSigningRequestSchema,
@@ -198,6 +198,25 @@ const createPdf: Effect.Effect<Uint8Array> = Effect.promise(async () => {
   const page = pdf.addPage([320, 180]);
   page.drawText("SignatureKit PDF payload", { x: 40, y: 120, size: 16 });
   return pdf.save({ useObjectStreams: false });
+});
+
+describe("PDF byte helpers", () => {
+  it("replaces byte ranges without mutating the source", () => {
+    const source = encodeAscii("0123456789");
+    const replaced = replaceRange(source, 2, 7, encodeAscii("ABCDE"));
+
+    expect(latin1.decode(replaced)).toBe("01ABCDE789");
+    expect(latin1.decode(source)).toBe("0123456789");
+  });
+
+  it("handles prefix and suffix replacements", () => {
+    expect(latin1.decode(replaceRange(encodeAscii("abcdef"), 0, 3, encodeAscii("12")))).toBe(
+      "12def",
+    );
+    expect(latin1.decode(replaceRange(encodeAscii("abcdef"), 3, 6, encodeAscii("34")))).toBe(
+      "abc34",
+    );
+  });
 });
 
 describe("PDF signatures", () => {

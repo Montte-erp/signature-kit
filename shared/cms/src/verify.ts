@@ -7,7 +7,7 @@
  * When `trustedRoots` is supplied, the signer chain is validated too.
  */
 
-import { Effect, Option, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import * as pkijs from "pkijs";
 import {
   type CmsVerifyResult,
@@ -80,22 +80,19 @@ export const verifyDetachedSignedData = (
         }),
       catch: (cause) => cause,
     }).pipe(
-      Effect.matchEffect({
-        onFailure: (cause) =>
-          Option.isSome(Schema.decodeUnknownOption(SignedDataVerifyErrorSchema)(cause))
-            ? Effect.succeed(undefined)
-            : Effect.die(cause),
-        onSuccess: (result) => Effect.succeed(result),
-      }),
+      Effect.catch((cause) =>
+        Schema.decodeUnknownEffect(SignedDataVerifyErrorSchema)(cause).pipe(
+          Effect.matchEffect({
+            onFailure: () => Effect.die(cause),
+            onSuccess: () =>
+              Effect.succeed({
+                signatureVerified: false,
+                signerCertificateVerified: false,
+              }),
+          }),
+        ),
+      ),
     );
-
-    if (verification === undefined) {
-      return {
-        valid: false,
-        chainValid: false,
-        signerSerialNumber: serial,
-      };
-    }
 
     return {
       valid: verification.signatureVerified === true,

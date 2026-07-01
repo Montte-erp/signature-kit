@@ -9,7 +9,6 @@ import { Effect, Redacted, Result } from "effect";
 import {
   DocuSealSignatureRequest,
   DocuSealSignatureRequestProvider,
-  cancelDocuSealSignatureRequest,
   docuSealCredentialsLayer,
   type DocuSealProviderOptions,
   deleteDocuSealSignatureRequest,
@@ -151,6 +150,10 @@ const startServer = (): Effect.Effect<LocalServer> =>
           }
 
           if (method === "GET" && nested === "documents") {
+            if (submissionId === "bad-documents") {
+              writeJson(response, { documents: [{ url: 42 }] });
+              return;
+            }
             writeJson(response, {
               documents: [
                 {
@@ -162,6 +165,19 @@ const startServer = (): Effect.Effect<LocalServer> =>
             return;
           }
           if (method === "GET") {
+            if (submissionId === "bad-documents") {
+              writeJson(response, {
+                id: "bad-documents",
+                status: "pending",
+                submitters: [
+                  {
+                    submission_id: "bad-documents",
+                    sign_url: "https://docuseal.example.test/s/bad",
+                  },
+                ],
+              });
+              return;
+            }
             if (submissionId === "42") {
               writeJson(response, {
                 id: 42,
@@ -376,33 +392,6 @@ describe("DocuSeal remote signatures", () => {
     }),
   );
 
-  it.effect(
-    "returns unsupported operation for cancel because DocuSeal does not support cancel",
-    () =>
-      Effect.gen(function* () {
-        const local = yield* startServer();
-        const result = yield* Effect.result(
-          cancelDocuSealSignatureRequest(
-            {
-              apiKey: Redacted.make("docuseal-secret"),
-              baseUrl: local.baseUrl,
-            },
-            "42",
-          ).pipe(Effect.provide(signatureHttpClientLive)),
-        );
-
-        expect(Result.isFailure(result)).toBe(true);
-        if (Result.isFailure(result)) {
-          expect(result.failure.code).toBe("signature-kit.UNSUPPORTED_OPERATION");
-          expect(result.failure.provider).toBe("docuseal");
-          expect(result.failure.operation).toBe("remote.cancel");
-        }
-        expect(local.calls).toHaveLength(0);
-
-        yield* closeServer(local.server);
-      }),
-  );
-
   it.effect("deletes a docuseal request", () =>
     Effect.gen(function* () {
       const local = yield* startServer();
@@ -487,6 +476,35 @@ describe("DocuSeal remote signatures", () => {
         "GET:/submissions/43",
         "GET:/submissions/43/documents",
         "GET:/documents/43/download",
+      ]);
+
+      yield* closeServer(local.server);
+    }),
+  );
+
+  it.effect("labels malformed DocuSeal document-list responses with the document schema", () =>
+    Effect.gen(function* () {
+      const local = yield* startServer();
+      const result = yield* Effect.result(
+        downloadDocuSealSignedDocument(
+          {
+            apiKey: Redacted.make("docuseal-secret"),
+            baseUrl: local.baseUrl,
+          },
+          "bad-documents",
+        ).pipe(Effect.provide(signatureHttpClientLive)),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe("signature-kit.RESPONSE_SHAPE");
+        expect(result.failure.provider).toBe("docuseal");
+        expect(result.failure.operation).toBe("http.decode");
+        expect(result.failure.schemaName).toBe("DocuSealSubmissionDocumentsResult");
+      }
+      expect(local.calls.map((call) => `${call.method}:${call.path}`)).toEqual([
+        "GET:/submissions/bad-documents",
+        "GET:/submissions/bad-documents/documents",
       ]);
 
       yield* closeServer(local.server);

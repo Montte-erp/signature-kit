@@ -45,7 +45,7 @@ export const parsePdfTextBoxesBrowser = (
         (parser) => Effect.sync(() => parser.free()),
       );
       const parsedUnknown = yield* Effect.tryPromise({
-        try: () => parser.parse(pdf.slice()),
+        try: () => parser.parse(pdf),
         catch: () =>
           new PdfError({
             code: PdfErrorCodeValue.pdfLoadFailed,
@@ -71,13 +71,14 @@ export const parsePdfTextBoxesBrowser = (
         parsedUnknown,
       ).pipe(
         Effect.mapError(
-          () =>
+          (issue) =>
             new PdfError({
               code: PdfErrorCodeValue.invalidPdf,
               retryable: false,
               operation: PdfOperationValue.parse,
               schemaName: PdfSchemaNameValue.pdfLiteParseResult,
               reason: "LiteParse WASM returned an invalid text-box result.",
+              issueMessage: String(issue),
             }),
         ),
       );

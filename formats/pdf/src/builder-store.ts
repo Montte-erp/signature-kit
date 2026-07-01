@@ -51,8 +51,12 @@ export type PdfSignatureBuilderStore = {
   readonly setTemplate: (
     template: PdfSignatureTemplate,
   ) => Effect.Effect<PdfSignatureTemplate, PdfError>;
-  readonly setDraft: (draft: PdfSignatureFieldDraft | undefined) => void;
-  readonly selectField: (fieldId: string | undefined) => void;
+  readonly setDraft: (
+    draft: PdfSignatureFieldDraft | undefined,
+  ) => Effect.Effect<PdfSignatureBuilderState, never>;
+  readonly selectField: (
+    fieldId: string | undefined,
+  ) => Effect.Effect<PdfSignatureBuilderState, never>;
   readonly addField: (field: PdfSignatureField) => Effect.Effect<PdfSignatureTemplate, PdfError>;
   readonly placeField: (
     placement: PdfSignatureFieldPlacement,
@@ -173,20 +177,24 @@ export const createPdfSignatureBuilderStore = (
     subscribe,
     setState: commitState,
     setTemplate: (template) => commitTemplate(() => validatePdfSignatureTemplate(template)),
-    setDraft: (draft) => {
-      const snapshot = current();
-      publish(builderState(snapshot.template, snapshot.selectedFieldId, draft));
-    },
-    selectField: (fieldId) => {
-      const snapshot = current();
-      publish(
-        builderState(
+    setDraft: (draft) =>
+      Effect.sync(() => {
+        const snapshot = current();
+        const next = builderState(snapshot.template, snapshot.selectedFieldId, draft);
+        publish(next);
+        return next;
+      }),
+    selectField: (fieldId) =>
+      Effect.sync(() => {
+        const snapshot = current();
+        const next = builderState(
           snapshot.template,
           selectedFieldStillExists(snapshot.template, fieldId),
           snapshot.draft,
-        ),
-      );
-    },
+        );
+        publish(next);
+        return next;
+      }),
     addField: (field) => commitTemplate((template) => addPdfSignatureField(template, field)),
     placeField: (placement) =>
       commitTemplate((template) => placeOrReplaceField(template, placement)),
@@ -346,17 +354,14 @@ export const placePdfSignatureFieldsBatch = (
   items: ReadonlyArray<PdfSignaturePlacementQueueItem>,
   callbacks: PdfSignaturePlacementBatchCallbacks = {},
 ): Effect.Effect<ReadonlyArray<PdfSignaturePlacementBatchResult>, never> =>
-  Effect.forEach(
-    items,
-    (item, index) =>
-      Effect.sync(() => callbacks.onItemStarted?.(item, index, items.length)).pipe(
-        Effect.flatMap(() => placePdfSignatureQueueItem(item)),
-        Effect.tap((result) =>
-          Effect.sync(() => callbacks.onItemSettled?.(result, index, items.length)),
-        ),
-        Effect.tap(
-          (result) => callbacks.yieldAfterItem?.(result, index, items.length) ?? Effect.void,
-        ),
+  Effect.forEach(items, (item, index) =>
+    Effect.sync(() => callbacks.onItemStarted?.(item, index, items.length)).pipe(
+      Effect.flatMap(() => placePdfSignatureQueueItem(item)),
+      Effect.tap((result) =>
+        Effect.sync(() => callbacks.onItemSettled?.(result, index, items.length)),
       ),
-    { concurrency: 1 },
+      Effect.tap(
+        (result) => callbacks.yieldAfterItem?.(result, index, items.length) ?? Effect.void,
+      ),
+    ),
   );

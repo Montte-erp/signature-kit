@@ -231,12 +231,12 @@ const renderQueueItem = (item: QueueItem): Effect.Effect<void> =>
   });
 
 const runQueueItems = (items: ReadonlyArray<QueueItem>): Effect.Effect<void> =>
-  Effect.gen(function* () {
-    if (store.getSnapshot().busy) return;
-    store.setState((s) => ({ ...s, busy: true }));
-    yield* Effect.forEach(items, renderQueueItem, { concurrency: 1 });
-    store.setState((s) => ({ ...s, busy: false }));
-  });
+  store.getSnapshot().busy
+    ? Effect.void
+    : Effect.sync(() => store.setState((s) => ({ ...s, busy: true }))).pipe(
+        Effect.flatMap(() => Effect.forEach(items, renderQueueItem, { discard: true })),
+        Effect.ensuring(Effect.sync(() => store.setState((s) => ({ ...s, busy: false })))),
+      );
 
 void Effect.runPromise(
   runQueueItems(DEMO_DOCS.map((demo) => ({ id: demo.id, name: demo.name, mode: "prepare" }))),

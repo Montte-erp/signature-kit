@@ -1,13 +1,11 @@
 import { bytesToBase64 } from "@signature-kit/crypto/base64";
 import {
-  RemoteSignatureRequestPropsSchema,
   SignatureKitError,
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
   SignatureKitSchemaNameValue,
   redactedStringSchema,
-  remoteSignatureInputFromProps,
-  validRemoteSignatureRequest,
+  remoteSignatureInputFromResourceProps,
 } from "@signature-kit/core/config";
 import type {
   RemoteSignatureProvider,
@@ -24,7 +22,7 @@ import {
 import type { SignatureHttpClientService } from "@signature-kit/core/http";
 import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Option, Schema, Stream } from "effect";
 
 const PROVIDER: RemoteSignatureProvider = "zapsign";
 const ZAPSIGN_PROVIDER_COLLECTION_ID = "@signature-kit/zapsign/Providers";
@@ -100,25 +98,27 @@ export class ZapSignCredentials extends Context.Service<
   ZapSignProviderOptions
 >()("@signature-kit/zapsign/Credentials") {}
 
+const decodeZapSignProviderOptions = (
+  options: ZapSignProviderOptions,
+): Effect.Effect<ZapSignProviderOptions, SignatureKitError> =>
+  Schema.decodeUnknownEffect(ZapSignProviderOptionsSchema)(options).pipe(
+    Effect.mapError(
+      (issue) =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.invalidInput,
+          retryable: false,
+          provider: PROVIDER,
+          operation: SignatureKitOperationValue.schemaDecode,
+          schemaName: SignatureKitSchemaNameValue.zapSignProviderOptions,
+          issueMessage: String(issue),
+        }),
+    ),
+  );
+
 export const zapSignCredentialsLayer = (
   options: ZapSignProviderOptions,
 ): Layer.Layer<ZapSignCredentials, SignatureKitError> =>
-  Layer.effect(
-    ZapSignCredentials,
-    Schema.decodeUnknownEffect(ZapSignProviderOptionsSchema)(options).pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.zapSignProviderOptions,
-            reason: String(issue),
-          }),
-      ),
-    ),
-  );
+  Layer.effect(ZapSignCredentials, decodeZapSignProviderOptions(options));
 
 const zapSignBaseUrl = (options: ZapSignProviderOptions): string => {
   if (options.baseUrl !== undefined) return normalizedBaseUrl(options.baseUrl);
@@ -128,6 +128,21 @@ const zapSignBaseUrl = (options: ZapSignProviderOptions): string => {
   }
   return SANDBOX_BASE_URL;
 };
+
+const withZapSignHttp = <A>(
+  options: ZapSignProviderOptions,
+  use: (
+    http: SignatureHttpClientService,
+    valid: ZapSignProviderOptions,
+    baseUrl: string,
+  ) => Effect.Effect<A, SignatureKitError>,
+): Effect.Effect<A, SignatureKitError, SignatureHttpClient> =>
+  decodeZapSignProviderOptions(options).pipe(
+    Effect.map((valid) => ({ valid, baseUrl: zapSignBaseUrl(valid) })),
+    Effect.flatMap(({ valid, baseUrl }) =>
+      SignatureHttpClient.use((http) => use(http, valid, baseUrl)),
+    ),
+  );
 
 const signerPayload = (
   options: ZapSignProviderOptions,
@@ -201,46 +216,35 @@ const createRemoteRequest = (
   }
 
   return http
-    .requestJson({
-      provider: PROVIDER,
-      method: "POST",
-      url: `${baseUrl}/docs/`,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: bearerAuthorization(options.apiToken),
-      },
-      body: JSON.stringify({
-        name: input.title,
-        base64_pdf: bytesToBase64(document.content),
-        lang: options.locale ?? "pt-br",
-        disable_signer_emails: input.send === false || options.disableSignerEmails === true,
-        signature_order_active: input.recipients.some(
-          (recipient) => recipient.routingOrder !== undefined,
-        ),
-        signers: input.recipients.map((recipient, index) =>
-          signerPayload(options, recipient, input, index),
-        ),
-        ...(input.expiresAt === undefined
-          ? {}
-          : { date_limit_to_sign: input.expiresAt.toISOString() }),
-      }),
-    })
-    .pipe(
-      Effect.flatMap((body) =>
-        Schema.decodeUnknownEffect(ZapSignDocumentResultSchema)(body).pipe(
-          Effect.mapError(
-            (issue) =>
-              new SignatureKitError({
-                code: SignatureKitErrorCodeValue.responseShape,
-                retryable: false,
-                provider: PROVIDER,
-                operation: SignatureKitOperationValue.httpDecode,
-                schemaName: SignatureKitSchemaNameValue.zapSignDocumentResult,
-                reason: String(issue),
-              }),
+    .requestJson(
+      {
+        provider: PROVIDER,
+        method: "POST",
+        url: `${baseUrl}/docs/`,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: bearerAuthorization(options.apiToken),
+        },
+        body: JSON.stringify({
+          name: input.title,
+          base64_pdf: bytesToBase64(document.content),
+          lang: options.locale ?? "pt-br",
+          disable_signer_emails: input.send === false || options.disableSignerEmails === true,
+          signature_order_active: input.recipients.some(
+            (recipient) => recipient.routingOrder !== undefined,
           ),
-        ),
-      ),
+          signers: input.recipients.map((recipient, index) =>
+            signerPayload(options, recipient, input, index),
+          ),
+          ...(input.expiresAt === undefined
+            ? {}
+            : { date_limit_to_sign: input.expiresAt.toISOString() }),
+        }),
+      },
+      ZapSignDocumentResultSchema,
+      SignatureKitSchemaNameValue.zapSignDocumentResult,
+    )
+    .pipe(
       Effect.map((result) =>
         toRemoteSignatureRequest(result, input.send === false ? "draft" : "sent"),
       ),
@@ -254,32 +258,19 @@ const getZapSignSignatureRequestInternal = (
   id: string,
 ): Effect.Effect<RemoteSignatureRequest, SignatureKitError> =>
   http
-    .requestJson({
-      provider: PROVIDER,
-      method: "GET",
-      url: `${baseUrl}/docs/${id}/`,
-      headers: {
-        Authorization: bearerAuthorization(options.apiToken),
+    .requestJson(
+      {
+        provider: PROVIDER,
+        method: "GET",
+        url: `${baseUrl}/docs/${id}/`,
+        headers: {
+          Authorization: bearerAuthorization(options.apiToken),
+        },
       },
-    })
-    .pipe(
-      Effect.flatMap((body) =>
-        Schema.decodeUnknownEffect(ZapSignDocumentResultSchema)(body).pipe(
-          Effect.mapError(
-            (issue) =>
-              new SignatureKitError({
-                code: SignatureKitErrorCodeValue.responseShape,
-                retryable: false,
-                provider: PROVIDER,
-                operation: SignatureKitOperationValue.httpDecode,
-                schemaName: SignatureKitSchemaNameValue.zapSignDocumentResult,
-                reason: String(issue),
-              }),
-          ),
-        ),
-      ),
-      Effect.map((result) => toRemoteSignatureRequest(result)),
-    );
+      ZapSignDocumentResultSchema,
+      SignatureKitSchemaNameValue.zapSignDocumentResult,
+    )
+    .pipe(Effect.map((result) => toRemoteSignatureRequest(result)));
 
 const resolveZapSignListNextUrl = (
   baseUrl: string,
@@ -293,48 +284,38 @@ const listZapSignSignatureRequestsInternal = (
   http: SignatureHttpClientService,
   options: ZapSignProviderOptions,
   baseUrl: string,
-): Effect.Effect<RemoteSignatureRequest[], SignatureKitError> =>
-  Effect.gen(function* () {
-    const requests: RemoteSignatureRequest[] = [];
-    const initialUrl = new URL(`${baseUrl}/docs/`);
-    initialUrl.searchParams.set("page", "1");
-    initialUrl.searchParams.set("include_signers", "true");
-    let nextUrl: string | null = initialUrl.toString();
+): Effect.Effect<RemoteSignatureRequest[], SignatureKitError> => {
+  const initialUrl = new URL(`${baseUrl}/docs/`);
+  initialUrl.searchParams.set("page", "1");
+  initialUrl.searchParams.set("include_signers", "true");
 
-    while (nextUrl !== null) {
-      const page = yield* http
-        .requestJson({
+  return Stream.paginate(initialUrl.toString(), (nextUrl) =>
+    http
+      .requestJson(
+        {
           provider: PROVIDER,
           method: "GET",
           url: nextUrl,
           headers: {
             Authorization: bearerAuthorization(options.apiToken),
           },
-        })
-        .pipe(
-          Effect.flatMap((body) =>
-            Schema.decodeUnknownEffect(ZapSignDocumentsResultSchema)(body).pipe(
-              Effect.mapError(
-                (issue) =>
-                  new SignatureKitError({
-                    code: SignatureKitErrorCodeValue.responseShape,
-                    retryable: false,
-                    provider: PROVIDER,
-                    operation: SignatureKitOperationValue.httpDecode,
-                    schemaName: SignatureKitSchemaNameValue.zapSignDocumentsResult,
-                    reason: String(issue),
-                  }),
-              ),
-            ),
-          ),
-        );
-
-      requests.push(...page.results.map((item) => toRemoteSignatureRequest(item)));
-      nextUrl = resolveZapSignListNextUrl(baseUrl, page.next);
-    }
-
-    return requests;
-  });
+        },
+        ZapSignDocumentsResultSchema,
+        SignatureKitSchemaNameValue.zapSignDocumentsResult,
+      )
+      .pipe(
+        Effect.map(
+          (page): readonly [ReadonlyArray<RemoteSignatureRequest>, Option.Option<string>] => {
+            const nextUrl = resolveZapSignListNextUrl(baseUrl, page.next);
+            return [
+              page.results.map((item) => toRemoteSignatureRequest(item)),
+              nextUrl === null ? Option.none() : Option.some(nextUrl),
+            ];
+          },
+        ),
+      ),
+  ).pipe(Stream.runCollect);
+};
 
 const cancelZapSignSignatureRequestInternal = (
   http: SignatureHttpClientService,
@@ -431,22 +412,7 @@ export const ZapSignSignatureRequestProvider = () =>
         }),
         reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
-          const props = yield* Schema.decodeUnknownEffect(RemoteSignatureRequestPropsSchema)(
-            news,
-          ).pipe(
-            Effect.mapError(
-              (issue) =>
-                new SignatureKitError({
-                  code: SignatureKitErrorCodeValue.invalidInput,
-                  retryable: false,
-                  provider: PROVIDER,
-                  operation: SignatureKitOperationValue.schemaDecode,
-                  schemaName: SignatureKitSchemaNameValue.remoteSignatureRequestProps,
-                  reason: String(issue),
-                }),
-            ),
-          );
-          const input = yield* validRemoteSignatureRequest(remoteSignatureInputFromProps(props));
+          const input = yield* remoteSignatureInputFromResourceProps(PROVIDER, news);
           return yield* createRemoteRequest(http, options, baseUrl, input);
         }),
         delete: Effect.fn(function* ({ output }) {
@@ -470,132 +436,37 @@ export const getZapSignSignatureRequest = (
   options: ZapSignProviderOptions,
   id: string,
 ): Effect.Effect<RemoteSignatureRequest, SignatureKitError, SignatureHttpClient> =>
-  Schema.decodeUnknownEffect(ZapSignProviderOptionsSchema)(options)
-    .pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.zapSignProviderOptions,
-            reason: String(issue),
-          }),
-      ),
-    )
-    .pipe(
-      Effect.map((valid) => ({ valid, baseUrl: zapSignBaseUrl(valid) })),
-      Effect.flatMap(({ valid, baseUrl }) =>
-        SignatureHttpClient.use((http) =>
-          getZapSignSignatureRequestInternal(http, valid, baseUrl, id),
-        ),
-      ),
-    );
+  withZapSignHttp(options, (http, valid, baseUrl) =>
+    getZapSignSignatureRequestInternal(http, valid, baseUrl, id),
+  );
 
 export const listZapSignSignatureRequests = (
   options: ZapSignProviderOptions,
 ): Effect.Effect<readonly RemoteSignatureRequest[], SignatureKitError, SignatureHttpClient> =>
-  Schema.decodeUnknownEffect(ZapSignProviderOptionsSchema)(options)
-    .pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.zapSignProviderOptions,
-            reason: String(issue),
-          }),
-      ),
-    )
-    .pipe(
-      Effect.map((valid) => ({ valid, baseUrl: zapSignBaseUrl(valid) })),
-      Effect.flatMap(({ valid, baseUrl }) =>
-        SignatureHttpClient.use((http) =>
-          listZapSignSignatureRequestsInternal(http, valid, baseUrl),
-        ),
-      ),
-    );
+  withZapSignHttp(options, (http, valid, baseUrl) =>
+    listZapSignSignatureRequestsInternal(http, valid, baseUrl),
+  );
 
 export const cancelZapSignSignatureRequest = (
   options: ZapSignProviderOptions,
   id: string,
 ): Effect.Effect<void, SignatureKitError, SignatureHttpClient> =>
-  Schema.decodeUnknownEffect(ZapSignProviderOptionsSchema)(options)
-    .pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.zapSignProviderOptions,
-            reason: String(issue),
-          }),
-      ),
-    )
-    .pipe(
-      Effect.map((valid) => ({ valid, baseUrl: zapSignBaseUrl(valid) })),
-      Effect.flatMap(({ valid, baseUrl }) =>
-        SignatureHttpClient.use((http) =>
-          cancelZapSignSignatureRequestInternal(http, valid, baseUrl, id),
-        ),
-      ),
-    );
+  withZapSignHttp(options, (http, valid, baseUrl) =>
+    cancelZapSignSignatureRequestInternal(http, valid, baseUrl, id),
+  );
 
 export const deleteZapSignSignatureRequest = (
   options: ZapSignProviderOptions,
   id: string,
 ): Effect.Effect<void, SignatureKitError, SignatureHttpClient> =>
-  Schema.decodeUnknownEffect(ZapSignProviderOptionsSchema)(options)
-    .pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.zapSignProviderOptions,
-            reason: String(issue),
-          }),
-      ),
-    )
-    .pipe(
-      Effect.map((valid) => ({ valid, baseUrl: zapSignBaseUrl(valid) })),
-      Effect.flatMap(({ valid, baseUrl }) =>
-        SignatureHttpClient.use((http) =>
-          deleteZapSignSignatureRequestInternal(http, valid, baseUrl, id),
-        ),
-      ),
-    );
+  withZapSignHttp(options, (http, valid, baseUrl) =>
+    deleteZapSignSignatureRequestInternal(http, valid, baseUrl, id),
+  );
 
 export const downloadZapSignSignedDocument = (
   options: ZapSignProviderOptions,
   id: string,
 ): Effect.Effect<Uint8Array, SignatureKitError, SignatureHttpClient> =>
-  Schema.decodeUnknownEffect(ZapSignProviderOptionsSchema)(options)
-    .pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.zapSignProviderOptions,
-            reason: String(issue),
-          }),
-      ),
-    )
-    .pipe(
-      Effect.map((valid) => ({ valid, baseUrl: zapSignBaseUrl(valid) })),
-      Effect.flatMap(({ valid, baseUrl }) =>
-        SignatureHttpClient.use((http) =>
-          downloadZapSignSignedDocumentInternal(http, valid, baseUrl, id),
-        ),
-      ),
-    );
+  withZapSignHttp(options, (http, valid, baseUrl) =>
+    downloadZapSignSignedDocumentInternal(http, valid, baseUrl, id),
+  );

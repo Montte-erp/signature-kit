@@ -86,7 +86,7 @@ export const verifyXml = (
             retryable: false,
             operation: XmlOperationValue.verify,
             schemaName: XmlSchemaNameValue.verificationRequest,
-            reason: String(issue),
+            issueMessage: String(issue),
           }),
       ),
     );
