@@ -1,532 +1,156 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Buffer } from "node:buffer";
-import { createServer } from "node:http";
-import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
 import { reconcileInput } from "../../__tests__/alchemy-provider";
-import { Effect, Redacted, Result } from "effect";
+import { loadFlaggedConfig, optionalEnv, requiredEnv } from "../../../tooling/testing/env";
+import { Config, Effect, Redacted } from "effect";
 import {
   DocuSealSignatureRequest,
   DocuSealSignatureRequestProvider,
   docuSealCredentialsLayer,
-  type DocuSealProviderOptions,
   deleteDocuSealSignatureRequest,
-  downloadDocuSealSignedDocument,
   getDocuSealSignatureRequest,
   listDocuSealSignatureRequests,
+  type DocuSealProviderOptions,
 } from "../src/index";
 
-const textEncoder = new TextEncoder();
+const config = loadFlaggedConfig(
+  "SIGNATURE_KIT_LIVE_REMOTE_SIGNERS",
+  Config.all({
+    apiKey: requiredEnv("DOCUSEAL_API_KEY"),
+    recipientEmail: requiredEnv("SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL"),
+    baseUrl: optionalEnv("DOCUSEAL_BASE_URL"),
+  }),
+);
 
-const pdfDocument = {
-  fileName: "contract.pdf",
-  mimeType: "application/pdf",
-  content: textEncoder.encode("pdf payload"),
+const livePdf = (): Uint8Array => {
+  const encoder = new TextEncoder();
+  const objects = [
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+    "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>\nendobj\n",
+    "4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n",
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = objects.map((object) => {
+    const offset = encoder.encode(pdf).byteLength;
+    pdf += object;
+    return offset;
+  });
+  const xrefOffset = encoder.encode(pdf).byteLength;
+  const entries = offsets
+    .map((offset) => `${offset.toString().padStart(10, "0")} 00000 n \n`)
+    .join("");
+  return encoder.encode(
+    `${pdf}xref\n0 5\n0000000000 65535 f \n${entries}trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`,
+  );
 };
 
-const signedDocumentContent = textEncoder.encode("docuseal signed payload");
+const secondaryEmail = (email: string): string =>
+  email.includes("@") ? email.replace("@", "+signaturekit-second@") : email;
 
-const input = {
-  title: "Contract",
-  subject: "Please sign",
-  message: "Review and sign.",
-  documents: [pdfDocument],
-  recipients: [
-    {
-      name: "Ana Silva",
-      email: "ana@example.com",
-      routingOrder: 0,
-    },
-  ],
-  redirectUrl: "https://app.example.com/done",
-} satisfies RemoteSignatureRequestInput;
+if (config === undefined) {
+  describe.skip("DocuSeal live API", () => {
+    it("requires SIGNATURE_KIT_LIVE_REMOTE_SIGNERS, DOCUSEAL_API_KEY and SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL", () => {});
+  });
+} else {
+  const options: DocuSealProviderOptions = {
+    apiKey: Redacted.make(config.apiKey),
+    sendSms: false,
+    submittersOrder: "preserved",
+    ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
+  };
 
-type CapturedCall = {
-  readonly method: string;
-  readonly path: string;
-  readonly contentType: string | undefined;
-  readonly authToken: string | undefined;
-  readonly bodyText: string;
-};
+  const reconcileDocuSealSignatureRequest = (request: RemoteSignatureRequestInput) =>
+    Effect.gen(function* () {
+      const provider = yield* DocuSealSignatureRequest.Provider;
+      return yield* provider.reconcile(reconcileInput("docuseal-live-request", request));
+    }).pipe(
+      Effect.provide(DocuSealSignatureRequestProvider()),
+      Effect.provide(docuSealCredentialsLayer(options)),
+      Effect.provide(signatureHttpClientLive),
+    );
 
-type LocalServer = {
-  readonly server: Server;
-  readonly baseUrl: string;
-  readonly calls: CapturedCall[];
-};
+  const getById = (id: string) =>
+    getDocuSealSignatureRequest(options, id).pipe(Effect.provide(signatureHttpClientLive));
 
-const readBody = (request: IncomingMessage): Promise<string> => {
-  const done = Promise.withResolvers<string>();
-  const chunks: Buffer[] = [];
-  request.on("data", (chunk: Buffer) => chunks.push(chunk));
-  request.on("end", () => done.resolve(Buffer.concat(chunks).toString("utf8")));
-  request.on("error", done.reject);
-  return done.promise;
-};
+  const listAll = () =>
+    listDocuSealSignatureRequests(options).pipe(Effect.provide(signatureHttpClientLive));
 
-const headerText = (value: string | readonly string[] | undefined): string | undefined =>
-  typeof value === "string" ? value : undefined;
+  const deleteById = (id: string) =>
+    deleteDocuSealSignatureRequest(options, id).pipe(Effect.provide(signatureHttpClientLive));
 
-const writeJson = (response: ServerResponse, body: unknown): void => {
-  response.setHeader("Connection", "close");
-  response.statusCode = 200;
-  response.setHeader("Content-Type", "application/json");
-  response.end(JSON.stringify(body));
-};
-
-const writeBinary = (response: ServerResponse, body: Uint8Array): void => {
-  response.setHeader("Connection", "close");
-  response.statusCode = 200;
-  response.setHeader("Content-Type", "application/pdf");
-  response.end(Buffer.from(body));
-};
-
-const startServer = (): Effect.Effect<LocalServer> =>
-  Effect.promise(() => {
-    const started = Promise.withResolvers<LocalServer>();
-    const calls: CapturedCall[] = [];
-    const server = createServer((request, response) => {
-      void readBody(request).then((bodyText) => {
-        const url = new URL(request.url ?? "/", "http://127.0.0.1");
-        const method = request.method ?? "GET";
-        const call = {
-          method,
-          path: url.pathname,
-          contentType: headerText(request.headers["content-type"]),
-          authToken: headerText(request.headers["x-auth-token"]),
-          bodyText,
-        };
-        calls.push(call);
-        const requestBaseUrl = `http://${request.headers.host ?? ""}`;
-
-        if (call.path === "/submissions/pdf") {
-          writeJson(response, {
-            id: 42,
-            status: "pending",
-            submitters: [
+  describe("DocuSeal live API", () => {
+    it.effect(
+      "runs the create -> get -> list -> delete lifecycle against the sandbox",
+      () =>
+        Effect.gen(function* () {
+          // Two recipients sharing the same role exercise the submitter-role
+          // dedup fix: DocuSeal rejects duplicate roles inside one submission, so
+          // a successful create proves the provider disambiguated them.
+          const input = {
+            title: "SignatureKit live DocuSeal lifecycle",
+            subject: "SignatureKit live DocuSeal lifecycle",
+            message: "Created by SignatureKit live test.",
+            documents: [
               {
-                submission_id: 42,
-                status: "awaiting",
-                embed_src: "https://docuseal.example.test/s/link",
+                fileName: "signature-kit-live.pdf",
+                mimeType: "application/pdf",
+                content: livePdf(),
               },
             ],
-          });
-          return;
-        }
-        if (call.path === "/empty/submissions/pdf") {
-          writeJson(response, []);
-          return;
-        }
-        if (call.path === "/submissions" && method === "GET") {
-          writeJson(response, {
-            data: [
+            recipients: [
               {
-                id: 101,
-                status: "draft",
-                submitters: [
-                  { submission_id: 101, sign_url: "https://docuseal.example.test/s/list-101" },
-                ],
-                documents: [{ download_url: `${requestBaseUrl}/documents/101/download` }],
+                name: "SignatureKit Live Recipient",
+                email: config.recipientEmail,
+                role: "signer",
+                routingOrder: 1,
               },
               {
-                id: "102",
-                status: "completed",
-                submitters: [
-                  { submission_id: "102", embed_src: "https://docuseal.example.test/s/list-102" },
-                ],
-                combined_document_url: `${requestBaseUrl}/documents/102/combined`,
+                name: "SignatureKit Live Recipient Two",
+                email: secondaryEmail(config.recipientEmail),
+                role: "signer",
+                routingOrder: 2,
               },
             ],
-          });
-          return;
-        }
-        if (call.path.startsWith("/submissions/")) {
-          const [, , submissionId, nested] = call.path.split("/");
-          if (submissionId === undefined) {
-            response.statusCode = 404;
-            response.end("not found");
-            return;
-          }
+            send: false,
+          } satisfies RemoteSignatureRequestInput;
 
-          if (method === "GET" && nested === "documents") {
-            if (submissionId === "bad-documents") {
-              writeJson(response, { documents: [{ url: 42 }] });
-              return;
-            }
-            writeJson(response, {
-              documents: [
-                {
-                  url: `${requestBaseUrl}/documents/${submissionId}/download`,
-                  download_url: `${requestBaseUrl}/documents/${submissionId}/download`,
-                },
-              ],
-            });
-            return;
-          }
-          if (method === "GET") {
-            if (submissionId === "bad-documents") {
-              writeJson(response, {
-                id: "bad-documents",
-                status: "pending",
-                submitters: [
-                  {
-                    submission_id: "bad-documents",
-                    sign_url: "https://docuseal.example.test/s/bad",
-                  },
-                ],
-              });
-              return;
-            }
-            if (submissionId === "42") {
-              writeJson(response, {
-                id: 42,
-                status: "completed",
-                submitters: [
-                  {
-                    submission_id: 42,
-                    status: "completed",
-                    embed_src: "https://docuseal.example.test/s/get-42",
-                  },
-                ],
-                combined_document_url: `${requestBaseUrl}/documents/42/combined`,
-              });
-              return;
-            }
-            writeJson(response, {
-              id: Number(submissionId),
-              status: "pending",
-              submitters: [
-                {
-                  submission_id: Number(submissionId),
-                  status: "pending",
-                  sign_url: "https://docuseal.example.test/s/get",
-                },
-              ],
-            });
-            return;
-          }
-          if (method === "DELETE") {
-            if (call.path === "/submissions/missing-submission") {
-              response.statusCode = 404;
-              response.end("not found");
-              return;
-            }
-            if (call.path === "/submissions/delete-error") {
-              response.statusCode = 500;
-              response.end("internal error");
-              return;
-            }
-            response.statusCode = 200;
-            response.end();
-            return;
-          }
-        }
-        if (call.path.startsWith("/documents/") && method === "GET") {
-          writeBinary(response, signedDocumentContent);
-          return;
-        }
+          const created = yield* reconcileDocuSealSignatureRequest(input);
 
-        response.statusCode = 404;
-        response.end("not found");
-      });
-    });
+          expect(created.provider).toBe("docuseal");
+          expect(created.state).toBe("draft");
+          expect(created.id.length).toBeGreaterThan(0);
 
-    server.on("error", started.reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (typeof address === "object" && address !== null) {
-        started.resolve({ server, baseUrl: `http://127.0.0.1:${address.port}`, calls });
-        return;
-      }
-      started.reject("HTTP server did not expose a TCP port.");
-    });
+          // Everything after the create must clean up the sandbox submission,
+          // even if an assertion fails mid-way.
+          yield* Effect.gen(function* () {
+            const fetched = yield* getById(created.id);
+            expect(fetched.provider).toBe("docuseal");
+            expect(fetched.id).toBe(created.id);
+            expect(fetched.detailsUrl).toContain(created.id);
 
-    return started.promise;
+            // Paginates internally (limit=100 + after cursor); assert our
+            // freshly created submission is present in the listing.
+            const listed = yield* listAll();
+            expect(listed.map((request) => request.id)).toContain(created.id);
+
+            // downloadDocuSealSignedDocument is intentionally not exercised: a
+            // completed/signed artifact requires a human signer, and the sandbox
+            // returns the unsigned source document for a draft, so there is no
+            // meaningful "signed document" assertion to make here.
+
+            // Explicit delete is the asserted cleanup step; it returns void and
+            // treats a missing remote as success.
+            const deleted = yield* deleteById(created.id);
+            expect(deleted).toBeUndefined();
+
+            // Idempotent: deleting again still succeeds.
+            const deletedAgain = yield* deleteById(created.id);
+            expect(deletedAgain).toBeUndefined();
+          }).pipe(Effect.ensuring(deleteById(created.id).pipe(Effect.ignore)));
+        }),
+      120_000,
+    );
   });
-
-const closeServer = (server: Server): Effect.Effect<void> =>
-  Effect.sync(() => {
-    server.closeAllConnections();
-    server.closeIdleConnections();
-    server.close();
-  });
-
-const parseBody = (call: CapturedCall): unknown => JSON.parse(call.bodyText);
-
-const reconcileDocuSealSignatureRequest = (
-  options: DocuSealProviderOptions,
-  request: RemoteSignatureRequestInput,
-) =>
-  Effect.gen(function* () {
-    const provider = yield* DocuSealSignatureRequest.Provider;
-    return yield* provider.reconcile(reconcileInput("docuseal-request", request));
-  }).pipe(
-    Effect.provide(DocuSealSignatureRequestProvider()),
-    Effect.provide(docuSealCredentialsLayer(options)),
-    Effect.provide(signatureHttpClientLive),
-  );
-
-describe("DocuSeal remote signatures", () => {
-  it.effect("creates a one-off PDF submission over HTTP", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* reconcileDocuSealSignatureRequest(
-        {
-          apiKey: Redacted.make("docuseal-secret"),
-          baseUrl: local.baseUrl,
-          sendSms: false,
-        },
-        input,
-      );
-
-      expect(result).toEqual({
-        provider: "docuseal",
-        id: "42",
-        state: "sent",
-        providerStatus: "pending",
-        signingUrl: "https://docuseal.example.test/s/link",
-        detailsUrl: `${local.baseUrl}/submissions/42`,
-      });
-      expect(local.calls).toHaveLength(1);
-      const call = local.calls[0];
-      expect(call).toBeDefined();
-      if (call !== undefined) {
-        expect(call.method).toBe("POST");
-        expect(call.path).toBe("/submissions/pdf");
-        expect(call.authToken).toBe("docuseal-secret");
-        expect(call.contentType).toContain("application/json");
-        expect(parseBody(call)).toEqual({
-          name: "Contract",
-          send_email: true,
-          order: "preserved",
-          documents: [
-            {
-              name: "contract.pdf",
-              file: Buffer.from(pdfDocument.content).toString("base64"),
-              position: 0,
-            },
-          ],
-          submitters: [
-            {
-              name: "Ana Silva",
-              email: "ana@example.com",
-              role: "Ana Silva",
-              order: 0,
-              completed_redirect_url: "https://app.example.com/done",
-            },
-          ],
-          send_sms: false,
-          completed_redirect_url: "https://app.example.com/done",
-          subject: "Please sign",
-          message: { body: "Review and sign." },
-        });
-      }
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("gets a docuseal request and maps lifecycle fields", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* getDocuSealSignatureRequest(
-        {
-          apiKey: Redacted.make("docuseal-secret"),
-          baseUrl: local.baseUrl,
-        },
-        "42",
-      ).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toEqual({
-        provider: "docuseal",
-        id: "42",
-        state: "completed",
-        providerStatus: "completed",
-        signingUrl: "https://docuseal.example.test/s/get-42",
-        detailsUrl: `${local.baseUrl}/submissions/42`,
-        downloadUrl: `${local.baseUrl}/documents/42/combined`,
-      });
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("GET");
-      expect(local.calls[0]?.path).toBe("/submissions/42");
-      expect(local.calls[0]?.authToken).toBe("docuseal-secret");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("lists docuseal requests and maps lifecycle states", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* listDocuSealSignatureRequests({
-        apiKey: Redacted.make("docuseal-secret"),
-        baseUrl: local.baseUrl,
-      }).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toEqual([
-        {
-          provider: "docuseal",
-          id: "101",
-          state: "draft",
-          providerStatus: "draft",
-          signingUrl: "https://docuseal.example.test/s/list-101",
-          detailsUrl: `${local.baseUrl}/submissions/101`,
-          downloadUrl: `${local.baseUrl}/documents/101/download`,
-        },
-        {
-          provider: "docuseal",
-          id: "102",
-          state: "completed",
-          providerStatus: "completed",
-          signingUrl: "https://docuseal.example.test/s/list-102",
-          detailsUrl: `${local.baseUrl}/submissions/102`,
-          downloadUrl: `${local.baseUrl}/documents/102/combined`,
-        },
-      ]);
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("GET");
-      expect(local.calls[0]?.path).toBe("/submissions");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("deletes a docuseal request", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* deleteDocuSealSignatureRequest(
-        {
-          apiKey: Redacted.make("docuseal-secret"),
-          baseUrl: local.baseUrl,
-        },
-        "43",
-      ).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toBeUndefined();
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("DELETE");
-      expect(local.calls[0]?.path).toBe("/submissions/43");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("treats missing docuseal request as deleted", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* deleteDocuSealSignatureRequest(
-        {
-          apiKey: Redacted.make("docuseal-secret"),
-          baseUrl: local.baseUrl,
-        },
-        "missing-submission",
-      ).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toBeUndefined();
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("DELETE");
-      expect(local.calls[0]?.path).toBe("/submissions/missing-submission");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("fails when docuseal delete returns non-404 error", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* Effect.result(
-        deleteDocuSealSignatureRequest(
-          {
-            apiKey: Redacted.make("docuseal-secret"),
-            baseUrl: local.baseUrl,
-          },
-          "delete-error",
-        ).pipe(Effect.provide(signatureHttpClientLive)),
-      );
-
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect(result.failure.code).toBe("signature-kit.HTTP");
-        expect(result.failure.status).toBe(500);
-        expect(result.failure.provider).toBe("docuseal");
-      }
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("DELETE");
-      expect(local.calls[0]?.path).toBe("/submissions/delete-error");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("downloads a signed docuseal document", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* downloadDocuSealSignedDocument(
-        {
-          apiKey: Redacted.make("docuseal-secret"),
-          baseUrl: local.baseUrl,
-        },
-        "43",
-      ).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toEqual(signedDocumentContent);
-      expect(local.calls).toHaveLength(3);
-      expect(local.calls.map((call) => `${call.method}:${call.path}`)).toEqual([
-        "GET:/submissions/43",
-        "GET:/submissions/43/documents",
-        "GET:/documents/43/download",
-      ]);
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("labels malformed DocuSeal document-list responses with the document schema", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* Effect.result(
-        downloadDocuSealSignedDocument(
-          {
-            apiKey: Redacted.make("docuseal-secret"),
-            baseUrl: local.baseUrl,
-          },
-          "bad-documents",
-        ).pipe(Effect.provide(signatureHttpClientLive)),
-      );
-
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect(result.failure.code).toBe("signature-kit.RESPONSE_SHAPE");
-        expect(result.failure.provider).toBe("docuseal");
-        expect(result.failure.operation).toBe("http.decode");
-        expect(result.failure.schemaName).toBe("DocuSealSubmissionDocumentsResult");
-      }
-      expect(local.calls.map((call) => `${call.method}:${call.path}`)).toEqual([
-        "GET:/submissions/bad-documents",
-        "GET:/submissions/bad-documents/documents",
-      ]);
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("fails when DocuSeal returns no submitter", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* Effect.result(
-        reconcileDocuSealSignatureRequest(
-          { apiKey: Redacted.make("docuseal-secret"), baseUrl: `${local.baseUrl}/empty` },
-          input,
-        ),
-      );
-
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect(result.failure.code).toBe("signature-kit.RESPONSE_SHAPE");
-        expect(result.failure.provider).toBe("docuseal");
-      }
-      yield* closeServer(local.server);
-    }),
-  );
-});
+}

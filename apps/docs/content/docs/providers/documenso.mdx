@@ -30,10 +30,13 @@ import { Effect, Layer, Redacted } from "effect"
 export default Alchemy.Stack(
   "Contracts",
   {
-    providers: documensoProviders({
+    providers: Layer.merge(
+      documensoProviders({
       apiKey: Redacted.make(process.env.DOCUMENSO_API_KEY ?? ""),
       baseUrl: "https://app.documenso.com/api/v2",
-    }).pipe(Layer.provide(signatureHttpClientLive)),
+      }),
+      signatureHttpClientLive,
+    ),
   },
   Effect.gen(function* () {
     return yield* DocumensoSignatureRequest("service-agreement", {

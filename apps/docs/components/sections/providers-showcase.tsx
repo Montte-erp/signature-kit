@@ -56,12 +56,15 @@ import { Effect, Layer, Redacted } from "effect"
 export default Alchemy.Stack(
   "Contracts",
   {
-    providers: clicksignProviders({
+    providers: Layer.merge(
+      clicksignProviders({
       accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
       environment: "sandbox",
       locale: "pt-BR",
       autoClose: true,
-    }).pipe(Layer.provide(signatureHttpClientLive)),
+      }),
+      signatureHttpClientLive,
+    ),
   },
   Effect.gen(function* () {
     return yield* ClicksignSignatureRequest("membership-agreement", {
@@ -84,11 +87,14 @@ import { Effect, Layer, Redacted } from "effect"
 export default Alchemy.Stack(
   "Contracts",
   {
-    providers: assinafyProviders({
-      accountId: process.env.ASSINAFY_ACCOUNT_ID!,
+    providers: Layer.merge(
+      assinafyProviders({
+      accountId: process.env.ASSINAFY_ACCOUNT_ID ?? "",
       apiKey: Redacted.make(process.env.ASSINAFY_API_KEY ?? ""),
       environment: "sandbox",
-    }).pipe(Layer.provide(signatureHttpClientLive)),
+      }),
+      signatureHttpClientLive,
+    ),
   },
   Effect.gen(function* () {
     return yield* AssinafySignatureRequest("contract", {
@@ -111,11 +117,14 @@ import { Effect, Layer, Redacted } from "effect"
 export default Alchemy.Stack(
   "Contracts",
   {
-    providers: zapSignProviders({
+    providers: Layer.merge(
+      zapSignProviders({
       apiToken: Redacted.make(process.env.ZAPSIGN_API_TOKEN ?? ""),
       environment: "sandbox",
       locale: "pt-br",
-    }).pipe(Layer.provide(signatureHttpClientLive)),
+      }),
+      signatureHttpClientLive,
+    ),
   },
   Effect.gen(function* () {
     return yield* ZapSignSignatureRequest("contract", {
@@ -138,11 +147,14 @@ import { Effect, Layer, Redacted } from "effect"
 export default Alchemy.Stack(
   "Contracts",
   {
-    providers: docuSealProviders({
+    providers: Layer.merge(
+      docuSealProviders({
       apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
       baseUrl: "https://api.docuseal.com",
       submittersOrder: "preserved",
-    }).pipe(Layer.provide(signatureHttpClientLive)),
+      }),
+      signatureHttpClientLive,
+    ),
   },
   Effect.gen(function* () {
     return yield* DocuSealSignatureRequest("service-agreement", {
@@ -165,10 +177,13 @@ import { Effect, Layer, Redacted } from "effect"
 export default Alchemy.Stack(
   "Contracts",
   {
-    providers: documensoProviders({
+    providers: Layer.merge(
+      documensoProviders({
       apiKey: Redacted.make(process.env.DOCUMENSO_API_KEY ?? ""),
       baseUrl: "https://app.documenso.com/api/v2",
-    }).pipe(Layer.provide(signatureHttpClientLive)),
+      }),
+      signatureHttpClientLive,
+    ),
   },
   Effect.gen(function* () {
     return yield* DocumensoSignatureRequest("service-agreement", {

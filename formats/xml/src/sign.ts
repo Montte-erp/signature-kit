@@ -3,7 +3,6 @@ import { signatures } from "@signature-kit/core/signatures";
 import type { Signatures } from "@signature-kit/core/signatures";
 import type { SignatureAlgorithm, SignatureKitError } from "@signature-kit/core/config";
 import { Effect, Schema } from "effect";
-import { SignedXml } from "xmldsigjs";
 import type { OptionsSignReference } from "xmldsigjs";
 import {
   XmlError,
@@ -12,10 +11,19 @@ import {
   XmlSchemaNameValue,
   XmlSigningRequestSchema,
 } from "./config";
-import type { XmlSigningRequest } from "./config";
+import type { XmlCanonicalization, XmlSigningRequest } from "./config";
 import { XmlRuntime } from "./runtime";
 
 const XML_RSA_ALGORITHM_NAME = "RSASSA-PKCS1-v1_5";
+const XML_EXCLUSIVE_CANONICALIZATION_TRANSFORM = "exc-c14n";
+const XML_INCLUSIVE_CANONICALIZATION_TRANSFORM = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315";
+
+const xmlCanonicalizationTransform = (
+  canonicalization: XmlCanonicalization | undefined,
+): "exc-c14n" | "http://www.w3.org/TR/2001/REC-xml-c14n-20010315" =>
+  canonicalization === "inclusive"
+    ? XML_INCLUSIVE_CANONICALIZATION_TRANSFORM
+    : XML_EXCLUSIVE_CANONICALIZATION_TRANSFORM;
 
 const xmlSignatureAlgorithm = (algorithm: SignatureAlgorithm): RsaHashedImportParams => ({
   name: XML_RSA_ALGORITHM_NAME,
@@ -29,7 +37,6 @@ export const signXml = (
   request: XmlSigningRequest,
 ): Effect.Effect<string, XmlError | SignatureKitError, Signatures | XmlRuntime> =>
   Effect.gen(function* () {
-    const xmlRuntime = yield* XmlRuntime;
     const input = yield* Schema.decodeUnknownEffect(XmlSigningRequestSchema)(request).pipe(
       Effect.mapError(
         (issue) =>
@@ -42,21 +49,37 @@ export const signXml = (
           }),
       ),
     );
+    const xmlRuntime = yield* XmlRuntime;
     const algorithm = input.algorithm ?? "rsa-sha256";
     const certificate = yield* signatures.certificate();
     const signingKey = yield* signatures.importSigningKey(algorithm);
 
     const document = yield* xmlRuntime.parse(input.xml);
-
+    const canonicalizationTransform = xmlCanonicalizationTransform(input.canonicalization);
     const reference: OptionsSignReference =
       input.referenceId === undefined
-        ? { hash: xmlDigestAlgorithm(algorithm), transforms: ["enveloped", "exc-c14n"] }
+        ? {
+            hash: xmlDigestAlgorithm(algorithm),
+            transforms: ["enveloped", canonicalizationTransform],
+          }
         : {
             hash: xmlDigestAlgorithm(algorithm),
-            transforms: ["enveloped", "exc-c14n"],
+            transforms: ["enveloped", canonicalizationTransform],
             uri: `#${input.referenceId}`,
           };
 
+    const { SignedXml } = yield* Effect.tryPromise({
+      try: async () => {
+        // dynamic-import: xmldsigjs transitively checks reflect-metadata during CJS evaluation; XmlRuntime loaded the polyfill.
+        return import("xmldsigjs");
+      },
+      catch: () =>
+        new XmlError({
+          code: XmlErrorCodeValue.signFailed,
+          retryable: false,
+          operation: XmlOperationValue.sign,
+        }),
+    });
     const signedXml = new SignedXml();
     yield* Effect.tryPromise({
       try: () =>

@@ -76,13 +76,9 @@ function xor3_64(
 ): [number, number] {
   return [(ah ^ bh ^ ch_) >>> 0, (al ^ bl ^ cl) >>> 0];
 }
-
 function sha512Core(data: Uint8Array, initH: Uint32Array): Uint8Array {
-  const byteLenHi = Math.floor(data.length / 0x20000000) | 0;
-  const byteLenLo = data.length >>> 0;
-  const bitLenHi = ((byteLenHi << 3) | (byteLenLo >>> 29)) >>> 0;
-  const bitLenLo = (byteLenLo << 3) >>> 0;
-
+  const bitLenHi = Math.floor(data.length / 0x20000000);
+  const bitLenLo = (data.length << 3) >>> 0;
   const padLen = data.length % 128 < 112 ? 112 - (data.length % 128) : 240 - (data.length % 128);
   const totalLen = data.length + padLen + 16;
 

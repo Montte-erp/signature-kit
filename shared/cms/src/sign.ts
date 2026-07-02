@@ -8,11 +8,12 @@
  */
 
 import * as asn1js from "asn1js";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import * as pkijs from "pkijs";
 import { buildSignedAttributes } from "./attributes";
 import {
   type CreateDetachedSignedDataInput,
+  CreateDetachedSignedDataInputSchema,
   CmsError,
   CmsErrorCodeValue,
   CmsOid,
@@ -26,11 +27,23 @@ export const createDetachedSignedData = (
   input: CreateDetachedSignedDataInput,
 ): Effect.Effect<Uint8Array, CmsError> =>
   Effect.gen(function* () {
-    const hashAlgorithm = input.hashAlgorithm ?? "sha256";
-    const signingTime = input.signingTime ?? new Date();
+    const valid = yield* Schema.decodeUnknownEffect(CreateDetachedSignedDataInputSchema)(
+      input,
+    ).pipe(
+      Effect.mapError(
+        (issue) =>
+          new CmsError({
+            code: CmsErrorCodeValue.signError,
+            reason: `Invalid CMS signing input: ${String(issue)}`,
+            operation: CmsOperationValue.sign,
+          }),
+      ),
+    );
+    const hashAlgorithm = valid.hashAlgorithm ?? "sha256";
+    const signingTime = valid.signingTime ?? new Date();
 
     const certificate = yield* Effect.try({
-      try: () => pkijs.Certificate.fromBER(toArrayBuffer(input.certificateDer)),
+      try: () => pkijs.Certificate.fromBER(toArrayBuffer(valid.certificateDer)),
       catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.decodeError,
@@ -40,7 +53,7 @@ export const createDetachedSignedData = (
     });
 
     const chain = yield* Effect.try({
-      try: () => (input.chainDer ?? []).map((der) => pkijs.Certificate.fromBER(toArrayBuffer(der))),
+      try: () => (valid.chainDer ?? []).map((der) => pkijs.Certificate.fromBER(toArrayBuffer(der))),
       catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.decodeError,
@@ -49,8 +62,8 @@ export const createDetachedSignedData = (
         }),
     });
 
-    const messageDigest = yield* digest(hashAlgorithm, input.content);
-    const certificateSha256 = yield* digest("sha256", input.certificateDer);
+    const messageDigest = yield* digest(hashAlgorithm, valid.content);
+    const certificateSha256 = yield* digest("sha256", valid.certificateDer);
 
     const signed = yield* Effect.try({
       try: () =>
@@ -71,7 +84,7 @@ export const createDetachedSignedData = (
                     messageDigest,
                     signingTime,
                     certificateSha256,
-                    icpBrasil: input.icpBrasil,
+                    icpBrasil: valid.icpBrasil,
                   }),
                 ],
               }),
@@ -90,10 +103,10 @@ export const createDetachedSignedData = (
     yield* Effect.tryPromise({
       try: () =>
         signed.sign(
-          input.signingKey,
+          valid.signingKey,
           0,
           webCryptoHashName(hashAlgorithm),
-          toBufferSource(input.content),
+          toBufferSource(valid.content),
         ),
       catch: () =>
         new CmsError({
@@ -103,7 +116,7 @@ export const createDetachedSignedData = (
         }),
     });
 
-    if (input.timestamp !== undefined) {
+    if (valid.timestamp !== undefined) {
       const signerInfo = signed.signerInfos[0];
       if (signerInfo === undefined) {
         return yield* Effect.fail(
@@ -117,9 +130,9 @@ export const createDetachedSignedData = (
       const signatureValue = signerInfo.signature.valueBlock.valueHexView;
       const tokenDer = yield* requestTimestamp({
         data: signatureValue,
-        tsaUrl: input.timestamp.tsaUrl,
-        hashAlgorithm: input.timestamp.hashAlgorithm ?? "sha256",
-        timeoutMillis: input.timestamp.timeoutMillis,
+        tsaUrl: valid.timestamp.tsaUrl,
+        hashAlgorithm: valid.timestamp.hashAlgorithm ?? "sha256",
+        timeoutMillis: valid.timestamp.timeoutMillis,
       });
       yield* Effect.try({
         try: () => {

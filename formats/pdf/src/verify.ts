@@ -19,6 +19,7 @@ export const verifyPdf = (
     return {
       valid: cmsResult.valid,
       chainValid: cmsResult.chainValid,
+      revocationStatus: cmsResult.revocationStatus,
       signatureCount: extracted.signatureCount,
       byteRange: extracted.byteRange,
       signerSerialNumber: cmsResult.signerSerialNumber,

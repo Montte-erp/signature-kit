@@ -179,6 +179,7 @@ const result = yield* verifyPdf({ pdf: signedPdf })
 
 result.valid             // boolean — CMS integrity over the byteRange
 result.chainValid        // boolean — signer chain verified
+result.revocationStatus  // "checked" | "not_checked" — evidência de revogação foi avaliada
 result.signatureCount    // number  — signatures found in the PDF
 result.byteRange         // [number, number, number, number]
 result.signerSerialNumber // string | null — serial of the signer certificate

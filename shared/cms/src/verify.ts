@@ -12,6 +12,7 @@ import * as pkijs from "pkijs";
 import {
   type CmsVerifyResult,
   type VerifyDetachedSignedDataInput,
+  VerifyDetachedSignedDataInputSchema,
   CmsError,
   CmsErrorCodeValue,
   CmsOperationValue,
@@ -44,9 +45,22 @@ export const verifyDetachedSignedData = (
   input: VerifyDetachedSignedDataInput,
 ): Effect.Effect<CmsVerifyResult, CmsError> =>
   Effect.gen(function* () {
+    const valid = yield* Schema.decodeUnknownEffect(VerifyDetachedSignedDataInputSchema)(
+      input,
+    ).pipe(
+      Effect.mapError(
+        (issue) =>
+          new CmsError({
+            code: CmsErrorCodeValue.verifyError,
+            reason: `Invalid CMS verification input: ${String(issue)}`,
+            operation: CmsOperationValue.verify,
+          }),
+      ),
+    );
+
     const signed = yield* Effect.try({
       try: () => {
-        const contentInfo = pkijs.ContentInfo.fromBER(toArrayBuffer(input.cms));
+        const contentInfo = pkijs.ContentInfo.fromBER(toArrayBuffer(valid.cms));
         return new pkijs.SignedData({ schema: contentInfo.content });
       },
       catch: () =>
@@ -59,7 +73,7 @@ export const verifyDetachedSignedData = (
 
     const trustedCerts = yield* Effect.try({
       try: () =>
-        (input.trustedRoots ?? []).map((der) => pkijs.Certificate.fromBER(toArrayBuffer(der))),
+        (valid.trustedRoots ?? []).map((der) => pkijs.Certificate.fromBER(toArrayBuffer(der))),
       catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.decodeError,
@@ -70,14 +84,16 @@ export const verifyDetachedSignedData = (
 
     const serial = signerSerialHex(signed);
     const checkChain = trustedCerts.length > 0;
+    const hasEmbeddedRevocation = (signed.crls?.length ?? 0) > 0 || (signed.ocsps?.length ?? 0) > 0;
 
     const verification = yield* Effect.tryPromise({
       try: () =>
         signed.verify({
           signer: 0,
-          data: toArrayBuffer(input.content),
+          data: toArrayBuffer(valid.content),
           checkChain,
           trustedCerts,
+          passedWhenNotRevValues: false,
           extendedMode: true,
         }),
       catch: (cause) => cause,
@@ -85,7 +101,14 @@ export const verifyDetachedSignedData = (
       Effect.catch((cause) =>
         Schema.decodeUnknownEffect(SignedDataVerifyErrorSchema)(cause).pipe(
           Effect.matchEffect({
-            onFailure: () => Effect.die(cause),
+            onFailure: () =>
+              Effect.fail(
+                new CmsError({
+                  code: CmsErrorCodeValue.verifyError,
+                  reason: "pkijs SignedData verification failed unexpectedly.",
+                  operation: CmsOperationValue.verify,
+                }),
+              ),
             onSuccess: () =>
               Effect.succeed({
                 signatureVerified: false,
@@ -98,7 +121,8 @@ export const verifyDetachedSignedData = (
 
     return {
       valid: verification.signatureVerified === true,
-      chainValid: checkChain ? verification.signerCertificateVerified === true : true,
+      chainValid: checkChain ? verification.signerCertificateVerified === true : false,
+      revocationStatus: checkChain && hasEmbeddedRevocation ? "checked" : "not_checked",
       signerSerialNumber: serial,
     };
   });

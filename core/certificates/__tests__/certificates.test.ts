@@ -1,6 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import { readFile } from "node:fs/promises";
-import { daysUntilExpiry, isCertificateValid, parseCertificate } from "@signature-kit/certificates";
+import {
+  daysUntilExpiry,
+  extractBrazilianFields,
+  isCertificateValid,
+  parseCertificate,
+} from "@signature-kit/certificates";
 import { Effect, Redacted, Result } from "effect";
 
 const testPassword = Redacted.make("test1234");
@@ -84,6 +89,18 @@ describe("certificates", () => {
       expect(cnpjCert.subjectAltName).toContain("CNPJ=34785515000166");
     }),
   );
+
+  it("anchors CNPJ extraction to explicit ICP-Brasil CNPJ fields", () => {
+    expect(
+      extractBrazilianFields("CN=Company 12345678000190, OU=Support 11111111111111", null).cnpj,
+    ).toBeNull();
+    expect(extractBrazilianFields("CN=Company, CNPJ=12.345.678/0001-90", null).cnpj).toBe(
+      "12345678000190",
+    );
+    expect(extractBrazilianFields("", "2.16.76.1.3.3=34.785.515/0001-66").cnpj).toBe(
+      "34785515000166",
+    );
+  });
 
   it.effect("keeps parse failures in the typed Effect error channel", () =>
     Effect.gen(function* () {

@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import {
   CmsError,
   CmsHashAlgorithmSchema,
+  CmsRevocationStatusSchema,
   IcpBrasilPolicySchema,
   TimestampOptionsSchema,
 } from "@signature-kit/cms/config";
@@ -689,6 +690,7 @@ export type PdfVerificationRequest = (typeof PdfVerificationRequestSchema)["Type
 export const PdfVerificationResultSchema = Schema.Struct({
   valid: Schema.Boolean,
   chainValid: Schema.Boolean,
+  revocationStatus: CmsRevocationStatusSchema,
   signatureCount: Schema.Number,
   byteRange: PdfCoordinateTupleSchema,
   signerSerialNumber: Schema.NullOr(Schema.String),

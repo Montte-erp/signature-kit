@@ -68,7 +68,18 @@ const importPrivateKey = (
   privateKey: Redacted.Redacted<string>,
   algorithm: SignatureAlgorithm,
 ): Effect.Effect<CryptoKey, SignatureKitError> =>
-  importKey("pkcs8", pemToDer(Redacted.value(privateKey)), algorithm, "sign");
+  pemToDer(Redacted.value(privateKey)).pipe(
+    Effect.mapError(
+      (error) =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.keyImportFailed,
+          retryable: false,
+          reason: error.reason ?? error.message,
+          operation: SignatureKitOperationValue.cryptoImport,
+        }),
+    ),
+    Effect.flatMap((keyData) => importKey("pkcs8", keyData, algorithm, "sign")),
+  );
 
 const importPublicKey = (
   publicKeyDer: Uint8Array,
@@ -304,6 +315,15 @@ export const a1SignaturesLayer = (
 // locally with the Redacted password.
 // ---------------------------------------------------------------------------
 
+const redactPresignedUrl = (url: string): string => {
+  if (!URL.canParse(url)) return "<redacted>";
+  const sanitized = new URL(url);
+  for (const key of sanitized.searchParams.keys()) {
+    sanitized.searchParams.set(key, "<redacted>");
+  }
+  return sanitized.toString();
+};
+
 /** Fetch the A1 PKCS#12 (.pfx) bytes from a (presigned) URL via a GET. */
 export const fetchA1Pkcs12 = (
   source: A1RemoteFetch,
@@ -325,6 +345,7 @@ export const fetchA1Pkcs12 = (
           .requestBytes({
             method: "GET",
             url: valid.url,
+            diagnosticUrl: redactPresignedUrl(valid.url),
             ...(valid.headers === undefined ? {} : { headers: valid.headers }),
           })
           .pipe(

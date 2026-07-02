@@ -15,14 +15,15 @@ const JsonResponseSchema = Schema.Struct({
 type LocalServer = {
   readonly server: Server;
   readonly baseUrl: string;
+  readonly voidResponseClosed: Promise<void>;
 };
 
 const startServer = (): Effect.Effect<LocalServer> =>
   Effect.promise(() => {
     const started = Promise.withResolvers<LocalServer>();
+    const voidResponseClosed = Promise.withResolvers<void>();
     const server = createServer((request, response) => {
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
-      response.setHeader("Connection", "close");
       if (url.pathname === "/json") {
         response.statusCode = 200;
         response.setHeader("Content-Type", "application/json");
@@ -35,6 +36,19 @@ const startServer = (): Effect.Effect<LocalServer> =>
         response.end("{");
         return;
       }
+      if (url.pathname === "/slow-json") {
+        response.statusCode = 200;
+        response.setHeader("Content-Type", "application/json");
+        response.write('{"ok":');
+        return;
+      }
+      if (url.pathname === "/void") {
+        response.statusCode = 200;
+        response.setHeader("Content-Type", "text/plain");
+        response.on("close", () => voidResponseClosed.resolve());
+        response.write("ignored");
+        return;
+      }
       response.statusCode = 503;
       response.setHeader("Content-Type", "text/plain");
       response.end("provider down");
@@ -44,7 +58,11 @@ const startServer = (): Effect.Effect<LocalServer> =>
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
       if (typeof address === "object" && address !== null) {
-        started.resolve({ server, baseUrl: `http://127.0.0.1:${address.port}` });
+        started.resolve({
+          server,
+          baseUrl: `http://127.0.0.1:${address.port}`,
+          voidResponseClosed: voidResponseClosed.promise,
+        });
         return;
       }
       started.reject("HTTP server did not expose a TCP port.");
@@ -100,6 +118,33 @@ describe("SignatureHttpClient", () => {
     }),
   );
 
+  it.effect("times out slow response bodies with request timeout", () =>
+    Effect.gen(function* () {
+      const local = yield* startServer();
+      const result = yield* Effect.result(
+        SignatureHttpClient.use((http) =>
+          http.requestJson(
+            {
+              method: "GET",
+              url: `${local.baseUrl}/slow-json`,
+              timeoutMillis: 50,
+            },
+            JsonResponseSchema,
+            SignatureKitSchemaNameValue.providerHttpRequest,
+          ),
+        ).pipe(Effect.provide(signatureHttpClientLive)),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe("signature-kit.HTTP");
+        expect(result.failure.reason).toContain("timed out");
+        expect(result.failure.retryable).toBe(true);
+      }
+      yield* closeServer(local.server);
+    }),
+  );
+
   it.effect("uses diagnostic URLs in typed HTTP errors", () =>
     Effect.gen(function* () {
       const local = yield* startServer();
@@ -144,6 +189,85 @@ describe("SignatureHttpClient", () => {
         expect(result.failure.code).toBe("signature-kit.RESPONSE_SHAPE");
         expect(result.failure.schemaName).toBe("ProviderHttpRequest");
       }
+      yield* closeServer(local.server);
+    }),
+  );
+
+  it.effect("uses the caller-provided schema name for malformed JSON", () =>
+    Effect.gen(function* () {
+      const local = yield* startServer();
+      const result = yield* Effect.result(
+        SignatureHttpClient.use((http) =>
+          http.requestJson(
+            { method: "GET", url: `${local.baseUrl}/bad-json` },
+            JsonResponseSchema,
+            SignatureKitSchemaNameValue.docuSealSubmissionResult,
+          ),
+        ).pipe(Effect.provide(signatureHttpClientLive)),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.schemaName).toBe("DocuSealSubmissionResult");
+      }
+      yield* closeServer(local.server);
+    }),
+  );
+
+  it.effect("marks non-idempotent POST network failures as non-retryable", () =>
+    Effect.gen(function* () {
+      const result = yield* Effect.result(
+        SignatureHttpClient.use((http) =>
+          http.requestJson(
+            { method: "POST", url: "http://127.0.0.1:1/unreachable" },
+            JsonResponseSchema,
+            SignatureKitSchemaNameValue.providerHttpRequest,
+          ),
+        ).pipe(Effect.provide(signatureHttpClientLive)),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.retryable).toBe(false);
+      }
+    }),
+  );
+
+  it.effect("marks non-idempotent POST timeouts as non-retryable", () =>
+    Effect.gen(function* () {
+      const local = yield* startServer();
+      const result = yield* Effect.result(
+        SignatureHttpClient.use((http) =>
+          http.requestJson(
+            {
+              method: "POST",
+              url: `${local.baseUrl}/slow-json`,
+              timeoutMillis: 50,
+            },
+            JsonResponseSchema,
+            SignatureKitSchemaNameValue.providerHttpRequest,
+          ),
+        ).pipe(Effect.provide(signatureHttpClientLive)),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.retryable).toBe(false);
+      }
+      yield* closeServer(local.server);
+    }),
+  );
+
+  it.effect("cancels successful void response bodies", () =>
+    Effect.gen(function* () {
+      const local = yield* startServer();
+      yield* SignatureHttpClient.use((http) =>
+        http.requestVoid({ method: "POST", url: `${local.baseUrl}/void` }),
+      ).pipe(Effect.provide(signatureHttpClientLive));
+
+      yield* Effect.promise(() => local.voidResponseClosed);
+
+      expect(true).toBe(true);
       yield* closeServer(local.server);
     }),
   );

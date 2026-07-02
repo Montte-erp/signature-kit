@@ -61,7 +61,9 @@ export const ZapSignProviderOptionsSchema = Schema.Struct({
 export type ZapSignProviderOptions = (typeof ZapSignProviderOptionsSchema)["Type"];
 
 const ZapSignSignerResultSchema = Schema.Struct({
-  token: publicIdentifier,
+  // ZapSign's list endpoint omits the signer token on some entries, and the
+  // signer token is never read (only sign_url is used), so keep it optional.
+  token: Schema.optional(publicIdentifier),
   sign_url: Schema.optional(Schema.NullOr(Schema.NonEmptyString)),
   status: Schema.optional(Schema.String),
 });
@@ -141,23 +143,30 @@ const signerPayload = (
   ...(input.message === undefined ? {} : { custom_message: input.message }),
   ...(input.redirectUrl === undefined ? {} : { redirect_link: input.redirectUrl }),
 });
+const zapsignPathParam = (id: string): string => encodeURIComponent(id);
 
 const zapSignRequestState = (status: string | undefined): RemoteSignatureRequest["state"] => {
   if (status === undefined) return "sent";
-  const normalized = status.toLowerCase();
-  if (normalized.includes("draft")) return "draft";
-  if (normalized.includes("signed") || normalized.includes("completed")) return "completed";
-  if (
-    normalized.includes("refused") ||
-    normalized.includes("rejected") ||
-    normalized.includes("cancel")
-  ) {
-    return "cancelled";
+  switch (status.toLowerCase()) {
+    case "draft":
+      return "draft";
+    case "signed":
+    case "completed":
+      return "completed";
+    case "declined":
+    case "refused":
+    case "rejected":
+      return "declined";
+    case "cancelled":
+    case "canceled":
+      return "cancelled";
+    case "deleted":
+      return "deleted";
+    case "expired":
+      return "expired";
+    default:
+      return "sent";
   }
-  if (normalized.includes("deleted")) return "deleted";
-  if (normalized.includes("declined")) return "declined";
-  if (normalized.includes("expired")) return "expired";
-  return "sent";
 };
 
 const toRemoteSignatureRequest = (
@@ -245,7 +254,7 @@ const getZapSignSignatureRequestInternal = (
       {
         provider: PROVIDER,
         method: "GET",
-        url: `${baseUrl}/docs/${id}/`,
+        url: `${baseUrl}/docs/${zapsignPathParam(id)}/`,
         headers: {
           Authorization: bearerAuthorization(options.apiToken),
         },
@@ -258,10 +267,37 @@ const getZapSignSignatureRequestInternal = (
 const resolveZapSignListNextUrl = (
   baseUrl: string,
   next: string | null | undefined,
-): string | null =>
-  next === undefined || next === null || next === ""
-    ? null
-    : new URL(next.startsWith("/") ? `${baseUrl}${next}` : next, `${baseUrl}/`).toString();
+): string | null => {
+  if (next === undefined || next === null || next === "") return null;
+  if (URL.canParse(next)) {
+    const parsed = new URL(next);
+    // ZapSign returns the pagination `next` link with an http:// scheme; the
+    // http→https redirect strips the Authorization header and the follow-up
+    // page 403s. Pin the next URL onto the configured base origin (scheme +
+    // host) while keeping its path and query so auth survives.
+    if (URL.canParse(baseUrl)) {
+      const base = new URL(baseUrl);
+      parsed.protocol = base.protocol;
+      parsed.host = base.host;
+    }
+    return parsed.toString();
+  }
+  if (!URL.canParse(baseUrl)) return null;
+
+  const base = new URL(baseUrl);
+  const basePath = base.pathname.endsWith("/") ? base.pathname.slice(0, -1) : base.pathname;
+  let normalizedNext = next.startsWith("/") ? next : `/${next}`;
+  if (
+    basePath !== "" &&
+    normalizedNext !== basePath &&
+    !normalizedNext.startsWith(`${basePath}/`)
+  ) {
+    normalizedNext = `${basePath}${normalizedNext}`;
+  }
+  return URL.canParse(normalizedNext, `${base.origin}/`)
+    ? new URL(normalizedNext, `${base.origin}/`).toString()
+    : null;
+};
 
 const listZapSignSignatureRequestsInternal = (
   http: SignatureHttpClientService,
@@ -331,7 +367,7 @@ const deleteZapSignSignatureRequestInternal = (
     .requestVoid({
       provider: PROVIDER,
       method: "DELETE",
-      url: `${baseUrl}/docs/${id}/`,
+      url: `${baseUrl}/docs/${zapsignPathParam(id)}/`,
       headers: {
         Authorization: bearerAuthorization(options.apiToken),
       },

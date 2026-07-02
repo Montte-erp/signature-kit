@@ -16,11 +16,11 @@ const hasLocalEffectBoundary = (context: CheckContext): boolean => {
 };
 
 const hasEffectProvideCall = (context: CheckContext): boolean =>
-  /\bprovide(?:Service|Layer)?\b/.test(context.line) &&
-  /\bEffect\s*\.\s*provide(?:Service|Layer)?\s*\(/.test(context.window);
+  /\bprovide(?:Service|Layer|Merge)?\b/.test(context.line) &&
+  /\b(?:Effect|Layer)\s*\.\s*provide(?:Service|Layer|Merge)?\s*\(/.test(context.window);
 
 const hasAllowedEffectProvideSite = (context: CheckContext): boolean => {
-  const allowedArguments = allowedEffectProvideSites.get(context.path);
+  const allowedArguments = allowedEffectProvideSites[context.path];
   if (allowedArguments === undefined) {
     return false;
   }
@@ -30,7 +30,8 @@ const hasAllowedEffectProvideSite = (context: CheckContext): boolean => {
 const hasHiddenEffectProvide = (context: CheckContext): boolean =>
   hasEffectProvideCall(context) &&
   !/\.(?:test|spec)\.tsx?$/.test(context.path) &&
-  (!hasLocalEffectBoundary(context) || !hasAllowedEffectProvideSite(context));
+  !hasLocalEffectBoundary(context) &&
+  !hasAllowedEffectProvideSite(context);
 
 export const effectBoundaryChecks: readonly Check[] = [
   {
@@ -46,7 +47,7 @@ export const effectBoundaryChecks: readonly Check[] = [
   },
   {
     message:
-      "Do not apply Effect.provide inside the library without an explicit `// effect-boundary` marker.",
+      "Do not apply Effect/Layer provide inside the library without an explicit boundary marker or allowlist entry.",
     test: hasHiddenEffectProvide,
     ignoreImportLine: true,
   },

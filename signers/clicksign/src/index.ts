@@ -41,11 +41,20 @@ export const ClicksignProviderOptionsSchema = Schema.Struct({
 });
 export type ClicksignProviderOptions = (typeof ClicksignProviderOptionsSchema)["Type"];
 
+const ClicksignDocumentDownloadsSchema = Schema.Struct({
+  signed_file_url: Schema.optional(Schema.Union([Schema.String, Schema.Null])),
+});
+
+const ClicksignDocumentSchema = Schema.Struct({
+  key: Schema.NonEmptyString,
+  status: Schema.optional(Schema.String),
+  download_url: Schema.optional(Schema.Union([Schema.String, Schema.Null])),
+  downloadUrl: Schema.optional(Schema.Union([Schema.String, Schema.Null])),
+  downloads: Schema.optional(ClicksignDocumentDownloadsSchema),
+});
+
 const ClicksignDocumentResultSchema = Schema.Struct({
-  document: Schema.Struct({
-    key: Schema.NonEmptyString,
-    status: Schema.optional(Schema.String),
-  }),
+  document: ClicksignDocumentSchema,
 });
 
 const ClicksignSignerResultSchema = Schema.Struct({
@@ -56,51 +65,102 @@ const ClicksignListResultSchema = Schema.Struct({
   list: Schema.Struct({ request_signature_key: Schema.NonEmptyString }),
 });
 
-const ClicksignDocumentSchema = Schema.Struct({
-  key: Schema.NonEmptyString,
-  status: Schema.optional(Schema.String),
-  download_url: Schema.optional(Schema.String),
-  downloadUrl: Schema.optional(Schema.String),
-});
-
 const ClicksignGetDocumentResponseSchema = Schema.Struct({
   document: ClicksignDocumentSchema,
 });
 
+const ClicksignPageInfosSchema = Schema.Struct({
+  total_pages: Schema.optional(Schema.Union([Schema.Number, Schema.String])),
+  current_page: Schema.optional(Schema.Union([Schema.Number, Schema.String])),
+  next_page: Schema.optional(Schema.Union([Schema.Number, Schema.String, Schema.Null])),
+  last_page: Schema.optional(Schema.Boolean),
+});
+
 const ClicksignDocumentsResultSchema = Schema.Struct({
   documents: Schema.Array(ClicksignDocumentSchema),
+  page_infos: Schema.optional(ClicksignPageInfosSchema),
 });
 
 type ClicksignDocumentInfo = (typeof ClicksignDocumentSchema)["Type"];
+type ClicksignPageInfos = (typeof ClicksignPageInfosSchema)["Type"];
+
+const clicksignPathId = (id: string): string => encodeURIComponent(id);
+
+const clicksignDocumentPath = (id: string): string => `/documents/${clicksignPathId(id)}`;
+
+const clicksignDocumentDownloadPath = (id: string): string =>
+  `${clicksignDocumentPath(id)}/download`;
 
 const toRemoteSignatureRequestState = (
   status: string | undefined,
 ): RemoteSignatureRequest["state"] => {
   if (status === undefined) return "sent";
-  const normalized = status.toLowerCase();
-  if (normalized.includes("draft")) return "draft";
-  if (normalized.includes("completed") || normalized.includes("signed")) return "completed";
-  if (normalized.includes("cancel")) return "cancelled";
-  if (normalized.includes("delete")) return "deleted";
-  if (normalized.includes("declined")) return "declined";
-  if (normalized.includes("expired")) return "expired";
-  return "sent";
+  switch (status.toLowerCase()) {
+    case "draft":
+      return "draft";
+    case "completed":
+    case "signed":
+    case "closed":
+      return "completed";
+    case "cancelled":
+    case "canceled":
+      return "cancelled";
+    case "deleted":
+      return "deleted";
+    case "declined":
+      return "declined";
+    case "expired":
+      return "expired";
+    default:
+      return "sent";
+  }
+};
+
+const resolveClicksignSignedDocumentUrl = (document: ClicksignDocumentInfo): string | undefined => {
+  const signedFile = document.downloads?.signed_file_url;
+  if (typeof signedFile === "string" && signedFile.length > 0) return signedFile;
+  if (typeof document.download_url === "string" && document.download_url.length > 0)
+    return document.download_url;
+  if (typeof document.downloadUrl === "string" && document.downloadUrl.length > 0)
+    return document.downloadUrl;
+  return undefined;
+};
+
+const parseClicksignPageNumber = (
+  value: string | number | null | undefined,
+): number | undefined => {
+  if (typeof value !== "string" && typeof value !== "number") return undefined;
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isNaN(parsed) || parsed <= 0 ? undefined : parsed;
+};
+
+const clicksignListNextPage = (
+  pageInfos: ClicksignPageInfos | undefined,
+  currentPage: number,
+): number | undefined => {
+  if (pageInfos === undefined) return;
+  const nextPage = parseClicksignPageNumber(pageInfos.next_page);
+  if (nextPage !== undefined && nextPage > currentPage) return nextPage;
+  if (pageInfos.last_page === true) return undefined;
+  if (pageInfos.last_page === false) return currentPage + 1;
+  const totalPages = parseClicksignPageNumber(pageInfos.total_pages);
+  return totalPages === undefined || totalPages <= currentPage ? undefined : currentPage + 1;
 };
 
 const toRemoteSignatureRequest = (
   baseUrl: string,
   document: ClicksignDocumentInfo,
-): RemoteSignatureRequest => ({
-  provider: PROVIDER,
-  id: document.key,
-  state: toRemoteSignatureRequestState(document.status),
-  providerStatus: document.status,
-  detailsUrl: `${baseUrl}/documents/${document.key}`,
-  downloadUrl:
-    document.download_url ??
-    document.downloadUrl ??
-    `${baseUrl}/documents/${document.key}/download`,
-});
+): RemoteSignatureRequest => {
+  const downloadUrl = resolveClicksignSignedDocumentUrl(document);
+  return {
+    provider: PROVIDER,
+    id: document.key,
+    state: toRemoteSignatureRequestState(document.status),
+    providerStatus: document.status,
+    detailsUrl: `${baseUrl}${clicksignDocumentPath(document.key)}`,
+    downloadUrl: downloadUrl ?? `${baseUrl}${clicksignDocumentDownloadPath(document.key)}`,
+  };
+};
 
 const getClicksignSignatureRequestInternal = (
   http: SignatureHttpClientService,
@@ -113,7 +173,7 @@ const getClicksignSignatureRequestInternal = (
       {
         provider: PROVIDER,
         method: "GET",
-        ...withAccessToken(baseUrl, `/documents/${id}`, options.accessToken),
+        ...withAccessToken(baseUrl, clicksignDocumentPath(id), options.accessToken),
         headers: { "Content-Type": "application/json" },
       },
       ClicksignGetDocumentResponseSchema,
@@ -125,22 +185,35 @@ const listClicksignSignatureRequestsInternal = (
   http: SignatureHttpClientService,
   options: ClicksignProviderOptions,
   baseUrl: string,
-): Effect.Effect<RemoteSignatureRequest[], SignatureKitError> =>
-  http
-    .requestJson(
-      {
-        provider: PROVIDER,
-        method: "GET",
-        ...withAccessToken(baseUrl, "/documents", options.accessToken),
-      },
-      ClicksignDocumentsResultSchema,
-      SignatureKitSchemaNameValue.clicksignDocumentsResult,
-    )
-    .pipe(
-      Effect.map((result) =>
-        result.documents.map((document) => toRemoteSignatureRequest(baseUrl, document)),
-      ),
-    );
+): Effect.Effect<RemoteSignatureRequest[], SignatureKitError> => {
+  const fetchPage = (page: number): Effect.Effect<RemoteSignatureRequest[], SignatureKitError> => {
+    const pagePath = `/documents?page=${String(page)}`;
+    return http
+      .requestJson(
+        {
+          provider: PROVIDER,
+          method: "GET",
+          ...withAccessToken(baseUrl, pagePath, options.accessToken),
+        },
+        ClicksignDocumentsResultSchema,
+        SignatureKitSchemaNameValue.clicksignDocumentsResult,
+      )
+      .pipe(
+        Effect.flatMap((result) => {
+          const documents = result.documents.map((document) =>
+            toRemoteSignatureRequest(baseUrl, document),
+          );
+          const nextPage = clicksignListNextPage(result.page_infos, page);
+          if (nextPage === undefined) return Effect.succeed(documents);
+          return fetchPage(nextPage).pipe(
+            Effect.map((nextDocuments) => [...documents, ...nextDocuments]),
+          );
+        }),
+      );
+  };
+
+  return fetchPage(1);
+};
 
 const cancelClicksignSignatureRequestInternal = (
   http: SignatureHttpClientService,
@@ -151,7 +224,7 @@ const cancelClicksignSignatureRequestInternal = (
   http.requestVoid({
     provider: PROVIDER,
     method: "POST",
-    ...withAccessToken(baseUrl, `/documents/${id}/cancel`, options.accessToken),
+    ...withAccessToken(baseUrl, `${clicksignDocumentPath(id)}/cancel`, options.accessToken),
   });
 
 const deleteClicksignSignatureRequestInternal = (
@@ -164,7 +237,7 @@ const deleteClicksignSignatureRequestInternal = (
     .requestVoid({
       provider: PROVIDER,
       method: "DELETE",
-      ...withAccessToken(baseUrl, `/documents/${id}`, options.accessToken),
+      ...withAccessToken(baseUrl, clicksignDocumentPath(id), options.accessToken),
     })
     .pipe(
       Effect.catchIf(
@@ -172,6 +245,36 @@ const deleteClicksignSignatureRequestInternal = (
         () => Effect.void,
       ),
     );
+
+const isAbsoluteHttpUrl = (value: string): boolean =>
+  value.startsWith("http://") || value.startsWith("https://");
+
+const clicksignDownloadPath = (path: string): string => (path.startsWith("/") ? path : `/${path}`);
+
+const isClicksignDownloadHost = (baseUrl: string, downloadUrl: string): boolean => {
+  if (!URL.canParse(downloadUrl) || !URL.canParse(baseUrl)) return false;
+  return new URL(downloadUrl).host === new URL(baseUrl).host;
+};
+
+const clicksignDownloadTarget = (
+  baseUrl: string,
+  downloadUrl: string,
+  accessToken: Redacted.Redacted<string>,
+): Pick<SignatureHttpRequest, "url" | "diagnosticUrl"> => {
+  if (!isAbsoluteHttpUrl(downloadUrl)) {
+    return withAccessToken(baseUrl, clicksignDownloadPath(downloadUrl), accessToken);
+  }
+  if (!isClicksignDownloadHost(baseUrl, downloadUrl)) return { url: downloadUrl };
+
+  const parsed = new URL(downloadUrl);
+  if (parsed.searchParams.has("access_token"))
+    return { url: downloadUrl, diagnosticUrl: downloadUrl };
+  const targetUrl = new URL(downloadUrl);
+  const diagnosticUrl = new URL(downloadUrl);
+  targetUrl.searchParams.set("access_token", Redacted.value(accessToken));
+  diagnosticUrl.searchParams.set("access_token", "<redacted>");
+  return { url: targetUrl.toString(), diagnosticUrl: diagnosticUrl.toString() };
+};
 
 const downloadClicksignSignedDocumentInternal = (
   http: SignatureHttpClientService,
@@ -182,31 +285,17 @@ const downloadClicksignSignedDocumentInternal = (
   getClicksignSignatureRequestInternal(http, options, baseUrl, id).pipe(
     Effect.flatMap((request) => {
       const signedDocumentUrl = request.downloadUrl;
-      if (
-        signedDocumentUrl !== undefined &&
-        (signedDocumentUrl.startsWith("http://") || signedDocumentUrl.startsWith("https://"))
-      ) {
-        return http.requestBytes({
-          provider: PROVIDER,
-          method: "GET",
-          url: signedDocumentUrl,
-        });
-      }
       if (signedDocumentUrl !== undefined) {
         return http.requestBytes({
           provider: PROVIDER,
           method: "GET",
-          ...withAccessToken(
-            baseUrl,
-            signedDocumentUrl.startsWith("/") ? signedDocumentUrl : `/${signedDocumentUrl}`,
-            options.accessToken,
-          ),
+          ...clicksignDownloadTarget(baseUrl, signedDocumentUrl, options.accessToken),
         });
       }
       return http.requestBytes({
         provider: PROVIDER,
         method: "GET",
-        ...withAccessToken(baseUrl, `/documents/${id}/download`, options.accessToken),
+        ...withAccessToken(baseUrl, clicksignDocumentDownloadPath(id), options.accessToken),
       });
     }),
   );
@@ -402,8 +491,7 @@ const createRemoteRequest = (
   }
 
   return createDocument(http, options, baseUrl, input, document).pipe(
-    Effect.map((documentKey) => ({ documentKey })),
-    Effect.flatMap(({ documentKey }) =>
+    Effect.flatMap((documentKey) =>
       Effect.forEach(input.recipients, (recipient, index) =>
         createSigner(http, options, baseUrl, recipient).pipe(
           Effect.flatMap((signerKey) =>
@@ -419,17 +507,40 @@ const createRemoteRequest = (
             ),
           ),
         ),
-      ).pipe(Effect.map((requestSignatureKeys) => ({ documentKey, requestSignatureKeys }))),
-    ),
-    Effect.flatMap(({ documentKey, requestSignatureKeys }) =>
-      input.send === false
-        ? Effect.succeed({ documentKey })
-        : Effect.forEach(
-            requestSignatureKeys,
-            (requestSignatureKey) =>
-              notifyRecipient(http, options, baseUrl, requestSignatureKey, input),
-            { discard: true },
-          ).pipe(Effect.as({ documentKey })),
+      ).pipe(
+        Effect.flatMap((requestSignatureKeys) =>
+          input.send === false
+            ? Effect.succeed({ documentKey })
+            : Effect.forEach(
+                requestSignatureKeys,
+                (requestSignatureKey) =>
+                  notifyRecipient(http, options, baseUrl, requestSignatureKey, input),
+                { discard: true },
+              ).pipe(Effect.as({ documentKey })),
+        ),
+        Effect.catch((error) =>
+          deleteClicksignSignatureRequestInternal(http, options, baseUrl, documentKey).pipe(
+            Effect.catch(() => Effect.void),
+            Effect.flatMap(() => Effect.fail(error)),
+          ),
+        ),
+        Effect.mapError(
+          (error) =>
+            new SignatureKitError({
+              code: error.code,
+              retryable: error.retryable,
+              provider: error.provider ?? PROVIDER,
+              operation: SignatureKitOperationValue.remoteCreate,
+              status: error.status,
+              schemaName: error.schemaName,
+              issueMessage: error.issueMessage,
+              reason:
+                error.reason === undefined
+                  ? `Clicksign create for document ${documentKey} failed after document creation.`
+                  : `Clicksign create for document ${documentKey} failed after document creation: ${error.reason}`,
+            }),
+        ),
+      ),
     ),
     Effect.map(({ documentKey }) => ({
       provider: PROVIDER,

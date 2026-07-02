@@ -30,12 +30,15 @@ import { Effect, Layer, Redacted } from "effect"
 export default Alchemy.Stack(
   "Contracts",
   {
-    providers: clicksignProviders({
+    providers: Layer.merge(
+      clicksignProviders({
       accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
       environment: "sandbox",
       locale: "pt-BR",
       autoClose: true,
-    }).pipe(Layer.provide(signatureHttpClientLive)),
+      }),
+      signatureHttpClientLive,
+    ),
   },
   Effect.gen(function* () {
     return yield* ClicksignSignatureRequest("service-agreement", {

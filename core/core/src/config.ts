@@ -98,6 +98,7 @@ export const CertificateSchema = Schema.Struct({
   brazilian: BrazilianFieldsSchema,
   certPem: certificatePem,
   certificateDer: Schema.Uint8Array,
+  intermediateCertificates: Schema.Array(Schema.Uint8Array),
   publicKeyDer: Schema.Uint8Array,
   privateKeyPem: redactedPrivateKeyPem,
 });
@@ -495,6 +496,7 @@ export const SignatureKitOperationValue = {
 export const SignatureKitSchemaNameSchema = Schema.Literals([
   "Certificate",
   "CertificateSource",
+  "SignatureAlgorithm",
   "SignInput",
   "VerifyInput",
   "A1SignerOptions",
@@ -530,6 +532,7 @@ export type SignatureKitSchemaName = (typeof SignatureKitSchemaNameSchema)["Type
 export const SignatureKitSchemaNameValue = {
   certificate: "Certificate",
   certificateSource: "CertificateSource",
+  signatureAlgorithm: "SignatureAlgorithm",
   signInput: "SignInput",
   verifyInput: "VerifyInput",
   remoteSignatureRequestInput: "RemoteSignatureRequestInput",
@@ -573,6 +576,7 @@ export class SignatureKitError extends Schema.TaggedErrorClass<SignatureKitError
     issueMessage: Schema.optional(Schema.String),
     provider: Schema.optional(RemoteSignatureProviderSchema),
     status: Schema.optional(Schema.Number),
+    retryAfterEpochSeconds: Schema.optional(Schema.Number),
   },
 ) {
   get message(): string {

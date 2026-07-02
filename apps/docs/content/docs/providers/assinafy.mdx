@@ -30,11 +30,14 @@ import { Effect, Layer, Redacted } from "effect"
 export default Alchemy.Stack(
   "Contracts",
   {
-    providers: assinafyProviders({
+    providers: Layer.merge(
+      assinafyProviders({
       apiKey: Redacted.make(process.env.ASSINAFY_API_KEY ?? ""),
       accountId: process.env.ASSINAFY_ACCOUNT_ID ?? "",
       environment: "sandbox",
-    }).pipe(Layer.provide(signatureHttpClientLive)),
+      }),
+      signatureHttpClientLive,
+    ),
   },
   Effect.gen(function* () {
     return yield* AssinafySignatureRequest("service-agreement", {

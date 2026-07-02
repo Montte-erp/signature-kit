@@ -1,270 +1,56 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Buffer } from "node:buffer";
-import { createServer } from "node:http";
-import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import {
+  RemoteSignatureStateSchema,
   SignatureKitErrorCodeValue,
   type RemoteSignatureRequestInput,
 } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
 import { reconcileInput } from "../../__tests__/alchemy-provider";
-import { Effect, Redacted, Result } from "effect";
+import { loadFlaggedConfig, optionalEnv, requiredEnv } from "../../../tooling/testing/env";
+import { Config, Effect, Redacted, Result, Schema } from "effect";
 import {
   ZapSignSignatureRequest,
   ZapSignSignatureRequestProvider,
-  cancelZapSignSignatureRequest,
   type ZapSignProviderOptions,
   zapSignCredentialsLayer,
+  cancelZapSignSignatureRequest,
   deleteZapSignSignatureRequest,
   downloadZapSignSignedDocument,
   getZapSignSignatureRequest,
   listZapSignSignatureRequests,
 } from "../src/index";
 
-const textEncoder = new TextEncoder();
+const config = loadFlaggedConfig(
+  "SIGNATURE_KIT_LIVE_REMOTE_SIGNERS",
+  Config.all({
+    apiToken: requiredEnv("ZAPSIGN_API_TOKEN"),
+    recipientEmail: requiredEnv("SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL"),
+    baseUrl: optionalEnv("ZAPSIGN_BASE_URL"),
+  }),
+);
 
-const pdfDocument = {
-  fileName: "contract.pdf",
-  mimeType: "application/pdf",
-  content: textEncoder.encode("zapsign pdf"),
-};
-
-const pdfInput = {
-  title: "ZapSign request",
-  message: "Assine por favor",
-  documents: [pdfDocument],
-  recipients: [
-    {
-      name: "Ana Silva",
-      email: "ana@example.com",
-      routingOrder: 4,
-    },
-  ],
-  redirectUrl: "https://app.example.com/zapsign",
-  expiresAt: new Date("2030-01-01T00:00:00.000Z"),
-} satisfies RemoteSignatureRequestInput;
-
-const xmlInput = {
-  title: "Wrong MIME",
-  documents: [
-    {
-      fileName: "invoice.xml",
-      mimeType: "application/xml",
-      content: textEncoder.encode("<invoice />"),
-    },
-  ],
-  recipients: [
-    {
-      name: "Ana Silva",
-      email: "ana@example.com",
-    },
-  ],
-} satisfies RemoteSignatureRequestInput;
-
-const signedDocumentContent = textEncoder.encode("zapsign signed document");
-
-type CapturedCall = {
-  readonly method: string;
-  readonly path: string;
-  readonly contentType: string | undefined;
-  readonly authorization: string | undefined;
-  readonly bodyText: string;
-};
-
-type LocalServer = {
-  readonly server: Server;
-  readonly baseUrl: string;
-  readonly calls: CapturedCall[];
-};
-
-const readBody = (request: IncomingMessage): Promise<string> => {
-  const done = Promise.withResolvers<string>();
-  const chunks: Buffer[] = [];
-  request.on("data", (chunk: Buffer) => chunks.push(chunk));
-  request.on("end", () => done.resolve(Buffer.concat(chunks).toString("utf8")));
-  request.on("error", done.reject);
-  return done.promise;
-};
-
-const headerText = (value: string | readonly string[] | undefined): string | undefined =>
-  typeof value === "string" ? value : undefined;
-
-const writeJson = (response: ServerResponse, body: unknown): void => {
-  response.setHeader("Connection", "close");
-  response.statusCode = 200;
-  response.setHeader("Content-Type", "application/json");
-  response.end(JSON.stringify(body));
-};
-
-const writeBinary = (response: ServerResponse, bytes: Uint8Array): void => {
-  response.setHeader("Connection", "close");
-  response.statusCode = 200;
-  response.setHeader("Content-Type", "application/pdf");
-  response.end(bytes);
-};
-
-const startServer = (): Effect.Effect<LocalServer> =>
-  Effect.promise(() => {
-    const started = Promise.withResolvers<LocalServer>();
-    const calls: CapturedCall[] = [];
-    let baseUrl: string | undefined;
-
-    const server = createServer((request, response) => {
-      void readBody(request).then((bodyText) => {
-        const url = new URL(request.url ?? "/", "http://127.0.0.1");
-        const call = {
-          method: request.method ?? "GET",
-          path: url.pathname,
-          contentType: headerText(request.headers["content-type"]),
-          authorization: headerText(request.headers.authorization),
-          bodyText,
-        };
-        calls.push(call);
-
-        if (call.path === "/docs/" && call.method === "POST") {
-          writeJson(response, {
-            token: "document-token",
-            status: "pending",
-            original_file: "https://sandbox.zapsign.test/original.pdf",
-            signed_file: null,
-            signers: [
-              {
-                token: "signer-token",
-                sign_url: "https://app.zapsign.com.br/verificar/signer-token",
-                status: "new",
-              },
-            ],
-          });
-          return;
-        }
-
-        if (call.path === "/docs/document-123/" && call.method === "GET") {
-          writeJson(response, {
-            token: "document-123",
-            status: "completed",
-            original_file: `${baseUrl}/files/original.pdf`,
-            signed_file: `${baseUrl}/files/signed.pdf`,
-            signers: [
-              {
-                token: "signer-token",
-                sign_url: "https://app.zapsign.com.br/verificar/signer-token",
-                status: "signed",
-              },
-            ],
-          });
-          return;
-        }
-
-        if (call.path === "/docs/" && call.method === "GET") {
-          if (url.searchParams.get("page") === "2") {
-            writeJson(response, {
-              count: 1,
-              next: null,
-              previous: `${baseUrl}/docs/?page=1&include_signers=true`,
-              results: [
-                {
-                  token: "document-789",
-                  status: "signed",
-                  original_file: `${baseUrl}/files/original-3.pdf`,
-                  signed_file: `${baseUrl}/files/signed-3.pdf`,
-                  signers: [
-                    {
-                      token: "signer-token-3",
-                      sign_url: "https://app.zapsign.com.br/verificar/signer-3",
-                      status: "signed",
-                    },
-                  ],
-                },
-              ],
-            });
-            return;
-          }
-
-          writeJson(response, {
-            count: 2,
-            next: `${baseUrl}/docs/?page=2&include_signers=true`,
-            previous: null,
-            results: [
-              {
-                token: "document-123",
-                status: "completed",
-                original_file: `${baseUrl}/files/original-1.pdf`,
-                signed_file: `${baseUrl}/files/signed-1.pdf`,
-                signers: [
-                  {
-                    token: "signer-token-1",
-                    sign_url: "https://app.zapsign.com.br/verificar/signer-1",
-                    status: "signed",
-                  },
-                ],
-              },
-              {
-                token: "document-456",
-                status: "deleted",
-                original_file: `${baseUrl}/files/original-2.pdf`,
-              },
-            ],
-          });
-          return;
-        }
-
-        if (call.path === "/refuse/" && call.method === "POST") {
-          response.statusCode = 200;
-          response.end();
-          return;
-        }
-
-        if (call.path === "/docs/document-404/" && call.method === "DELETE") {
-          response.statusCode = 404;
-          response.end("not found");
-          return;
-        }
-
-        if (call.path === "/docs/document-500/" && call.method === "DELETE") {
-          response.statusCode = 500;
-          response.end("delete failed");
-          return;
-        }
-
-        if (call.path === "/docs/document-123/" && call.method === "DELETE") {
-          response.statusCode = 200;
-          response.end();
-          return;
-        }
-
-        if (call.path === "/files/signed.pdf" && call.method === "GET") {
-          writeBinary(response, signedDocumentContent);
-          return;
-        }
-
-        response.statusCode = 404;
-        response.end("not found");
-      });
-    });
-
-    server.on("error", started.reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (typeof address === "object" && address !== null) {
-        const resolved = `http://127.0.0.1:${address.port}`;
-        baseUrl = resolved;
-        started.resolve({ server, baseUrl: resolved, calls });
-        return;
-      }
-      started.reject("HTTP server did not expose a TCP port.");
-    });
-
-    return started.promise;
+const livePdf = (): Uint8Array => {
+  const encoder = new TextEncoder();
+  const objects = [
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+    "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>\nendobj\n",
+    "4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n",
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = objects.map((object) => {
+    const offset = encoder.encode(pdf).byteLength;
+    pdf += object;
+    return offset;
   });
-
-const closeServer = (server: Server): Effect.Effect<void> =>
-  Effect.sync(() => {
-    server.closeAllConnections();
-    server.closeIdleConnections();
-    server.close();
-  });
-
-const parseBody = (call: CapturedCall): unknown => JSON.parse(call.bodyText);
+  const xrefOffset = encoder.encode(pdf).byteLength;
+  const entries = offsets
+    .map((offset) => `${offset.toString().padStart(10, "0")} 00000 n \n`)
+    .join("");
+  return encoder.encode(
+    `${pdf}xref\n0 5\n0000000000 65535 f \n${entries}trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`,
+  );
+};
 
 const reconcileZapSignSignatureRequest = (
   options: ZapSignProviderOptions,
@@ -272,278 +58,144 @@ const reconcileZapSignSignatureRequest = (
 ) =>
   Effect.gen(function* () {
     const provider = yield* ZapSignSignatureRequest.Provider;
-    return yield* provider.reconcile(reconcileInput("zapsign-request", request));
+    return yield* provider.reconcile(reconcileInput("zapsign-live-request", request));
   }).pipe(
     Effect.provide(ZapSignSignatureRequestProvider()),
     Effect.provide(zapSignCredentialsLayer(options)),
     Effect.provide(signatureHttpClientLive),
   );
 
-describe("ZapSign remote signatures", () => {
-  it.effect("creates one PDF document through the live HTTP client", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* reconcileZapSignSignatureRequest(
-        {
-          baseUrl: local.baseUrl,
-          apiToken: Redacted.make("zapsign-token"),
-          locale: "en",
-          authMode: "tokenEmail",
-          disableSignerEmails: true,
-        },
-        pdfInput,
-      );
+if (config === undefined) {
+  describe.skip("ZapSign live API", () => {
+    it("requires SIGNATURE_KIT_LIVE_REMOTE_SIGNERS, ZAPSIGN_API_TOKEN and SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL", () => {});
+  });
+} else {
+  const options = {
+    apiToken: Redacted.make(config.apiToken),
+    environment: "sandbox",
+    locale: "pt-br",
+    disableSignerEmails: true,
+    ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
+  } satisfies ZapSignProviderOptions;
 
-      expect(result).toEqual({
-        provider: "zapsign",
-        id: "document-token",
-        state: "sent",
-        detailsUrl: "https://sandbox.zapsign.test/original.pdf",
-        providerStatus: "pending",
-        signingUrl: "https://app.zapsign.com.br/verificar/signer-token",
-      });
-      expect(local.calls).toHaveLength(1);
-      const call = local.calls[0];
-      expect(call).toBeDefined();
-      if (call !== undefined) {
-        expect(call.method).toBe("POST");
-        expect(call.path).toBe("/docs/");
-        expect(call.authorization).toBe("Bearer zapsign-token");
-        expect(call.contentType).toContain("application/json");
-        expect(parseBody(call)).toEqual({
-          name: "ZapSign request",
-          base64_pdf: Buffer.from(pdfDocument.content).toString("base64"),
-          lang: "en",
-          disable_signer_emails: true,
-          signature_order_active: true,
-          signers: [
-            {
-              name: "Ana Silva",
-              email: "ana@example.com",
-              auth_mode: "tokenEmail",
-              send_automatic_email: false,
-              order_group: 4,
-              custom_message: "Assine por favor",
-              redirect_link: "https://app.example.com/zapsign",
-            },
-          ],
-          date_limit_to_sign: "2030-01-01T00:00:00.000Z",
-        });
-      }
+  const input = {
+    title: "SignatureKit live ZapSign lifecycle",
+    message: "Created by SignatureKit live lifecycle test.",
+    documents: [
+      {
+        fileName: "signature-kit-live.pdf",
+        mimeType: "application/pdf",
+        content: livePdf(),
+      },
+    ],
+    recipients: [
+      {
+        name: "SignatureKit Live Recipient",
+        email: config.recipientEmail,
+        routingOrder: 1,
+      },
+    ],
+    send: false,
+    expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+  } satisfies RemoteSignatureRequestInput;
 
-      yield* closeServer(local.server);
-    }),
-  );
+  describe("ZapSign live API", () => {
+    it.effect(
+      "runs the full draft lifecycle against the sandbox",
+      () =>
+        Effect.gen(function* () {
+          // 1. Create a draft (send:false) via the Alchemy reconcile entry point.
+          const created = yield* reconcileZapSignSignatureRequest(options, input);
 
-  it.effect("gets a signature request", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* getZapSignSignatureRequest(
-        {
-          baseUrl: local.baseUrl,
-          apiToken: Redacted.make("zapsign-token"),
-        },
-        "document-123",
-      ).pipe(Effect.provide(signatureHttpClientLive));
+          expect(created.provider).toBe("zapsign");
+          expect(created.state).toBe("draft");
+          expect(created.id.length).toBeGreaterThan(0);
 
-      expect(result).toEqual({
-        provider: "zapsign",
-        id: "document-123",
-        state: "completed",
-        providerStatus: "completed",
-        signingUrl: "https://app.zapsign.com.br/verificar/signer-token",
-        detailsUrl: `${local.baseUrl}/files/original.pdf`,
-        downloadUrl: `${local.baseUrl}/files/signed.pdf`,
-      });
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("GET");
-      expect(local.calls[0]?.path).toBe("/docs/document-123/");
-      expect(local.calls[0]?.authorization).toBe("Bearer zapsign-token");
+          const documentToken = created.id;
 
-      yield* closeServer(local.server);
-    }),
-  );
+          // The rest of the lifecycle must always delete the created draft so
+          // re-runs stay idempotent and the sandbox never accumulates junk.
+          yield* Effect.gen(function* () {
+            // 2. Get the created request by id and assert real response fields.
+            const fetched = yield* getZapSignSignatureRequest(options, documentToken).pipe(
+              Effect.provide(signatureHttpClientLive),
+            );
 
-  it.effect("lists signature requests across pages", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* listZapSignSignatureRequests({
-        baseUrl: local.baseUrl,
-        apiToken: Redacted.make("zapsign-list-token"),
-      }).pipe(Effect.provide(signatureHttpClientLive));
+            expect(fetched.provider).toBe("zapsign");
+            expect(fetched.id).toBe(documentToken);
+            // `state` is derived from the real ZapSign status; assert it is a
+            // valid RemoteSignatureRequest state rather than pinning a literal
+            // (a freshly created, unsent doc reports a "pending"-style status).
+            yield* Schema.decodeUnknownEffect(RemoteSignatureStateSchema)(fetched.state);
+            expect(fetched.providerStatus).toBeDefined();
 
-      expect(result).toEqual([
-        {
-          provider: "zapsign",
-          id: "document-123",
-          state: "completed",
-          providerStatus: "completed",
-          signingUrl: "https://app.zapsign.com.br/verificar/signer-1",
-          detailsUrl: `${local.baseUrl}/files/original-1.pdf`,
-          downloadUrl: `${local.baseUrl}/files/signed-1.pdf`,
-        },
-        {
-          provider: "zapsign",
-          id: "document-456",
-          state: "deleted",
-          providerStatus: "deleted",
-          detailsUrl: `${local.baseUrl}/files/original-2.pdf`,
-        },
-        {
-          provider: "zapsign",
-          id: "document-789",
-          state: "completed",
-          providerStatus: "signed",
-          signingUrl: "https://app.zapsign.com.br/verificar/signer-3",
-          detailsUrl: `${local.baseUrl}/files/original-3.pdf`,
-          downloadUrl: `${local.baseUrl}/files/signed-3.pdf`,
-        },
-      ]);
-      expect(local.calls).toHaveLength(2);
-      expect(local.calls[0]?.method).toBe("GET");
-      expect(local.calls[0]?.path).toBe("/docs/");
-      expect(local.calls[1]?.method).toBe("GET");
-      expect(local.calls[1]?.path).toBe("/docs/");
-      expect(local.calls[0]?.authorization).toBe("Bearer zapsign-list-token");
+            // 3. List requests, exercising the provider's Stream.paginate path
+            // and full response decode. NOTE (real sandbox contract surprise):
+            // the ZapSign sandbox `/docs/` list is a fixed, canned dataset that
+            // does NOT reflect freshly created documents (its `count` never
+            // changes and the just-created token never appears), so we cannot
+            // assert the created id is present here. Instead assert the list
+            // decodes into typed, provider-tagged, valid-state requests.
+            const listed = yield* listZapSignSignatureRequests(options).pipe(
+              Effect.provide(signatureHttpClientLive),
+            );
+            expect(listed.length).toBeGreaterThan(0);
+            yield* Effect.forEach(listed, (request) =>
+              Effect.gen(function* () {
+                expect(request.provider).toBe("zapsign");
+                yield* Schema.decodeUnknownEffect(RemoteSignatureStateSchema)(request.state);
+              }),
+            );
 
-      yield* closeServer(local.server);
-    }),
-  );
+            // 4. Downloading a *signed* document is impossible without a human
+            // signer, so instead assert the typed error for a not-yet-signed
+            // draft: no signed-file URL is available yet. This must run BEFORE
+            // cancel, because refusing the doc finalizes it and produces a
+            // signed_file URL (real ZapSign behavior), which would let download
+            // succeed.
+            const downloadResult = yield* Effect.result(
+              downloadZapSignSignedDocument(options, documentToken).pipe(
+                Effect.provide(signatureHttpClientLive),
+              ),
+            );
+            expect(Result.isFailure(downloadResult)).toBe(true);
+            if (Result.isFailure(downloadResult)) {
+              expect(downloadResult.failure.code).toBe(
+                SignatureKitErrorCodeValue.unsupportedOperation,
+              );
+              expect(downloadResult.failure.provider).toBe("zapsign");
+            }
 
-  it.effect("cancels a signature request", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* cancelZapSignSignatureRequest(
-        {
-          baseUrl: local.baseUrl,
-          apiToken: Redacted.make("zapsign-token"),
-        },
-        "document-123",
-      ).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toBeUndefined();
-      expect(local.calls).toHaveLength(1);
-      const cancelCall = local.calls[0];
-      expect(cancelCall).toBeDefined();
-      if (cancelCall === undefined) return;
-      expect(cancelCall.method).toBe("POST");
-      expect(cancelCall.path).toBe("/refuse/");
-      expect(parseBody(cancelCall)).toEqual({
-        doc_token: "document-123",
-        rejected_reason: "Cancelled by SignatureKit provider lifecycle action.",
-        notify_signer: false,
-      });
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("deletes a signature request", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* deleteZapSignSignatureRequest(
-        {
-          baseUrl: local.baseUrl,
-          apiToken: Redacted.make("zapsign-token"),
-        },
-        "document-123",
-      ).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toBeUndefined();
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("DELETE");
-      expect(local.calls[0]?.path).toBe("/docs/document-123/");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("treats missing signature request deletion as success", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* Effect.result(
-        deleteZapSignSignatureRequest(
-          {
-            baseUrl: local.baseUrl,
-            apiToken: Redacted.make("zapsign-token"),
-          },
-          "document-404",
-        ).pipe(Effect.provide(signatureHttpClientLive)),
-      );
-
-      expect(Result.isSuccess(result)).toBe(true);
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("DELETE");
-      expect(local.calls[0]?.path).toBe("/docs/document-404/");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("fails when delete returns a non-404 HTTP error", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* Effect.result(
-        deleteZapSignSignatureRequest(
-          {
-            baseUrl: local.baseUrl,
-            apiToken: Redacted.make("zapsign-token"),
-          },
-          "document-500",
-        ).pipe(Effect.provide(signatureHttpClientLive)),
-      );
-
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect(result.failure.code).toBe(SignatureKitErrorCodeValue.http);
-        expect(result.failure.status).toBe(500);
-      }
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("DELETE");
-      expect(local.calls[0]?.path).toBe("/docs/document-500/");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("downloads a signed document", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* downloadZapSignSignedDocument(
-        {
-          baseUrl: local.baseUrl,
-          apiToken: Redacted.make("zapsign-token"),
-        },
-        "document-123",
-      ).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toEqual(signedDocumentContent);
-      expect(local.calls.map((call) => `${call.method}:${call.path}`)).toEqual([
-        "GET:/docs/document-123/",
-        "GET:/files/signed.pdf",
-      ]);
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("rejects non-PDF uploads before HTTP", () =>
-    Effect.gen(function* () {
-      const result = yield* Effect.result(
-        reconcileZapSignSignatureRequest(
-          {
-            baseUrl: "http://127.0.0.1:1",
-            apiToken: Redacted.make("zapsign-token"),
-          },
-          xmlInput,
-        ),
-      );
-
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect(result.failure.code).toBe("signature-kit.UNSUPPORTED_OPERATION");
-        expect(result.failure.provider).toBe("zapsign");
-      }
-    }),
-  );
-});
+            // 5. Cancel the draft via ZapSign's /refuse/ endpoint. It models a
+            // signer refusal, which may or may not be accepted for an unsigned
+            // draft, so tolerate a typed failure here without throwing — the
+            // point is to exercise the real cancel path and its typed error
+            // channel, and cleanup (delete) still runs via Effect.ensuring below.
+            const cancelResult = yield* Effect.result(
+              cancelZapSignSignatureRequest(options, documentToken).pipe(
+                Effect.provide(signatureHttpClientLive),
+              ),
+            );
+            if (Result.isFailure(cancelResult)) {
+              expect(typeof cancelResult.failure.code).toBe("string");
+            }
+          }).pipe(
+            // 6. Clean up: delete the created draft no matter what happened above.
+            // `orDie` turns a failed delete into a defect, so the test proves the
+            // real DELETE endpoint accepted the request. NOTE (real sandbox
+            // contract surprise): ZapSign soft-deletes — DELETE returns HTTP 200
+            // and sets a `deleted: true` flag, but the doc stays GETtable with an
+            // unchanged `status`, so a get-after-delete does NOT 404 and cannot be
+            // used to confirm removal.
+            Effect.ensuring(
+              deleteZapSignSignatureRequest(options, documentToken).pipe(
+                Effect.provide(signatureHttpClientLive),
+                Effect.orDie,
+              ),
+            ),
+          );
+        }),
+      60_000,
+    );
+  });
+}

@@ -1,3 +1,6 @@
+import { Effect } from "effect";
+import { CryptoError, CryptoErrorCodeValue, CryptoOperationValue } from "./config";
+
 const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 const base64Value = (char: string): number => {
@@ -25,32 +28,65 @@ export const bytesToBase64 = (bytes: Uint8Array): string => {
   return output;
 };
 
-export const base64ToBytes = (base64: string): Uint8Array<ArrayBuffer> => {
-  const clean = base64.replace(/[\t\n\r ]/g, "");
-  const padding = clean.endsWith("==") ? 2 : clean.endsWith("=") ? 1 : 0;
-  const output = new Uint8Array(Math.floor((clean.length * 3) / 4) - padding);
-  let outputOffset = 0;
-
-  for (let offset = 0; offset < clean.length; offset += 4) {
-    const first = base64Value(clean[offset] ?? "");
-    const second = base64Value(clean[offset + 1] ?? "");
-    const third = base64Value(clean[offset + 2] ?? "");
-    const fourth = base64Value(clean[offset + 3] ?? "");
-    const chunk = (first << 18) | (second << 12) | (third << 6) | fourth;
-
-    if (outputOffset < output.length) {
-      output[outputOffset] = (chunk >> 16) & 0xff;
-      outputOffset++;
+export const base64ToBytes = (
+  base64: string,
+): Effect.Effect<Uint8Array<ArrayBuffer>, CryptoError> =>
+  Effect.gen(function* () {
+    const clean = base64.replace(/[\t\n\r ]/g, "");
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(clean)) {
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.invalidFormat,
+          reason: "Base64 input contains invalid characters.",
+          operation: CryptoOperationValue.base64Decode,
+        }),
+      );
     }
-    if (outputOffset < output.length) {
-      output[outputOffset] = (chunk >> 8) & 0xff;
-      outputOffset++;
+    if (clean.length % 4 === 1) {
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.invalidFormat,
+          reason: "Base64 input has an invalid length.",
+          operation: CryptoOperationValue.base64Decode,
+        }),
+      );
     }
-    if (outputOffset < output.length) {
-      output[outputOffset] = chunk & 0xff;
-      outputOffset++;
+    const firstPadding = clean.indexOf("=");
+    if (firstPadding >= 0 && firstPadding < clean.length - (clean.endsWith("==") ? 2 : 1)) {
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.invalidFormat,
+          reason: "Base64 padding must be at the end.",
+          operation: CryptoOperationValue.base64Decode,
+        }),
+      );
     }
-  }
 
-  return output;
-};
+    const normalized = clean.padEnd(Math.ceil(clean.length / 4) * 4, "=");
+    const padding = normalized.endsWith("==") ? 2 : normalized.endsWith("=") ? 1 : 0;
+    const output = new Uint8Array(Math.floor((normalized.length * 3) / 4) - padding);
+    let outputOffset = 0;
+
+    for (let offset = 0; offset < normalized.length; offset += 4) {
+      const first = base64Value(normalized[offset] ?? "");
+      const second = base64Value(normalized[offset + 1] ?? "");
+      const third = base64Value(normalized[offset + 2] ?? "");
+      const fourth = base64Value(normalized[offset + 3] ?? "");
+      const chunk = (first << 18) | (second << 12) | (third << 6) | fourth;
+
+      if (outputOffset < output.length) {
+        output[outputOffset] = (chunk >> 16) & 0xff;
+        outputOffset++;
+      }
+      if (outputOffset < output.length) {
+        output[outputOffset] = (chunk >> 8) & 0xff;
+        outputOffset++;
+      }
+      if (outputOffset < output.length) {
+        output[outputOffset] = chunk & 0xff;
+        outputOffset++;
+      }
+    }
+
+    return output;
+  });

@@ -49,21 +49,30 @@ export const XmlSchemaNameValue = {
   verificationRequest: "XmlVerificationRequest",
 } satisfies Record<string, XmlSchemaName>;
 
+export const XmlCanonicalizationSchema = Schema.Literals(["exclusive", "inclusive"]);
+export type XmlCanonicalization = (typeof XmlCanonicalizationSchema)["Type"];
+export const XmlCanonicalizationValue = {
+  exclusive: "exclusive",
+  inclusive: "inclusive",
+} satisfies Record<string, XmlCanonicalization>;
+
 export const XmlSigningRequestSchema = Schema.Struct({
   xml: Schema.String,
   algorithm: Schema.optional(SignatureAlgorithmSchema),
   referenceId: Schema.optional(Schema.String),
   signatureId: Schema.optional(Schema.String),
   signingTime: Schema.optional(Schema.Date),
+  canonicalization: Schema.optional(XmlCanonicalizationSchema),
 });
-export type XmlSigningRequest = (typeof XmlSigningRequestSchema)["Type"];
-
 export const XmlVerificationRequestSchema = Schema.Struct({
   xml: Schema.String,
   algorithm: Schema.optional(SignatureAlgorithmSchema),
   publicKeyDer: Schema.optional(Schema.Uint8Array),
+  trustedCertificateDer: Schema.optional(Schema.Uint8Array),
   requireReferenceUri: Schema.optional(Schema.String),
 });
+export type XmlSigningRequest = (typeof XmlSigningRequestSchema)["Type"];
+
 export type XmlVerificationRequest = (typeof XmlVerificationRequestSchema)["Type"];
 
 export const XmlVerificationResultSchema = Schema.Struct({

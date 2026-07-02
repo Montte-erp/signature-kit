@@ -21,7 +21,7 @@
     "test:integration:browser": "vitest run --config tooling/vitest/browser.config.ts signers/a1/__tests__/a1.browser.test.ts formats/pdf/__tests__/pdf-a1.browser.test.ts",
     "test:e2e:pdf-a1": "vitest run --config tooling/vitest/browser.config.ts formats/pdf/__tests__/pdf-a1.browser.test.ts",
     "test:performance": "vitest run core/certificates/__tests__/certificates.performance.test.ts signers/a1/__tests__/a1.performance.test.ts formats/pdf/__tests__/pdf.performance.test.ts",
-    "test:live:remote-signers": "SIGNATURE_KIT_LIVE_REMOTE_SIGNERS=1 vitest run signers/clicksign/__tests__/clicksign.live.test.ts signers/assinafy/__tests__/assinafy.live.test.ts signers/zapsign/__tests__/zapsign.live.test.ts signers/documenso/__tests__/documenso.live.test.ts signers/docuseal/__tests__/docuseal.live.test.ts",
+    "test:live:remote-signers": "SIGNATURE_KIT_LIVE_REMOTE_SIGNERS=1 vitest run signers/clicksign/__tests__/clicksign.test.ts signers/assinafy/__tests__/assinafy.test.ts signers/zapsign/__tests__/zapsign.test.ts signers/documenso/__tests__/documenso.test.ts signers/docuseal/__tests__/docuseal.test.ts",
     "site:dev": "bun --cwd apps/docs dev",
     "site:build": "bun --cwd apps/docs build",
     "check:declarative-errors": "bun tooling/static-checks/check-declarative-errors.ts",

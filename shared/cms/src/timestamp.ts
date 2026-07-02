@@ -22,6 +22,20 @@ import { digest, toArrayBuffer } from "./engine";
 const TSA_CONTENT_TYPE = "application/timestamp-query";
 const DEFAULT_TIMEOUT_MILLIS = 15000;
 
+const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean => {
+  if (left.byteLength !== right.byteLength) return false;
+  for (let index = 0; index < left.byteLength; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+};
+
+const timestampNonce = (): asn1js.Integer => {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[0] = (bytes[0] ?? 0) & 0x7f;
+  return new asn1js.Integer({ valueHex: toArrayBuffer(bytes) });
+};
+
 const RequestTimestampInputSchema = Schema.Struct({
   data: Schema.Uint8Array,
   tsaUrl: Schema.NonEmptyString,
@@ -34,7 +48,18 @@ export const requestTimestamp = (
   input: RequestTimestampInput,
 ): Effect.Effect<Uint8Array, CmsError> =>
   Effect.gen(function* () {
-    const imprint = yield* digest(input.hashAlgorithm, input.data);
+    const valid = yield* Schema.decodeUnknownEffect(RequestTimestampInputSchema)(input).pipe(
+      Effect.mapError(
+        (issue) =>
+          new CmsError({
+            code: CmsErrorCodeValue.timestampError,
+            reason: `Invalid RFC 3161 timestamp input: ${String(issue)}`,
+            operation: CmsOperationValue.timestamp,
+          }),
+      ),
+    );
+    const imprint = yield* digest(valid.hashAlgorithm, valid.data);
+    const nonce = timestampNonce();
 
     const requestDer = yield* Effect.try({
       try: () => {
@@ -42,10 +67,11 @@ export const requestTimestamp = (
           version: 1,
           messageImprint: new pkijs.MessageImprint({
             hashAlgorithm: new pkijs.AlgorithmIdentifier({
-              algorithmId: hashAlgorithmOid(input.hashAlgorithm),
+              algorithmId: hashAlgorithmOid(valid.hashAlgorithm),
             }),
             hashedMessage: new asn1js.OctetString({ valueHex: toArrayBuffer(imprint) }),
           }),
+          nonce,
           certReq: true,
         });
         return new Uint8Array(request.toSchema().toBER(false));
@@ -60,7 +86,7 @@ export const requestTimestamp = (
 
     const response = yield* Effect.tryPromise({
       try: (signal) =>
-        fetch(input.tsaUrl, {
+        fetch(valid.tsaUrl, {
           method: "POST",
           headers: { "content-type": TSA_CONTENT_TYPE },
           body: requestDer,
@@ -69,17 +95,17 @@ export const requestTimestamp = (
       catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.timestampError,
-          reason: `TSA request to ${input.tsaUrl} failed.`,
+          reason: `TSA request to ${valid.tsaUrl} failed.`,
           operation: CmsOperationValue.timestamp,
         }),
     }).pipe(
       Effect.timeoutOrElse({
-        duration: Duration.millis(input.timeoutMillis ?? DEFAULT_TIMEOUT_MILLIS),
+        duration: Duration.millis(valid.timeoutMillis ?? DEFAULT_TIMEOUT_MILLIS),
         orElse: () =>
           Effect.fail(
             new CmsError({
               code: CmsErrorCodeValue.timestampError,
-              reason: `TSA request to ${input.tsaUrl} timed out.`,
+              reason: `TSA request to ${valid.tsaUrl} timed out.`,
               operation: CmsOperationValue.timestamp,
             }),
           ),
@@ -90,7 +116,7 @@ export const requestTimestamp = (
       return yield* Effect.fail(
         new CmsError({
           code: CmsErrorCodeValue.timestampError,
-          reason: `TSA request to ${input.tsaUrl} failed with HTTP ${response.status}.`,
+          reason: `TSA request to ${valid.tsaUrl} failed with HTTP ${response.status}.`,
           operation: CmsOperationValue.timestamp,
         }),
       );
@@ -106,14 +132,35 @@ export const requestTimestamp = (
         }),
     });
 
-    return yield* Effect.try({
+    const parsed = yield* Effect.try({
       try: () => {
-        const response = pkijs.TimeStampResp.fromBER(responseBytes);
-        const token = response.timeStampToken;
+        const tsaResponse = pkijs.TimeStampResp.fromBER(responseBytes);
+        const token = tsaResponse.timeStampToken;
         if (token === undefined) {
-          return undefined;
+          return {
+            status: tsaResponse.status.status,
+            token: undefined,
+            tstInfo: undefined,
+          };
         }
-        return new Uint8Array(token.toSchema().toBER(false));
+        const signed = new pkijs.SignedData({ schema: token.content });
+        const eContent = signed.encapContentInfo.eContent;
+        if (eContent === undefined) {
+          return {
+            status: tsaResponse.status.status,
+            token,
+            tstInfo: undefined,
+          };
+        }
+        const eContentBytes =
+          eContent.valueBlock.valueHexView.byteLength === 0
+            ? new Uint8Array(eContent.getValue())
+            : eContent.valueBlock.valueHexView;
+        return {
+          status: tsaResponse.status.status,
+          token,
+          tstInfo: pkijs.TSTInfo.fromBER(toArrayBuffer(eContentBytes)),
+        };
       },
       catch: () =>
         new CmsError({
@@ -121,17 +168,54 @@ export const requestTimestamp = (
           reason: "Failed to parse the TSA response.",
           operation: CmsOperationValue.timestamp,
         }),
-    }).pipe(
-      Effect.flatMap((token) =>
-        token === undefined
-          ? Effect.fail(
-              new CmsError({
-                code: CmsErrorCodeValue.timestampError,
-                reason: "TSA did not grant a timestamp token.",
-                operation: CmsOperationValue.timestamp,
-              }),
-            )
-          : Effect.succeed(token),
-      ),
-    );
+    });
+
+    if (
+      parsed.status !== pkijs.PKIStatus.granted &&
+      parsed.status !== pkijs.PKIStatus.grantedWithMods
+    ) {
+      return yield* Effect.fail(
+        new CmsError({
+          code: CmsErrorCodeValue.timestampError,
+          reason: `TSA did not grant a timestamp token; PKIStatus=${parsed.status}.`,
+          operation: CmsOperationValue.timestamp,
+        }),
+      );
+    }
+
+    if (parsed.token === undefined || parsed.tstInfo === undefined) {
+      return yield* Effect.fail(
+        new CmsError({
+          code: CmsErrorCodeValue.timestampError,
+          reason: "TSA did not return a timestamp token with TSTInfo.",
+          operation: CmsOperationValue.timestamp,
+        }),
+      );
+    }
+
+    if (!parsed.tstInfo.nonce?.isEqual(nonce)) {
+      return yield* Effect.fail(
+        new CmsError({
+          code: CmsErrorCodeValue.timestampError,
+          reason: "TSA timestamp nonce does not match the request.",
+          operation: CmsOperationValue.timestamp,
+        }),
+      );
+    }
+
+    if (
+      parsed.tstInfo.messageImprint.hashAlgorithm.algorithmId !==
+        hashAlgorithmOid(valid.hashAlgorithm) ||
+      !bytesEqual(parsed.tstInfo.messageImprint.hashedMessage.valueBlock.valueHexView, imprint)
+    ) {
+      return yield* Effect.fail(
+        new CmsError({
+          code: CmsErrorCodeValue.timestampError,
+          reason: "TSA timestamp message imprint does not match the request.",
+          operation: CmsOperationValue.timestamp,
+        }),
+      );
+    }
+
+    return new Uint8Array(parsed.token.toSchema().toBER(false));
   });
