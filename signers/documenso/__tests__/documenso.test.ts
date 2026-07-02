@@ -2,7 +2,13 @@ import { describe, expect, it } from "@effect/vitest";
 import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
 import { reconcileInput } from "../../__tests__/alchemy-provider";
-import { Effect, Redacted, Result } from "effect";
+import {
+  loadFlaggedConfig,
+  optionalEnv,
+  optionalStringLiteralEnv,
+  requiredEnv,
+} from "../../../tooling/testing/env";
+import { Config, Effect, Redacted, Result } from "effect";
 import {
   DocumensoSignatureRequest,
   DocumensoSignatureRequestProvider,
@@ -14,21 +20,15 @@ import {
   type DocumensoProviderOptions,
 } from "../src/index";
 
-const liveConfig = () => {
-  if (process.env.SIGNATURE_KIT_LIVE_REMOTE_SIGNERS !== "1") return undefined;
-
-  const apiKey = process.env.DOCUMENSO_API_KEY;
-  const recipientEmail = process.env.SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL;
-
-  if (apiKey === undefined || recipientEmail === undefined) return undefined;
-
-  return {
-    apiKey,
-    recipientEmail,
-    baseUrl: process.env.DOCUMENSO_BASE_URL,
-    authorizationScheme: process.env.DOCUMENSO_AUTHORIZATION_SCHEME,
-  };
-};
+const config = loadFlaggedConfig(
+  "SIGNATURE_KIT_LIVE_REMOTE_SIGNERS",
+  Config.all({
+    apiKey: requiredEnv("DOCUMENSO_API_KEY"),
+    recipientEmail: requiredEnv("SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL"),
+    baseUrl: optionalEnv("DOCUMENSO_BASE_URL"),
+    authorizationScheme: optionalStringLiteralEnv("DOCUMENSO_AUTHORIZATION_SCHEME", ["bearer"]),
+  }),
+);
 
 const livePdf = (): Uint8Array => {
   const encoder = new TextEncoder();
@@ -53,12 +53,10 @@ const livePdf = (): Uint8Array => {
   );
 };
 
-const documensoOptions = (
-  config: NonNullable<ReturnType<typeof liveConfig>>,
-): DocumensoProviderOptions => ({
-  apiKey: Redacted.make(config.apiKey),
-  ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
-  ...(config.authorizationScheme === "bearer" ? { authorizationScheme: "bearer" } : {}),
+const documensoOptions = (liveConfig: NonNullable<typeof config>): DocumensoProviderOptions => ({
+  apiKey: Redacted.make(liveConfig.apiKey),
+  ...(liveConfig.baseUrl === undefined ? {} : { baseUrl: liveConfig.baseUrl }),
+  ...(liveConfig.authorizationScheme === "bearer" ? { authorizationScheme: "bearer" } : {}),
 });
 
 const reconcileDocumensoSignatureRequest = (
@@ -73,8 +71,6 @@ const reconcileDocumensoSignatureRequest = (
     Effect.provide(documensoCredentialsLayer(options)),
     Effect.provide(signatureHttpClientLive),
   );
-
-const config = liveConfig();
 
 if (config === undefined) {
   describe.skip("Documenso live API", () => {

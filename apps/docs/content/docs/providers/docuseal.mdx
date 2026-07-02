@@ -30,12 +30,15 @@ import { Effect, Layer, Redacted } from "effect"
 export default Alchemy.Stack(
   "Contracts",
   {
-    providers: docuSealProviders({
+    providers: Layer.merge(
+      docuSealProviders({
       apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
       baseUrl: "https://api.docuseal.com",
       sendSms: false,
       submittersOrder: "preserved",
-    }).pipe(Layer.provide(signatureHttpClientLive)),
+      }),
+      signatureHttpClientLive,
+    ),
   },
   Effect.gen(function* () {
     return yield* DocuSealSignatureRequest("service-agreement", {

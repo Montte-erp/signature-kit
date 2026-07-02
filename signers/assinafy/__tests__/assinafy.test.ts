@@ -5,7 +5,8 @@ import type {
 } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
 import { reconcileInput } from "../../__tests__/alchemy-provider";
-import { Effect, Redacted, Schema } from "effect";
+import { loadFlaggedConfig, optionalEnv, requiredEnv } from "../../../tooling/testing/env";
+import { Config, Effect, Redacted, Schema } from "effect";
 import {
   AssinafySignatureRequest,
   AssinafySignatureRequestProvider,
@@ -20,25 +21,16 @@ import {
 // every call in the "live" branch hits https://sandbox.assinafy.com.br with the
 // account credentials loaded by tooling/vitest/load-env.ts. Run with
 //   SIGNATURE_KIT_LIVE_REMOTE_SIGNERS=1 bunx vitest run signers/assinafy/__tests__/assinafy.test.ts
-// Without the flag (or credentials) the suite reports a clean skip.
-const liveConfig = () => {
-  if (process.env.SIGNATURE_KIT_LIVE_REMOTE_SIGNERS !== "1") return undefined;
-
-  const accountId = process.env.ASSINAFY_ACCOUNT_ID;
-  const apiKey = process.env.ASSINAFY_API_KEY;
-  const recipientEmail = process.env.SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL;
-
-  if (accountId === undefined || apiKey === undefined || recipientEmail === undefined) {
-    return undefined;
-  }
-
-  return {
-    accountId,
-    apiKey,
-    recipientEmail,
-    baseUrl: process.env.ASSINAFY_BASE_URL,
-  };
-};
+// Without the flag the suite reports a clean skip; with the flag, Config requires credentials.
+const config = loadFlaggedConfig(
+  "SIGNATURE_KIT_LIVE_REMOTE_SIGNERS",
+  Config.all({
+    accountId: requiredEnv("ASSINAFY_ACCOUNT_ID"),
+    apiKey: requiredEnv("ASSINAFY_API_KEY"),
+    recipientEmail: requiredEnv("SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL"),
+    baseUrl: optionalEnv("ASSINAFY_BASE_URL"),
+  }),
+);
 
 const livePdf = (): Uint8Array => {
   const encoder = new TextEncoder();
@@ -225,8 +217,6 @@ const reconcileAssinafySignatureRequest = (
     Effect.provide(assinafyCredentialsLayer(options)),
     Effect.provide(signatureHttpClientLive),
   );
-
-const config = liveConfig();
 
 if (config === undefined) {
   describe.skip("Assinafy live API", () => {

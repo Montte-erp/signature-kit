@@ -1,4 +1,3 @@
-import { SignedXml } from "xmldsigjs";
 import { describe, expect, it } from "@effect/vitest";
 import { signatures } from "@signature-kit/core/signatures";
 import { Effect, Redacted, Result } from "effect";
@@ -199,6 +198,8 @@ describe("XML-DSig", () => {
         .pipe(Effect.provide(layer));
       const xmlRuntime = yield* XmlRuntime;
       const document = yield* xmlRuntime.parse(certXml);
+      // dynamic-import: xmldsigjs transitively checks reflect-metadata during CJS evaluation; XmlRuntime loaded the polyfill.
+      const { SignedXml } = yield* Effect.promise(() => import("xmldsigjs"));
       const signedXml = new SignedXml();
 
       yield* Effect.promise(() =>

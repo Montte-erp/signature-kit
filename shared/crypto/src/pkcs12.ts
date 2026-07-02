@@ -49,6 +49,7 @@ const OID_AES_128_CBC = "2.16.840.1.101.3.4.1.2";
 const OID_AES_192_CBC = "2.16.840.1.101.3.4.1.22";
 const OID_AES_256_CBC = "2.16.840.1.101.3.4.1.42";
 const OID_DES_EDE3_CBC = "1.2.840.113549.3.7";
+const OID_HMAC_SHA1 = "1.2.840.113549.2.7";
 const OID_HMAC_SHA256 = "1.2.840.113549.2.9";
 const OID_HMAC_SHA384 = "1.2.840.113549.2.10";
 const OID_HMAC_SHA512 = "1.2.840.113549.2.11";
@@ -286,14 +287,19 @@ const verifyMac = (
 // PBE decryption
 // =============================================================================
 
-const pbkdf2HashAlgorithm = (oid: string): HmacHashAlgorithm =>
-  oid === OID_HMAC_SHA256
-    ? "sha256"
-    : oid === OID_HMAC_SHA384
-      ? "sha384"
-      : oid === OID_HMAC_SHA512
-        ? "sha512"
-        : "sha1";
+const pbkdf2HashAlgorithm = (oid: string): Effect.Effect<HmacHashAlgorithm, CryptoError> => {
+  if (oid === OID_HMAC_SHA1) return Effect.succeed("sha1");
+  if (oid === OID_HMAC_SHA256) return Effect.succeed("sha256");
+  if (oid === OID_HMAC_SHA384) return Effect.succeed("sha384");
+  if (oid === OID_HMAC_SHA512) return Effect.succeed("sha512");
+  return Effect.fail(
+    new CryptoError({
+      code: CryptoErrorCodeValue.unsupportedAlgorithm,
+      reason: `Unsupported PBKDF2 PRF: ${oid}`,
+      operation: CryptoOperationValue.pkcs12Decode,
+    }),
+  );
+};
 
 const decryptPbes2 = (
   encryptedData: Uint8Array,
@@ -327,7 +333,7 @@ const decryptPbes2 = (
       const param = pbkdf2Params[i];
       if (param !== undefined && param.kind === "constructed" && param.tag === 0x10) {
         const prfOid = yield* oidString(yield* elementAt(param.children, 0, "PRF OID"));
-        prf = pbkdf2HashAlgorithm(prfOid);
+        prf = yield* pbkdf2HashAlgorithm(prfOid);
       }
     }
 

@@ -14,7 +14,7 @@ export const runDeclarativeChecks = (): boolean => {
   let failed = runWorkspaceLayerChecks();
   for (const file of roots.flatMap((root) => [...walk(root)])) {
     const source = readFileSync(file, "utf8");
-    const requiredSpans = requiredEffectSpanFiles.get(file);
+    const requiredSpans = requiredEffectSpanFiles[file];
     if (requiredSpans !== undefined) {
       for (const span of requiredSpans) {
         if (!hasRequiredSpanCall(source, span)) {
@@ -28,6 +28,9 @@ export const runDeclarativeChecks = (): boolean => {
     }
     const rawLines = source.split(/\r?\n/);
     const lines = rawLines.map(normalizeLine);
+    const activeChecks = file.startsWith("apps/docs/")
+      ? checks.filter((check) => check.message.startsWith("Do not apply Effect/Layer provide"))
+      : checks;
 
     for (const [index, rawLine] of rawLines.entries()) {
       const line = lines[index] ?? "";
@@ -51,8 +54,7 @@ export const runDeclarativeChecks = (): boolean => {
         lines,
         rawLines,
       };
-
-      for (const check of checks) {
+      for (const check of activeChecks) {
         if (check.ignoreImportLine && isImport) {
           continue;
         }

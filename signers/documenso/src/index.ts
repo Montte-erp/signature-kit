@@ -459,14 +459,23 @@ const createRemoteRequest = (
 ): Effect.Effect<RemoteSignatureRequest, SignatureKitError> =>
   createEnvelope(http, options, baseUrl, input).pipe(
     Effect.flatMap((envelope) => {
-      if (input.send !== false) return distributeEnvelope(http, options, baseUrl, input, envelope);
-      return Effect.succeed({
-        provider: PROVIDER,
-        id: envelope.id,
-        state: "draft",
-        providerStatus: "DRAFT",
-        detailsUrl: `${baseUrl}/envelope/${documensoPathId(envelope.id)}`,
-      });
+      if (input.send === false) {
+        return Effect.succeed({
+          provider: PROVIDER,
+          id: envelope.id,
+          state: "draft",
+          providerStatus: "DRAFT",
+          detailsUrl: `${baseUrl}/envelope/${documensoPathId(envelope.id)}`,
+        });
+      }
+      return distributeEnvelope(http, options, baseUrl, input, envelope).pipe(
+        Effect.catch((error) =>
+          deleteEnvelope(http, options, baseUrl, envelope.id).pipe(
+            Effect.catch(() => Effect.void),
+            Effect.flatMap(() => Effect.fail(error)),
+          ),
+        ),
+      );
     }),
   );
 

@@ -30,11 +30,14 @@ import { Effect, Layer, Redacted } from "effect"
 export default Alchemy.Stack(
   "Contracts",
   {
-    providers: zapSignProviders({
+    providers: Layer.merge(
+      zapSignProviders({
       apiToken: Redacted.make(process.env.ZAPSIGN_API_TOKEN ?? ""),
       environment: "sandbox",
       locale: "pt-br",
-    }).pipe(Layer.provide(signatureHttpClientLive)),
+      }),
+      signatureHttpClientLive,
+    ),
   },
   Effect.gen(function* () {
     return yield* ZapSignSignatureRequest("contrato-de-servico", {

@@ -1,17 +1,58 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import type { RequiredSpanCall } from "./model";
 
-export const checkedExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json"]);
+export const checkedExtensions: Record<string, true> = {
+  ".cjs": true,
+  ".js": true,
+  ".json": true,
+  ".jsx": true,
+  ".mjs": true,
+  ".mdx": true,
+  ".ts": true,
+  ".tsx": true,
+};
 
-export const skippedSegments = new Set(["dist", "node_modules", "outputs", "docs", "__tests__"]);
-export const skippedSuffixes = new Set([".d.ts", ".tsbuildinfo", "README.md"]);
-export const roots = ["core", "signers", "formats", "shared"].filter(
-  (path) => existsSync(path) && statSync(path).isDirectory(),
-);
+export const skippedSegments: Record<string, true> = {
+  ".next": true,
+  __tests__: true,
+  dist: true,
+  node_modules: true,
+  outputs: true,
+};
+export const skippedSuffixes: readonly string[] = [".d.ts", ".tsbuildinfo", "README.md"];
+export const roots = [
+  "core",
+  "signers",
+  "formats",
+  "shared",
+  "apps/docs/components/sections/providers-showcase.tsx",
+  "apps/docs/content/docs/providers",
+].filter((path) => existsSync(path));
 
-export const requiredEffectSpanFiles = new Map<string, readonly RequiredSpanCall[]>([]);
+export const requiredEffectSpanFiles: Record<string, readonly RequiredSpanCall[]> = {};
 
-export const allowedEffectProvideSites = new Map<string, readonly string[]>([]);
+export const allowedEffectProvideSites: Record<string, readonly string[]> = {
+  "signers/assinafy/src/index.ts": [
+    "AssinafySignatureRequestProvider()",
+    "assinafyCredentialsLayer(options)",
+  ],
+  "signers/clicksign/src/index.ts": [
+    "ClicksignSignatureRequestProvider()",
+    "clicksignCredentialsLayer(options)",
+  ],
+  "signers/documenso/src/index.ts": [
+    "DocumensoSignatureRequestProvider()",
+    "documensoCredentialsLayer(options)",
+  ],
+  "signers/docuseal/src/index.ts": [
+    "DocuSealSignatureRequestProvider()",
+    "docuSealCredentialsLayer(options)",
+  ],
+  "signers/zapsign/src/index.ts": [
+    "ZapSignSignatureRequestProvider()",
+    "zapSignCredentialsLayer(options)",
+  ],
+};
 
 export const contractSuffixes: readonly string[] = [
   "Config",

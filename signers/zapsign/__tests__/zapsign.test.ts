@@ -6,7 +6,8 @@ import {
 } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
 import { reconcileInput } from "../../__tests__/alchemy-provider";
-import { Effect, Redacted, Result, Schema } from "effect";
+import { loadFlaggedConfig, optionalEnv, requiredEnv } from "../../../tooling/testing/env";
+import { Config, Effect, Redacted, Result, Schema } from "effect";
 import {
   ZapSignSignatureRequest,
   ZapSignSignatureRequestProvider,
@@ -19,20 +20,14 @@ import {
   listZapSignSignatureRequests,
 } from "../src/index";
 
-const liveConfig = () => {
-  if (process.env.SIGNATURE_KIT_LIVE_REMOTE_SIGNERS !== "1") return undefined;
-
-  const apiToken = process.env.ZAPSIGN_API_TOKEN;
-  const recipientEmail = process.env.SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL;
-
-  if (apiToken === undefined || recipientEmail === undefined) return undefined;
-
-  return {
-    apiToken,
-    recipientEmail,
-    baseUrl: process.env.ZAPSIGN_BASE_URL,
-  };
-};
+const config = loadFlaggedConfig(
+  "SIGNATURE_KIT_LIVE_REMOTE_SIGNERS",
+  Config.all({
+    apiToken: requiredEnv("ZAPSIGN_API_TOKEN"),
+    recipientEmail: requiredEnv("SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL"),
+    baseUrl: optionalEnv("ZAPSIGN_BASE_URL"),
+  }),
+);
 
 const livePdf = (): Uint8Array => {
   const encoder = new TextEncoder();
@@ -69,8 +64,6 @@ const reconcileZapSignSignatureRequest = (
     Effect.provide(zapSignCredentialsLayer(options)),
     Effect.provide(signatureHttpClientLive),
   );
-
-const config = liveConfig();
 
 if (config === undefined) {
   describe.skip("ZapSign live API", () => {

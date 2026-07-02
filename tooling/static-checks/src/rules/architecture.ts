@@ -1,6 +1,6 @@
 import type { Check, CheckContext } from "../model";
 
-const packageIndexPathPattern = /^(?:core|formats|shared|signers)\/[^/]+\/src\/index\.ts$/;
+const sourceModulePathPattern = /^(?:core|formats|shared|signers|apps\/docs)\/.*\.[cm]?[tj]sx?$/;
 const alchemyProviderPathPattern = /^signers\/[^/]+\/src\/index\.ts$/;
 
 const withoutBlockComments = (source: string): string => source.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -52,9 +52,9 @@ const hasUndefinedOutputBranch = (line: string): boolean =>
 export const architectureChecks: readonly Check[] = [
   {
     message:
-      "Package index files must not be re-export-only barrels; export subpaths to the real module instead.",
+      "Source modules must not be re-export-only barrels; export subpaths to the real module instead.",
     test: (context) =>
-      packageIndexPathPattern.test(context.path) &&
+      sourceModulePathPattern.test(context.path) &&
       context.lineNumber === firstExportLineNumber(context) &&
       hasOnlyReexports(context.source),
     ignoreImportLine: false,

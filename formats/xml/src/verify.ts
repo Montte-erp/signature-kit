@@ -1,8 +1,5 @@
-import "reflect-metadata";
-import { X509Certificate } from "@peculiar/x509";
 import type { SignatureAlgorithm } from "@signature-kit/core/config";
 import { Effect, Schema } from "effect";
-import { SignedXml } from "xmldsigjs";
 import {
   type XmlVerificationRequest,
   type XmlVerificationResult,
@@ -12,12 +9,18 @@ import {
   XmlSchemaNameValue,
   XmlVerificationRequestSchema,
 } from "./config";
-import { XmlRuntime } from "./runtime";
+import { XmlRuntime, type XmlRuntimeService } from "./runtime";
 
 const XMLDSIG_NAMESPACE = "http://www.w3.org/2000/09/xmldsig#";
 const XML_RSA_ALGORITHM_NAME = "RSASSA-PKCS1-v1_5";
 
 type XmlHashAlgorithm = "SHA-1" | "SHA-256" | "SHA-512";
+const XML_CORE_CRYPTOGRAPHIC_ERROR_CODE = 13;
+const XmlCoreErrorSchema = Schema.Struct({
+  prefix: Schema.Literal("XMLJS"),
+  code: Schema.Number,
+  message: Schema.String,
+});
 
 const xmlVerificationAlgorithm = (hash: XmlHashAlgorithm): RsaHashedImportParams => ({
   name: XML_RSA_ALGORITHM_NAME,
@@ -51,44 +54,21 @@ const xmlHashAlgorithmFromSignatureAlgorithm = (
   }
 };
 
-const importPublicVerificationKey = (publicKeyDer: Uint8Array, hash: XmlHashAlgorithm) =>
-  Effect.tryPromise({
-    try: () =>
-      crypto.subtle.importKey(
-        "spki",
-        new Uint8Array(publicKeyDer),
-        xmlVerificationAlgorithm(hash),
-        true,
-        ["verify"],
-      ),
-    catch: () =>
-      new XmlError({
-        code: XmlErrorCodeValue.keyImportFailed,
-        retryable: false,
-        operation: XmlOperationValue.keyImport,
-      }),
-  });
+const importPublicVerificationKey = (
+  xmlRuntime: XmlRuntimeService,
+  publicKeyDer: Uint8Array,
+  hash: XmlHashAlgorithm,
+) => xmlRuntime.importVerificationKey(publicKeyDer, xmlVerificationAlgorithm(hash));
 
 const importTrustedCertificateVerificationKey = (
+  xmlRuntime: XmlRuntimeService,
   trustedCertificateDer: Uint8Array,
   hash: XmlHashAlgorithm,
 ) =>
-  Effect.tryPromise({
-    try: () => {
-      const certificateBytes = new ArrayBuffer(trustedCertificateDer.byteLength);
-      new Uint8Array(certificateBytes).set(trustedCertificateDer);
-      return new X509Certificate(certificateBytes).publicKey.export(
-        xmlVerificationAlgorithm(hash),
-        ["verify"],
-      );
-    },
-    catch: () =>
-      new XmlError({
-        code: XmlErrorCodeValue.keyImportFailed,
-        retryable: false,
-        operation: XmlOperationValue.keyImport,
-      }),
-  });
+  xmlRuntime.exportCertificateVerificationKey(
+    trustedCertificateDer,
+    xmlVerificationAlgorithm(hash),
+  );
 
 const inferSignatureHashAlgorithm = (
   signatureElement: Element,
@@ -204,37 +184,66 @@ const verifySingleSignature = (
   document: Document,
   signatureElement: Element,
   publicKey: CryptoKey,
-): Effect.Effect<boolean, never, never> => {
-  const signedXml = new SignedXml(document);
-  return Effect.try({
-    try: () => signedXml.LoadXml(signatureElement),
-    catch: () =>
-      new XmlError({
-        code: XmlErrorCodeValue.verifyFailed,
-        retryable: false,
-        operation: XmlOperationValue.verify,
-      }),
-  }).pipe(
-    Effect.flatMap(() =>
-      Effect.tryPromise({
-        try: () => signedXml.Verify(publicKey),
-        catch: () =>
-          new XmlError({
-            code: XmlErrorCodeValue.verifyFailed,
-            retryable: false,
-            operation: XmlOperationValue.verify,
-          }),
-      }),
-    ),
-    Effect.catch(() => Effect.succeed(false)),
-  );
-};
+): Effect.Effect<boolean, XmlError> =>
+  Effect.gen(function* () {
+    const { SignedXml } = yield* Effect.tryPromise({
+      try: async () => {
+        // dynamic-import: xmldsigjs transitively checks reflect-metadata during CJS evaluation; XmlRuntime loaded the polyfill.
+        return import("xmldsigjs");
+      },
+      catch: () =>
+        new XmlError({
+          code: XmlErrorCodeValue.verifyFailed,
+          retryable: false,
+          operation: XmlOperationValue.verify,
+        }),
+    });
+    const signedXml = new SignedXml(document);
+    yield* Effect.try({
+      try: () => signedXml.LoadXml(signatureElement),
+      catch: () =>
+        new XmlError({
+          code: XmlErrorCodeValue.verifyFailed,
+          retryable: false,
+          operation: XmlOperationValue.verify,
+        }),
+    });
+
+    return yield* Effect.tryPromise({
+      try: () => signedXml.Verify(publicKey),
+      catch: (cause) => cause,
+    }).pipe(
+      Effect.catch((cause) =>
+        Schema.decodeUnknownEffect(XmlCoreErrorSchema)(cause).pipe(
+          Effect.flatMap((xmlCoreError) =>
+            xmlCoreError.code === XML_CORE_CRYPTOGRAPHIC_ERROR_CODE
+              ? Effect.succeed(false)
+              : Effect.fail(
+                  new XmlError({
+                    code: XmlErrorCodeValue.verifyFailed,
+                    retryable: false,
+                    operation: XmlOperationValue.verify,
+                  }),
+                ),
+          ),
+          Effect.catch(() =>
+            Effect.fail(
+              new XmlError({
+                code: XmlErrorCodeValue.verifyFailed,
+                retryable: false,
+                operation: XmlOperationValue.verify,
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+  });
 
 export const verifyXml = (
   request: XmlVerificationRequest,
 ): Effect.Effect<XmlVerificationResult, XmlError, XmlRuntime> =>
   Effect.gen(function* () {
-    const xmlRuntime = yield* XmlRuntime;
     const input = yield* Schema.decodeUnknownEffect(XmlVerificationRequestSchema)(request).pipe(
       Effect.mapError(
         (issue) =>
@@ -247,6 +256,7 @@ export const verifyXml = (
           }),
       ),
     );
+    const xmlRuntime = yield* XmlRuntime;
     const signatureHashFallback = input.algorithm;
 
     const document = yield* xmlRuntime.parse(input.xml);
@@ -299,9 +309,13 @@ export const verifyXml = (
 
       const publicKey =
         input.publicKeyDer !== undefined
-          ? yield* importPublicVerificationKey(input.publicKeyDer, hash)
+          ? yield* importPublicVerificationKey(xmlRuntime, input.publicKeyDer, hash)
           : input.trustedCertificateDer !== undefined
-            ? yield* importTrustedCertificateVerificationKey(input.trustedCertificateDer, hash)
+            ? yield* importTrustedCertificateVerificationKey(
+                xmlRuntime,
+                input.trustedCertificateDer,
+                hash,
+              )
             : undefined;
       if (publicKey === undefined) {
         valid = false;

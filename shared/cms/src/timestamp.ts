@@ -48,7 +48,17 @@ export const requestTimestamp = (
   input: RequestTimestampInput,
 ): Effect.Effect<Uint8Array, CmsError> =>
   Effect.gen(function* () {
-    const imprint = yield* digest(input.hashAlgorithm, input.data);
+    const valid = yield* Schema.decodeUnknownEffect(RequestTimestampInputSchema)(input).pipe(
+      Effect.mapError(
+        (issue) =>
+          new CmsError({
+            code: CmsErrorCodeValue.timestampError,
+            reason: `Invalid RFC 3161 timestamp input: ${String(issue)}`,
+            operation: CmsOperationValue.timestamp,
+          }),
+      ),
+    );
+    const imprint = yield* digest(valid.hashAlgorithm, valid.data);
     const nonce = timestampNonce();
 
     const requestDer = yield* Effect.try({
@@ -57,7 +67,7 @@ export const requestTimestamp = (
           version: 1,
           messageImprint: new pkijs.MessageImprint({
             hashAlgorithm: new pkijs.AlgorithmIdentifier({
-              algorithmId: hashAlgorithmOid(input.hashAlgorithm),
+              algorithmId: hashAlgorithmOid(valid.hashAlgorithm),
             }),
             hashedMessage: new asn1js.OctetString({ valueHex: toArrayBuffer(imprint) }),
           }),
@@ -76,7 +86,7 @@ export const requestTimestamp = (
 
     const response = yield* Effect.tryPromise({
       try: (signal) =>
-        fetch(input.tsaUrl, {
+        fetch(valid.tsaUrl, {
           method: "POST",
           headers: { "content-type": TSA_CONTENT_TYPE },
           body: requestDer,
@@ -85,17 +95,17 @@ export const requestTimestamp = (
       catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.timestampError,
-          reason: `TSA request to ${input.tsaUrl} failed.`,
+          reason: `TSA request to ${valid.tsaUrl} failed.`,
           operation: CmsOperationValue.timestamp,
         }),
     }).pipe(
       Effect.timeoutOrElse({
-        duration: Duration.millis(input.timeoutMillis ?? DEFAULT_TIMEOUT_MILLIS),
+        duration: Duration.millis(valid.timeoutMillis ?? DEFAULT_TIMEOUT_MILLIS),
         orElse: () =>
           Effect.fail(
             new CmsError({
               code: CmsErrorCodeValue.timestampError,
-              reason: `TSA request to ${input.tsaUrl} timed out.`,
+              reason: `TSA request to ${valid.tsaUrl} timed out.`,
               operation: CmsOperationValue.timestamp,
             }),
           ),
@@ -106,7 +116,7 @@ export const requestTimestamp = (
       return yield* Effect.fail(
         new CmsError({
           code: CmsErrorCodeValue.timestampError,
-          reason: `TSA request to ${input.tsaUrl} failed with HTTP ${response.status}.`,
+          reason: `TSA request to ${valid.tsaUrl} failed with HTTP ${response.status}.`,
           operation: CmsOperationValue.timestamp,
         }),
       );
@@ -195,7 +205,7 @@ export const requestTimestamp = (
 
     if (
       parsed.tstInfo.messageImprint.hashAlgorithm.algorithmId !==
-        hashAlgorithmOid(input.hashAlgorithm) ||
+        hashAlgorithmOid(valid.hashAlgorithm) ||
       !bytesEqual(parsed.tstInfo.messageImprint.hashedMessage.valueBlock.valueHexView, imprint)
     ) {
       return yield* Effect.fail(

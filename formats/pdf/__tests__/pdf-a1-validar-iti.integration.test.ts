@@ -8,8 +8,9 @@ import {
   signPdfSignatureField,
 } from "@signature-kit/pdf/workflow";
 import { addPdfSignatureField, pdfSignatureFieldFromPlacement } from "@signature-kit/pdf/builder";
-import { Effect, Redacted } from "effect";
+import { Config, Effect, Redacted } from "effect";
 import { readA1Fixture, toArrayBufferView } from "../../../tooling/testing/fixtures";
+import { loadFlaggedConfig, optionalEnv, optionalIntEnv } from "../../../tooling/testing/env";
 
 const DEFAULT_EXPECTED_STATUS_WITH_FIXTURE = 406;
 const DEFAULT_EXPECTED_STATUS_WITH_EXTERNAL_CERTIFICATE = 200;
@@ -37,20 +38,31 @@ const readObjectField = (input: unknown, field: string): object | undefined => {
   return value !== null && typeof value === "object" ? value : undefined;
 };
 
-const readCertificate = (): Effect.Effect<Uint8Array> => {
-  const externalCertificatePath = process.env.SIGNATURE_KIT_ITI_P12_PATH;
-  return externalCertificatePath === undefined
+const config = loadFlaggedConfig(
+  "SIGNATURE_KIT_ITI_VALIDATE",
+  Config.all({
+    externalCertificatePath: optionalEnv("SIGNATURE_KIT_ITI_P12_PATH"),
+    expectedStatus: optionalIntEnv("SIGNATURE_KIT_ITI_EXPECT_STATUS"),
+    password: Config.redacted("SIGNATURE_KIT_ITI_P12_PASSWORD").pipe(
+      Config.withDefault(Redacted.make("changeit")),
+    ),
+  }),
+);
+
+const readCertificate = (externalCertificatePath: string | undefined): Effect.Effect<Uint8Array> =>
+  externalCertificatePath === undefined
     ? readA1Fixture("ecpf")
     : Effect.promise(async () => new Uint8Array(await readFile(externalCertificatePath)));
-};
 
-const expectedStatus = (): number => {
-  const externalCertificatePath = process.env.SIGNATURE_KIT_ITI_P12_PATH;
+const expectedStatus = (
+  externalCertificatePath: string | undefined,
+  expectedStatusOverride: number | undefined,
+): number => {
   const defaultStatus =
     externalCertificatePath === undefined
       ? DEFAULT_EXPECTED_STATUS_WITH_FIXTURE
       : DEFAULT_EXPECTED_STATUS_WITH_EXTERNAL_CERTIFICATE;
-  return Number.parseInt(process.env.SIGNATURE_KIT_ITI_EXPECT_STATUS ?? `${defaultStatus}`, 10);
+  return expectedStatusOverride ?? defaultStatus;
 };
 
 const createPdf: Effect.Effect<Uint8Array> = Effect.promise(async () => {
@@ -64,13 +76,20 @@ const createPdf: Effect.Effect<Uint8Array> = Effect.promise(async () => {
 });
 
 describe("PDF ITI Validar integration", () => {
-  it.effect.runIf(process.env.SIGNATURE_KIT_ITI_VALIDATE === "1")(
+  it.effect.runIf(config !== undefined)(
     "submits the PDF signing flow to the real validar.iti.gov.br endpoint",
     () =>
       Effect.gen(function* () {
-        const pfx = yield* readCertificate();
-        const password = Redacted.make(process.env.SIGNATURE_KIT_ITI_P12_PASSWORD ?? "changeit");
-        const expectedHttpStatus = expectedStatus();
+        const liveConfig = config;
+        if (liveConfig === undefined) {
+          return yield* Effect.die("ITI validation config was not loaded.");
+        }
+        const pfx = yield* readCertificate(liveConfig.externalCertificatePath);
+        const password = liveConfig.password;
+        const expectedHttpStatus = expectedStatus(
+          liveConfig.externalCertificatePath,
+          liveConfig.expectedStatus,
+        );
         const pdf = yield* createPdf;
 
         expect(Number.isNaN(expectedHttpStatus)).toBe(false);

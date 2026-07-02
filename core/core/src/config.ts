@@ -496,6 +496,7 @@ export const SignatureKitOperationValue = {
 export const SignatureKitSchemaNameSchema = Schema.Literals([
   "Certificate",
   "CertificateSource",
+  "SignatureAlgorithm",
   "SignInput",
   "VerifyInput",
   "A1SignerOptions",
@@ -531,6 +532,7 @@ export type SignatureKitSchemaName = (typeof SignatureKitSchemaNameSchema)["Type
 export const SignatureKitSchemaNameValue = {
   certificate: "Certificate",
   certificateSource: "CertificateSource",
+  signatureAlgorithm: "SignatureAlgorithm",
   signInput: "SignInput",
   verifyInput: "VerifyInput",
   remoteSignatureRequestInput: "RemoteSignatureRequestInput",

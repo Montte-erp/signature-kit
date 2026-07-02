@@ -445,11 +445,17 @@ const createRemoteRequest = (
             })),
           ),
         ),
+        Effect.catch((error) =>
+          deleteAssinafySignatureRequestInternal(http, options, baseUrl, uploadedDocument.id).pipe(
+            Effect.catch(() => Effect.void),
+            Effect.flatMap(() => Effect.fail(error)),
+          ),
+        ),
         Effect.mapError(
           (error) =>
             new SignatureKitError({
               code: error.code,
-              retryable: false,
+              retryable: error.retryable,
               provider: error.provider ?? PROVIDER,
               operation: SignatureKitOperationValue.remoteCreate,
               status: error.status,

@@ -4,6 +4,7 @@ import {
   SignatureKitError,
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
+  SignatureKitSchemaNameValue,
 } from "./config";
 import { Context, Duration, Effect, Layer, Option, Redacted, Schema } from "effect";
 
@@ -279,38 +280,15 @@ const fetchResponse = (
     ),
   );
 
-const parseJsonBody = (
-  request: SignatureHttpRequest,
-  timed: TimedResponse,
-  schemaName: SignatureKitSchemaName,
-): Effect.Effect<unknown, SignatureKitError> =>
-  readResponseText(request, timed).pipe(
-    Effect.flatMap((body) =>
-      Effect.try({
-        try: () => JSON.parse(body),
-        catch: () =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.responseShape,
-            retryable: false,
-            provider: request.provider,
-            operation: SignatureKitOperationValue.httpDecode,
-            status: timed.response.status,
-            schemaName,
-            reason: `Failed to decode ${request.method} ${diagnosticRequestUrl(request)} JSON response.`,
-          }),
-      }),
-    ),
-  );
-
 const decodeJsonBody = <A>(
   request: SignatureHttpRequest,
   timed: TimedResponse,
   schema: Schema.ConstraintDecoder<A>,
   schemaName: SignatureKitSchemaName,
 ): Effect.Effect<A, SignatureKitError> =>
-  parseJsonBody(request, timed, schemaName).pipe(
+  readResponseText(request, timed).pipe(
     Effect.flatMap((body) =>
-      Schema.decodeUnknownEffect(schema)(body).pipe(
+      Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(body).pipe(
         Effect.mapError(
           (issue) =>
             new SignatureKitError({
@@ -320,6 +298,7 @@ const decodeJsonBody = <A>(
               operation: SignatureKitOperationValue.httpDecode,
               status: timed.response.status,
               schemaName,
+              reason: `Failed to decode ${request.method} ${diagnosticRequestUrl(request)} JSON response.`,
               issueMessage: String(issue),
             }),
         ),
@@ -417,21 +396,63 @@ export const signatureHttpClientLive: Layer.Layer<SignatureHttpClient> = Layer.s
       schema: Schema.ConstraintDecoder<A>,
       schemaName: SignatureKitSchemaName,
     ) =>
-      withRequestTimeout(
-        request,
-        fetchResponse(request).pipe(
-          Effect.flatMap((timed) => decodeJsonBody(request, timed, schema, schemaName)),
+      Schema.decodeUnknownEffect(SignatureHttpRequestSchema)(request).pipe(
+        Effect.mapError(
+          (issue) =>
+            new SignatureKitError({
+              code: SignatureKitErrorCodeValue.invalidInput,
+              retryable: false,
+              operation: SignatureKitOperationValue.schemaDecode,
+              schemaName: SignatureKitSchemaNameValue.providerHttpRequest,
+              issueMessage: String(issue),
+            }),
+        ),
+        Effect.flatMap((valid) =>
+          withRequestTimeout(
+            valid,
+            fetchResponse(valid).pipe(
+              Effect.flatMap((timed) => decodeJsonBody(valid, timed, schema, schemaName)),
+            ),
+          ),
         ),
       ),
     requestBytes: (request: SignatureHttpRequest) =>
-      withRequestTimeout(
-        request,
-        fetchResponse(request).pipe(Effect.flatMap((timed) => readResponseBytes(request, timed))),
+      Schema.decodeUnknownEffect(SignatureHttpRequestSchema)(request).pipe(
+        Effect.mapError(
+          (issue) =>
+            new SignatureKitError({
+              code: SignatureKitErrorCodeValue.invalidInput,
+              retryable: false,
+              operation: SignatureKitOperationValue.schemaDecode,
+              schemaName: SignatureKitSchemaNameValue.providerHttpRequest,
+              issueMessage: String(issue),
+            }),
+        ),
+        Effect.flatMap((valid) =>
+          withRequestTimeout(
+            valid,
+            fetchResponse(valid).pipe(Effect.flatMap((timed) => readResponseBytes(valid, timed))),
+          ),
+        ),
       ),
     requestVoid: (request: SignatureHttpRequest) =>
-      withRequestTimeout(
-        request,
-        fetchResponse(request).pipe(Effect.flatMap((timed) => discardResponseBody(request, timed))),
+      Schema.decodeUnknownEffect(SignatureHttpRequestSchema)(request).pipe(
+        Effect.mapError(
+          (issue) =>
+            new SignatureKitError({
+              code: SignatureKitErrorCodeValue.invalidInput,
+              retryable: false,
+              operation: SignatureKitOperationValue.schemaDecode,
+              schemaName: SignatureKitSchemaNameValue.providerHttpRequest,
+              issueMessage: String(issue),
+            }),
+        ),
+        Effect.flatMap((valid) =>
+          withRequestTimeout(
+            valid,
+            fetchResponse(valid).pipe(Effect.flatMap((timed) => discardResponseBody(valid, timed))),
+          ),
+        ),
       ),
   },
 );

@@ -3,7 +3,8 @@ import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
 import { RemoteSignatureStateSchema } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
 import { reconcileInput } from "../../__tests__/alchemy-provider";
-import { Effect, Redacted, Result } from "effect";
+import { loadFlaggedConfig, optionalEnv, requiredEnv } from "../../../tooling/testing/env";
+import { Config, Effect, Redacted, Result } from "effect";
 import {
   ClicksignSignatureRequest,
   ClicksignSignatureRequestProvider,
@@ -16,20 +17,14 @@ import {
   type ClicksignProviderOptions,
 } from "../src/index";
 
-const liveConfig = () => {
-  if (process.env.SIGNATURE_KIT_LIVE_REMOTE_SIGNERS !== "1") return undefined;
-
-  const accessToken = process.env.CLICKSIGN_TOKEN;
-  const recipientEmail = process.env.SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL;
-
-  if (accessToken === undefined || recipientEmail === undefined) return undefined;
-
-  return {
-    accessToken,
-    recipientEmail,
-    baseUrl: process.env.CLICKSIGN_BASE_URL,
-  };
-};
+const config = loadFlaggedConfig(
+  "SIGNATURE_KIT_LIVE_REMOTE_SIGNERS",
+  Config.all({
+    accessToken: requiredEnv("CLICKSIGN_TOKEN"),
+    recipientEmail: requiredEnv("SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL"),
+    baseUrl: optionalEnv("CLICKSIGN_BASE_URL"),
+  }),
+);
 
 // Minimal single-page PDF; Clicksign v1 uploads a base64 data URI so the byte
 // content only needs to be a syntactically valid PDF.
@@ -57,8 +52,6 @@ const livePdf = (): Uint8Array => {
 };
 
 const knownStates = new Set<string>(RemoteSignatureStateSchema.literals);
-
-const config = liveConfig();
 
 if (config === undefined) {
   describe.skip("Clicksign live API", () => {

@@ -11,6 +11,7 @@ import {
   CertificateIssuerSchema,
   CertificateSubjectSchema,
   CertificateValiditySchema,
+  CertificateSchema,
   SignatureKitError,
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
@@ -61,9 +62,14 @@ const ArrayBufferViewSchema = Schema.declare<ArrayBufferView>((source): source i
   ArrayBuffer.isView(source),
 );
 
+const ArrayBufferSchema = Schema.declare<ArrayBuffer>(
+  (source): source is ArrayBuffer =>
+    Object.prototype.toString.call(source) === "[object ArrayBuffer]",
+);
+
 export const CertificateSourceSchema = Schema.Union([
   Schema.String,
-  Schema.instanceOf(ArrayBuffer),
+  ArrayBufferSchema,
   ArrayBufferViewSchema,
 ]);
 export type CertificateSource = (typeof CertificateSourceSchema)["Type"];
@@ -120,7 +126,7 @@ export const parseCertificate = (
     const x509 = yield* parseX509(pkcs12.certificate);
     const fingerprint = yield* digestSha256Hex(pkcs12.certificate);
 
-    return {
+    return yield* Schema.decodeUnknownEffect(CertificateSchema)({
       serialNumber: x509.serialNumber,
       subject: x509.subject,
       issuer: x509.issuer,
@@ -133,8 +139,20 @@ export const parseCertificate = (
       certificateDer: pkcs12.certificate,
       intermediateCertificates: pkcs12.chain,
       publicKeyDer: x509.publicKeyDer,
-      privateKeyPem: Redacted.make(keyPem),
-    } satisfies Certificate;
+      privateKeyPem: keyPem,
+    }).pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.invalidInput,
+            retryable: false,
+            reason: "Invalid parsed certificate.",
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.certificate,
+            issueMessage: String(issue),
+          }),
+      ),
+    );
   });
 
 export const extractBrazilianFields = (
@@ -632,7 +650,7 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
       idx++;
     }
 
-    return {
+    return yield* Schema.decodeUnknownEffect(X509InfoSchema)({
       serialNumber,
       subject: {
         commonName: nameField(subject, "CN"),
@@ -652,7 +670,19 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
       validity,
       subjectAltName,
       publicKeyDer,
-    };
+    }).pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.x509ParseFailed,
+            retryable: false,
+            reason: "Invalid parsed X.509 certificate.",
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: SignatureKitSchemaNameValue.certificate,
+            issueMessage: String(issue),
+          }),
+      ),
+    );
   }).pipe(
     Effect.mapError((error) =>
       error._tag === "Asn1Error"

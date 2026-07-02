@@ -32,6 +32,8 @@ export const CryptoErrorCodeValue = {
 } satisfies Record<string, CryptoErrorCode>;
 
 export const CryptoOperationSchema = Schema.Literals([
+  "base64.decode",
+  "pem.decode",
   "pkcs12.decode",
   "pkcs12.mac",
   "pkcs12.decrypt",
@@ -41,6 +43,8 @@ export const CryptoOperationSchema = Schema.Literals([
 ]);
 export type CryptoOperation = (typeof CryptoOperationSchema)["Type"];
 export const CryptoOperationValue = {
+  base64Decode: "base64.decode",
+  pemDecode: "pem.decode",
   pkcs12Decode: "pkcs12.decode",
   pkcs12Mac: "pkcs12.mac",
   pkcs12Decrypt: "pkcs12.decrypt",

@@ -9,7 +9,9 @@
     "CHANGELOG.md"
   ],
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/runtime.js"
+  ],
   "exports": {
     "./config": {
       "types": "./dist/config.d.ts",

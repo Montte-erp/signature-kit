@@ -3,7 +3,6 @@ import { signatures } from "@signature-kit/core/signatures";
 import type { Signatures } from "@signature-kit/core/signatures";
 import type { SignatureAlgorithm, SignatureKitError } from "@signature-kit/core/config";
 import { Effect, Schema } from "effect";
-import { SignedXml } from "xmldsigjs";
 import type { OptionsSignReference } from "xmldsigjs";
 import {
   XmlError,
@@ -38,7 +37,6 @@ export const signXml = (
   request: XmlSigningRequest,
 ): Effect.Effect<string, XmlError | SignatureKitError, Signatures | XmlRuntime> =>
   Effect.gen(function* () {
-    const xmlRuntime = yield* XmlRuntime;
     const input = yield* Schema.decodeUnknownEffect(XmlSigningRequestSchema)(request).pipe(
       Effect.mapError(
         (issue) =>
@@ -51,6 +49,7 @@ export const signXml = (
           }),
       ),
     );
+    const xmlRuntime = yield* XmlRuntime;
     const algorithm = input.algorithm ?? "rsa-sha256";
     const certificate = yield* signatures.certificate();
     const signingKey = yield* signatures.importSigningKey(algorithm);
@@ -69,6 +68,18 @@ export const signXml = (
             uri: `#${input.referenceId}`,
           };
 
+    const { SignedXml } = yield* Effect.tryPromise({
+      try: async () => {
+        // dynamic-import: xmldsigjs transitively checks reflect-metadata during CJS evaluation; XmlRuntime loaded the polyfill.
+        return import("xmldsigjs");
+      },
+      catch: () =>
+        new XmlError({
+          code: XmlErrorCodeValue.signFailed,
+          retryable: false,
+          operation: XmlOperationValue.sign,
+        }),
+    });
     const signedXml = new SignedXml();
     yield* Effect.tryPromise({
       try: () =>

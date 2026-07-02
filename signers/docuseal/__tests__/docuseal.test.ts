@@ -2,7 +2,8 @@ import { describe, expect, it } from "@effect/vitest";
 import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
 import { reconcileInput } from "../../__tests__/alchemy-provider";
-import { Effect, Redacted } from "effect";
+import { loadFlaggedConfig, optionalEnv, requiredEnv } from "../../../tooling/testing/env";
+import { Config, Effect, Redacted } from "effect";
 import {
   DocuSealSignatureRequest,
   DocuSealSignatureRequestProvider,
@@ -13,20 +14,14 @@ import {
   type DocuSealProviderOptions,
 } from "../src/index";
 
-const liveConfig = () => {
-  if (process.env.SIGNATURE_KIT_LIVE_REMOTE_SIGNERS !== "1") return undefined;
-
-  const apiKey = process.env.DOCUSEAL_API_KEY;
-  const recipientEmail = process.env.SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL;
-
-  if (apiKey === undefined || recipientEmail === undefined) return undefined;
-
-  return {
-    apiKey,
-    recipientEmail,
-    baseUrl: process.env.DOCUSEAL_BASE_URL,
-  };
-};
+const config = loadFlaggedConfig(
+  "SIGNATURE_KIT_LIVE_REMOTE_SIGNERS",
+  Config.all({
+    apiKey: requiredEnv("DOCUSEAL_API_KEY"),
+    recipientEmail: requiredEnv("SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL"),
+    baseUrl: optionalEnv("DOCUSEAL_BASE_URL"),
+  }),
+);
 
 const livePdf = (): Uint8Array => {
   const encoder = new TextEncoder();
@@ -53,8 +48,6 @@ const livePdf = (): Uint8Array => {
 
 const secondaryEmail = (email: string): string =>
   email.includes("@") ? email.replace("@", "+signaturekit-second@") : email;
-
-const config = liveConfig();
 
 if (config === undefined) {
   describe.skip("DocuSeal live API", () => {
