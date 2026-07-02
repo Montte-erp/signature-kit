@@ -61,7 +61,9 @@ export const ZapSignProviderOptionsSchema = Schema.Struct({
 export type ZapSignProviderOptions = (typeof ZapSignProviderOptionsSchema)["Type"];
 
 const ZapSignSignerResultSchema = Schema.Struct({
-  token: publicIdentifier,
+  // ZapSign's list endpoint omits the signer token on some entries, and the
+  // signer token is never read (only sign_url is used), so keep it optional.
+  token: Schema.optional(publicIdentifier),
   sign_url: Schema.optional(Schema.NullOr(Schema.NonEmptyString)),
   status: Schema.optional(Schema.String),
 });
@@ -267,7 +269,19 @@ const resolveZapSignListNextUrl = (
   next: string | null | undefined,
 ): string | null => {
   if (next === undefined || next === null || next === "") return null;
-  if (URL.canParse(next)) return new URL(next).toString();
+  if (URL.canParse(next)) {
+    const parsed = new URL(next);
+    // ZapSign returns the pagination `next` link with an http:// scheme; the
+    // http→https redirect strips the Authorization header and the follow-up
+    // page 403s. Pin the next URL onto the configured base origin (scheme +
+    // host) while keeping its path and query so auth survives.
+    if (URL.canParse(baseUrl)) {
+      const base = new URL(baseUrl);
+      parsed.protocol = base.protocol;
+      parsed.host = base.host;
+    }
+    return parsed.toString();
+  }
   if (!URL.canParse(baseUrl)) return null;
 
   const base = new URL(baseUrl);

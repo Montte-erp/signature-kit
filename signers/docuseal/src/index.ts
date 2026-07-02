@@ -37,10 +37,10 @@ export type DocuSealProviderOptions = (typeof DocuSealProviderOptionsSchema)["Ty
 
 const DocuSealSubmissionIdSchema = Schema.Union([Schema.Number, Schema.NonEmptyString]);
 const DocuSealSubmitterLinkFields = {
-  embed_src: Schema.optional(Schema.String),
-  signing_url: Schema.optional(Schema.String),
-  sign_url: Schema.optional(Schema.String),
-  url: Schema.optional(Schema.String),
+  embed_src: Schema.optional(Schema.NullOr(Schema.String)),
+  signing_url: Schema.optional(Schema.NullOr(Schema.String)),
+  sign_url: Schema.optional(Schema.NullOr(Schema.String)),
+  url: Schema.optional(Schema.NullOr(Schema.String)),
 };
 
 const DocuSealCreateSubmitterResultSchema = Schema.Struct({
@@ -51,20 +51,20 @@ const DocuSealCreateSubmitterResultSchema = Schema.Struct({
 const DocuSealSubmitterResultSchema = Schema.Struct({
   status: Schema.optional(Schema.String),
   ...DocuSealSubmitterLinkFields,
-  download_url: Schema.optional(Schema.String),
+  download_url: Schema.optional(Schema.NullOr(Schema.String)),
 });
 const DocuSealSubmissionResultSchema = Schema.Struct({
   id: DocuSealSubmissionIdSchema,
   status: Schema.optional(Schema.String),
   submitters: Schema.optional(Schema.Array(DocuSealSubmitterResultSchema)),
-  combined_document_url: Schema.optional(Schema.String),
+  combined_document_url: Schema.optional(Schema.NullOr(Schema.String)),
   documents: Schema.optional(
     Schema.Array(
       Schema.Struct({
         id: Schema.optional(DocuSealSubmissionIdSchema),
         name: Schema.optional(Schema.String),
-        url: Schema.optional(Schema.String),
-        download_url: Schema.optional(Schema.String),
+        url: Schema.optional(Schema.NullOr(Schema.String)),
+        download_url: Schema.optional(Schema.NullOr(Schema.String)),
       }),
     ),
   ),
@@ -76,8 +76,8 @@ const DocuSealCreateSubmissionResultSchema = Schema.Union([
 const DocuSealSubmissionDocumentsResultSchema = Schema.Struct({
   documents: Schema.Array(
     Schema.Struct({
-      url: Schema.optional(Schema.String),
-      download_url: Schema.optional(Schema.String),
+      url: Schema.optional(Schema.NullOr(Schema.String)),
+      download_url: Schema.optional(Schema.NullOr(Schema.String)),
     }),
   ),
 });
@@ -196,13 +196,13 @@ const resolveSubmitterRoles = (
   });
 };
 
-const pickSigningUrl = (submission: DocuSealSubmissionResult): string | undefined =>
+const pickSigningUrl = (submission: DocuSealSubmissionResult): string | null | undefined =>
   submission.submitters?.[0]?.embed_src ??
   submission.submitters?.[0]?.signing_url ??
   submission.submitters?.[0]?.sign_url ??
   submission.submitters?.[0]?.url;
 
-const pickDownloadUrl = (submission: DocuSealSubmissionResult): string | undefined =>
+const pickDownloadUrl = (submission: DocuSealSubmissionResult): string | null | undefined =>
   submission.combined_document_url ??
   submission.documents?.[0]?.url ??
   submission.documents?.[0]?.download_url;
@@ -219,8 +219,8 @@ const toRemoteSignatureRequest = (
     state: mapRemoteState(submission.status),
     detailsUrl: docuSealSubmissionUrl(baseUrl, id),
     ...(submission.status === undefined ? {} : { providerStatus: submission.status }),
-    ...(signingUrl === undefined ? {} : { signingUrl }),
-    ...(downloadUrl === undefined ? {} : { downloadUrl }),
+    ...(signingUrl === undefined || signingUrl === null ? {} : { signingUrl }),
+    ...(downloadUrl === undefined || downloadUrl === null ? {} : { downloadUrl }),
   };
 };
 
@@ -300,7 +300,7 @@ const createSubmission = (
           state: input.send === false ? "draft" : "sent",
           detailsUrl: docuSealSubmissionUrl(baseUrl, id),
           ...(submitter.status === undefined ? {} : { providerStatus: submitter.status }),
-          ...(signingUrl === undefined ? {} : { signingUrl }),
+          ...(signingUrl === undefined || signingUrl === null ? {} : { signingUrl }),
         };
       }),
     );
@@ -405,11 +405,12 @@ const downloadDocumentFromSubmission = (
   fetchSubmission(http, options, baseUrl, id).pipe(
     Effect.flatMap((submission) => {
       const downloadUrl = pickDownloadUrl(submission);
-      if (downloadUrl !== undefined) return requestBytesFromUrl(http, downloadUrl);
+      if (downloadUrl !== undefined && downloadUrl !== null)
+        return requestBytesFromUrl(http, downloadUrl);
       return fetchSubmissionDocuments(http, options, baseUrl, id).pipe(
         Effect.flatMap((result) => {
           const url = result.documents[0]?.url ?? result.documents[0]?.download_url;
-          if (url === undefined) {
+          if (url === undefined || url === null) {
             return Effect.fail(
               new SignatureKitError({
                 code: SignatureKitErrorCodeValue.responseShape,

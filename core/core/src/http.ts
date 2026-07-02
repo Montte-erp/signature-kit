@@ -181,28 +181,46 @@ const readResponseText = (
     ),
   );
 
+// A rate-limited request (429) was rejected before it took effect, so it is always
+// safe to retry regardless of method idempotency. A 5xx on a non-idempotent method
+// may have been processed, so it stays gated by isRetryableMethod.
+const isRetryableStatus = (method: SignatureHttpMethod, status: number): boolean =>
+  status === 429 || (isRetryableMethod(method) && status >= 500);
+
+// Absolute epoch (seconds) after which a rate-limited request may be retried, read from
+// the standard `x-ratelimit-reset` (epoch) or `Retry-After` (delta seconds) headers.
+const retryAfterEpochSeconds = (timed: TimedResponse): number | undefined => {
+  const reset = Number(timed.response.headers.get("x-ratelimit-reset"));
+  if (Number.isFinite(reset) && reset > 0) return reset;
+  const retryAfter = Number(timed.response.headers.get("retry-after"));
+  if (Number.isFinite(retryAfter) && retryAfter > 0) {
+    return Math.floor(Date.now() / 1000) + retryAfter;
+  }
+  return undefined;
+};
+
 const failOnHttpStatus = (
   request: SignatureHttpRequest,
   timed: TimedResponse,
 ): Effect.Effect<never, SignatureKitError> =>
   readResponseText(request, timed).pipe(
-    Effect.flatMap((body) =>
-      Effect.fail(
+    Effect.flatMap((body) => {
+      const resetAt = retryAfterEpochSeconds(timed);
+      return Effect.fail(
         new SignatureKitError({
           code: SignatureKitErrorCodeValue.http,
-          retryable:
-            isRetryableMethod(request.method) &&
-            (timed.response.status >= 500 || timed.response.status === 429),
+          retryable: isRetryableStatus(request.method, timed.response.status),
           provider: request.provider,
           operation: SignatureKitOperationValue.httpRequest,
           status: timed.response.status,
+          ...(resetAt === undefined ? {} : { retryAfterEpochSeconds: resetAt }),
           reason:
             body.length === 0
               ? `${request.method} ${diagnosticRequestUrl(request)} returned HTTP ${timed.response.status}.`
               : `${request.method} ${diagnosticRequestUrl(request)} returned HTTP ${timed.response.status}: ${compactBody(body)}`,
         }),
-      ),
-    ),
+      );
+    }),
   );
 
 const fetchResponse = (

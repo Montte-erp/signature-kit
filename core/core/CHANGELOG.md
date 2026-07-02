@@ -5,7 +5,10 @@
 - HTTP client now honors Effect interruption and request timeouts by driving `fetch` and
   the response-body reads from the abort signal (previously requests could hang forever).
 - Drain the response body on `requestVoid` success to release pooled connections.
-- Classify `retryable` by HTTP method idempotency instead of marking every failure retryable.
+- Classify `retryable` by HTTP method idempotency, except a 429 (rate limit) is always
+  retryable since the request was rejected before taking effect.
+- Surface `retryAfterEpochSeconds` on `SignatureKitError` from `x-ratelimit-reset`/`Retry-After`
+  so callers can back off to the reset window.
 - Report the real schema name on JSON parse failures.
 - Validate abort-error shape through Schema instead of sniffing `.name`.
 

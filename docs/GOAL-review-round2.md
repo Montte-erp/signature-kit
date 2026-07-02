@@ -161,3 +161,38 @@ relative-`next` prefix; Clicksign download-auth host check; Documenso pagination
 - `bun run check` green; `bunx vitest run` green (incl. new tests).
 - Update `AGENTS.md` only if a contract shape changed.
 - `rm tmp-docu-repro.ts`.
+
+---
+
+## P3 — real-E2E findings (mocks replaced with live sandbox tests)
+
+The mock provider tests were replaced with real end-to-end lifecycle tests against each
+provider's sandbox (create → get → list → cancel → delete, with cleanup), gated behind
+`SIGNATURE_KIT_LIVE_REMOTE_SIGNERS=1` + creds (skip when absent). `.env` loads automatically
+via `tooling/vitest/load-env.ts`. Run: `bun run test:live:remote-signers`.
+
+Bugs the mocks hid, surfaced and fixed by the live runs:
+
+- **docuseal:** the real API returns `combined_document_url: null` (JSON null) for unsigned
+  submissions; the schema only allowed `string | undefined`, so response decode failed.
+  Optional URL fields now accept `Schema.NullOr(...)`.
+- **zapsign:** signer `token` is absent in `/docs/` list responses (schema required it →
+  whole-page decode failed) — now optional. The paginated `next` link uses `http://`, whose
+  redirect to `https://` drops the `Authorization` header (403 on page 2) — `next` is now
+  pinned onto the configured base origin.
+- **core/http rate limit:** a 429 is now always `retryable` (it was gated by method
+  idempotency, so a rate-limited POST looked non-retryable), and `SignatureKitError` carries
+  `retryAfterEpochSeconds` from `x-ratelimit-reset`/`Retry-After`. The Documenso test asserts
+  this contract when the shared account is over its fair-use quota.
+
+### Still open — needs a provider rework (not yet fixed)
+
+- **assinafy: `get`/`list`/`cancel`/`delete` are non-functional.** The provider targets
+  `/v1/assignments/*` endpoints that DO NOT EXIST on the real API (all 404/400). Only `create`
+  works. `deleteAssinafySignatureRequest` silently no-ops because its 404-swallow hides the
+  missing endpoint. The real resource is the **document**: `GET /v1/documents/{id}` (with an
+  embedded `assignment`), `GET /v1/accounts/{id}/documents` (flat array, no pagination meta),
+  `DELETE /v1/documents/{id}`. Rework the provider onto the document API per AGENTS.md
+  ("mirror upstream facts / never fake list/delete"). The current assinafy E2E test
+  CHARACTERIZES the broken behavior (asserts the 404s) so it goes red the moment the provider
+  is reworked — treat those assertions as a TODO marker, not a passing contract.

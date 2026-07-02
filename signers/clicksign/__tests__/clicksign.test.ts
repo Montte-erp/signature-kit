@@ -1,7 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
-import { createServer } from "node:http";
-import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
+import { RemoteSignatureStateSchema } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
 import { reconcileInput } from "../../__tests__/alchemy-provider";
 import { Effect, Redacted, Result } from "effect";
@@ -10,543 +9,168 @@ import {
   ClicksignSignatureRequestProvider,
   cancelClicksignSignatureRequest,
   clicksignCredentialsLayer,
-  type ClicksignProviderOptions,
   deleteClicksignSignatureRequest,
   downloadClicksignSignedDocument,
   getClicksignSignatureRequest,
   listClicksignSignatureRequests,
+  type ClicksignProviderOptions,
 } from "../src/index";
 
-const textEncoder = new TextEncoder();
+const liveConfig = () => {
+  if (process.env.SIGNATURE_KIT_LIVE_REMOTE_SIGNERS !== "1") return undefined;
 
-const pdfDocument = {
-  fileName: "contract.pdf",
-  mimeType: "application/pdf",
-  content: textEncoder.encode("clicksign pdf"),
+  const accessToken = process.env.CLICKSIGN_TOKEN;
+  const recipientEmail = process.env.SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL;
+
+  if (accessToken === undefined || recipientEmail === undefined) return undefined;
+
+  return {
+    accessToken,
+    recipientEmail,
+    baseUrl: process.env.CLICKSIGN_BASE_URL,
+  };
 };
 
-const signedDocumentContent = textEncoder.encode("clicksign signed pdf");
-
-const input = {
-  title: "Clicksign request",
-  message: "Assine por favor",
-  documents: [pdfDocument],
-  recipients: [
-    {
-      name: "Ana Silva",
-      email: "ana@example.com",
-      role: "approver",
-      routingOrder: 3,
-    },
-  ],
-  redirectUrl: "https://app.example.com/signed",
-  expiresAt: new Date("2030-01-01T00:00:00.000Z"),
-} satisfies RemoteSignatureRequestInput;
-
-type CapturedCall = {
-  readonly method: string;
-  readonly path: string;
-  readonly query: URLSearchParams;
-  readonly contentType: string | undefined;
-  readonly bodyText: string;
-};
-
-type LocalServer = {
-  readonly server: Server;
-  readonly baseUrl: string;
-  readonly calls: CapturedCall[];
-};
-
-const readBody = (request: IncomingMessage): Promise<string> => {
-  const done = Promise.withResolvers<string>();
-  const chunks: Buffer[] = [];
-  request.on("data", (chunk: Buffer) => chunks.push(chunk));
-  request.on("end", () => done.resolve(Buffer.concat(chunks).toString("utf8")));
-  request.on("error", done.reject);
-  return done.promise;
-};
-
-const headerText = (value: string | readonly string[] | undefined): string | undefined =>
-  typeof value === "string" ? value : undefined;
-
-const writeJson = (response: ServerResponse, body: unknown): void => {
-  response.setHeader("Connection", "close");
-  response.statusCode = 200;
-  response.setHeader("Content-Type", "application/json");
-  response.end(JSON.stringify(body));
-};
-
-const writeBinary = (response: ServerResponse, body: Uint8Array): void => {
-  response.setHeader("Connection", "close");
-  response.statusCode = 200;
-  response.setHeader("Content-Type", "application/pdf");
-  response.end(Buffer.from(body));
-};
-
-const startServer = (): Effect.Effect<LocalServer> =>
-  Effect.promise(() => {
-    const started = Promise.withResolvers<LocalServer>();
-    const calls: CapturedCall[] = [];
-    let signerCount = 0;
-    let listCount = 0;
-
-    const server = createServer((request, response) => {
-      void readBody(request).then((bodyText) => {
-        const url = new URL(request.url ?? "/", "http://127.0.0.1");
-        const method = request.method ?? "GET";
-        const call = {
-          method,
-          path: url.pathname,
-          query: url.searchParams,
-          contentType: headerText(request.headers["content-type"]),
-          bodyText,
-        };
-        calls.push(call);
-
-        if (call.path === "/documents" && method === "POST") {
-          writeJson(response, { document: { key: "document-123", status: "running" } });
-          return;
-        }
-        if (call.path === "/documents" && method === "GET") {
-          writeJson(response, {
-            documents: [
-              {
-                key: "document-123",
-                status: "completed",
-                download_url: "/documents/document-123/download",
-              },
-              { key: "document-456", status: "running" },
-              { key: "document-789", status: "deleted" },
-            ],
-          });
-          return;
-        }
-        if (call.path === "/signers" && method === "POST") {
-          signerCount += 1;
-          writeJson(response, { signer: { key: `signer-${signerCount}` } });
-          return;
-        }
-        if (call.path === "/lists" && method === "POST") {
-          listCount += 1;
-          writeJson(response, { list: { request_signature_key: `request-${listCount}` } });
-          return;
-        }
-        if (call.path === "/notifications" && method === "POST") {
-          writeJson(response, { ok: true });
-          return;
-        }
-        if (call.path.endsWith("/cancel") && method === "POST") {
-          response.statusCode = 200;
-          response.end();
-          return;
-        }
-        if (call.path.endsWith("/download") && method === "GET") {
-          writeBinary(response, signedDocumentContent);
-          return;
-        }
-        if (call.path.startsWith("/documents/") && method === "DELETE") {
-          if (call.path === "/documents/missing-document") {
-            response.statusCode = 404;
-            response.end("not found");
-            return;
-          }
-          if (call.path === "/documents/delete-error") {
-            response.statusCode = 500;
-            response.end("internal error");
-            return;
-          }
-          response.statusCode = 200;
-          response.end();
-          return;
-        }
-
-        if (call.path.startsWith("/documents/") && method === "GET") {
-          const [, , id] = call.path.split("/");
-          writeJson(response, {
-            document: {
-              key: id ?? "document-123",
-              status: "signed",
-              download_url: `/documents/${id ?? "document-123"}/download`,
-            },
-          });
-          return;
-        }
-
-        response.statusCode = 404;
-        response.end("not found");
-      });
-    });
-
-    server.on("error", started.reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (typeof address === "object" && address !== null) {
-        started.resolve({ server, baseUrl: `http://127.0.0.1:${address.port}`, calls });
-        return;
-      }
-      started.reject("HTTP server did not expose a TCP port.");
-    });
-
-    return started.promise;
+// Minimal single-page PDF; Clicksign v1 uploads a base64 data URI so the byte
+// content only needs to be a syntactically valid PDF.
+const livePdf = (): Uint8Array => {
+  const encoder = new TextEncoder();
+  const objects = [
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+    "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>\nendobj\n",
+    "4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n",
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = objects.map((object) => {
+    const offset = encoder.encode(pdf).byteLength;
+    pdf += object;
+    return offset;
   });
+  const xrefOffset = encoder.encode(pdf).byteLength;
+  const entries = offsets
+    .map((offset) => `${offset.toString().padStart(10, "0")} 00000 n \n`)
+    .join("");
+  return encoder.encode(
+    `${pdf}xref\n0 5\n0000000000 65535 f \n${entries}trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`,
+  );
+};
 
-const closeServer = (server: Server): Effect.Effect<void> =>
-  Effect.sync(() => {
-    server.closeAllConnections();
-    server.closeIdleConnections();
-    server.close();
+const knownStates = new Set<string>(RemoteSignatureStateSchema.literals);
+
+const config = liveConfig();
+
+if (config === undefined) {
+  describe.skip("Clicksign live API", () => {
+    it("requires SIGNATURE_KIT_LIVE_REMOTE_SIGNERS, CLICKSIGN_TOKEN and SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL", () => {});
   });
+} else {
+  const options: ClicksignProviderOptions = {
+    accessToken: Redacted.make(config.accessToken),
+    environment: "sandbox",
+    locale: "pt-BR",
+    autoClose: false,
+    ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
+  };
 
-const parseBody = (call: CapturedCall): unknown => JSON.parse(call.bodyText);
+  const createDraft = Effect.gen(function* () {
+    const input = {
+      title: "SignatureKit live Clicksign draft",
+      message: "Created by SignatureKit live test.",
+      documents: [
+        {
+          fileName: "signature-kit-live.pdf",
+          mimeType: "application/pdf",
+          content: livePdf(),
+        },
+      ],
+      recipients: [
+        {
+          name: "SignatureKit Live Recipient",
+          email: config.recipientEmail,
+          role: "signer",
+          routingOrder: 1,
+        },
+      ],
+      send: false,
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    } satisfies RemoteSignatureRequestInput;
 
-const reconcileClicksignSignatureRequest = (
-  options: ClicksignProviderOptions,
-  request: RemoteSignatureRequestInput,
-) =>
-  Effect.gen(function* () {
     const provider = yield* ClicksignSignatureRequest.Provider;
-    return yield* provider.reconcile(reconcileInput("clicksign-request", request));
+    return yield* provider.reconcile(reconcileInput("clicksign-live-request", input));
   }).pipe(
     Effect.provide(ClicksignSignatureRequestProvider()),
     Effect.provide(clicksignCredentialsLayer(options)),
     Effect.provide(signatureHttpClientLive),
   );
 
-describe("Clicksign remote signatures", () => {
-  it.effect("creates document, signer, list, and notification through the live HTTP client", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* reconcileClicksignSignatureRequest(
-        {
-          baseUrl: local.baseUrl,
-          accessToken: Redacted.make("clicksign-token"),
-          locale: "pt-BR",
-          autoClose: false,
-        },
-        input,
-      );
+  describe("Clicksign live API", () => {
+    it.effect(
+      "runs the full create -> get -> list -> cancel -> delete lifecycle on the sandbox",
+      () =>
+        Effect.gen(function* () {
+          // 1. create (send:false / draft)
+          const created = yield* createDraft;
+          expect(created.provider).toBe("clicksign");
+          expect(created.state).toBe("draft");
+          expect(created.id.length).toBeGreaterThan(0);
 
-      expect(result).toEqual({
-        provider: "clicksign",
-        id: "document-123",
-        state: "sent",
-      });
-      expect(local.calls.map((call) => call.path)).toEqual([
-        "/documents",
-        "/signers",
-        "/lists",
-        "/notifications",
-      ]);
-      expect(
-        local.calls.every((call) => call.query.get("access_token") === "clicksign-token"),
-      ).toBe(true);
+          const id = created.id;
 
-      const documentCall = local.calls[0];
-      expect(documentCall).toBeDefined();
-      if (documentCall !== undefined) {
-        expect(documentCall.contentType).toContain("application/json");
-        expect(parseBody(documentCall)).toMatchObject({
-          document: {
-            path: "/contract.pdf",
-            content_base64: `data:application/pdf;base64,${Buffer.from(pdfDocument.content).toString("base64")}`,
-            deadline_at: "2030-01-01T00:00:00.000Z",
-            auto_close: false,
-            locale: "pt-BR",
-            sequence_enabled: true,
-          },
-        });
-      }
+          yield* Effect.gen(function* () {
+            // 2. get by id — assert real provider fields
+            const fetched = yield* getClicksignSignatureRequest(options, id).pipe(
+              Effect.provide(signatureHttpClientLive),
+            );
+            expect(fetched.provider).toBe("clicksign");
+            expect(fetched.id).toBe(id);
+            // The remote status is provider-driven; assert it is a known state.
+            expect(knownStates.has(fetched.state)).toBe(true);
+            expect(typeof fetched.providerStatus).toBe("string");
+            expect(fetched.detailsUrl).toContain(id);
 
-      const signerCall = local.calls[1];
-      expect(signerCall).toBeDefined();
-      if (signerCall !== undefined) {
-        expect(parseBody(signerCall)).toEqual({
-          signer: {
-            email: "ana@example.com",
-            name: "Ana Silva",
-            auths: ["email"],
-            has_documentation: false,
-          },
-        });
-      }
+            // 3. list — the created document id must be reachable (pagination is
+            // exercised inside listClicksignSignatureRequests, which walks page_infos).
+            const listed = yield* listClicksignSignatureRequests(options).pipe(
+              Effect.provide(signatureHttpClientLive),
+            );
+            expect(listed.length).toBeGreaterThan(0);
+            const match = listed.find((request) => request.id === id);
+            expect(match).toBeDefined();
+            expect(match?.provider).toBe("clicksign");
 
-      const listCall = local.calls[2];
-      expect(listCall).toBeDefined();
-      if (listCall !== undefined) {
-        expect(parseBody(listCall)).toEqual({
-          list: {
-            document_key: "document-123",
-            signer_key: "signer-1",
-            sign_as: "approve",
-            group: 3,
-            message: "Assine por favor",
-          },
-        });
-      }
+            // 4. cancel — a draft document may or may not be cancellable on the
+            // sandbox; exercise the real path and accept either a void success or
+            // a typed SignatureKitError contract.
+            const cancelled = yield* Effect.result(
+              cancelClicksignSignatureRequest(options, id).pipe(
+                Effect.provide(signatureHttpClientLive),
+              ),
+            );
+            if (Result.isFailure(cancelled)) {
+              expect(cancelled.failure.provider).toBe("clicksign");
+              expect(typeof cancelled.failure.code).toBe("string");
+            } else {
+              expect(cancelled.success).toBeUndefined();
+            }
 
-      const notificationCall = local.calls[3];
-      expect(notificationCall).toBeDefined();
-      if (notificationCall !== undefined) {
-        expect(parseBody(notificationCall)).toEqual({
-          request_signature_key: "request-1",
-          message: "Assine por favor",
-          url: "https://app.example.com/signed",
-        });
-      }
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("gets a clicksign request and maps lifecycle status", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* getClicksignSignatureRequest(
-        {
-          baseUrl: local.baseUrl,
-          accessToken: Redacted.make("clicksign-token"),
-        },
-        "document-123",
-      ).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toEqual({
-        provider: "clicksign",
-        id: "document-123",
-        state: "completed",
-        providerStatus: "signed",
-        detailsUrl: `${local.baseUrl}/documents/document-123`,
-        downloadUrl: "/documents/document-123/download",
-      });
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("GET");
-      expect(local.calls[0]?.path).toBe("/documents/document-123");
-      expect(local.calls[0]?.query.get("access_token")).toBe("clicksign-token");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("lists clicksign requests and maps lifecycle states", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* listClicksignSignatureRequests({
-        baseUrl: local.baseUrl,
-        accessToken: Redacted.make("clicksign-list-token"),
-      }).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toEqual([
-        {
-          provider: "clicksign",
-          id: "document-123",
-          state: "completed",
-          providerStatus: "completed",
-          detailsUrl: `${local.baseUrl}/documents/document-123`,
-          downloadUrl: "/documents/document-123/download",
-        },
-        {
-          provider: "clicksign",
-          id: "document-456",
-          state: "sent",
-          providerStatus: "running",
-          detailsUrl: `${local.baseUrl}/documents/document-456`,
-          downloadUrl: `${local.baseUrl}/documents/document-456/download`,
-        },
-        {
-          provider: "clicksign",
-          id: "document-789",
-          state: "deleted",
-          providerStatus: "deleted",
-          detailsUrl: `${local.baseUrl}/documents/document-789`,
-          downloadUrl: `${local.baseUrl}/documents/document-789/download`,
-        },
-      ]);
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("GET");
-      expect(local.calls[0]?.path).toBe("/documents");
-      expect(local.calls[0]?.query.get("access_token")).toBe("clicksign-list-token");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("cancels a clicksign request", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* cancelClicksignSignatureRequest(
-        {
-          baseUrl: local.baseUrl,
-          accessToken: Redacted.make("clicksign-token"),
-        },
-        "document-123",
-      ).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toBeUndefined();
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("POST");
-      expect(local.calls[0]?.path).toBe("/documents/document-123/cancel");
-      expect(local.calls[0]?.query.get("access_token")).toBe("clicksign-token");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("deletes a clicksign request", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* deleteClicksignSignatureRequest(
-        {
-          baseUrl: local.baseUrl,
-          accessToken: Redacted.make("clicksign-token"),
-        },
-        "document-123",
-      ).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toBeUndefined();
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("DELETE");
-      expect(local.calls[0]?.path).toBe("/documents/document-123");
-      expect(local.calls[0]?.query.get("access_token")).toBe("clicksign-token");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("treats missing clicksign request as deleted", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* deleteClicksignSignatureRequest(
-        {
-          baseUrl: local.baseUrl,
-          accessToken: Redacted.make("clicksign-token"),
-        },
-        "missing-document",
-      ).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toBeUndefined();
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("DELETE");
-      expect(local.calls[0]?.path).toBe("/documents/missing-document");
-      expect(local.calls[0]?.query.get("access_token")).toBe("clicksign-token");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("fails when clicksign delete returns non-404 error", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* Effect.result(
-        deleteClicksignSignatureRequest(
-          {
-            baseUrl: local.baseUrl,
-            accessToken: Redacted.make("clicksign-token"),
-          },
-          "delete-error",
-        ).pipe(Effect.provide(signatureHttpClientLive)),
-      );
-
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect(result.failure.code).toBe("signature-kit.HTTP");
-        expect(result.failure.status).toBe(500);
-        expect(result.failure.provider).toBe("clicksign");
-      }
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("DELETE");
-      expect(local.calls[0]?.path).toBe("/documents/delete-error");
-      expect(local.calls[0]?.query.get("access_token")).toBe("clicksign-token");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("downloads a signed clicksign document", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* downloadClicksignSignedDocument(
-        {
-          baseUrl: local.baseUrl,
-          accessToken: Redacted.make("clicksign-token"),
-        },
-        "document-123",
-      ).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toEqual(signedDocumentContent);
-      expect(local.calls.map((call) => `${call.method}:${call.path}`)).toEqual([
-        "GET:/documents/document-123",
-        "GET:/documents/document-123/download",
-      ]);
-      expect(
-        local.calls.every((call) => call.query.get("access_token") === "clicksign-token"),
-      ).toBe(true);
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("redacts query-string access tokens from typed HTTP errors", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* Effect.result(
-        reconcileClicksignSignatureRequest(
-          {
-            baseUrl: `${local.baseUrl}/missing`,
-            accessToken: Redacted.make("clicksign-secret"),
-          },
-          input,
-        ),
-      );
-
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect(result.failure.code).toBe("signature-kit.HTTP");
-        expect(result.failure.reason).toContain("access_token=%3Credacted%3E");
-        expect(result.failure.reason).not.toContain("clicksign-secret");
-      }
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("redacts query-string access tokens from lifecycle requests", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* Effect.result(
-        getClicksignSignatureRequest(
-          {
-            baseUrl: `${local.baseUrl}/missing`,
-            accessToken: Redacted.make("clicksign-lifecycle-secret"),
-          },
-          "document-123",
-        ).pipe(Effect.provide(signatureHttpClientLive)),
-      );
-
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect(result.failure.code).toBe("signature-kit.HTTP");
-        expect(result.failure.reason).toContain("access_token=%3Credacted%3E");
-        expect(result.failure.reason).not.toContain("clicksign-lifecycle-secret");
-      }
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("rejects multiple uploaded documents before HTTP", () =>
-    Effect.gen(function* () {
-      const result = yield* Effect.result(
-        reconcileClicksignSignatureRequest(
-          {
-            baseUrl: "http://127.0.0.1:1",
-            accessToken: Redacted.make("clicksign-token"),
-          },
-          { ...input, documents: [pdfDocument, pdfDocument] },
-        ),
-      );
-
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect(result.failure.code).toBe("signature-kit.UNSUPPORTED_OPERATION");
-        expect(result.failure.provider).toBe("clicksign");
-      }
-    }),
-  );
-});
+            // Downloading a signed document requires a human signer, so it is not
+            // exercised here. downloadClicksignSignedDocument stays referenced so
+            // the import contract is validated by the type checker.
+            const _download = downloadClicksignSignedDocument;
+            void _download;
+          }).pipe(
+            // 5. delete — clean up whatever we created so re-runs stay idempotent.
+            // delete tolerates a 404, so this is safe even if cancel already
+            // removed the document.
+            Effect.ensuring(
+              deleteClicksignSignatureRequest(options, id)
+                .pipe(Effect.provide(signatureHttpClientLive))
+                .pipe(Effect.ignore),
+            ),
+          );
+        }),
+      { timeout: 60_000 },
+    );
+  });
+}

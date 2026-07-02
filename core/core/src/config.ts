@@ -574,6 +574,7 @@ export class SignatureKitError extends Schema.TaggedErrorClass<SignatureKitError
     issueMessage: Schema.optional(Schema.String),
     provider: Schema.optional(RemoteSignatureProviderSchema),
     status: Schema.optional(Schema.Number),
+    retryAfterEpochSeconds: Schema.optional(Schema.Number),
   },
 ) {
   get message(): string {

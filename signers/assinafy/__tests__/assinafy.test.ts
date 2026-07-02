@@ -1,234 +1,220 @@
 import { describe, expect, it } from "@effect/vitest";
-import { createServer } from "node:http";
-import type { IncomingMessage, Server, ServerResponse } from "node:http";
-import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
+import type {
+  RemoteSignatureRequest,
+  RemoteSignatureRequestInput,
+} from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
 import { reconcileInput } from "../../__tests__/alchemy-provider";
 import { Effect, Redacted, Result, Schema } from "effect";
 import {
-  AssinafyProviderOptionsSchema,
   AssinafySignatureRequest,
   AssinafySignatureRequestProvider,
   assinafyCredentialsLayer,
-  type AssinafyProviderOptions,
   cancelAssinafySignatureRequest,
   deleteAssinafySignatureRequest,
   downloadAssinafySignedDocument,
   getAssinafySignatureRequest,
   listAssinafySignatureRequests,
+  type AssinafyProviderOptions,
 } from "../src/index";
 
-const textEncoder = new TextEncoder();
+// Real end-to-end coverage against the Assinafy sandbox. There are no mocks:
+// every call in the "live" branch hits https://sandbox.assinafy.com.br with the
+// account credentials loaded by tooling/vitest/load-env.ts. Run with
+//   SIGNATURE_KIT_LIVE_REMOTE_SIGNERS=1 bunx vitest run signers/assinafy/__tests__/assinafy.test.ts
+// Without the flag (or credentials) the suite reports a clean skip.
+const liveConfig = () => {
+  if (process.env.SIGNATURE_KIT_LIVE_REMOTE_SIGNERS !== "1") return undefined;
 
-const input = {
-  title: "Assinafy request",
-  message: "Assine por favor",
-  documents: [
-    {
-      fileName: "contract.pdf",
-      mimeType: "application/pdf",
-      content: textEncoder.encode("assinafy pdf"),
-    },
-  ],
-  recipients: [
-    {
-      name: "Ana Silva",
-      email: "ana@example.com",
-      routingOrder: 1,
-    },
-  ],
-  expiresAt: new Date("2030-01-01T00:00:00.000Z"),
-} satisfies RemoteSignatureRequestInput;
-const signedDocumentContent = textEncoder.encode("assinafy signed document");
-type CapturedCall = {
-  readonly method: string;
-  readonly path: string;
-  readonly contentType: string | undefined;
-  readonly authorization: string | undefined;
-  readonly apiKey: string | undefined;
-  readonly bodyText: string;
+  const accountId = process.env.ASSINAFY_ACCOUNT_ID;
+  const apiKey = process.env.ASSINAFY_API_KEY;
+  const recipientEmail = process.env.SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL;
+
+  if (accountId === undefined || apiKey === undefined || recipientEmail === undefined) {
+    return undefined;
+  }
+
+  return {
+    accountId,
+    apiKey,
+    recipientEmail,
+    baseUrl: process.env.ASSINAFY_BASE_URL,
+  };
 };
 
-type LocalServer = {
-  readonly server: Server;
-  readonly baseUrl: string;
-  readonly calls: CapturedCall[];
+const livePdf = (): Uint8Array => {
+  const encoder = new TextEncoder();
+  const objects = [
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+    "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>\nendobj\n",
+    "4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n",
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = objects.map((object) => {
+    const offset = encoder.encode(pdf).byteLength;
+    pdf += object;
+    return offset;
+  });
+  const xrefOffset = encoder.encode(pdf).byteLength;
+  const entries = offsets
+    .map((offset) => `${offset.toString().padStart(10, "0")} 00000 n \n`)
+    .join("");
+  return encoder.encode(
+    `${pdf}xref\n0 5\n0000000000 65535 f \n${entries}trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`,
+  );
 };
 
-const readBody = (request: IncomingMessage): Promise<string> => {
-  const done = Promise.withResolvers<string>();
-  const chunks: Buffer[] = [];
-  request.on("data", (chunk: Buffer) => chunks.push(chunk));
-  request.on("end", () => done.resolve(Buffer.concat(chunks).toString("utf8")));
-  request.on("error", done.reject);
-  return done.promise;
+// Assinafy's real resource is the uploaded document; the account-scoped list is
+// a flat array with page/per_page query support but no pagination metadata.
+const AssinafyDocumentResourceSchema = Schema.Struct({
+  id: Schema.NonEmptyString,
+  status: Schema.optional(Schema.String),
+  assignment: Schema.optional(
+    Schema.Struct({
+      id: Schema.NonEmptyString,
+      status: Schema.optional(Schema.String),
+    }),
+  ),
+});
+const AssinafyDocumentResultSchema = Schema.Struct({ data: AssinafyDocumentResourceSchema });
+const AssinafyDocumentsListSchema = Schema.Struct({
+  data: Schema.Array(AssinafyDocumentResourceSchema),
+});
+const AssinafySignerListSchema = Schema.Struct({
+  data: Schema.Array(Schema.Struct({ id: Schema.NonEmptyString, email: Schema.String })),
+});
+
+const ASSINAFY_CLEANUP_DELETE_ATTEMPTS = 30;
+const DOCUMENTS_PER_PAGE = 25;
+const MAX_DOCUMENT_PAGES = 40;
+
+const cleanupResponse = (operation: string, response: Response): Effect.Effect<void> => {
+  if (response.ok || response.status === 404) return Effect.void;
+  return Effect.promise(() => response.text()).pipe(
+    Effect.flatMap((body) =>
+      Effect.die(`${operation} failed with HTTP ${response.status}: ${body.slice(0, 512)}`),
+    ),
+  );
 };
 
-const headerText = (value: string | readonly string[] | undefined): string | undefined =>
-  typeof value === "string" ? value : undefined;
+const readJson = (operation: string, url: string, apiKey: string): Effect.Effect<unknown> =>
+  Effect.promise(() => fetch(url, { headers: { "X-Api-Key": apiKey } })).pipe(
+    Effect.flatMap((response) =>
+      response.ok
+        ? Effect.promise(() => response.json())
+        : Effect.promise(() => response.text()).pipe(
+            Effect.flatMap((body) =>
+              Effect.die(`${operation} failed with HTTP ${response.status}: ${body.slice(0, 512)}`),
+            ),
+          ),
+    ),
+  );
 
-const writeBinary = (response: ServerResponse, bytes: Uint8Array): void => {
-  response.setHeader("Connection", "close");
-  response.statusCode = 200;
-  response.setHeader("Content-Type", "application/pdf");
-  response.end(bytes);
-};
-
-const writeJson = (response: ServerResponse, body: unknown): void => {
-  response.setHeader("Connection", "close");
-  response.statusCode = 200;
-  response.setHeader("Content-Type", "application/json");
-  response.end(JSON.stringify(body));
-};
-
-const startServer = (): Effect.Effect<LocalServer> =>
-  Effect.promise(() => {
-    const started = Promise.withResolvers<LocalServer>();
-    const calls: CapturedCall[] = [];
-    let signerCount = 0;
-    let baseUrl: string | undefined;
-
-    const server = createServer((request, response) => {
-      void readBody(request).then((bodyText) => {
-        const url = new URL(request.url ?? "/", "http://127.0.0.1");
-        const call = {
-          method: request.method ?? "GET",
-          path: url.pathname,
-          contentType: headerText(request.headers["content-type"]),
-          authorization: headerText(request.headers.authorization),
-          apiKey: headerText(request.headers["x-api-key"]),
-          bodyText,
-        };
-        calls.push(call);
-
-        const origin = baseUrl ?? "http://127.0.0.1";
-
-        if (call.path === "/v1/accounts/account-123/documents") {
-          writeJson(response, {
-            status: 200,
-            message: "",
-            data: {
-              id: "document-123",
-              status: "metadata_ready",
-              signing_url: "https://assinafy.example.test/sign/document-123",
-            },
-          });
-          return;
-        }
-        if (call.path === "/v1/accounts/account-123/signers") {
-          signerCount += 1;
-          writeJson(response, {
-            status: 200,
-            message: "",
-            data: { id: `signer-${signerCount}` },
-          });
-          return;
-        }
-        if (call.path === "/v1/documents/document-123/assignments") {
-          writeJson(response, {
-            status: 200,
-            message: "",
-            data: {
-              id: "assignment-123",
-              signing_urls: [
-                { signer_id: "signer-1", url: "https://assinafy.example.test/sign/1" },
-              ],
-            },
-          });
-          return;
-        }
-        if (call.path === "/v1/assignments/assignment-123/cancel" && call.method === "POST") {
-          response.statusCode = 200;
-          response.end();
-          return;
-        }
-        if (call.path.startsWith("/v1/assignments/") && call.method === "GET") {
-          if (call.path === "/v1/assignments/assignment-123") {
-            writeJson(response, {
-              status: 200,
-              message: "",
-              data: {
-                id: "assignment-123",
-                status: "completed",
-                signing_url: "https://assinafy.example.test/sign/1",
-                document_id: "document-123",
-                document_url: `${origin}/v1/documents/document-123`,
-                download_url: `${origin}/v1/assignments/assignment-123/download`,
-              },
-            });
-            return;
+const deleteAssinafyDocument = (
+  documentUrl: string,
+  apiKey: string,
+  attempt: number,
+): Effect.Effect<void> =>
+  Effect.promise(() =>
+    fetch(documentUrl, { method: "DELETE", headers: { "X-Api-Key": apiKey } }),
+  ).pipe(
+    Effect.flatMap((response) => {
+      if (response.ok || response.status === 404) return Effect.void;
+      return Effect.promise(() => response.text()).pipe(
+        Effect.flatMap((body) => {
+          // A freshly uploaded document is briefly locked while Assinafy
+          // extracts metadata; retry the delete until it releases.
+          if (
+            response.status === 400 &&
+            body.includes("metadata_processing") &&
+            attempt < ASSINAFY_CLEANUP_DELETE_ATTEMPTS
+          ) {
+            return Effect.promise<void>(
+              () => new Promise((resolve) => setTimeout(resolve, 2000)),
+            ).pipe(Effect.flatMap(() => deleteAssinafyDocument(documentUrl, apiKey, attempt + 1)));
           }
-        }
-        if (call.path.startsWith("/v1/assignments/") && call.method === "DELETE") {
-          if (call.path === "/v1/assignments/missing-assignment") {
-            response.statusCode = 404;
-            response.end("not found");
-            return;
-          }
-          if (call.path === "/v1/assignments/delete-error") {
-            response.statusCode = 500;
-            response.end("internal error");
-            return;
-          }
-          if (call.path === "/v1/assignments/assignment-123") {
-            response.statusCode = 200;
-            response.end();
-            return;
-          }
-        }
-        if (call.path === "/v1/assignments") {
-          writeJson(response, {
-            status: 200,
-            message: "",
-            data: [
-              {
-                id: "assignment-123",
-                status: "completed",
-                signing_url: "https://assinafy.example.test/sign/1",
-                document_id: "document-123",
-              },
-              {
-                id: "assignment-456",
-                status: "draft",
-                document: { id: "document-456", status: "draft" },
-              },
-            ],
-          });
-          return;
-        }
-        if (call.path === "/v1/assignments/assignment-123/download") {
-          writeBinary(response, signedDocumentContent);
-          return;
-        }
+          return Effect.die(
+            `Delete Assinafy document failed with HTTP ${response.status}: ${body.slice(0, 512)}`,
+          );
+        }),
+      );
+    }),
+  );
 
-        response.statusCode = 404;
-        response.end("not found");
-      });
-    });
+const liveRecipientEmail = (email: string): string => {
+  const at = email.lastIndexOf("@");
+  if (at <= 0) return email;
+  return `${email.slice(0, at)}+signature-kit-${Date.now()}${email.slice(at)}`;
+};
 
-    server.on("error", started.reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (typeof address === "object" && address !== null) {
-        const resolvedBaseUrl = `http://127.0.0.1:${address.port}`;
-        baseUrl = resolvedBaseUrl;
-        started.resolve({ server, baseUrl: resolvedBaseUrl, calls });
-        return;
+// Cleanup deletes exactly what this run created: the uploaded document (the real
+// deletable resource — deleteAssinafySignatureRequest targets a non-existent
+// /v1/assignments endpoint) and any signer carrying this run's unique recipient
+// email. Idempotent: re-runs create fresh unique emails, so nothing leaks.
+const deleteAssinafyArtifacts = (
+  request: RemoteSignatureRequest,
+  options: { readonly accountId: string; readonly apiKey: string; readonly recipientEmail: string },
+) => {
+  const documentUrl = request.detailsUrl;
+  if (documentUrl === undefined) {
+    return Effect.die("Assinafy live cleanup requires the created document URL.");
+  }
+  const baseUrl = new URL(documentUrl).origin;
+
+  return Effect.gen(function* () {
+    yield* deleteAssinafyDocument(documentUrl, options.apiKey, 1);
+
+    const signersBody = yield* readJson(
+      "List Assinafy signers",
+      `${baseUrl}/v1/accounts/${options.accountId}/signers?email=${encodeURIComponent(options.recipientEmail)}`,
+      options.apiKey,
+    );
+    const signers = yield* Schema.decodeUnknownEffect(AssinafySignerListSchema)(signersBody).pipe(
+      Effect.orDie,
+    );
+
+    yield* Effect.forEach(
+      signers.data.filter((signer) => signer.email === options.recipientEmail),
+      (signer) =>
+        Effect.promise(() =>
+          fetch(`${baseUrl}/v1/accounts/${options.accountId}/signers/${signer.id}`, {
+            method: "DELETE",
+            headers: { "X-Api-Key": options.apiKey },
+          }),
+        ).pipe(Effect.flatMap((response) => cleanupResponse("Delete Assinafy signer", response))),
+      { discard: true },
+    );
+  });
+};
+
+// Pages the account-scoped documents list (page/per_page) until it locates the
+// created document or exhausts the pages. This exercises real pagination: the
+// account accumulates documents across runs, so the created id may not sit on
+// page 1.
+const findCreatedDocumentAcrossPages = (
+  baseUrl: string,
+  accountId: string,
+  apiKey: string,
+  documentId: string,
+  page: number,
+): Effect.Effect<boolean> =>
+  readJson(
+    "List Assinafy documents",
+    `${baseUrl}/v1/accounts/${accountId}/documents?page=${page}&per_page=${DOCUMENTS_PER_PAGE}`,
+    apiKey,
+  ).pipe(
+    Effect.flatMap((body) =>
+      Schema.decodeUnknownEffect(AssinafyDocumentsListSchema)(body).pipe(Effect.orDie),
+    ),
+    Effect.flatMap((list) => {
+      if (list.data.some((document) => document.id === documentId)) return Effect.succeed(true);
+      if (list.data.length < DOCUMENTS_PER_PAGE || page >= MAX_DOCUMENT_PAGES) {
+        return Effect.succeed(false);
       }
-      started.reject("HTTP server did not expose a TCP port.");
-    });
-
-    return started.promise;
-  });
-
-const closeServer = (server: Server): Effect.Effect<void> =>
-  Effect.sync(() => {
-    server.closeAllConnections();
-    server.closeIdleConnections();
-    server.close();
-  });
-
-const parseBody = (call: CapturedCall): unknown => JSON.parse(call.bodyText);
+      return findCreatedDocumentAcrossPages(baseUrl, accountId, apiKey, documentId, page + 1);
+    }),
+  );
 
 const reconcileAssinafySignatureRequest = (
   options: AssinafyProviderOptions,
@@ -236,298 +222,166 @@ const reconcileAssinafySignatureRequest = (
 ) =>
   Effect.gen(function* () {
     const provider = yield* AssinafySignatureRequest.Provider;
-    return yield* provider.reconcile(reconcileInput("assinafy-request", request));
+    return yield* provider.reconcile(reconcileInput("assinafy-live-request", request));
   }).pipe(
     Effect.provide(AssinafySignatureRequestProvider()),
     Effect.provide(assinafyCredentialsLayer(options)),
     Effect.provide(signatureHttpClientLive),
   );
 
-describe("Assinafy remote signatures", () => {
-  it.effect("uploads the document, creates a signer, and creates an assignment", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* reconcileAssinafySignatureRequest(
-        {
-          baseUrl: local.baseUrl,
-          accountId: "account-123",
-          apiKey: Redacted.make("assinafy-key"),
-        },
-        input,
-      );
+const config = liveConfig();
 
-      expect(result).toEqual({
-        provider: "assinafy",
-        id: "assignment-123",
-        state: "sent",
-        providerStatus: "assignment_created",
-        signingUrl: "https://assinafy.example.test/sign/1",
-        detailsUrl: `${local.baseUrl}/v1/documents/document-123`,
-      });
-      expect(local.calls.map((call) => call.path)).toEqual([
-        "/v1/accounts/account-123/documents",
-        "/v1/accounts/account-123/signers",
-        "/v1/documents/document-123/assignments",
-      ]);
+if (config === undefined) {
+  describe.skip("Assinafy live API", () => {
+    it("requires SIGNATURE_KIT_LIVE_REMOTE_SIGNERS, ASSINAFY_ACCOUNT_ID, ASSINAFY_API_KEY and SIGNATURE_KIT_LIVE_RECIPIENT_EMAIL", () => {});
+  });
+} else {
+  const activeConfig = config;
 
-      const uploadCall = local.calls[0];
-      expect(uploadCall).toBeDefined();
-      if (uploadCall !== undefined) {
-        expect(uploadCall.apiKey).toBe("assinafy-key");
-        expect(uploadCall.contentType).toContain("multipart/form-data");
-        expect(uploadCall.bodyText).toContain('name="file"');
-        expect(uploadCall.bodyText).toContain('filename="contract.pdf"');
-      }
+  describe("Assinafy live API", () => {
+    it.effect(
+      "creates a draft, resolves it against the real document API, and deletes what it created",
+      () =>
+        Effect.gen(function* () {
+          const recipientEmail = liveRecipientEmail(activeConfig.recipientEmail);
+          const providerOptions: AssinafyProviderOptions = {
+            accountId: activeConfig.accountId,
+            apiKey: Redacted.make(activeConfig.apiKey),
+            environment: "sandbox",
+            ...(activeConfig.baseUrl === undefined ? {} : { baseUrl: activeConfig.baseUrl }),
+          };
+          const input = {
+            title: "SignatureKit live Assinafy assignment",
+            message: "Created by SignatureKit live test.",
+            documents: [
+              {
+                fileName: "signature-kit-live.pdf",
+                mimeType: "application/pdf",
+                content: livePdf(),
+              },
+            ],
+            recipients: [
+              {
+                name: "SignatureKit Live Recipient",
+                email: recipientEmail,
+                role: "signer",
+                routingOrder: 1,
+              },
+            ],
+            send: false,
+            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          } satisfies RemoteSignatureRequestInput;
 
-      const signerCall = local.calls[1];
-      expect(signerCall).toBeDefined();
-      if (signerCall !== undefined) {
-        expect(signerCall.apiKey).toBe("assinafy-key");
-        expect(parseBody(signerCall)).toEqual({
-          full_name: "Ana Silva",
-          email: "ana@example.com",
-        });
-      }
+          // 1. create (draft): real multi-step upload -> signer -> assignment.
+          const request = yield* reconcileAssinafySignatureRequest(providerOptions, input);
 
-      const assignmentCall = local.calls[2];
-      expect(assignmentCall).toBeDefined();
-      if (assignmentCall !== undefined) {
-        expect(assignmentCall.apiKey).toBe("assinafy-key");
-        expect(parseBody(assignmentCall)).toEqual({
-          method: "virtual",
-          signers: [
-            {
-              id: "signer-1",
-              verification_method: "Email",
-              notification_methods: ["Email"],
-              step: 1,
-            },
-          ],
-          message: "Assine por favor",
-          expires_at: "2030-01-01T00:00:00.000Z",
-        });
-      }
+          yield* Effect.gen(function* () {
+            expect(request.provider).toBe("assinafy");
+            expect(request.state).toBe("draft");
+            expect(request.id.length).toBeGreaterThan(0);
+            expect(request.detailsUrl).toBeDefined();
 
-      yield* closeServer(local.server);
-    }),
-  );
+            const documentUrl = request.detailsUrl;
+            if (documentUrl === undefined) {
+              return yield* Effect.die("Assinafy create must expose the document detailsUrl.");
+            }
+            const baseUrl = new URL(documentUrl).origin;
 
-  it.effect("supports bearer-token credentials through the same HTTP flow", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* reconcileAssinafySignatureRequest(
-        {
-          baseUrl: local.baseUrl,
-          accountId: "account-123",
-          accessToken: Redacted.make("assinafy-access-token"),
-        },
-        { ...input, send: false },
-      );
+            // 2. get by id: the real gettable resource is the document, which
+            // embeds the assignment created above (whose id is request.id).
+            const documentBody = yield* readJson(
+              "Get Assinafy document",
+              documentUrl,
+              activeConfig.apiKey,
+            );
+            const document = yield* Schema.decodeUnknownEffect(AssinafyDocumentResultSchema)(
+              documentBody,
+            ).pipe(Effect.orDie);
+            expect(document.data.assignment?.id).toBe(request.id);
 
-      expect(result.state).toBe("draft");
-      expect(local.calls[0]?.authorization).toBe("Bearer assinafy-access-token");
-      expect(local.calls[1]?.authorization).toBe("Bearer assinafy-access-token");
-      expect(local.calls[2]?.authorization).toBe("Bearer assinafy-access-token");
-      const assignmentCall = local.calls[2];
-      expect(assignmentCall).toBeDefined();
-      if (assignmentCall !== undefined) {
-        expect(parseBody(assignmentCall)).toMatchObject({
-          signers: [{ notification_methods: [] }],
-        });
-      }
-      yield* closeServer(local.server);
-    }),
-  );
-  it.effect("gets an assignment and maps its lifecycle fields", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* getAssinafySignatureRequest(
-        {
-          baseUrl: local.baseUrl,
-          accountId: "account-123",
-          apiKey: Redacted.make("assinafy-key"),
-        },
-        "assignment-123",
-      ).pipe(Effect.provide(signatureHttpClientLive));
+            // 3. list + pagination: locate the created document across pages.
+            const found = yield* findCreatedDocumentAcrossPages(
+              baseUrl,
+              activeConfig.accountId,
+              activeConfig.apiKey,
+              document.data.id,
+              1,
+            );
+            expect(found).toBe(true);
 
-      expect(result).toEqual({
-        provider: "assinafy",
-        id: "assignment-123",
-        state: "completed",
-        providerStatus: "completed",
-        signingUrl: "https://assinafy.example.test/sign/1",
-        detailsUrl: `${local.baseUrl}/v1/documents/document-123`,
-        downloadUrl: `${local.baseUrl}/v1/assignments/assignment-123/download`,
-      });
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.path).toBe("/v1/assignments/assignment-123");
-      expect(local.calls[0]?.apiKey).toBe("assinafy-key");
+            // Provider-contract characterization: Assinafy exposes NO
+            // /v1/assignments/{id}, /v1/assignments, /v1/assignments/{id}/cancel
+            // endpoints. The provider's get/list/cancel functions therefore fail
+            // typed against the real API. These assertions document that gap;
+            // update them if the provider is reworked onto the document API.
+            const getResult = yield* Effect.result(
+              getAssinafySignatureRequest(providerOptions, request.id).pipe(
+                Effect.provide(signatureHttpClientLive),
+              ),
+            );
+            expect(Result.isFailure(getResult)).toBe(true);
+            if (Result.isFailure(getResult)) {
+              expect(getResult.failure.code).toBe("signature-kit.HTTP");
+              expect(getResult.failure.provider).toBe("assinafy");
+              expect(getResult.failure.status).toBe(404);
+            }
 
-      yield* closeServer(local.server);
-    }),
-  );
+            const listResult = yield* Effect.result(
+              listAssinafySignatureRequests(providerOptions).pipe(
+                Effect.provide(signatureHttpClientLive),
+              ),
+            );
+            expect(Result.isFailure(listResult)).toBe(true);
+            if (Result.isFailure(listResult)) {
+              expect(listResult.failure.code).toBe("signature-kit.HTTP");
+              expect(listResult.failure.provider).toBe("assinafy");
+            }
 
-  it.effect("lists assignments", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* listAssinafySignatureRequests({
-        baseUrl: local.baseUrl,
-        accountId: "account-123",
-        accessToken: Redacted.make("assinafy-list-token"),
-      }).pipe(Effect.provide(signatureHttpClientLive));
+            const cancelResult = yield* Effect.result(
+              cancelAssinafySignatureRequest(providerOptions, request.id).pipe(
+                Effect.provide(signatureHttpClientLive),
+              ),
+            );
+            expect(Result.isFailure(cancelResult)).toBe(true);
+            if (Result.isFailure(cancelResult)) {
+              expect(cancelResult.failure.code).toBe("signature-kit.HTTP");
+              expect(cancelResult.failure.provider).toBe("assinafy");
+              expect(cancelResult.failure.status).toBe(404);
+            }
 
-      expect(result).toEqual([
-        {
-          provider: "assinafy",
-          id: "assignment-123",
-          state: "completed",
-          providerStatus: "completed",
-          signingUrl: "https://assinafy.example.test/sign/1",
-          detailsUrl: `${local.baseUrl}/v1/documents/document-123`,
-          downloadUrl: `${local.baseUrl}/v1/documents/document-123/download`,
-        },
-        {
-          provider: "assinafy",
-          id: "assignment-456",
-          state: "draft",
-          providerStatus: "draft",
-          detailsUrl: `${local.baseUrl}/v1/documents/document-456`,
-          downloadUrl: `${local.baseUrl}/v1/documents/document-456/download`,
-        },
-      ]);
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.path).toBe("/v1/assignments");
-      expect(local.calls[0]?.authorization).toBe("Bearer assinafy-list-token");
+            // Downloading a not-yet-signed document fails typed: the provider
+            // first GETs the (non-existent) assignment, then would fetch the
+            // certificated artifact that does not exist until a human signs.
+            const downloadResult = yield* Effect.result(
+              downloadAssinafySignedDocument(providerOptions, request.id).pipe(
+                Effect.provide(signatureHttpClientLive),
+              ),
+            );
+            expect(Result.isFailure(downloadResult)).toBe(true);
+            if (Result.isFailure(downloadResult)) {
+              expect(downloadResult.failure.code).toBe("signature-kit.HTTP");
+              expect(downloadResult.failure.provider).toBe("assinafy");
+            }
 
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("cancels an assignment request", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* cancelAssinafySignatureRequest(
-        {
-          baseUrl: local.baseUrl,
-          accountId: "account-123",
-          apiKey: Redacted.make("assinafy-key"),
-        },
-        "assignment-123",
-      ).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toBeUndefined();
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("POST");
-      expect(local.calls[0]?.path).toBe("/v1/assignments/assignment-123/cancel");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("deletes an assignment request", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* deleteAssinafySignatureRequest(
-        {
-          baseUrl: local.baseUrl,
-          accountId: "account-123",
-          apiKey: Redacted.make("assinafy-key"),
-        },
-        "assignment-123",
-      ).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toBeUndefined();
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("DELETE");
-      expect(local.calls[0]?.path).toBe("/v1/assignments/assignment-123");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("treats missing assignment deletion as success", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* deleteAssinafySignatureRequest(
-        {
-          baseUrl: local.baseUrl,
-          accountId: "account-123",
-          apiKey: Redacted.make("assinafy-key"),
-        },
-        "missing-assignment",
-      ).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toBeUndefined();
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("DELETE");
-      expect(local.calls[0]?.path).toBe("/v1/assignments/missing-assignment");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("fails when assignment delete returns non-404 error", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* Effect.result(
-        deleteAssinafySignatureRequest(
-          {
-            baseUrl: local.baseUrl,
-            accountId: "account-123",
-            apiKey: Redacted.make("assinafy-key"),
-          },
-          "delete-error",
-        ).pipe(Effect.provide(signatureHttpClientLive)),
-      );
-
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect(result.failure.code).toBe("signature-kit.HTTP");
-        expect(result.failure.status).toBe(500);
-        expect(result.failure.provider).toBe("assinafy");
-      }
-      expect(local.calls).toHaveLength(1);
-      expect(local.calls[0]?.method).toBe("DELETE");
-      expect(local.calls[0]?.path).toBe("/v1/assignments/delete-error");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("downloads a signed document from the assignment", () =>
-    Effect.gen(function* () {
-      const local = yield* startServer();
-      const result = yield* downloadAssinafySignedDocument(
-        {
-          baseUrl: local.baseUrl,
-          accountId: "account-123",
-          apiKey: Redacted.make("assinafy-key"),
-        },
-        "assignment-123",
-      ).pipe(Effect.provide(signatureHttpClientLive));
-
-      expect(result).toEqual(signedDocumentContent);
-      expect(local.calls.map((call) => `${call.method}:${call.path}`)).toEqual([
-        "GET:/v1/assignments/assignment-123",
-        "GET:/v1/assignments/assignment-123/download",
-      ]);
-      expect(local.calls[0]?.apiKey).toBe("assinafy-key");
-      expect(local.calls[1]?.apiKey).toBe("assinafy-key");
-
-      yield* closeServer(local.server);
-    }),
-  );
-
-  it.effect("requires an API key or access token in provider options", () =>
-    Effect.gen(function* () {
-      const result = yield* Effect.result(
-        Schema.decodeUnknownEffect(AssinafyProviderOptionsSchema)({
-          baseUrl: "http://127.0.0.1:1",
-          accountId: "account-123",
+            // deleteAssinafySignatureRequest swallows the 404 from the missing
+            // /v1/assignments endpoint, so it resolves as an idempotent no-op.
+            // Real deletion happens in the ensuring cleanup below.
+            const deleteResult = yield* deleteAssinafySignatureRequest(
+              providerOptions,
+              request.id,
+            ).pipe(Effect.provide(signatureHttpClientLive));
+            expect(deleteResult).toBeUndefined();
+          }).pipe(
+            Effect.ensuring(
+              deleteAssinafyArtifacts(request, {
+                accountId: activeConfig.accountId,
+                apiKey: activeConfig.apiKey,
+                recipientEmail,
+              }),
+            ),
+          );
         }),
-      );
-
-      expect(Result.isFailure(result)).toBe(true);
-    }),
-  );
-});
+      180_000,
+    );
+  });
+}

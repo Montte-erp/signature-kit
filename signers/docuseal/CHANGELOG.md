@@ -5,6 +5,8 @@
 - Deduplicate submitter roles so recipients sharing a role are accepted by DocuSeal.
 - Paginate list results.
 - Total status mapping over exact literals instead of substring matching.
+- Accept JSON `null` for optional URL fields (`combined_document_url`, `embed_src`, etc.) that
+  the real API returns for unsigned submissions, instead of failing response decode.
 
 ## 0.1.0
 
