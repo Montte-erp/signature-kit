@@ -5,14 +5,12 @@ import type {
 } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
 import { reconcileInput } from "../../__tests__/alchemy-provider";
-import { Effect, Redacted, Result, Schema } from "effect";
+import { Effect, Redacted, Schema } from "effect";
 import {
   AssinafySignatureRequest,
   AssinafySignatureRequestProvider,
   assinafyCredentialsLayer,
-  cancelAssinafySignatureRequest,
   deleteAssinafySignatureRequest,
-  downloadAssinafySignedDocument,
   getAssinafySignatureRequest,
   listAssinafySignatureRequests,
   type AssinafyProviderOptions,
@@ -148,10 +146,9 @@ const liveRecipientEmail = (email: string): string => {
   return `${email.slice(0, at)}+signature-kit-${Date.now()}${email.slice(at)}`;
 };
 
-// Cleanup deletes exactly what this run created: the uploaded document (the real
-// deletable resource — deleteAssinafySignatureRequest targets a non-existent
-// /v1/assignments endpoint) and any signer carrying this run's unique recipient
-// email. Idempotent: re-runs create fresh unique emails, so nothing leaks.
+// Cleanup deletes exactly what this run created. Idempotent: provider delete and
+// direct document delete both accept already-deleted documents, and re-runs create
+// fresh unique signer emails so signer cleanup only targets this run's recipient.
 const deleteAssinafyArtifacts = (
   request: RemoteSignatureRequest,
   options: { readonly accountId: string; readonly apiKey: string; readonly recipientEmail: string },
@@ -277,7 +274,6 @@ if (config === undefined) {
 
           yield* Effect.gen(function* () {
             expect(request.provider).toBe("assinafy");
-            expect(request.state).toBe("draft");
             expect(request.id.length).toBeGreaterThan(0);
             expect(request.detailsUrl).toBeDefined();
 
@@ -286,9 +282,18 @@ if (config === undefined) {
               return yield* Effect.die("Assinafy create must expose the document detailsUrl.");
             }
             const baseUrl = new URL(documentUrl).origin;
+            expect(documentUrl).toBe(`${baseUrl}/v1/documents/${request.id}`);
 
-            // 2. get by id: the real gettable resource is the document, which
-            // embeds the assignment created above (whose id is request.id).
+            // 2. get by document id: the provider maps the real document resource
+            // and its embedded assignment into RemoteSignatureRequest.
+            const fetched = yield* getAssinafySignatureRequest(providerOptions, request.id).pipe(
+              Effect.provide(signatureHttpClientLive),
+            );
+            expect(fetched.id).toBe(request.id);
+            expect(fetched.provider).toBe("assinafy");
+            expect(fetched.detailsUrl).toBe(documentUrl);
+            expect(fetched.signingUrl).toBeDefined();
+
             const documentBody = yield* readJson(
               "Get Assinafy document",
               documentUrl,
@@ -297,75 +302,27 @@ if (config === undefined) {
             const document = yield* Schema.decodeUnknownEffect(AssinafyDocumentResultSchema)(
               documentBody,
             ).pipe(Effect.orDie);
-            expect(document.data.assignment?.id).toBe(request.id);
+            expect(document.data.id).toBe(request.id);
+            expect(document.data.assignment?.id.length).toBeGreaterThan(0);
 
-            // 3. list + pagination: locate the created document across pages.
+            // 3. list + pagination: the provider pages the real account-scoped
+            // document list until Assinafy returns a short page.
+            const listed = yield* listAssinafySignatureRequests(providerOptions).pipe(
+              Effect.provide(signatureHttpClientLive),
+            );
+            expect(listed.map((listedRequest) => listedRequest.id)).toContain(request.id);
+
             const found = yield* findCreatedDocumentAcrossPages(
               baseUrl,
               activeConfig.accountId,
               activeConfig.apiKey,
-              document.data.id,
+              request.id,
               1,
             );
             expect(found).toBe(true);
 
-            // Provider-contract characterization: Assinafy exposes NO
-            // /v1/assignments/{id}, /v1/assignments, /v1/assignments/{id}/cancel
-            // endpoints. The provider's get/list/cancel functions therefore fail
-            // typed against the real API. These assertions document that gap;
-            // update them if the provider is reworked onto the document API.
-            const getResult = yield* Effect.result(
-              getAssinafySignatureRequest(providerOptions, request.id).pipe(
-                Effect.provide(signatureHttpClientLive),
-              ),
-            );
-            expect(Result.isFailure(getResult)).toBe(true);
-            if (Result.isFailure(getResult)) {
-              expect(getResult.failure.code).toBe("signature-kit.HTTP");
-              expect(getResult.failure.provider).toBe("assinafy");
-              expect(getResult.failure.status).toBe(404);
-            }
-
-            const listResult = yield* Effect.result(
-              listAssinafySignatureRequests(providerOptions).pipe(
-                Effect.provide(signatureHttpClientLive),
-              ),
-            );
-            expect(Result.isFailure(listResult)).toBe(true);
-            if (Result.isFailure(listResult)) {
-              expect(listResult.failure.code).toBe("signature-kit.HTTP");
-              expect(listResult.failure.provider).toBe("assinafy");
-            }
-
-            const cancelResult = yield* Effect.result(
-              cancelAssinafySignatureRequest(providerOptions, request.id).pipe(
-                Effect.provide(signatureHttpClientLive),
-              ),
-            );
-            expect(Result.isFailure(cancelResult)).toBe(true);
-            if (Result.isFailure(cancelResult)) {
-              expect(cancelResult.failure.code).toBe("signature-kit.HTTP");
-              expect(cancelResult.failure.provider).toBe("assinafy");
-              expect(cancelResult.failure.status).toBe(404);
-            }
-
-            // Downloading a not-yet-signed document fails typed: the provider
-            // first GETs the (non-existent) assignment, then would fetch the
-            // certificated artifact that does not exist until a human signs.
-            const downloadResult = yield* Effect.result(
-              downloadAssinafySignedDocument(providerOptions, request.id).pipe(
-                Effect.provide(signatureHttpClientLive),
-              ),
-            );
-            expect(Result.isFailure(downloadResult)).toBe(true);
-            if (Result.isFailure(downloadResult)) {
-              expect(downloadResult.failure.code).toBe("signature-kit.HTTP");
-              expect(downloadResult.failure.provider).toBe("assinafy");
-            }
-
-            // deleteAssinafySignatureRequest swallows the 404 from the missing
-            // /v1/assignments endpoint, so it resolves as an idempotent no-op.
-            // Real deletion happens in the ensuring cleanup below.
+            // 4. delete by document id: the real deletable resource is the
+            // document. The ensuring cleanup below repeats deletion safely.
             const deleteResult = yield* deleteAssinafySignatureRequest(
               providerOptions,
               request.id,
