@@ -1,13 +1,19 @@
 import { describe, expect, it } from "@effect/vitest";
+import * as asn1js from "asn1js";
+import * as pkijs from "pkijs";
+import { vi } from "vitest";
 import { buildSignedAttributes } from "../src/attributes";
 import {
   CmsHashAlgorithmValue,
   CmsOid,
+  CmsVerifyResultSchema,
   TimestampOptionsSchema,
   hashAlgorithmOid,
   webCryptoHashName,
 } from "../src/config";
-import { Effect, Schema } from "effect";
+import { toArrayBuffer } from "../src/engine";
+import { requestTimestamp } from "../src/timestamp";
+import { Effect, Result, Schema } from "effect";
 
 const containsBytes = (haystack: Uint8Array, needle: Uint8Array): boolean => {
   if (needle.length === 0) return true;
@@ -20,6 +26,51 @@ const containsBytes = (haystack: Uint8Array, needle: Uint8Array): boolean => {
     if (matched) return true;
   }
   return false;
+};
+
+const timestampResponse = (
+  requestDer: Uint8Array,
+  overrideImprint: Uint8Array | null,
+): Uint8Array => {
+  const requestSchema = asn1js.fromBER(toArrayBuffer(requestDer));
+  const request = new pkijs.TimeStampReq({ schema: requestSchema.result });
+  const hashedMessage =
+    overrideImprint === null
+      ? request.messageImprint.hashedMessage
+      : new asn1js.OctetString({ valueHex: toArrayBuffer(overrideImprint) });
+  const tstInfoBase = {
+    version: 1,
+    policy: "1.2.3.4",
+    messageImprint: new pkijs.MessageImprint({
+      hashAlgorithm: request.messageImprint.hashAlgorithm,
+      hashedMessage,
+    }),
+    serialNumber: new asn1js.Integer({ value: 1 }),
+    genTime: new Date("2026-01-02T03:04:05Z"),
+  };
+  const tstInfo = new pkijs.TSTInfo(
+    request.nonce === undefined ? tstInfoBase : { ...tstInfoBase, nonce: request.nonce },
+  );
+  const signed = new pkijs.SignedData({
+    version: 3,
+    encapContentInfo: new pkijs.EncapsulatedContentInfo({
+      eContentType: "1.2.840.113549.1.9.16.1.4",
+      eContent: new asn1js.OctetString({ valueHex: tstInfo.toSchema().toBER(false) }),
+    }),
+    signerInfos: [],
+  });
+  const token = new pkijs.ContentInfo({
+    contentType: pkijs.ContentInfo.SIGNED_DATA,
+    content: signed.toSchema(true),
+  });
+  return new Uint8Array(
+    new pkijs.TimeStampResp({
+      status: new pkijs.PKIStatusInfo({ status: pkijs.PKIStatus.granted }),
+      timeStampToken: token,
+    })
+      .toSchema()
+      .toBER(false),
+  );
 };
 
 describe("CMS contracts", () => {
@@ -64,6 +115,22 @@ describe("CMS contracts", () => {
     expect(containsBytes(encoded, certificateSha256)).toBe(true);
   });
 
+  it("uses GeneralizedTime for signingTime values from 2050 onward", () => {
+    const before2050 = buildSignedAttributes({
+      messageDigest: new Uint8Array(32).fill(0x11),
+      certificateSha256: new Uint8Array(32).fill(0x22),
+      signingTime: new Date("2049-12-31T23:59:59Z"),
+    }).find((attribute) => attribute.type === CmsOid.signingTime);
+    const from2050 = buildSignedAttributes({
+      messageDigest: new Uint8Array(32).fill(0x11),
+      certificateSha256: new Uint8Array(32).fill(0x22),
+      signingTime: new Date("2050-01-01T00:00:00Z"),
+    }).find((attribute) => attribute.type === CmsOid.signingTime);
+
+    expect(before2050?.values[0]?.idBlock.tagNumber).toBe(23);
+    expect(from2050?.values[0]?.idBlock.tagNumber).toBe(24);
+  });
+
   it("adds ICP-Brasil signature policy attribute when policy metadata is present", () => {
     const policyHash = new Uint8Array(32).fill(0x33);
     const attributes = buildSignedAttributes({
@@ -93,6 +160,76 @@ describe("CMS contracts", () => {
       Effect.map((options) => {
         expect(options.tsaUrl).toContain("timestamp.valid.com.br");
         expect(options.hashAlgorithm).toBe("sha256");
+      }),
+    ),
+  );
+
+  it.effect("binds RFC 3161 timestamp responses to the request imprint and nonce", () =>
+    Effect.gen(function* () {
+      vi.stubGlobal("fetch", (_request: RequestInfo | URL, init?: RequestInit) => {
+        const body = init?.body;
+        if (body instanceof Uint8Array) {
+          return Promise.resolve(
+            new Response(toArrayBuffer(timestampResponse(body, null)), {
+              status: 200,
+              headers: { "content-type": "application/timestamp-reply" },
+            }),
+          );
+        }
+        return Promise.resolve(new Response(new Uint8Array(), { status: 400 }));
+      });
+
+      const token = yield* requestTimestamp({
+        data: new Uint8Array([1, 2, 3]),
+        tsaUrl: "https://tsa.example.test",
+        hashAlgorithm: "sha256",
+      });
+
+      expect(token.byteLength).toBeGreaterThan(0);
+    }).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllGlobals()))),
+  );
+
+  it.effect("rejects RFC 3161 timestamp responses with a different imprint", () =>
+    Effect.gen(function* () {
+      vi.stubGlobal("fetch", (_request: RequestInfo | URL, init?: RequestInit) => {
+        const body = init?.body;
+        if (body instanceof Uint8Array) {
+          return Promise.resolve(
+            new Response(toArrayBuffer(timestampResponse(body, new Uint8Array(32).fill(0xff))), {
+              status: 200,
+              headers: { "content-type": "application/timestamp-reply" },
+            }),
+          );
+        }
+        return Promise.resolve(new Response(new Uint8Array(), { status: 400 }));
+      });
+
+      const result = yield* Effect.result(
+        requestTimestamp({
+          data: new Uint8Array([1, 2, 3]),
+          tsaUrl: "https://tsa.example.test",
+          hashAlgorithm: "sha256",
+        }),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe("cms.TIMESTAMP_ERROR");
+        expect(result.failure.reason).toContain("message imprint");
+      }
+    }).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllGlobals()))),
+  );
+
+  it.effect("makes revocation verification state explicit in CMS verify results", () =>
+    Schema.decodeUnknownEffect(CmsVerifyResultSchema)({
+      valid: true,
+      chainValid: false,
+      revocationStatus: "not_checked",
+      signerSerialNumber: null,
+    }).pipe(
+      Effect.map((result) => {
+        expect(result.chainValid).toBe(false);
+        expect(result.revocationStatus).toBe("not_checked");
       }),
     ),
   );

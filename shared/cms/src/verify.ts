@@ -70,6 +70,7 @@ export const verifyDetachedSignedData = (
 
     const serial = signerSerialHex(signed);
     const checkChain = trustedCerts.length > 0;
+    const hasEmbeddedRevocation = (signed.crls?.length ?? 0) > 0 || (signed.ocsps?.length ?? 0) > 0;
 
     const verification = yield* Effect.tryPromise({
       try: () =>
@@ -78,6 +79,7 @@ export const verifyDetachedSignedData = (
           data: toArrayBuffer(input.content),
           checkChain,
           trustedCerts,
+          passedWhenNotRevValues: false,
           extendedMode: true,
         }),
       catch: (cause) => cause,
@@ -98,7 +100,8 @@ export const verifyDetachedSignedData = (
 
     return {
       valid: verification.signatureVerified === true,
-      chainValid: checkChain ? verification.signerCertificateVerified === true : true,
+      chainValid: checkChain ? verification.signerCertificateVerified === true : false,
+      revocationStatus: checkChain && hasEmbeddedRevocation ? "checked" : "not_checked",
       signerSerialNumber: serial,
     };
   });

@@ -131,6 +131,7 @@ export const parseCertificate = (
       brazilian: extractBrazilianFields(x509.subject.raw, x509.subjectAltName),
       certPem,
       certificateDer: pkcs12.certificate,
+      intermediateCertificates: pkcs12.chain,
       publicKeyDer: x509.publicKeyDer,
       privateKeyPem: Redacted.make(keyPem),
     } satisfies Certificate;
@@ -238,10 +239,9 @@ const detectFileType = (data: Uint8Array): string | null => {
 };
 
 const extractCnpj = (raw: string): string | null => {
-  const labelled = raw.match(/CNPJ[:\s=]+(\d{14})/i);
-  if (labelled?.[1] !== undefined) return labelled[1];
-  const field = raw.match(/(CN|OU)\s*=\s*[^,]*?(\d{14})/);
-  return field?.[2] ?? null;
+  const cnpj = raw.match(/(?:^|[^A-Za-z0-9])(?:CNPJ|2\.16\.76\.1\.3\.3)\s*[:=]\s*([\d./-]+)/i);
+  const digits = cnpj?.[1]?.replace(/\D/g, "") ?? null;
+  return digits !== null && digits.length === 14 ? digits : null;
 };
 
 const extractCpf = (raw: string): string | null => {
@@ -249,8 +249,15 @@ const extractCpf = (raw: string): string | null => {
   return labelled?.[1] ?? null;
 };
 
-const decodeText = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
+const utf16BeDecoder = new TextDecoder("utf-16be");
+const decodeDirectoryValue = (valueNode: Asn1Node): string => {
+  if (valueNode.tag === 0x1e && valueNode.kind === "primitive") {
+    return valueNode.bytes.length === 0 ? "" : utf16BeDecoder.decode(valueNode.bytes);
+  }
+  return valueNode.kind === "primitive" ? decodeText(valueNode.bytes) : "";
+};
 
+const decodeText = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
 const bytesToHex = (bytes: Uint8Array): string => {
   let output = "";
   for (const byte of bytes) {
@@ -298,14 +305,78 @@ const parseName = (
         const oidNode = atav.children[0];
         const valueNode = atav.children[1];
         if (oidNode === undefined || oidNode.kind !== "primitive") continue;
-        if (valueNode === undefined || valueNode.kind !== "primitive") continue;
+        if (valueNode === undefined) continue;
         const oid = yield* oidString(oidNode);
         const short = oidToShortName(oid);
-        if (short !== null) result[short] = decodeText(valueNode.bytes);
+        if (short !== null) result[short] = decodeDirectoryValue(valueNode);
       }
     }
     return result;
   });
+const parseTimeWithZone = (text: string, yearDigits: 2 | 4): Date | null => {
+  const utcTimePattern =
+    yearDigits === 2
+      ? /^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?(?:\.\d+)?(Z|[+-]\d{4})?$/
+      : /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?(?:\.\d+)?(Z|[+-]\d{4})?$/;
+  const match = text.match(utcTimePattern);
+  if (match === null) return null;
+
+  const toNumber = (value: string | undefined): number | null =>
+    value === undefined ? null : Number.parseInt(value, 10);
+
+  const yearRaw = match[1];
+  const monthRaw = match[2];
+  const dayRaw = match[3];
+  const hourRaw = match[4];
+  const minuteRaw = match[5];
+  const secondRaw = match[6];
+  const zoneRaw = match[7];
+
+  if (
+    yearRaw === undefined ||
+    monthRaw === undefined ||
+    dayRaw === undefined ||
+    hourRaw === undefined ||
+    minuteRaw === undefined
+  ) {
+    return null;
+  }
+
+  const month = toNumber(monthRaw);
+  const day = toNumber(dayRaw);
+  const hour = toNumber(hourRaw);
+  const minute = toNumber(minuteRaw);
+  const second = secondRaw === undefined ? 0 : toNumber(secondRaw);
+  if (month === null || day === null || hour === null || minute === null || second === null) {
+    return null;
+  }
+
+  const year =
+    yearDigits === 2
+      ? (() => {
+          const yy = toNumber(yearRaw);
+          return yy === null ? null : yy >= 50 ? 1900 + yy : 2000 + yy;
+        })()
+      : toNumber(yearRaw);
+  if (year === null) return null;
+
+  let offsetMinutes = 0;
+  if (zoneRaw !== undefined && zoneRaw !== "" && zoneRaw !== "Z") {
+    const zoneSign = zoneRaw[0];
+    const zoneHoursText = zoneRaw.substring(1, 3);
+    const zoneMinutesText = zoneRaw.substring(3, 5);
+    const zoneHours = toNumber(zoneHoursText);
+    const zoneMin = toNumber(zoneMinutesText);
+    if (zoneHours === null || zoneMin === null || (zoneSign !== "+" && zoneSign !== "-")) {
+      return null;
+    }
+    const zoneTotal = zoneHours * 60 + zoneMin;
+    offsetMinutes = zoneSign === "+" ? zoneTotal : -zoneTotal;
+  }
+
+  const base = Date.UTC(year, month - 1, day, hour, minute, second, 0);
+  return new Date(base - offsetMinutes * 60_000);
+};
 
 const parseTime = (node: Asn1Node): Effect.Effect<Date, SignatureKitError> => {
   if (node.kind !== "primitive") {
@@ -318,30 +389,24 @@ const parseTime = (node: Asn1Node): Effect.Effect<Date, SignatureKitError> => {
       }),
     );
   }
-  const text = decodeText(node.bytes);
-  const num = (start: number, end: number): number =>
-    Number.parseInt(text.substring(start, end), 10);
-
-  if (node.tag === 23) {
-    const yy = num(0, 2);
-    const fullYear = yy >= 50 ? 1900 + yy : 2000 + yy;
-    return Effect.succeed(
-      new Date(Date.UTC(fullYear, num(2, 4) - 1, num(4, 6), num(6, 8), num(8, 10), num(10, 12))),
+  const text = decodeText(node.bytes).trim();
+  const parsed =
+    node.tag === 23
+      ? parseTimeWithZone(text, 2)
+      : node.tag === 24
+        ? parseTimeWithZone(text, 4)
+        : null;
+  if (parsed === null) {
+    return Effect.fail(
+      new SignatureKitError({
+        code: SignatureKitErrorCodeValue.x509ParseFailed,
+        retryable: false,
+        reason: `Unsupported time format: tag ${node.tag}.`,
+        operation: SignatureKitOperationValue.x509Parse,
+      }),
     );
   }
-  if (node.tag === 24) {
-    return Effect.succeed(
-      new Date(Date.UTC(num(0, 4), num(4, 6) - 1, num(6, 8), num(8, 10), num(10, 12), num(12, 14))),
-    );
-  }
-  return Effect.fail(
-    new SignatureKitError({
-      code: SignatureKitErrorCodeValue.x509ParseFailed,
-      retryable: false,
-      reason: `Unsupported time format: tag ${node.tag}.`,
-      operation: SignatureKitOperationValue.x509Parse,
-    }),
-  );
+  return Effect.succeed(parsed);
 };
 
 const parseValidity = (

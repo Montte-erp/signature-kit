@@ -52,6 +52,7 @@ export const signPdf = (
       content: prepared.signedData,
       signingKey,
       certificateDer: certificate.certificateDer,
+      chainDer: certificate.intermediateCertificates,
       hashAlgorithm,
       signingTime: input.signingTime,
       icpBrasil,

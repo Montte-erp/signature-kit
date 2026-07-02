@@ -150,7 +150,7 @@ const startServer = (options: LocalServerOptions = {}): Effect.Effect<LocalServe
                 envelopeItems: envelopeItemsFromId("envelope-999"),
               },
             ],
-            pagination: {},
+            pagination: { page: 1, perPage: 100, totalPages: 1, totalItems: 1 },
           });
           return;
         }

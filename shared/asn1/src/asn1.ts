@@ -93,14 +93,28 @@ const CLASS_BITS: Record<Asn1Class, number> = {
 type Tlv = { readonly node: Asn1Node; readonly next: number };
 
 const decodeRoot = (data: Uint8Array): Effect.Effect<Asn1Node, Asn1Error> =>
-  data.length === 0
-    ? Effect.fail(
+  Effect.gen(function* () {
+    if (data.length === 0) {
+      return yield* Effect.fail(
         new Asn1Error({
           code: Asn1ErrorCodeValue.decodeError,
           reason: "Cannot decode empty data",
         }),
-      )
-    : Effect.map(decodeTlv(data, 0), (tlv) => tlv.node);
+      );
+    }
+
+    const tlv = yield* decodeTlv(data, 0);
+    if (tlv.next !== data.length) {
+      return yield* Effect.fail(
+        new Asn1Error({
+          code: Asn1ErrorCodeValue.decodeError,
+          reason: "Non-canonical ASN.1 encoding: extra trailing bytes",
+        }),
+      );
+    }
+
+    return tlv.node;
+  });
 
 const decodeTlv = (data: Uint8Array, start: number): Effect.Effect<Tlv, Asn1Error> =>
   Effect.gen(function* () {
@@ -340,6 +354,41 @@ const compareDerBytes = (a: Uint8Array, b: Uint8Array): number => {
   return a.length - b.length;
 };
 
+const decodeBase128Vlq = (
+  data: Uint8Array,
+  start: number,
+): Effect.Effect<{ readonly value: number; readonly next: number }, Asn1Error> =>
+  Effect.gen(function* () {
+    let offset = start;
+    let byte = 0x80;
+    let value = 0;
+    if (offset >= data.length) {
+      return yield* Effect.fail(
+        new Asn1Error({
+          code: Asn1ErrorCodeValue.oidError,
+          reason: "Truncated VLQ in OID",
+        }),
+      );
+    }
+
+    while ((byte & 0x80) !== 0) {
+      byte = data[offset]!;
+      value = value * 128 + (byte & 0x7f);
+      offset += 1;
+
+      if ((byte & 0x80) !== 0 && offset >= data.length) {
+        return yield* Effect.fail(
+          new Asn1Error({
+            code: Asn1ErrorCodeValue.oidError,
+            reason: "Truncated VLQ in OID",
+          }),
+        );
+      }
+    }
+
+    return { value, next: offset };
+  });
+
 const decodeOidBytes = (data: Uint8Array): Effect.Effect<string, Asn1Error> =>
   Effect.gen(function* () {
     if (data.length === 0) {
@@ -351,35 +400,21 @@ const decodeOidBytes = (data: Uint8Array): Effect.Effect<string, Asn1Error> =>
       );
     }
 
+    const first = yield* decodeBase128Vlq(data, 0);
     const components: number[] = [];
-    const firstByte = data[0]!;
-    if (firstByte < 80) {
-      components.push(Math.floor(firstByte / 40));
-      components.push(firstByte % 40);
+    if (first.value < 40) {
+      components.push(0, first.value);
+    } else if (first.value < 80) {
+      components.push(1, first.value - 40);
     } else {
-      components.push(2);
-      components.push(firstByte - 80);
+      components.push(2, first.value - 80);
     }
 
-    let offset = 1;
+    let offset = first.next;
     while (offset < data.length) {
-      let value = 0;
-      let byte = 0x80;
-      while ((byte & 0x80) !== 0) {
-        if (offset >= data.length) {
-          return yield* Effect.fail(
-            new Asn1Error({
-              code: Asn1ErrorCodeValue.oidError,
-              reason: "Truncated VLQ in OID",
-            }),
-          );
-        }
-        byte = data[offset]!;
-        offset++;
-        // Arithmetic, not `<<`: arcs above 2^31 would overflow a signed 32-bit shift.
-        value = value * 128 + (byte & 0x7f);
-      }
-      components.push(value);
+      const component = yield* decodeBase128Vlq(data, offset);
+      components.push(component.value);
+      offset = component.next;
     }
 
     return components.join(".");

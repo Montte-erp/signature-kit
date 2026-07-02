@@ -45,6 +45,7 @@ const input = {
 type CapturedCall = {
   readonly method: string;
   readonly path: string;
+  readonly search: string;
   readonly contentType: string | undefined;
   readonly authToken: string | undefined;
   readonly bodyText: string;
@@ -93,6 +94,7 @@ const startServer = (): Effect.Effect<LocalServer> =>
         const call = {
           method,
           path: url.pathname,
+          search: url.search,
           contentType: headerText(request.headers["content-type"]),
           authToken: headerText(request.headers["x-auth-token"]),
           bodyText,
@@ -119,35 +121,60 @@ const startServer = (): Effect.Effect<LocalServer> =>
           return;
         }
         if (call.path === "/submissions" && method === "GET") {
-          writeJson(response, {
-            data: [
-              {
-                id: 101,
-                status: "draft",
-                submitters: [
-                  { submission_id: 101, sign_url: "https://docuseal.example.test/s/list-101" },
-                ],
-                documents: [{ download_url: `${requestBaseUrl}/documents/101/download` }],
-              },
-              {
-                id: "102",
-                status: "completed",
-                submitters: [
-                  { submission_id: "102", embed_src: "https://docuseal.example.test/s/list-102" },
-                ],
-                combined_document_url: `${requestBaseUrl}/documents/102/combined`,
-              },
-            ],
-          });
+          const after = url.searchParams.get("after");
+          if (after === null) {
+            writeJson(response, {
+              data: [
+                {
+                  id: 101,
+                  status: "draft",
+                  submitters: [
+                    { submission_id: 101, sign_url: "https://docuseal.example.test/s/list-101" },
+                  ],
+                  documents: [{ download_url: `${requestBaseUrl}/documents/101/download` }],
+                },
+              ],
+              pagination: { count: 1, next: 101, prev: null },
+            });
+            return;
+          }
+          if (after === "101") {
+            writeJson(response, {
+              data: [
+                {
+                  id: "102",
+                  status: "completed",
+                  submitters: [
+                    {
+                      submission_id: "102",
+                      embed_src: "https://docuseal.example.test/s/list-102",
+                    },
+                  ],
+                  combined_document_url: `${requestBaseUrl}/documents/102/combined`,
+                },
+              ],
+              pagination: { count: 1, next: null, prev: 101 },
+            });
+            return;
+          }
+          writeJson(response, { data: [], pagination: { count: 0, next: null, prev: null } });
           return;
         }
         if (call.path.startsWith("/submissions/")) {
-          const [, , submissionId, nested] = call.path.split("/");
-          if (submissionId === undefined) {
+          const [, , rawSubmissionId, nested] = call.path.split("/");
+          if (rawSubmissionId === undefined) {
             response.statusCode = 404;
             response.end("not found");
             return;
           }
+
+          const submissionId = (() => {
+            try {
+              return decodeURIComponent(rawSubmissionId);
+            } catch {
+              return rawSubmissionId;
+            }
+          })();
 
           if (method === "GET" && nested === "documents") {
             if (submissionId === "bad-documents") {
@@ -193,12 +220,15 @@ const startServer = (): Effect.Effect<LocalServer> =>
               });
               return;
             }
+            const resolvedSubmissionId = Number.isNaN(Number(submissionId))
+              ? submissionId
+              : Number(submissionId);
             writeJson(response, {
-              id: Number(submissionId),
+              id: resolvedSubmissionId,
               status: "pending",
               submitters: [
                 {
-                  submission_id: Number(submissionId),
+                  submission_id: resolvedSubmissionId,
                   status: "pending",
                   sign_url: "https://docuseal.example.test/s/get",
                 },
@@ -207,12 +237,12 @@ const startServer = (): Effect.Effect<LocalServer> =>
             return;
           }
           if (method === "DELETE") {
-            if (call.path === "/submissions/missing-submission") {
+            if (submissionId === "missing-submission") {
               response.statusCode = 404;
               response.end("not found");
               return;
             }
-            if (call.path === "/submissions/delete-error") {
+            if (submissionId === "delete-error") {
               response.statusCode = 500;
               response.end("internal error");
               return;
@@ -244,7 +274,6 @@ const startServer = (): Effect.Effect<LocalServer> =>
 
     return started.promise;
   });
-
 const closeServer = (server: Server): Effect.Effect<void> =>
   Effect.sync(() => {
     server.closeAllConnections();
@@ -295,6 +324,7 @@ describe("DocuSeal remote signatures", () => {
         expect(call.method).toBe("POST");
         expect(call.path).toBe("/submissions/pdf");
         expect(call.authToken).toBe("docuseal-secret");
+        expect(call.contentType).toBeDefined();
         expect(call.contentType).toContain("application/json");
         expect(parseBody(call)).toEqual({
           name: "Contract",
@@ -384,9 +414,117 @@ describe("DocuSeal remote signatures", () => {
           downloadUrl: `${local.baseUrl}/documents/102/combined`,
         },
       ]);
-      expect(local.calls).toHaveLength(1);
+      expect(local.calls).toHaveLength(2);
       expect(local.calls[0]?.method).toBe("GET");
       expect(local.calls[0]?.path).toBe("/submissions");
+      expect(local.calls[0]?.search).toBe("?limit=100");
+      expect(local.calls[1]?.method).toBe("GET");
+      expect(local.calls[1]?.path).toBe("/submissions");
+      expect(local.calls[1]?.search).toBe("?limit=100&after=101");
+
+      yield* closeServer(local.server);
+    }),
+  );
+
+  it.effect("dedupes submitter roles by adding indexes for duplicates", () =>
+    Effect.gen(function* () {
+      const local = yield* startServer();
+      const duplicateRoleInput = {
+        ...input,
+        recipients: [
+          {
+            name: "Ana Silva",
+            email: "ana@example.com",
+            role: "signer",
+            routingOrder: 0,
+          },
+          {
+            name: "Bruno Lopes",
+            email: "bruno@example.com",
+            role: "signer",
+            routingOrder: 1,
+          },
+          {
+            name: "Carla Mota",
+            email: "carla@example.com",
+            role: "signer",
+            routingOrder: 2,
+          },
+        ],
+      } satisfies RemoteSignatureRequestInput;
+
+      yield* reconcileDocuSealSignatureRequest(
+        {
+          apiKey: Redacted.make("docuseal-secret"),
+          baseUrl: local.baseUrl,
+          sendSms: false,
+        },
+        duplicateRoleInput,
+      );
+      expect(local.calls).toHaveLength(1);
+      const call = local.calls[0];
+      expect(call).toBeDefined();
+      if (call !== undefined) {
+        const body = parseBody(call) as { submitters?: Array<{ role: string }> };
+        expect(body.submitters?.map((submitter) => submitter.role)).toEqual([
+          "signer",
+          "signer (2)",
+          "signer (3)",
+        ]);
+      }
+
+      yield* closeServer(local.server);
+    }),
+  );
+
+  it.effect("encodes submission id path parameters", () =>
+    Effect.gen(function* () {
+      const local = yield* startServer();
+      const encodedId = "42/encoded";
+
+      const readResult = yield* getDocuSealSignatureRequest(
+        {
+          apiKey: Redacted.make("docuseal-secret"),
+          baseUrl: local.baseUrl,
+        },
+        encodedId,
+      ).pipe(Effect.provide(signatureHttpClientLive));
+      expect(readResult).toEqual({
+        provider: "docuseal",
+        id: encodedId,
+        state: "sent",
+        providerStatus: "pending",
+        signingUrl: "https://docuseal.example.test/s/get",
+        detailsUrl: `${local.baseUrl}/submissions/42%2Fencoded`,
+      });
+      expect(local.calls).toHaveLength(1);
+      expect(local.calls[0]?.method).toBe("GET");
+      expect(local.calls[0]?.path).toBe("/submissions/42%2Fencoded");
+
+      const deleteResult = yield* deleteDocuSealSignatureRequest(
+        {
+          apiKey: Redacted.make("docuseal-secret"),
+          baseUrl: local.baseUrl,
+        },
+        encodedId,
+      ).pipe(Effect.provide(signatureHttpClientLive));
+      expect(deleteResult).toBeUndefined();
+
+      const downloadResult = yield* downloadDocuSealSignedDocument(
+        {
+          apiKey: Redacted.make("docuseal-secret"),
+          baseUrl: local.baseUrl,
+        },
+        encodedId,
+      ).pipe(Effect.provide(signatureHttpClientLive));
+      expect(downloadResult).toEqual(signedDocumentContent);
+      expect(local.calls.map((call) => `${call.method}:${call.path}`)).toEqual([
+        "GET:/submissions/42%2Fencoded",
+        "DELETE:/submissions/42%2Fencoded",
+        "GET:/submissions/42%2Fencoded",
+        "GET:/submissions/42%2Fencoded/documents",
+        "GET:/documents/42/encoded/download",
+      ]);
 
       yield* closeServer(local.server);
     }),

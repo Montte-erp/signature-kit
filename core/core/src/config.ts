@@ -98,6 +98,7 @@ export const CertificateSchema = Schema.Struct({
   brazilian: BrazilianFieldsSchema,
   certPem: certificatePem,
   certificateDer: Schema.Uint8Array,
+  intermediateCertificates: Schema.Array(Schema.Uint8Array),
   publicKeyDer: Schema.Uint8Array,
   privateKeyPem: redactedPrivateKeyPem,
 });

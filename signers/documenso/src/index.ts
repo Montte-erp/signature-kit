@@ -16,11 +16,14 @@ import { SignatureHttpClient, normalizedBaseUrl } from "@signature-kit/core/http
 import type { SignatureHttpClientService } from "@signature-kit/core/http";
 import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
-import { Context, Effect, Layer, Redacted, Schema } from "effect";
+import { Context, Effect, Layer, Option, Redacted, Schema, Stream } from "effect";
 
 const PROVIDER: RemoteSignatureProvider = "documenso";
 const DOCUMENSO_PROVIDER_COLLECTION_ID = "@signature-kit/documenso/Providers";
 const DEFAULT_BASE_URL = "https://app.documenso.com/api/v2";
+const DOCUMENSO_LIST_FIRST_PAGE = 1;
+const DOCUMENSO_LIST_PER_PAGE = 100;
+const documensoPathId = (pathParam: string): string => encodeURIComponent(pathParam);
 
 const DocumensoAuthorizationSchemeSchema = Schema.Literals(["raw", "bearer"]);
 export type DocumensoAuthorizationScheme = (typeof DocumensoAuthorizationSchemeSchema)["Type"];
@@ -70,9 +73,16 @@ const DocumensoEnvelopeResultSchema = Schema.Struct({
   envelopeItems: Schema.optional(Schema.Array(DocumensoEnvelopeItemResultSchema)),
 });
 
+const DocumensoEnvelopeListPaginationSchema = Schema.Struct({
+  page: Schema.Number,
+  perPage: Schema.Number,
+  totalPages: Schema.Number,
+  totalItems: Schema.Number,
+});
+
 const DocumensoEnvelopeListResultSchema = Schema.Struct({
   data: Schema.Array(DocumensoEnvelopeResultSchema),
-  pagination: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  pagination: DocumensoEnvelopeListPaginationSchema,
 });
 
 type DocumensoEnvelopeResult = (typeof DocumensoEnvelopeResultSchema)["Type"];
@@ -124,6 +134,40 @@ const requestMeta = (input: RemoteSignatureRequestInput) => ({
   ...(input.message === undefined ? {} : { message: input.message }),
   ...(input.redirectUrl === undefined ? {} : { redirectUrl: input.redirectUrl }),
 });
+
+const documensoNextPage = (
+  pagination: (typeof DocumensoEnvelopeListPaginationSchema)["Type"],
+  currentPage: number,
+): Option.Option<number> =>
+  currentPage >= pagination.totalPages ? Option.none() : Option.some(currentPage + 1);
+
+const shouldSendAuthorizationToUrl = (url: string, baseUrl: string): boolean => {
+  if (!URL.canParse(url, `${baseUrl}/`) || !URL.canParse(baseUrl)) return false;
+  const next = new URL(url, `${baseUrl}/`);
+  const base = new URL(baseUrl);
+  return next.origin === base.origin;
+};
+
+const requestEnvelopeSignedBytes = (
+  http: SignatureHttpClientService,
+  options: DocumensoProviderOptions,
+  baseUrl: string,
+  url: string,
+): Effect.Effect<Uint8Array, SignatureKitError> => {
+  if (shouldSendAuthorizationToUrl(url, baseUrl)) {
+    return http.requestBytes({
+      provider: PROVIDER,
+      method: "GET",
+      url,
+      headers: { Authorization: documensoAuthorization(options) },
+    });
+  }
+  return http.requestBytes({
+    provider: PROVIDER,
+    method: "GET",
+    url,
+  });
+};
 
 const createEnvelopeBody = (input: RemoteSignatureRequestInput): FormData => {
   const formData = new FormData();
@@ -197,7 +241,7 @@ const distributeEnvelope = (
         id: result.id,
         state: "sent",
         providerStatus: result.success ? "distributed" : "not_distributed",
-        detailsUrl: `${baseUrl}/envelope/${result.id}`,
+        detailsUrl: `${baseUrl}/envelope/${documensoPathId(result.id)}`,
         ...(result.recipients[0]?.signingUrl === undefined
           ? {}
           : { signingUrl: result.recipients[0].signingUrl }),
@@ -211,7 +255,9 @@ const mapEnvelopeStatus = (status: string): RemoteSignatureRequest["state"] => {
     case "PROCESSING":
     case "SENT":
       return "sent";
+    case "SIGNED":
     case "COMPLETED":
+    case "CLOSED":
       return "completed";
     case "REJECTED":
     case "DECLINED":
@@ -229,7 +275,8 @@ const mapEnvelopeStatus = (status: string): RemoteSignatureRequest["state"] => {
 };
 
 const envelopeSignedDownloadUrl = (baseUrl: string, envelopeItemId: string): string => {
-  const url = new URL(`${baseUrl}/envelope/item/${envelopeItemId}/download`);
+  const encodedItemId = documensoPathId(envelopeItemId);
+  const url = new URL(`${baseUrl}/envelope/item/${encodedItemId}/download`);
   url.searchParams.set("version", "signed");
   return url.toString();
 };
@@ -255,11 +302,28 @@ const mapEnvelopeToRemoteRequest = (
     id: envelope.id,
     state: mapEnvelopeStatus(envelope.status),
     providerStatus: envelope.status,
-    detailsUrl: `${baseUrl}/envelope/${envelope.id}`,
+    detailsUrl: `${baseUrl}/envelope/${documensoPathId(envelope.id)}`,
     ...(signingUrl === undefined ? {} : { signingUrl }),
     ...(downloadUrl === undefined ? {} : { downloadUrl }),
   };
 };
+
+const fetchEnvelopeResult = (
+  http: SignatureHttpClientService,
+  options: DocumensoProviderOptions,
+  baseUrl: string,
+  id: string,
+): Effect.Effect<DocumensoEnvelopeResult, SignatureKitError> =>
+  http.requestJson(
+    {
+      provider: PROVIDER,
+      method: "GET",
+      url: `${baseUrl}/envelope/${documensoPathId(id)}`,
+      headers: { Authorization: documensoAuthorization(options) },
+    },
+    DocumensoEnvelopeResultSchema,
+    SignatureKitSchemaNameValue.documensoEnvelopeResult,
+  );
 
 const getEnvelope = (
   http: SignatureHttpClientService,
@@ -267,40 +331,43 @@ const getEnvelope = (
   baseUrl: string,
   id: string,
 ): Effect.Effect<RemoteSignatureRequest, SignatureKitError> =>
-  http
-    .requestJson(
-      {
-        provider: PROVIDER,
-        method: "GET",
-        url: `${baseUrl}/envelope/${id}`,
-        headers: { Authorization: documensoAuthorization(options) },
-      },
-      DocumensoEnvelopeResultSchema,
-      SignatureKitSchemaNameValue.documensoEnvelopeResult,
-    )
-    .pipe(Effect.map((result) => mapEnvelopeToRemoteRequest(baseUrl, result)));
+  fetchEnvelopeResult(http, options, baseUrl, id).pipe(
+    Effect.map((result) => mapEnvelopeToRemoteRequest(baseUrl, result)),
+  );
 
 const listEnvelopes = (
   http: SignatureHttpClientService,
   options: DocumensoProviderOptions,
   baseUrl: string,
-): Effect.Effect<RemoteSignatureRequest[], SignatureKitError> =>
-  http
-    .requestJson(
-      {
-        provider: PROVIDER,
-        method: "GET",
-        url: `${baseUrl}/envelope`,
-        headers: { Authorization: documensoAuthorization(options) },
-      },
-      DocumensoEnvelopeListResultSchema,
-      SignatureKitSchemaNameValue.documensoEnvelopeListResult,
-    )
-    .pipe(
-      Effect.map((result) =>
-        result.data.map((envelope) => mapEnvelopeToRemoteRequest(baseUrl, envelope)),
-      ),
-    );
+): Effect.Effect<RemoteSignatureRequest[], SignatureKitError> => {
+  return Stream.paginate(DOCUMENSO_LIST_FIRST_PAGE, (page) => {
+    const url = new URL(`${baseUrl}/envelope`);
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("perPage", String(DOCUMENSO_LIST_PER_PAGE));
+    return http
+      .requestJson(
+        {
+          provider: PROVIDER,
+          method: "GET",
+          url: url.toString(),
+          headers: { Authorization: documensoAuthorization(options) },
+        },
+        DocumensoEnvelopeListResultSchema,
+        SignatureKitSchemaNameValue.documensoEnvelopeListResult,
+      )
+      .pipe(
+        Effect.map(
+          (result): readonly [ReadonlyArray<RemoteSignatureRequest>, Option.Option<number>] => [
+            result.data.map((envelope) => mapEnvelopeToRemoteRequest(baseUrl, envelope)),
+            documensoNextPage(result.pagination, page),
+          ],
+        ),
+      );
+  }).pipe(
+    Stream.runCollect,
+    Effect.map((requests) => requests.flat()),
+  );
+};
 
 const cancelEnvelope = (
   http: SignatureHttpClientService,
@@ -349,14 +416,10 @@ const downloadSignedEnvelopeItem = (
   baseUrl: string,
   envelopeItemId: string,
 ): Effect.Effect<Uint8Array, SignatureKitError> => {
-  const url = new URL(`${baseUrl}/envelope/item/${envelopeItemId}/download`);
+  const encodedItemId = documensoPathId(envelopeItemId);
+  const url = new URL(`${baseUrl}/envelope/item/${encodedItemId}/download`);
   url.searchParams.set("version", "signed");
-  return http.requestBytes({
-    provider: PROVIDER,
-    method: "GET",
-    url: url.toString(),
-    headers: { Authorization: documensoAuthorization(options) },
-  });
+  return requestEnvelopeSignedBytes(http, options, baseUrl, url.toString());
 };
 
 const downloadSignedEnvelopeDocument = (
@@ -365,21 +428,27 @@ const downloadSignedEnvelopeDocument = (
   baseUrl: string,
   envelopeId: string,
 ): Effect.Effect<Uint8Array, SignatureKitError> =>
-  getEnvelope(http, options, baseUrl, envelopeId).pipe(
-    Effect.flatMap((request) =>
-      request.downloadUrl === undefined
-        ? downloadSignedEnvelopeItem(http, options, baseUrl, envelopeId)
-        : http.requestBytes({
+  fetchEnvelopeResult(http, options, baseUrl, envelopeId).pipe(
+    Effect.flatMap((envelope) => {
+      const downloadUrl = envelopeSignedDownloadUrlFromEnvelope(baseUrl, envelope);
+      if (downloadUrl !== undefined) {
+        return requestEnvelopeSignedBytes(http, options, baseUrl, downloadUrl);
+      }
+
+      if (envelope.envelopeItems?.[0]?.id === undefined) {
+        return Effect.fail(
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.responseShape,
+            retryable: false,
             provider: PROVIDER,
-            method: "GET",
-            url: request.downloadUrl,
-            headers: { Authorization: documensoAuthorization(options) },
+            operation: SignatureKitOperationValue.remoteDownload,
+            reason: `Documenso envelope ${envelopeId} has no downloadable item ID.`,
           }),
-    ),
-    Effect.catchIf(
-      (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
-      () => downloadSignedEnvelopeItem(http, options, baseUrl, envelopeId),
-    ),
+        );
+      }
+
+      return downloadSignedEnvelopeItem(http, options, baseUrl, envelope.envelopeItems[0].id);
+    }),
   );
 
 const createRemoteRequest = (
@@ -396,7 +465,7 @@ const createRemoteRequest = (
         id: envelope.id,
         state: "draft",
         providerStatus: "DRAFT",
-        detailsUrl: `${baseUrl}/envelope/${envelope.id}`,
+        detailsUrl: `${baseUrl}/envelope/${documensoPathId(envelope.id)}`,
       });
     }),
   );

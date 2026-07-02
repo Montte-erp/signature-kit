@@ -169,9 +169,13 @@ export const VerifyDetachedSignedDataInputSchema = Schema.Struct({
 });
 export type VerifyDetachedSignedDataInput = (typeof VerifyDetachedSignedDataInputSchema)["Type"];
 
+export const CmsRevocationStatusSchema = Schema.Literals(["checked", "not_checked"]);
+export type CmsRevocationStatus = (typeof CmsRevocationStatusSchema)["Type"];
+
 export const CmsVerifyResultSchema = Schema.Struct({
   valid: Schema.Boolean,
   chainValid: Schema.Boolean,
+  revocationStatus: CmsRevocationStatusSchema,
   signerSerialNumber: Schema.NullOr(Schema.String),
 });
 export type CmsVerifyResult = (typeof CmsVerifyResultSchema)["Type"];

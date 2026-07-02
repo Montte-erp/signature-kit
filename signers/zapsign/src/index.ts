@@ -141,23 +141,30 @@ const signerPayload = (
   ...(input.message === undefined ? {} : { custom_message: input.message }),
   ...(input.redirectUrl === undefined ? {} : { redirect_link: input.redirectUrl }),
 });
+const zapsignPathParam = (id: string): string => encodeURIComponent(id);
 
 const zapSignRequestState = (status: string | undefined): RemoteSignatureRequest["state"] => {
   if (status === undefined) return "sent";
-  const normalized = status.toLowerCase();
-  if (normalized.includes("draft")) return "draft";
-  if (normalized.includes("signed") || normalized.includes("completed")) return "completed";
-  if (
-    normalized.includes("refused") ||
-    normalized.includes("rejected") ||
-    normalized.includes("cancel")
-  ) {
-    return "cancelled";
+  switch (status.toLowerCase()) {
+    case "draft":
+      return "draft";
+    case "signed":
+    case "completed":
+      return "completed";
+    case "declined":
+    case "refused":
+    case "rejected":
+      return "declined";
+    case "cancelled":
+    case "canceled":
+      return "cancelled";
+    case "deleted":
+      return "deleted";
+    case "expired":
+      return "expired";
+    default:
+      return "sent";
   }
-  if (normalized.includes("deleted")) return "deleted";
-  if (normalized.includes("declined")) return "declined";
-  if (normalized.includes("expired")) return "expired";
-  return "sent";
 };
 
 const toRemoteSignatureRequest = (
@@ -245,7 +252,7 @@ const getZapSignSignatureRequestInternal = (
       {
         provider: PROVIDER,
         method: "GET",
-        url: `${baseUrl}/docs/${id}/`,
+        url: `${baseUrl}/docs/${zapsignPathParam(id)}/`,
         headers: {
           Authorization: bearerAuthorization(options.apiToken),
         },
@@ -258,10 +265,25 @@ const getZapSignSignatureRequestInternal = (
 const resolveZapSignListNextUrl = (
   baseUrl: string,
   next: string | null | undefined,
-): string | null =>
-  next === undefined || next === null || next === ""
-    ? null
-    : new URL(next.startsWith("/") ? `${baseUrl}${next}` : next, `${baseUrl}/`).toString();
+): string | null => {
+  if (next === undefined || next === null || next === "") return null;
+  if (URL.canParse(next)) return new URL(next).toString();
+  if (!URL.canParse(baseUrl)) return null;
+
+  const base = new URL(baseUrl);
+  const basePath = base.pathname.endsWith("/") ? base.pathname.slice(0, -1) : base.pathname;
+  let normalizedNext = next.startsWith("/") ? next : `/${next}`;
+  if (
+    basePath !== "" &&
+    normalizedNext !== basePath &&
+    !normalizedNext.startsWith(`${basePath}/`)
+  ) {
+    normalizedNext = `${basePath}${normalizedNext}`;
+  }
+  return URL.canParse(normalizedNext, `${base.origin}/`)
+    ? new URL(normalizedNext, `${base.origin}/`).toString()
+    : null;
+};
 
 const listZapSignSignatureRequestsInternal = (
   http: SignatureHttpClientService,
@@ -331,7 +353,7 @@ const deleteZapSignSignatureRequestInternal = (
     .requestVoid({
       provider: PROVIDER,
       method: "DELETE",
-      url: `${baseUrl}/docs/${id}/`,
+      url: `${baseUrl}/docs/${zapsignPathParam(id)}/`,
       headers: {
         Authorization: bearerAuthorization(options.apiToken),
       },

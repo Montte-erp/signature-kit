@@ -36,6 +36,19 @@ function hashFn(alg: HmacHashAlgorithm, data: Uint8Array): Uint8Array {
   }
 }
 
+const normalizeHmacKey = (alg: HmacHashAlgorithm, key: Uint8Array): Uint8Array => {
+  const blockLength = blockSize(alg);
+  if (key.length <= blockLength) {
+    const normalized = new Uint8Array(blockLength);
+    normalized.set(key);
+    return normalized;
+  }
+  const hashed = hashFn(alg, key);
+  const normalized = new Uint8Array(blockLength);
+  normalized.set(hashed);
+  return normalized;
+};
+
 /**
  * Compute HMAC(key, data) using the specified hash algorithm.
  *
@@ -46,15 +59,7 @@ function hashFn(alg: HmacHashAlgorithm, data: Uint8Array): Uint8Array {
  */
 export function hmac(alg: HmacHashAlgorithm, key: Uint8Array, data: Uint8Array): Uint8Array {
   const B = blockSize(alg);
-
-  // Step 1: If key > block size, hash it; if shorter, pad with zeros.
-  let k: Uint8Array;
-  if (key.length > B) {
-    k = hashFn(alg, key);
-  } else {
-    k = new Uint8Array(B);
-    k.set(key);
-  }
+  const k = normalizeHmacKey(alg, key);
 
   // Step 2: ipad = k XOR 0x36, opad = k XOR 0x5c
   const ipad = new Uint8Array(B);
@@ -101,15 +106,7 @@ export type HmacContext = {
  */
 function createHmacSha256Context(key: Uint8Array): HmacContext {
   const B = 64; // SHA-256 block size
-
-  // Normalize key
-  let k: Uint8Array;
-  if (key.length > B) {
-    k = sha256(key);
-  } else {
-    k = new Uint8Array(B);
-    k.set(key);
-  }
+  const k = normalizeHmacKey("sha256", key);
 
   // Precompute padded ipad and opad blocks
   const ipadBlock = new Uint8Array(B);
@@ -146,13 +143,7 @@ export function createHmac(alg: HmacHashAlgorithm, key: Uint8Array): HmacContext
 
   // Generic fallback: precompute padded ipad/opad (saves XOR and alloc per call)
   const B = blockSize(alg);
-  let k: Uint8Array;
-  if (key.length > B) {
-    k = hashFn(alg, key);
-  } else {
-    k = new Uint8Array(B);
-    k.set(key);
-  }
+  const k = normalizeHmacKey(alg, key);
   const ipad = new Uint8Array(B);
   const opad = new Uint8Array(B);
   for (let i = 0; i < B; i++) {

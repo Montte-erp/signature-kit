@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+- Deduplicate submitter roles so recipients sharing a role are accepted by DocuSeal.
+- Paginate list results.
+- Total status mapping over exact literals instead of substring matching.
+
 ## 0.1.0
 
 - Initial npm-ready release for `@signature-kit/docuseal`.

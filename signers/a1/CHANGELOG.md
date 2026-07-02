@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Redact presigned-URL credentials from error messages when fetching remote PKCS#12 material.
+
 ## 0.1.0
 
 - Initial npm-ready release for `@signature-kit/a1`.

@@ -12,10 +12,19 @@ import {
   XmlSchemaNameValue,
   XmlSigningRequestSchema,
 } from "./config";
-import type { XmlSigningRequest } from "./config";
+import type { XmlCanonicalization, XmlSigningRequest } from "./config";
 import { XmlRuntime } from "./runtime";
 
 const XML_RSA_ALGORITHM_NAME = "RSASSA-PKCS1-v1_5";
+const XML_EXCLUSIVE_CANONICALIZATION_TRANSFORM = "exc-c14n";
+const XML_INCLUSIVE_CANONICALIZATION_TRANSFORM = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315";
+
+const xmlCanonicalizationTransform = (
+  canonicalization: XmlCanonicalization | undefined,
+): "exc-c14n" | "http://www.w3.org/TR/2001/REC-xml-c14n-20010315" =>
+  canonicalization === "inclusive"
+    ? XML_INCLUSIVE_CANONICALIZATION_TRANSFORM
+    : XML_EXCLUSIVE_CANONICALIZATION_TRANSFORM;
 
 const xmlSignatureAlgorithm = (algorithm: SignatureAlgorithm): RsaHashedImportParams => ({
   name: XML_RSA_ALGORITHM_NAME,
@@ -47,13 +56,16 @@ export const signXml = (
     const signingKey = yield* signatures.importSigningKey(algorithm);
 
     const document = yield* xmlRuntime.parse(input.xml);
-
+    const canonicalizationTransform = xmlCanonicalizationTransform(input.canonicalization);
     const reference: OptionsSignReference =
       input.referenceId === undefined
-        ? { hash: xmlDigestAlgorithm(algorithm), transforms: ["enveloped", "exc-c14n"] }
+        ? {
+            hash: xmlDigestAlgorithm(algorithm),
+            transforms: ["enveloped", canonicalizationTransform],
+          }
         : {
             hash: xmlDigestAlgorithm(algorithm),
-            transforms: ["enveloped", "exc-c14n"],
+            transforms: ["enveloped", canonicalizationTransform],
             uri: `#${input.referenceId}`,
           };
 

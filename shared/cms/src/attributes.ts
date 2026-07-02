@@ -30,7 +30,11 @@ const messageDigestAttribute = (messageDigest: Uint8Array): pkijs.Attribute =>
 const signingTimeAttribute = (signingTime: Date): pkijs.Attribute =>
   new pkijs.Attribute({
     type: CmsOid.signingTime,
-    values: [new asn1js.UTCTime({ valueDate: signingTime })],
+    values: [
+      signingTime.getUTCFullYear() >= 2050
+        ? new asn1js.GeneralizedTime({ valueDate: signingTime })
+        : new asn1js.UTCTime({ valueDate: signingTime }),
+    ],
   });
 
 /**

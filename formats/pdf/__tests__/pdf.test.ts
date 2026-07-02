@@ -241,7 +241,9 @@ describe("PDF signatures", () => {
 
       expect(signed.byteLength).toBeGreaterThan(pdf.byteLength);
       expect(verification.valid).toBe(true);
-      expect(verification.chainValid).toBe(true);
+      // No trustedRoots supplied, so the ICP-Brasil chain is intentionally not
+      // validated; chainValid is honestly false rather than a blanket true.
+      expect(verification.chainValid).toBe(false);
       expect(verification.signatureCount).toBe(1);
       expect(verification.byteRange[0]).toBe(0);
       expect(tampered.valid).toBe(false);
@@ -280,7 +282,8 @@ describe("PDF signatures", () => {
 
       expect(personSigned.byteLength).toBeGreaterThan(companySigned.byteLength);
       expect(verification.valid).toBe(true);
-      expect(verification.chainValid).toBe(true);
+      // No trustedRoots supplied: chain intentionally unverified (see above).
+      expect(verification.chainValid).toBe(false);
       expect(verification.signatureCount).toBe(2);
     }),
   );

@@ -304,6 +304,15 @@ export const a1SignaturesLayer = (
 // locally with the Redacted password.
 // ---------------------------------------------------------------------------
 
+const redactPresignedUrl = (url: string): string => {
+  if (!URL.canParse(url)) return "<redacted>";
+  const sanitized = new URL(url);
+  for (const key of sanitized.searchParams.keys()) {
+    sanitized.searchParams.set(key, "<redacted>");
+  }
+  return sanitized.toString();
+};
+
 /** Fetch the A1 PKCS#12 (.pfx) bytes from a (presigned) URL via a GET. */
 export const fetchA1Pkcs12 = (
   source: A1RemoteFetch,
@@ -325,6 +334,7 @@ export const fetchA1Pkcs12 = (
           .requestBytes({
             method: "GET",
             url: valid.url,
+            diagnosticUrl: redactPresignedUrl(valid.url),
             ...(valid.headers === undefined ? {} : { headers: valid.headers }),
           })
           .pipe(
