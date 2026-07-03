@@ -374,6 +374,14 @@ const deleteClicksignSignatureRequestInternal = (
       ),
     );
 
+const shouldRollbackClicksignCreate = (error: SignatureKitError): boolean =>
+  error.code === SignatureKitErrorCodeValue.http &&
+  error.status !== undefined &&
+  error.status >= 400 &&
+  error.status < 500 &&
+  error.status !== 408 &&
+  error.status !== 429;
+
 const isAbsoluteHttpUrl = (value: string): boolean =>
   value.startsWith("http://") || value.startsWith("https://");
 
@@ -393,10 +401,13 @@ const clicksignDownloadTarget = (
     return withAccessToken(baseUrl, clicksignDownloadPath(downloadUrl), accessToken);
   }
   if (!isClicksignDownloadHost(baseUrl, downloadUrl)) return { url: downloadUrl };
-
   const parsed = new URL(downloadUrl);
-  if (parsed.searchParams.has("access_token"))
-    return { url: downloadUrl, diagnosticUrl: downloadUrl };
+
+  if (parsed.searchParams.has("access_token")) {
+    const diagnosticUrl = new URL(downloadUrl);
+    diagnosticUrl.searchParams.set("access_token", "<redacted>");
+    return { url: downloadUrl, diagnosticUrl: diagnosticUrl.toString() };
+  }
   const targetUrl = new URL(downloadUrl);
   const diagnosticUrl = new URL(downloadUrl);
   targetUrl.searchParams.set("access_token", Redacted.value(accessToken));
@@ -648,10 +659,12 @@ const createClicksignSignatureRequest = (
               ).pipe(Effect.as({ documentKey })),
         ),
         Effect.catch((error) =>
-          deleteClicksignSignatureRequestInternal(http, options, baseUrl, documentKey).pipe(
-            Effect.catch(() => Effect.void),
-            Effect.flatMap(() => Effect.fail(error)),
-          ),
+          shouldRollbackClicksignCreate(error)
+            ? deleteClicksignSignatureRequestInternal(http, options, baseUrl, documentKey).pipe(
+                Effect.catch(() => Effect.void),
+                Effect.flatMap(() => Effect.fail(error)),
+              )
+            : Effect.fail(error),
         ),
       ),
     ),

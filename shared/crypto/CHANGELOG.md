@@ -5,6 +5,8 @@
 - Security: bound PKCS#12 MAC, PBKDF2, and legacy PBE iteration counts at 10M so
   attacker-controlled `.pfx` files cannot pin the event loop before the password
   is checked.
+- Extend hardening coverage across PBES2/PBKDF2 encrypted-data, legacy PBE, and
+  the exact 10M boundary; runtime behavior is unchanged.
 
 ## 0.2.0
 

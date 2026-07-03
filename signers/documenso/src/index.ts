@@ -586,6 +586,14 @@ const downloadSignedEnvelopeDocument = (
     }),
   );
 
+const shouldRollbackDocumensoCreate = (error: SignatureKitError): boolean =>
+  error.code === SignatureKitErrorCodeValue.http &&
+  error.status !== undefined &&
+  error.status >= 400 &&
+  error.status < 500 &&
+  error.status !== 408 &&
+  error.status !== 429;
+
 const createDocumensoEnvelopeRequest = (
   http: SignatureHttpClientService,
   options: DocumensoProviderOptions,
@@ -605,16 +613,12 @@ const createDocumensoEnvelopeRequest = (
       }
       return distributeEnvelope(http, options, baseUrl, input, envelope).pipe(
         Effect.catch((error) =>
-          // A response-shape failure means the distribute call itself succeeded
-          // remotely (recipients may already be notified) — deleting the live
-          // envelope here would destroy real remote state. Only roll back when
-          // the request never took effect.
-          error.code === SignatureKitErrorCodeValue.responseShape
-            ? Effect.fail(error)
-            : deleteEnvelope(http, options, baseUrl, envelope.id).pipe(
+          shouldRollbackDocumensoCreate(error)
+            ? deleteEnvelope(http, options, baseUrl, envelope.id).pipe(
                 Effect.catch(() => Effect.void),
                 Effect.flatMap(() => Effect.fail(error)),
-              ),
+              )
+            : Effect.fail(error),
         ),
       );
     }),

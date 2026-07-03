@@ -688,11 +688,17 @@ export const PdfVerificationRequestSchema = Schema.Struct({
 export type PdfVerificationRequest = (typeof PdfVerificationRequestSchema)["Type"];
 
 export const PdfVerificationResultSchema = Schema.Struct({
+  /**
+   * Cryptographic and byte-range coverage integrity. Without `trustedRoots`,
+   * this does not bind the signer to a trusted chain; supply `trustedRoots` to
+   * make `valid` require `chainValid`.
+   */
   valid: Schema.Boolean,
   chainValid: Schema.Boolean,
   revocationStatus: CmsRevocationStatusSchema,
   signatureCount: Schema.Number,
   byteRange: PdfCoordinateTupleSchema,
+  /** Newest signature's signer serial number. */
   signerSerialNumber: Schema.NullOr(Schema.String),
 });
 export type PdfVerificationResult = (typeof PdfVerificationResultSchema)["Type"];

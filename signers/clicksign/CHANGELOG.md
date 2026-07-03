@@ -11,6 +11,13 @@
   absent and download attempts fail as typed `unsupportedOperation` errors.
 - Enable sequential signing only when at least one signer has `routingOrder`, so
   unordered multi-signer requests remain parallel.
+- Redact `access_token` from token-bearing signed-document diagnostic URLs, so
+  typed error reasons never leak provider download secrets.
+- Limit create rollback deletion to unambiguous pre-effect 4xx failures (except
+  408/429); response-shape errors, 5xxs, and timeouts no longer delete possibly
+  live documents.
+- Add offline local-HTTP-server coverage for Clicksign provider behavior in the
+  default test suite.
 
 Breaking: request props now use `ClicksignSignatureRequestProps` with
 `contentBase64` documents, and `getClicksignSignatureRequest` /

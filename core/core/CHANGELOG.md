@@ -7,8 +7,9 @@
   models, and schema names now live in each signer package.
 - Allow `SignatureKitError.provider` and `schemaName` to carry provider-owned
   string values, so HTTP and signer errors can report local provider facts.
-- Fix `x-ratelimit-reset` parsing by treating past-valued numbers as delta seconds
-  while preserving epoch seconds and `retryAfterEpochSeconds` on HTTP failures.
+- Clamp `x-ratelimit-reset` retry hints to a sane window: past epoch values no
+  longer jump decades into the future, out-of-window values are ignored, and the
+  heuristic is covered by tests.
 
 Breaking: `SignatureKitSchemaNameValue`, the remote provider literal catalogs,
 `remote.*` operation values, and the `RemoteSignature*` contracts are no longer

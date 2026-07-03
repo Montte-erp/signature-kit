@@ -23,6 +23,10 @@ const AssinafySchemaName = {
   documentsResult: "AssinafyDocumentsResult",
 } satisfies Record<string, string>;
 
+const AssinafyOperation = {
+  download: "assinafy.download",
+} satisfies Record<string, string>;
+
 const base64String: Schema.ConstraintDecoder<string> = Schema.String.check(Schema.isBase64());
 
 export const AssinafyProviderId = "assinafy";
@@ -470,7 +474,7 @@ const listAssinafySignatureRequestsInternal = (
             Option.Option<number>,
           ] => [
             result.data.map((document) => toAssinafySignatureRequestAttributes(baseUrl, document)),
-            result.data.length < ASSINAFY_LIST_PER_PAGE ? Option.none() : Option.some(page + 1),
+            result.data.length === 0 ? Option.none() : Option.some(page + 1),
           ],
         ),
       );
@@ -525,13 +529,21 @@ const downloadAssinafySignedDocumentInternal = (
             });
       };
       const signedDocumentUrl = request.downloadUrl;
-      if (signedDocumentUrl !== undefined) {
+      if (request.state === "completed" && signedDocumentUrl !== undefined) {
         return requestBytesFromUrl(signedDocumentUrl);
       }
-      if (request.detailsUrl === undefined) {
-        return requestBytesFromUrl(assinafyPath(baseUrl, "v1", "documents", id, "download"));
-      }
-      return requestBytesFromUrl(`${request.detailsUrl}/download`);
+      return Effect.fail(
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.unsupportedOperation,
+          retryable: false,
+          provider: PROVIDER,
+          operation: AssinafyOperation.download,
+          reason:
+            request.state === "completed"
+              ? `Assinafy document ${id} has no certificated artifact; the signed document does not exist yet.`
+              : `Assinafy document ${id} is not completed yet (state: ${request.state}); the signed document does not exist yet.`,
+        }),
+      );
     }),
   );
 

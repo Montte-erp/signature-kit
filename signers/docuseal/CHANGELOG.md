@@ -9,6 +9,8 @@
   document.
 - Advertise `downloadUrl` only for completed submissions, because draft
   submission document URLs can point at unsigned bytes.
+- Add offline local-HTTP-server coverage for DocuSeal provider behavior in the
+  default test suite.
 
 Breaking: request props now use `DocuSealSubmissionProps` with `contentBase64`
 documents, and `getDocuSealSignatureRequest` / `listDocuSealSignatureRequests`

@@ -6,10 +6,12 @@
   and retained no-op diff instead of using core remote-signature contracts.
 - Treat failed envelope distribution as still `draft` with `not_distributed`
   provider status instead of reporting it as sent.
-- Avoid deleting a live envelope when distribution response-shape decoding fails;
-  rollback deletion now runs only for failures where the request did not take
-  remote effect.
+- Limit distribute rollback deletion to unambiguous pre-effect 4xx failures
+  (except 408/429); response-shape errors, 5xxs, and timeouts no longer delete
+  possibly live envelopes.
 - Accept missing recipient `signingUrl` values in create, get, and list responses.
+- Add offline local-HTTP-server coverage for Documenso provider behavior in the
+  default test suite.
 
 Breaking: request props now use `DocumensoEnvelopeProps` with `contentBase64`
 documents, and `getDocumensoSignatureRequest` / `listDocumensoSignatureRequests`

@@ -1,7 +1,7 @@
 import type { CmsError } from "@signature-kit/cms/config";
 import { verifyDetachedSignedData } from "@signature-kit/cms/verify";
 import { Effect } from "effect";
-import { extractPdfSignatures } from "./byte-range";
+import { extractPdfSignatureAtOffset, findPdfByteRangeOffsets } from "./byte-range";
 import { PdfError } from "./config";
 import type { PdfVerificationRequest, PdfVerificationResult } from "./config";
 
@@ -9,24 +9,29 @@ export const verifyPdf = (
   input: PdfVerificationRequest,
 ): Effect.Effect<PdfVerificationResult, PdfError | CmsError> =>
   Effect.gen(function* () {
-    const signatures = yield* extractPdfSignatures(input.pdf);
+    const offsets = yield* findPdfByteRangeOffsets(input.pdf);
 
     // Every signed range must start at byte 0, and the newest signature must
     // reach the end of the file — bytes appended after the signed range would
     // otherwise change what renders without invalidating the signature
     // (signature-exclusion forgery). Earlier signatures legitimately cover a
     // prefix: each one signed the file as it existed at that revision.
-    const newest = signatures[signatures.length - 1];
-    let coverageValid = newest !== undefined && newest.coversFileEnd;
+    let coverageValid = true;
     let cryptoValid = true;
     let chainValid = true;
-    let lastResult: {
-      revocationStatus: PdfVerificationResult["revocationStatus"];
-      signerSerialNumber: PdfVerificationResult["signerSerialNumber"];
-    } = { revocationStatus: "not_checked", signerSerialNumber: null };
+    let revocationStatus: PdfVerificationResult["revocationStatus"] = "checked";
+    let signerSerialNumber: PdfVerificationResult["signerSerialNumber"] = null;
+    let byteRange: PdfVerificationResult["byteRange"] = [0, 0, 0, 0];
+    let index = 0;
 
-    for (const extracted of signatures) {
+    for (const offset of offsets) {
+      index += 1;
+      const extracted = yield* extractPdfSignatureAtOffset(input.pdf, offset, offsets.length);
       if (!extracted.startsAtZero) coverageValid = false;
+      if (index === offsets.length) {
+        if (!extracted.coversFileEnd) coverageValid = false;
+        byteRange = extracted.byteRange;
+      }
       const cmsResult = yield* verifyDetachedSignedData({
         cms: extracted.signature,
         content: extracted.signedData,
@@ -34,18 +39,18 @@ export const verifyPdf = (
       });
       if (!cmsResult.valid) cryptoValid = false;
       if (!cmsResult.chainValid) chainValid = false;
-      lastResult = {
-        revocationStatus: cmsResult.revocationStatus,
-        signerSerialNumber: cmsResult.signerSerialNumber,
-      };
+      if (cmsResult.revocationStatus === "not_checked") revocationStatus = "not_checked";
+      signerSerialNumber = cmsResult.signerSerialNumber;
     }
 
+    const valid = cryptoValid && coverageValid && (input.trustedRoots === undefined || chainValid);
+
     return {
-      valid: cryptoValid && coverageValid,
+      valid,
       chainValid,
-      revocationStatus: lastResult.revocationStatus,
-      signatureCount: signatures.length,
-      byteRange: newest?.byteRange ?? [0, 0, 0, 0],
-      signerSerialNumber: lastResult.signerSerialNumber,
+      revocationStatus,
+      signatureCount: offsets.length,
+      byteRange,
+      signerSerialNumber,
     };
   });

@@ -8,6 +8,8 @@
   the raw unsigned PDF.
 - Expose `downloadUrl` only from ZapSign's `signed_file` value, so callers no
   longer receive an unsigned PDF URL as the signed artifact.
+- Add offline local-HTTP-server coverage for ZapSign provider behavior in the
+  default test suite.
 
 Breaking: request props now use `ZapSignDocumentProps` with a single
 `application/pdf` document tuple and `contentBase64`, and

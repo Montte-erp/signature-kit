@@ -6,18 +6,17 @@ import {
   hexToBytes,
   indexOfByte,
   indexOfBytes,
-  lastIndexOfBytes,
   replaceRange,
   trimTrailingZeroHex,
 } from "./bytes";
 import { PdfError, PdfErrorCodeValue, PdfOperationValue } from "./config";
 
-const BYTE_RANGE_PREFIX = encodeAscii("/ByteRange [");
+const BYTE_RANGE_NAME = encodeAscii("/ByteRange");
 const CONTENTS_PREFIX = encodeAscii("/Contents");
 const LEFT_ANGLE = 0x3c;
 const RIGHT_ANGLE = 0x3e;
+const LEFT_BRACKET = 0x5b;
 const RIGHT_BRACKET = 0x5d;
-
 export const PdfByteRangeSchema = Schema.Tuple([
   Schema.Number,
   Schema.Number,
@@ -49,16 +48,52 @@ export const ExtractedPdfSignatureSchema = Schema.Struct({
 });
 export type ExtractedPdfSignature = (typeof ExtractedPdfSignatureSchema)["Type"];
 
+const isPdfWhitespaceByte = (byte: number | undefined): boolean =>
+  byte === 0x00 ||
+  byte === 0x09 ||
+  byte === 0x0a ||
+  byte === 0x0c ||
+  byte === 0x0d ||
+  byte === 0x20;
+
+const skipPdfWhitespace = (pdf: Uint8Array, offset: number): number => {
+  let current = offset;
+  while (current < pdf.byteLength && isPdfWhitespaceByte(pdf[current])) current += 1;
+  return current;
+};
+
+const isByteRangeArrayAt = (pdf: Uint8Array, offset: number): boolean =>
+  pdf[skipPdfWhitespace(pdf, offset + BYTE_RANGE_NAME.byteLength)] === LEFT_BRACKET;
+
 const findByteRangeOffsets = (pdf: Uint8Array): Array<number> => {
   const offsets: Array<number> = [];
   let offset = 0;
   while (offset < pdf.byteLength) {
-    const found = indexOfBytes(pdf, BYTE_RANGE_PREFIX, offset);
+    const found = indexOfBytes(pdf, BYTE_RANGE_NAME, offset);
     if (found === -1) return offsets;
-    offsets.push(found);
-    offset = found + BYTE_RANGE_PREFIX.byteLength;
+    if (isByteRangeArrayAt(pdf, found)) offsets.push(found);
+    offset = found + BYTE_RANGE_NAME.byteLength;
   }
   return offsets;
+};
+
+export const hasPdfByteRange = (pdf: Uint8Array): boolean => findByteRangeOffsets(pdf).length > 0;
+
+export const findPdfByteRangeOffsets = (
+  pdf: Uint8Array,
+): Effect.Effect<ReadonlyArray<number>, PdfError> => {
+  const offsets = findByteRangeOffsets(pdf);
+  if (offsets.length === 0) {
+    return Effect.fail(
+      new PdfError({
+        code: PdfErrorCodeValue.placeholderNotFound,
+        retryable: false,
+        reason: "Failed to locate /ByteRange.",
+        operation: PdfOperationValue.verify,
+      }),
+    );
+  }
+  return Effect.succeed(offsets);
 };
 
 const parseByteRangeAt = (
@@ -99,7 +134,8 @@ const parseByteRangeAt = (
 export const preparePdfByteRange = (
   pdf: Uint8Array,
 ): Effect.Effect<PreparedPdfSignature, PdfError> => {
-  const byteRangeStart = lastIndexOfBytes(pdf, BYTE_RANGE_PREFIX);
+  const byteRangeOffsets = findByteRangeOffsets(pdf);
+  const byteRangeStart = byteRangeOffsets[byteRangeOffsets.length - 1] ?? -1;
   if (byteRangeStart === -1) {
     return Effect.fail(
       new PdfError({
@@ -206,7 +242,45 @@ const derSequenceTotalLength = (bytes: Uint8Array): number | undefined => {
   return total <= bytes.byteLength ? total : undefined;
 };
 
-const extractPdfSignatureAt = (
+const isHexCharacterCode = (code: number): boolean =>
+  (code >= 0x30 && code <= 0x39) ||
+  (code >= 0x41 && code <= 0x46) ||
+  (code >= 0x61 && code <= 0x66);
+
+const decodeSignatureHex = (hex: string): Effect.Effect<Uint8Array, PdfError> => {
+  if (hex.length % 2 !== 0) {
+    return Effect.fail(
+      new PdfError({
+        code: PdfErrorCodeValue.placeholderNotFound,
+        retryable: false,
+        reason: "Malformed signature /Contents hex.",
+        operation: PdfOperationValue.verify,
+      }),
+    );
+  }
+  for (let index = 0; index < hex.length; index += 1) {
+    if (!isHexCharacterCode(hex.charCodeAt(index))) {
+      return Effect.fail(
+        new PdfError({
+          code: PdfErrorCodeValue.placeholderNotFound,
+          retryable: false,
+          reason: "Malformed signature /Contents hex.",
+          operation: PdfOperationValue.verify,
+        }),
+      );
+    }
+  }
+  return Effect.succeed(hexToBytes(hex));
+};
+
+const hasOnlyZeroBytesFrom = (bytes: Uint8Array, offset: number): boolean => {
+  for (let index = offset; index < bytes.byteLength; index += 1) {
+    if (bytes[index] !== 0) return false;
+  }
+  return true;
+};
+
+export const extractPdfSignatureAtOffset = (
   pdf: Uint8Array,
   byteRangeStart: number,
   signatureCount: number,
@@ -233,9 +307,13 @@ const extractPdfSignatureAt = (
       pdf.subarray(byteRange[0], byteRange[0] + byteRange[1]),
       pdf.subarray(byteRange[2], byteRange[2] + byteRange[3]),
     ]);
-    const signatureHexStart = byteRange[0] + byteRange[1] + 1;
-    const signatureHexEnd = byteRange[2] - 1;
-    if (signatureHexStart >= signatureHexEnd) {
+    const contentsStart = byteRange[0] + byteRange[1];
+    const contentsEnd = byteRange[2] - 1;
+    if (
+      contentsStart >= contentsEnd ||
+      pdf[contentsStart] !== LEFT_ANGLE ||
+      pdf[contentsEnd] !== RIGHT_ANGLE
+    ) {
       return yield* Effect.fail(
         new PdfError({
           code: PdfErrorCodeValue.placeholderNotFound,
@@ -245,11 +323,24 @@ const extractPdfSignatureAt = (
         }),
       );
     }
-    const paddedSignature = hexToBytes(asciiSlice(pdf, signatureHexStart, signatureHexEnd));
+    const signatureHexStart = contentsStart + 1;
+    const signatureHexEnd = contentsEnd;
+    const signatureHex = asciiSlice(pdf, signatureHexStart, signatureHexEnd);
+    const paddedSignature = yield* decodeSignatureHex(signatureHex);
     const derLength = derSequenceTotalLength(paddedSignature);
+    if (derLength !== undefined && !hasOnlyZeroBytesFrom(paddedSignature, derLength)) {
+      return yield* Effect.fail(
+        new PdfError({
+          code: PdfErrorCodeValue.placeholderNotFound,
+          retryable: false,
+          reason: "Non-zero bytes after DER signature contents.",
+          operation: PdfOperationValue.verify,
+        }),
+      );
+    }
     const signature =
       derLength === undefined
-        ? hexToBytes(trimTrailingZeroHex(asciiSlice(pdf, signatureHexStart, signatureHexEnd)))
+        ? yield* decodeSignatureHex(trimTrailingZeroHex(signatureHex))
         : paddedSignature.subarray(0, derLength);
     return {
       byteRange,
@@ -266,19 +357,9 @@ export const extractPdfSignatures = (
   pdf: Uint8Array,
 ): Effect.Effect<ReadonlyArray<ExtractedPdfSignature>, PdfError> =>
   Effect.gen(function* () {
-    const offsets = findByteRangeOffsets(pdf);
-    if (offsets.length === 0) {
-      return yield* Effect.fail(
-        new PdfError({
-          code: PdfErrorCodeValue.placeholderNotFound,
-          retryable: false,
-          reason: "Failed to locate /ByteRange.",
-          operation: PdfOperationValue.verify,
-        }),
-      );
-    }
+    const offsets = yield* findPdfByteRangeOffsets(pdf);
     return yield* Effect.forEach(offsets, (offset) =>
-      extractPdfSignatureAt(pdf, offset, offsets.length),
+      extractPdfSignatureAtOffset(pdf, offset, offsets.length),
     );
   });
 

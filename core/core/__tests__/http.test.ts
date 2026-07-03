@@ -45,6 +45,16 @@ const startServer = (): Effect.Effect<LocalServer> =>
         response.write("ignored");
         return;
       }
+      if (url.pathname === "/ratelimit-reset") {
+        const reset = url.searchParams.get("reset");
+        response.statusCode = 429;
+        response.setHeader("Content-Type", "text/plain");
+        if (reset !== null) {
+          response.setHeader("x-ratelimit-reset", reset);
+        }
+        response.end("rate limited");
+        return;
+      }
       response.statusCode = 503;
       response.setHeader("Content-Type", "text/plain");
       response.end("provider down");
@@ -110,6 +120,119 @@ describe("SignatureHttpClient", () => {
         expect(result.failure.status).toBe(503);
         expect(result.failure.retryable).toBe(true);
       }
+      yield* closeServer(local.server);
+    }),
+  );
+
+  it.effect("parses small x-ratelimit-reset values as delta seconds", () =>
+    Effect.gen(function* () {
+      const local = yield* startServer();
+      const requestStartedAt = Math.floor(Date.now() / 1000);
+      const result = yield* Effect.result(
+        SignatureHttpClient.use((http) =>
+          http.requestJson(
+            { method: "GET", url: `${local.baseUrl}/ratelimit-reset?reset=7` },
+            JsonResponseSchema,
+            "JsonResponse",
+          ),
+        ).pipe(Effect.provide(signatureHttpClientLive)),
+      );
+      const requestFinishedAt = Math.floor(Date.now() / 1000);
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe("signature-kit.HTTP");
+        expect(result.failure.status).toBe(429);
+        expect(result.failure.retryable).toBe(true);
+        expect(result.failure.retryAfterEpochSeconds).toBeGreaterThanOrEqual(requestStartedAt + 7);
+        expect(result.failure.retryAfterEpochSeconds).toBeLessThanOrEqual(requestFinishedAt + 8);
+      }
+      yield* closeServer(local.server);
+    }),
+  );
+
+  it.effect("uses future x-ratelimit-reset epoch values as absolute reset", () =>
+    Effect.gen(function* () {
+      const local = yield* startServer();
+      const requestStartedAt = Math.floor(Date.now() / 1000);
+      const absoluteReset = requestStartedAt + 120;
+      const result = yield* Effect.result(
+        SignatureHttpClient.use((http) =>
+          http.requestJson(
+            { method: "GET", url: `${local.baseUrl}/ratelimit-reset?reset=${absoluteReset}` },
+            JsonResponseSchema,
+            "JsonResponse",
+          ),
+        ).pipe(Effect.provide(signatureHttpClientLive)),
+      );
+      const requestFinishedAt = Math.floor(Date.now() / 1000);
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe("signature-kit.HTTP");
+        expect(result.failure.status).toBe(429);
+        expect(result.failure.retryable).toBe(true);
+        expect(result.failure.retryAfterEpochSeconds).toBeGreaterThanOrEqual(absoluteReset);
+        expect(result.failure.retryAfterEpochSeconds).toBeLessThanOrEqual(
+          requestFinishedAt + 120 + 2,
+        );
+      }
+      yield* closeServer(local.server);
+    }),
+  );
+
+  it.effect("clamps just-past x-ratelimit-reset epoch timestamps to now", () =>
+    Effect.gen(function* () {
+      const local = yield* startServer();
+      const requestStartedAt = Math.floor(Date.now() / 1000);
+      const pastReset = requestStartedAt - 1;
+      const result = yield* Effect.result(
+        SignatureHttpClient.use((http) =>
+          http.requestJson(
+            { method: "GET", url: `${local.baseUrl}/ratelimit-reset?reset=${pastReset}` },
+            JsonResponseSchema,
+            "JsonResponse",
+          ),
+        ).pipe(Effect.provide(signatureHttpClientLive)),
+      );
+      const requestFinishedAt = Math.floor(Date.now() / 1000);
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe("signature-kit.HTTP");
+        expect(result.failure.status).toBe(429);
+        expect(result.failure.retryable).toBe(true);
+        expect(result.failure.retryAfterEpochSeconds).toBeGreaterThanOrEqual(requestStartedAt);
+        expect(result.failure.retryAfterEpochSeconds).toBeLessThanOrEqual(requestFinishedAt + 2);
+      }
+      yield* closeServer(local.server);
+    }),
+  );
+
+  it.effect("ignores invalid or out-of-window x-ratelimit-reset values", () =>
+    Effect.gen(function* () {
+      const local = yield* startServer();
+      const resultEntries = [{ reset: "not-a-number" }, { reset: "10000000000" }];
+
+      for (const entry of resultEntries) {
+        const result = yield* Effect.result(
+          SignatureHttpClient.use((http) =>
+            http.requestJson(
+              { method: "GET", url: `${local.baseUrl}/ratelimit-reset?reset=${entry.reset}` },
+              JsonResponseSchema,
+              "JsonResponse",
+            ),
+          ).pipe(Effect.provide(signatureHttpClientLive)),
+        );
+
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure.code).toBe("signature-kit.HTTP");
+          expect(result.failure.status).toBe(429);
+          expect(result.failure.retryAfterEpochSeconds).toBeUndefined();
+        }
+      }
+
       yield* closeServer(local.server);
     }),
   );
