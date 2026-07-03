@@ -25,11 +25,12 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
 - Timeout/retry policy uses `Duration` and `Schedule`. Retry must be classified.
 - Secrets stay `Redacted` until the explicit serialization/import boundary.
 - No `runSync` / `runPromise` / `runFork` / `Schema.decodeUnknownSync` in library internals.
-- Stateful/global setup is a service dependency. Example: XML-DSig requires
-  `XmlRuntime`/`xmlRuntimeLayer`; callers provide it explicitly instead of relying
-  on import-time mutation or hidden module flags.
-  Runtime marker services must expose a real capability (for example
-  `XmlRuntime.parse`) instead of sentinel booleans like `{ configured: true }`.
+- Use static imports for modules known at author time. Dynamic import is only for
+  runtime-selected plugins, platform-specific modules, or test cases that
+  explicitly exercise module loading; add a short comment naming the exception.
+- Stateful/global setup is a service dependency. XML-DSig is exposed through
+  `XmlRuntime`/`xmlRuntimeLayer`, whose real capabilities include parsing,
+  `SignedXml` construction, and cached verification-key import.
 - Never read ambient process state (`NODE_ENV`, env vars, globals) inside package
   internals to choose behavior. Decode explicit config through Schema or require a
   provided service/layer.
@@ -84,6 +85,8 @@ new TaggedError({ ..., reason: String(issue) })))` inline at the provider,
 
 - Prefer `Schema` as the source of truth for data/config contracts; derive types.
 - Use `Schema.Literals([...])` for literal catalogs (codes, statuses, operations).
+- Use top-level `import type` declarations for type-only dependencies; do not
+  hide package dependencies inside inline type annotations.
 - No `as` casts, including `as const`. Validate/convert through Schema/Effect, keep
   literal catalogs in `Schema.Literals([...])`, or model data as discriminated
   unions so reads narrow without assertions.
@@ -112,15 +115,17 @@ new TaggedError({ ..., reason: String(issue) })))` inline at the provider,
   for bodies that actually `yield*`.
 - Use `Match.value(x).pipe(Match.when(...), Match.exhaustive)` for total branching.
 - Use `Effect.forEach` directly for bounded in-memory batches; it is sequential by
-  default. Add `discard: true` when the result array is intentionally unused, and
-  put UI/runtime cleanup in `Effect.ensuring` instead of relying on a final state
-  write after the loop.
+  default. Add `{ concurrency }` when calls are independent, preserve order only
+  when the upstream protocol requires it, and add `discard: true` when the result
+  array is intentionally unused.
 - Use `Stream` for paginated or unbounded sequences (`Stream.paginate` +
   `Stream.runCollect` for provider list endpoints). Use `Sink` when a stream
   should be folded, counted, validated, or written without retaining every item.
 - Use `Cache` for overlapping expensive lookups and Effect batching (`Request` /
   `Resolver`) for N+1 service/API reads. Keep both behind a service/layer seam;
-  do not hand-roll mutable maps at call sites.
+  do not hand-roll mutable maps at call sites. A small per-adapter closure cache is
+  acceptable only when the adapter constructor must remain pure and introducing a
+  layer would force `runSync`.
 - Use `Ref` only for cross-fiber mutable state owned by a service/layer. Pure
   builder/config data stays immutable values.
 - Long-lived resources live in `Layer.scoped` with `Effect.acquireRelease`;
@@ -162,27 +167,29 @@ with a `Provider.effect` and a collection layer); follow that shape.
   `SignatureHttpClient` requirement.
 - **Retained remote-signature requests are immutable.** If the upstream workflow
   cannot be safely updated or deleted after creation, say so in the provider:
-  `reconcile` may return the cached `output`, `delete` may retain, and `diff`
-  must not advertise replacement semantics it cannot execute. For those resources,
-  return `noop` once `olds` exists instead of pretending a changed prop can be
-  replaced.
+  `reconcile` returns cached `output` after creation, `delete` only acts on a
+  provided output id, and each signer owns its retained no-op `diff` locally so
+  changed props never advertise update/replacement semantics the provider cannot
+  execute.
 - **Remote provider lifecycle APIs mirror upstream facts.** Keep the Alchemy
   `create...Request` resource as the reconcile entry point, and expose
   provider-specific `get`/`list`/`cancel`/`delete`/`download` functions only when
-  the upstream really has those endpoints. These functions use provider schemas
-  plus `SignatureHttpClient`, map remote status into `RemoteSignatureRequest.state`
-  without lossy string helpers, and test path/method/auth redaction/binary
-  downloads against a local HTTP server. Never fake list/delete behavior through
-  Alchemy when the provider cannot perform it.
+  the upstream really has those endpoints. These functions use provider-owned
+  schemas plus `SignatureHttpClient`, map remote status into the signer
+  package's local state model without lossy string helpers, and test
+  path/method/auth redaction/binary downloads against a local HTTP server. Never
+  fake list/delete behavior through Alchemy when the provider cannot perform it.
   JSON response decoding belongs in `SignatureHttpClient.requestJson(request,
-schema, schemaName)`, not repeated after each remote call. The HTTP seam owns
+  schema, schemaName)`, not repeated after each remote call. The HTTP seam owns
   parse failures, schema decode failures, provider/status metadata, and redacted
   diagnostic URLs.
-  Decode Alchemy resource `news` through the shared resource-props Schema boundary
-  (`remoteSignatureInputFromResourceProps`) so all remote providers reject empty
-  document/recipient arrays, bad base64, and malformed props with the same typed
-  metadata.
-  Retained request providers use an explicit no-op `diff`, `read` a cached output
+  Decode Alchemy resource `news` inside the signer package with that provider
+  domain's resource-props Schema. Do not put remote-signature request,
+  recipient, document, provider, status, schema-name, or retained-diff contracts
+  in core or in a new shared hub. Encode provider capabilities in that local
+  schema: single-document and single-PDF providers use a tuple/refinement there
+  instead of runtime rejecting a generic shape.
+  Retained request providers use their local no-op `diff`, `read` a cached output
   to detect missing remotes, and `delete` only the provided output id. They must
   not enumerate account-wide resources when `output` is absent.
 - **Infrastructure is layered: Service → Layer → Binding → Runtime.** A runtime
@@ -202,6 +209,11 @@ schema, schemaName)`, not repeated after each remote call. The HTTP seam owns
   transport faults, and let any other cause be a defect.
 
 ## Architecture taste
+
+- Core is provider-agnostic: it owns certificate, byte-signing, `Signatures`,
+  `SignatureKitError`, and `SignatureHttpClient` contracts only. Signers depend on
+  core; core never imports or enumerates signer packages. Static checks enforce
+  that dependency direction.
 
 - No barrel files that only re-export. Package exports point at the real module
   (`@signature-kit/pdf/sign`, `@signature-kit/core/signatures`,
@@ -319,12 +331,15 @@ formats/react     @signature-kit/react      React builder state and browser A1 P
 
 ## Validation
 
-- Run `bun run check` at the repo root for all non-trivial changes.
+- For non-trivial changes run `bun run build && bun run check && bun run test` at
+  the repo root. `build` is required first because package exports point at
+  committed `dist/` entrypoints.
 - Generated `dist/` artifacts must mirror current package exports; delete stale
   generated files when a source/export is removed.
 - Prefer static checks over ad-hoc review:
   - no `runSync`/`runPromise`/`runFork` in library internals
   - no `as` casts (`as Foo`/`as any`/`as unknown as`/`as const`)
+  - no inline import-type annotations or unnecessary dynamic imports
   - no `throw`, `instanceof`, or library `try/catch`
   - no legacy Effect service APIs
   - no manual config/data contracts when `Schema` can derive the type
@@ -343,8 +358,8 @@ formats/react     @signature-kit/react      React builder state and browser A1 P
 
 ## Done means
 
-- `bun run check` was actually run and reported.
+- `bun run build && bun run check && bun run test` was actually run and reported.
 - Library internals remain substitutable via services/layers.
 - Error conversion preserves enough structured context for debugging.
-- No claim of "Effect-native" while throws, `as` casts, hidden `provide`, or erased
-  error origins remain.
+- No claim of "Effect-native" while throws, `as` casts, hidden `provide`, inline
+  type imports, unnecessary dynamic imports, or erased error origins remain.

@@ -12,6 +12,7 @@ import { Effect } from "effect";
 import { PdfError, PdfErrorCodeValue, PdfOperationValue } from "./config";
 import type { PdfSigningRequest } from "./config";
 import { resolveSignatureWidgetPlacement } from "./placement";
+import { indexOfBytes } from "./bytes";
 
 export const DEFAULT_SIGNATURE_LENGTH = 16384;
 const BYTE_RANGE_PLACEHOLDER = "**********";
@@ -19,11 +20,19 @@ const SIGNATURES_EXIST = 0x01;
 const APPEND_ONLY = 0x02;
 const PRINT_ANNOTATION = 0x04;
 
+const BYTE_RANGE_MARKER = "/ByteRange [";
+
+const hasExistingSignature = (pdf: Uint8Array): boolean =>
+  indexOfBytes(pdf, new TextEncoder().encode(BYTE_RANGE_MARKER)) >= 0;
+
 export const addSignaturePlaceholder = (
   input: PdfSigningRequest,
 ): Effect.Effect<Uint8Array, PdfError> =>
   Effect.tryPromise({
-    try: () => PDFDocument.load(input.pdf),
+    // An already-signed PDF must be extended with an incremental update — a full
+    // reserialize would rewrite the bytes earlier signatures cover and break them.
+    try: () =>
+      PDFDocument.load(input.pdf, { forIncrementalUpdate: hasExistingSignature(input.pdf) }),
     catch: () =>
       new PdfError({
         code: PdfErrorCodeValue.invalidPdf,

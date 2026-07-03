@@ -1,6 +1,6 @@
 ---
-title: Request shape
-description: "The shared request facts behind each provider API."
+title: Provider request shapes
+description: "Each provider package exposes the request facts its upstream API supports."
 ---
 
 Provider APIs create upstream signing ceremonies. They are not local `Signatures` backends: the provider owns links, notifications, recipients, envelopes, and audit UX. SignatureKit keeps the calls boring: typed input, Redacted credentials, `SignatureHttpClient`, and `SignatureKitError` on recoverable failures.
@@ -19,9 +19,9 @@ Provider APIs create upstream signing ceremonies. They are not local `Signatures
   <Card title="Documenso" href="/docs/providers/documenso">Open-source v2 envelopes with optional distribution.</Card>
 </Cards>
 
-## Shared request shape
+## Provider-owned request shapes
 
-Every provider starts from the same SignatureKit request facts: `title`, `documents`, `recipients`, optional `subject`, `message`, `send`, `expiresAt`, and `redirectUrl`. Each provider page explains how those facts map to its upstream protocol.
+Each signer package defines the documents, recipients, routing, status values, and limits its upstream API actually supports. Clicksign, Assinafy, and ZapSign encode their single-document constraints in their local resource-props schemas; DocuSeal and Documenso keep multi-document provider models.
 
 <Callout type="info" title="Local vs remote">
   Use `@signature-kit/pdf` + `Signatures` when SignatureKit must sign bytes. Use provider request functions when an upstream platform owns the ceremony.

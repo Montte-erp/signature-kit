@@ -1,10 +1,7 @@
 import {
-  RemoteSignatureProviderSchema,
-  type SignatureKitSchemaName,
   SignatureKitError,
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
-  SignatureKitSchemaNameValue,
 } from "./config";
 import { Context, Duration, Effect, Layer, Option, Redacted, Schema } from "effect";
 
@@ -24,7 +21,7 @@ export type SignatureHttpBody = (typeof SignatureHttpBodySchema)["Type"];
 export const SignatureHttpRequestSchema = Schema.Struct({
   method: SignatureHttpMethodSchema,
   url: Schema.NonEmptyString,
-  provider: Schema.optional(RemoteSignatureProviderSchema),
+  provider: Schema.optional(Schema.String),
   headers: Schema.optional(SignatureHttpHeadersSchema),
   diagnosticUrl: Schema.optional(Schema.NonEmptyString),
   body: Schema.optional(SignatureHttpBodySchema),
@@ -42,7 +39,7 @@ export type SignatureHttpClientService = {
   readonly requestJson: <A>(
     request: SignatureHttpRequest,
     schema: Schema.ConstraintDecoder<A>,
-    schemaName: SignatureKitSchemaName,
+    schemaName: string,
   ) => Effect.Effect<A, SignatureKitError>;
   readonly requestBytes: (
     request: SignatureHttpRequest,
@@ -189,13 +186,19 @@ const isRetryableStatus = (method: SignatureHttpMethod, status: number): boolean
   status === 429 || (isRetryableMethod(method) && status >= 500);
 
 // Absolute epoch (seconds) after which a rate-limited request may be retried, read from
-// the standard `x-ratelimit-reset` (epoch) or `Retry-After` (delta seconds) headers.
+// the standard `x-ratelimit-reset` (epoch OR delta — providers use both) or
+// `Retry-After` (delta seconds) headers.
 const retryAfterEpochSeconds = (timed: TimedResponse): number | undefined => {
+  const nowSeconds = Math.floor(Date.now() / 1000);
   const reset = Number(timed.response.headers.get("x-ratelimit-reset"));
-  if (Number.isFinite(reset) && reset > 0) return reset;
+  if (Number.isFinite(reset) && reset > 0) {
+    // Values that would already be in the past cannot be an epoch; providers
+    // like GitHub send epoch seconds, others send remaining seconds.
+    return reset > nowSeconds ? reset : nowSeconds + reset;
+  }
   const retryAfter = Number(timed.response.headers.get("retry-after"));
   if (Number.isFinite(retryAfter) && retryAfter > 0) {
-    return Math.floor(Date.now() / 1000) + retryAfter;
+    return nowSeconds + retryAfter;
   }
   return undefined;
 };
@@ -284,7 +287,7 @@ const decodeJsonBody = <A>(
   request: SignatureHttpRequest,
   timed: TimedResponse,
   schema: Schema.ConstraintDecoder<A>,
-  schemaName: SignatureKitSchemaName,
+  schemaName: string,
 ): Effect.Effect<A, SignatureKitError> =>
   readResponseText(request, timed).pipe(
     Effect.flatMap((body) =>
@@ -394,7 +397,7 @@ export const signatureHttpClientLive: Layer.Layer<SignatureHttpClient> = Layer.s
     requestJson: <A>(
       request: SignatureHttpRequest,
       schema: Schema.ConstraintDecoder<A>,
-      schemaName: SignatureKitSchemaName,
+      schemaName: string,
     ) =>
       Schema.decodeUnknownEffect(SignatureHttpRequestSchema)(request).pipe(
         Effect.mapError(
@@ -403,7 +406,7 @@ export const signatureHttpClientLive: Layer.Layer<SignatureHttpClient> = Layer.s
               code: SignatureKitErrorCodeValue.invalidInput,
               retryable: false,
               operation: SignatureKitOperationValue.schemaDecode,
-              schemaName: SignatureKitSchemaNameValue.providerHttpRequest,
+              schemaName: "SignatureHttpRequest",
               issueMessage: String(issue),
             }),
         ),
@@ -424,7 +427,7 @@ export const signatureHttpClientLive: Layer.Layer<SignatureHttpClient> = Layer.s
               code: SignatureKitErrorCodeValue.invalidInput,
               retryable: false,
               operation: SignatureKitOperationValue.schemaDecode,
-              schemaName: SignatureKitSchemaNameValue.providerHttpRequest,
+              schemaName: "SignatureHttpRequest",
               issueMessage: String(issue),
             }),
         ),
@@ -443,7 +446,7 @@ export const signatureHttpClientLive: Layer.Layer<SignatureHttpClient> = Layer.s
               code: SignatureKitErrorCodeValue.invalidInput,
               retryable: false,
               operation: SignatureKitOperationValue.schemaDecode,
-              schemaName: SignatureKitSchemaNameValue.providerHttpRequest,
+              schemaName: "SignatureHttpRequest",
               issueMessage: String(issue),
             }),
         ),

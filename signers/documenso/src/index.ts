@@ -2,15 +2,7 @@ import {
   SignatureKitError,
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
-  SignatureKitSchemaNameValue,
   redactedStringSchema,
-  remoteSignatureInputFromResourceProps,
-} from "@signature-kit/core/config";
-import type {
-  RemoteSignatureProvider,
-  RemoteSignatureRequest,
-  RemoteSignatureRequestInput,
-  RemoteSignatureRequestProps,
 } from "@signature-kit/core/config";
 import { SignatureHttpClient, normalizedBaseUrl } from "@signature-kit/core/http";
 import type { SignatureHttpClientService } from "@signature-kit/core/http";
@@ -18,7 +10,150 @@ import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
 import { Context, Effect, Layer, Option, Redacted, Schema, Stream } from "effect";
 
-const PROVIDER: RemoteSignatureProvider = "documenso";
+const DocumensoSchemaName = {
+  providerOptions: "DocumensoProviderOptions",
+  signatureRequestProps: "DocumensoEnvelopeProps",
+  createEnvelopeResult: "DocumensoCreateEnvelopeResult",
+  distributeEnvelopeResult: "DocumensoDistributeEnvelopeResult",
+  envelopeResult: "DocumensoEnvelopeResult",
+  envelopeListResult: "DocumensoEnvelopeListResult",
+} satisfies Record<string, string>;
+
+const DocumensoOperation = {
+  create: "documenso.create",
+  download: "documenso.download",
+} satisfies Record<string, string>;
+
+const base64String: Schema.ConstraintDecoder<string> = Schema.String.check(Schema.isBase64());
+
+export const DocumensoProviderId = "documenso";
+const PROVIDER = DocumensoProviderId;
+
+export const DocumensoEnvelopeStateSchema = Schema.Literals([
+  "draft",
+  "sent",
+  "completed",
+  "cancelled",
+  "deleted",
+  "declined",
+  "expired",
+]);
+export type DocumensoEnvelopeState = (typeof DocumensoEnvelopeStateSchema)["Type"];
+
+export const DocumensoEnvelopeDocumentSchema = Schema.Struct({
+  fileName: Schema.NonEmptyString,
+  mimeType: Schema.NonEmptyString,
+  content: Schema.Uint8Array,
+});
+export type DocumensoEnvelopeDocument = (typeof DocumensoEnvelopeDocumentSchema)["Type"];
+
+export const DocumensoEnvelopeDocumentPropsSchema = Schema.Struct({
+  fileName: Schema.NonEmptyString,
+  mimeType: Schema.NonEmptyString,
+  contentBase64: base64String,
+});
+export type DocumensoEnvelopeDocumentProps = (typeof DocumensoEnvelopeDocumentPropsSchema)["Type"];
+
+export const DocumensoRecipientRoleSchema = Schema.Literals(["approver", "signer"]);
+export type DocumensoRecipientRole = (typeof DocumensoRecipientRoleSchema)["Type"];
+
+export const DocumensoEnvelopeRecipientSchema = Schema.Struct({
+  name: Schema.NonEmptyString,
+  email: Schema.NonEmptyString,
+  role: Schema.optional(DocumensoRecipientRoleSchema),
+  routingOrder: Schema.optional(Schema.Number),
+});
+export type DocumensoEnvelopeRecipient = (typeof DocumensoEnvelopeRecipientSchema)["Type"];
+
+export const DocumensoEnvelopeInputSchema = Schema.Struct({
+  title: Schema.NonEmptyString,
+  subject: Schema.optional(Schema.NonEmptyString),
+  message: Schema.optional(Schema.NonEmptyString),
+  documents: Schema.NonEmptyArray(DocumensoEnvelopeDocumentSchema),
+  recipients: Schema.NonEmptyArray(DocumensoEnvelopeRecipientSchema),
+  send: Schema.optional(Schema.Boolean),
+  expiresAt: Schema.optional(Schema.Date),
+  redirectUrl: Schema.optional(Schema.NonEmptyString),
+});
+export type DocumensoEnvelopeInput = (typeof DocumensoEnvelopeInputSchema)["Type"];
+
+export const DocumensoEnvelopePropsSchema = Schema.Struct({
+  title: Schema.NonEmptyString,
+  subject: Schema.optional(Schema.NonEmptyString),
+  message: Schema.optional(Schema.NonEmptyString),
+  documents: Schema.NonEmptyArray(DocumensoEnvelopeDocumentPropsSchema),
+  recipients: Schema.NonEmptyArray(DocumensoEnvelopeRecipientSchema),
+  send: Schema.optional(Schema.Boolean),
+  expiresAt: Schema.optional(Schema.Date),
+  redirectUrl: Schema.optional(Schema.NonEmptyString),
+});
+export type DocumensoEnvelopeProps = (typeof DocumensoEnvelopePropsSchema)["Type"];
+
+export const DocumensoEnvelopeSchema = Schema.Struct({
+  provider: Schema.Literal(PROVIDER),
+  id: Schema.NonEmptyString,
+  state: DocumensoEnvelopeStateSchema,
+  providerStatus: Schema.optional(Schema.String),
+  signingUrl: Schema.optional(Schema.String),
+  detailsUrl: Schema.optional(Schema.String),
+  downloadUrl: Schema.optional(Schema.String),
+});
+export type DocumensoEnvelope = (typeof DocumensoEnvelopeSchema)["Type"];
+
+const documensoSignatureRequestNoopDiff: { readonly action: "noop" } = { action: "noop" };
+
+const documensoSignatureRequestDiff = ({
+  olds,
+}: {
+  readonly olds: DocumensoEnvelopeProps | undefined;
+}): Effect.Effect<typeof documensoSignatureRequestNoopDiff | undefined> =>
+  Effect.succeed(olds === undefined ? undefined : documensoSignatureRequestNoopDiff);
+
+const documensoSignatureRequestInputFromProps = (
+  props: DocumensoEnvelopeProps,
+): DocumensoEnvelopeInput => {
+  const [firstDocument, ...restDocuments] = props.documents;
+  return {
+    title: props.title,
+    documents: [
+      {
+        fileName: firstDocument.fileName,
+        mimeType: firstDocument.mimeType,
+        content: Uint8Array.fromBase64(firstDocument.contentBase64),
+      },
+      ...restDocuments.map((document) => ({
+        fileName: document.fileName,
+        mimeType: document.mimeType,
+        content: Uint8Array.fromBase64(document.contentBase64),
+      })),
+    ],
+    recipients: props.recipients,
+    ...(props.subject === undefined ? {} : { subject: props.subject }),
+    ...(props.message === undefined ? {} : { message: props.message }),
+    ...(props.send === undefined ? {} : { send: props.send }),
+    ...(props.expiresAt === undefined ? {} : { expiresAt: props.expiresAt }),
+    ...(props.redirectUrl === undefined ? {} : { redirectUrl: props.redirectUrl }),
+  };
+};
+
+const documensoSignatureRequestInputFromResourceProps = (
+  props: unknown,
+): Effect.Effect<DocumensoEnvelopeInput, SignatureKitError> =>
+  Schema.decodeUnknownEffect(DocumensoEnvelopePropsSchema)(props).pipe(
+    Effect.mapError(
+      (issue) =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.invalidInput,
+          retryable: false,
+          provider: PROVIDER,
+          operation: SignatureKitOperationValue.schemaDecode,
+          schemaName: DocumensoSchemaName.signatureRequestProps,
+          issueMessage: String(issue),
+        }),
+    ),
+    Effect.map(documensoSignatureRequestInputFromProps),
+  );
+
 const DOCUMENSO_PROVIDER_COLLECTION_ID = "@signature-kit/documenso/Providers";
 const DEFAULT_BASE_URL = "https://app.documenso.com/api/v2";
 const DOCUMENSO_LIST_FIRST_PAGE = 1;
@@ -46,7 +181,7 @@ const DocumensoRecipientResultSchema = Schema.Struct({
   email: Schema.String,
   role: Schema.String,
   signingOrder: Schema.optional(Schema.NullOr(Schema.Number)),
-  signingUrl: Schema.String,
+  signingUrl: Schema.optional(Schema.String),
 });
 
 const DocumensoDistributeEnvelopeResultSchema = Schema.Struct({
@@ -88,8 +223,8 @@ const DocumensoEnvelopeListResultSchema = Schema.Struct({
 type DocumensoEnvelopeResult = (typeof DocumensoEnvelopeResultSchema)["Type"];
 export type DocumensoSignatureRequest = Resource<
   "SignatureKit.DocumensoSignatureRequest",
-  RemoteSignatureRequestProps,
-  RemoteSignatureRequest
+  DocumensoEnvelopeProps,
+  DocumensoEnvelope
 >;
 
 export const DocumensoSignatureRequest = Resource<DocumensoSignatureRequest>(
@@ -114,7 +249,7 @@ export const documensoCredentialsLayer = (
             retryable: false,
             provider: PROVIDER,
             operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            schemaName: DocumensoSchemaName.providerOptions,
             issueMessage: String(issue),
           }),
       ),
@@ -129,7 +264,7 @@ const documensoAuthorization = (options: DocumensoProviderOptions): string => {
   return options.authorizationScheme === "bearer" ? `Bearer ${token}` : token;
 };
 
-const requestMeta = (input: RemoteSignatureRequestInput) => ({
+const requestMeta = (input: DocumensoEnvelopeInput) => ({
   ...(input.subject === undefined ? {} : { subject: input.subject }),
   ...(input.message === undefined ? {} : { message: input.message }),
   ...(input.redirectUrl === undefined ? {} : { redirectUrl: input.redirectUrl }),
@@ -169,7 +304,7 @@ const requestEnvelopeSignedBytes = (
   });
 };
 
-const createEnvelopeBody = (input: RemoteSignatureRequestInput): FormData => {
+const createEnvelopeBody = (input: DocumensoEnvelopeInput): FormData => {
   const formData = new FormData();
   formData.append(
     "payload",
@@ -199,7 +334,7 @@ const createEnvelope = (
   http: SignatureHttpClientService,
   options: DocumensoProviderOptions,
   baseUrl: string,
-  input: RemoteSignatureRequestInput,
+  input: DocumensoEnvelopeInput,
 ): Effect.Effect<DocumensoCreateEnvelopeResult, SignatureKitError> =>
   http.requestJson(
     {
@@ -210,16 +345,16 @@ const createEnvelope = (
       body: createEnvelopeBody(input),
     },
     DocumensoCreateEnvelopeResultSchema,
-    SignatureKitSchemaNameValue.documensoCreateEnvelopeResult,
+    DocumensoSchemaName.createEnvelopeResult,
   );
 
 const distributeEnvelope = (
   http: SignatureHttpClientService,
   options: DocumensoProviderOptions,
   baseUrl: string,
-  input: RemoteSignatureRequestInput,
+  input: DocumensoEnvelopeInput,
   envelope: DocumensoCreateEnvelopeResult,
-): Effect.Effect<RemoteSignatureRequest, SignatureKitError> =>
+): Effect.Effect<DocumensoEnvelope, SignatureKitError> =>
   http
     .requestJson(
       {
@@ -233,13 +368,15 @@ const distributeEnvelope = (
         body: JSON.stringify({ envelopeId: envelope.id, meta: requestMeta(input) }),
       },
       DocumensoDistributeEnvelopeResultSchema,
-      SignatureKitSchemaNameValue.documensoDistributeEnvelopeResult,
+      DocumensoSchemaName.distributeEnvelopeResult,
     )
     .pipe(
       Effect.map((result) => ({
         provider: PROVIDER,
         id: result.id,
-        state: "sent",
+        // A failed distribution means recipients were never notified — surface
+        // the envelope as still-draft rather than pretending it was sent.
+        state: result.success ? "sent" : "draft",
         providerStatus: result.success ? "distributed" : "not_distributed",
         detailsUrl: `${baseUrl}/envelope/${documensoPathId(result.id)}`,
         ...(result.recipients[0]?.signingUrl === undefined
@@ -247,7 +384,7 @@ const distributeEnvelope = (
           : { signingUrl: result.recipients[0].signingUrl }),
       })),
     );
-const mapEnvelopeStatus = (status: string): RemoteSignatureRequest["state"] => {
+const mapEnvelopeStatus = (status: string): DocumensoEnvelope["state"] => {
   switch (status.toUpperCase()) {
     case "DRAFT":
       return "draft";
@@ -291,10 +428,10 @@ const envelopeSignedDownloadUrlFromEnvelope = (
     : envelopeSignedDownloadUrl(baseUrl, envelopeItemId);
 };
 
-const mapEnvelopeToRemoteRequest = (
+const mapEnvelopeToDocumensoEnvelope = (
   baseUrl: string,
   envelope: DocumensoEnvelopeResult,
-): RemoteSignatureRequest => {
+): DocumensoEnvelope => {
   const signingUrl = envelope.recipients?.[0]?.signingUrl;
   const downloadUrl = envelopeSignedDownloadUrlFromEnvelope(baseUrl, envelope);
   return {
@@ -322,7 +459,7 @@ const fetchEnvelopeResult = (
       headers: { Authorization: documensoAuthorization(options) },
     },
     DocumensoEnvelopeResultSchema,
-    SignatureKitSchemaNameValue.documensoEnvelopeResult,
+    DocumensoSchemaName.envelopeResult,
   );
 
 const getEnvelope = (
@@ -330,16 +467,16 @@ const getEnvelope = (
   options: DocumensoProviderOptions,
   baseUrl: string,
   id: string,
-): Effect.Effect<RemoteSignatureRequest, SignatureKitError> =>
+): Effect.Effect<DocumensoEnvelope, SignatureKitError> =>
   fetchEnvelopeResult(http, options, baseUrl, id).pipe(
-    Effect.map((result) => mapEnvelopeToRemoteRequest(baseUrl, result)),
+    Effect.map((result) => mapEnvelopeToDocumensoEnvelope(baseUrl, result)),
   );
 
 const listEnvelopes = (
   http: SignatureHttpClientService,
   options: DocumensoProviderOptions,
   baseUrl: string,
-): Effect.Effect<RemoteSignatureRequest[], SignatureKitError> => {
+): Effect.Effect<DocumensoEnvelope[], SignatureKitError> => {
   return Stream.paginate(DOCUMENSO_LIST_FIRST_PAGE, (page) => {
     const url = new URL(`${baseUrl}/envelope`);
     url.searchParams.set("page", String(page));
@@ -353,15 +490,13 @@ const listEnvelopes = (
           headers: { Authorization: documensoAuthorization(options) },
         },
         DocumensoEnvelopeListResultSchema,
-        SignatureKitSchemaNameValue.documensoEnvelopeListResult,
+        DocumensoSchemaName.envelopeListResult,
       )
       .pipe(
-        Effect.map(
-          (result): readonly [ReadonlyArray<RemoteSignatureRequest>, Option.Option<number>] => [
-            result.data.map((envelope) => mapEnvelopeToRemoteRequest(baseUrl, envelope)),
-            documensoNextPage(result.pagination, page),
-          ],
-        ),
+        Effect.map((result): readonly [ReadonlyArray<DocumensoEnvelope>, Option.Option<number>] => [
+          result.data.map((envelope) => mapEnvelopeToDocumensoEnvelope(baseUrl, envelope)),
+          documensoNextPage(result.pagination, page),
+        ]),
       );
   }).pipe(
     Stream.runCollect,
@@ -441,7 +576,7 @@ const downloadSignedEnvelopeDocument = (
             code: SignatureKitErrorCodeValue.responseShape,
             retryable: false,
             provider: PROVIDER,
-            operation: SignatureKitOperationValue.remoteDownload,
+            operation: DocumensoOperation.download,
             reason: `Documenso envelope ${envelopeId} has no downloadable item ID.`,
           }),
         );
@@ -451,12 +586,12 @@ const downloadSignedEnvelopeDocument = (
     }),
   );
 
-const createRemoteRequest = (
+const createDocumensoEnvelopeRequest = (
   http: SignatureHttpClientService,
   options: DocumensoProviderOptions,
   baseUrl: string,
-  input: RemoteSignatureRequestInput,
-): Effect.Effect<RemoteSignatureRequest, SignatureKitError> =>
+  input: DocumensoEnvelopeInput,
+): Effect.Effect<DocumensoEnvelope, SignatureKitError> =>
   createEnvelope(http, options, baseUrl, input).pipe(
     Effect.flatMap((envelope) => {
       if (input.send === false) {
@@ -470,10 +605,16 @@ const createRemoteRequest = (
       }
       return distributeEnvelope(http, options, baseUrl, input, envelope).pipe(
         Effect.catch((error) =>
-          deleteEnvelope(http, options, baseUrl, envelope.id).pipe(
-            Effect.catch(() => Effect.void),
-            Effect.flatMap(() => Effect.fail(error)),
-          ),
+          // A response-shape failure means the distribute call itself succeeded
+          // remotely (recipients may already be notified) — deleting the live
+          // envelope here would destroy real remote state. Only roll back when
+          // the request never took effect.
+          error.code === SignatureKitErrorCodeValue.responseShape
+            ? Effect.fail(error)
+            : deleteEnvelope(http, options, baseUrl, envelope.id).pipe(
+                Effect.catch(() => Effect.void),
+                Effect.flatMap(() => Effect.fail(error)),
+              ),
         ),
       );
     }),
@@ -488,7 +629,7 @@ export const DocumensoSignatureRequestProvider = () =>
       const baseUrl = documensoBaseUrl(options);
 
       return DocumensoSignatureRequest.Provider.of({
-        diff: ({ olds }) => Effect.succeed(olds === undefined ? undefined : { action: "noop" }),
+        diff: documensoSignatureRequestDiff,
         list: () => listEnvelopes(http, options, baseUrl),
         read: ({ output }) =>
           output === undefined
@@ -501,8 +642,8 @@ export const DocumensoSignatureRequestProvider = () =>
               ),
         reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
-          const input = yield* remoteSignatureInputFromResourceProps(PROVIDER, news);
-          return yield* createRemoteRequest(http, options, baseUrl, input);
+          const input = yield* documensoSignatureRequestInputFromResourceProps(news);
+          return yield* createDocumensoEnvelopeRequest(http, options, baseUrl, input);
         }),
         delete: ({ output }) => deleteEnvelope(http, options, baseUrl, output.id),
       });
@@ -522,7 +663,7 @@ export const providers = (options: DocumensoProviderOptions) =>
 export const getDocumensoSignatureRequest = (
   options: DocumensoProviderOptions,
   id: string,
-): Effect.Effect<RemoteSignatureRequest, SignatureKitError, SignatureHttpClient> =>
+): Effect.Effect<DocumensoEnvelope, SignatureKitError, SignatureHttpClient> =>
   Effect.gen(function* () {
     const valid = yield* Schema.decodeUnknownEffect(DocumensoProviderOptionsSchema)(options).pipe(
       Effect.mapError(
@@ -532,7 +673,7 @@ export const getDocumensoSignatureRequest = (
             retryable: false,
             provider: PROVIDER,
             operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            schemaName: DocumensoSchemaName.providerOptions,
             issueMessage: String(issue),
           }),
       ),
@@ -543,7 +684,7 @@ export const getDocumensoSignatureRequest = (
 
 export const listDocumensoSignatureRequests = (
   options: DocumensoProviderOptions,
-): Effect.Effect<ReadonlyArray<RemoteSignatureRequest>, SignatureKitError, SignatureHttpClient> =>
+): Effect.Effect<ReadonlyArray<DocumensoEnvelope>, SignatureKitError, SignatureHttpClient> =>
   Effect.gen(function* () {
     const valid = yield* Schema.decodeUnknownEffect(DocumensoProviderOptionsSchema)(options).pipe(
       Effect.mapError(
@@ -553,7 +694,7 @@ export const listDocumensoSignatureRequests = (
             retryable: false,
             provider: PROVIDER,
             operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            schemaName: DocumensoSchemaName.providerOptions,
             issueMessage: String(issue),
           }),
       ),
@@ -575,7 +716,7 @@ export const cancelDocumensoSignatureRequest = (
             retryable: false,
             provider: PROVIDER,
             operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            schemaName: DocumensoSchemaName.providerOptions,
             issueMessage: String(issue),
           }),
       ),
@@ -597,7 +738,7 @@ export const deleteDocumensoSignatureRequest = (
             retryable: false,
             provider: PROVIDER,
             operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            schemaName: DocumensoSchemaName.providerOptions,
             issueMessage: String(issue),
           }),
       ),
@@ -619,7 +760,7 @@ export const downloadDocumensoSignedDocument = (
             retryable: false,
             provider: PROVIDER,
             operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.documensoProviderOptions,
+            schemaName: DocumensoSchemaName.providerOptions,
             issueMessage: String(issue),
           }),
       ),

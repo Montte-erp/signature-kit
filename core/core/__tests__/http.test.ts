@@ -2,11 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import { SignatureHttpClient, signatureHttpClientLive } from "@signature-kit/core/http";
-import {
-  SignatureKitError,
-  SignatureKitSchemaNameValue,
-  signatureKitErrorCatalog,
-} from "@signature-kit/core/config";
+import { SignatureKitError, signatureKitErrorCatalog } from "@signature-kit/core/config";
 import { Effect, Result, Schema } from "effect";
 
 const JsonResponseSchema = Schema.Struct({
@@ -86,7 +82,7 @@ describe("SignatureHttpClient", () => {
         http.requestJson(
           { method: "GET", url: `${local.baseUrl}/json` },
           JsonResponseSchema,
-          SignatureKitSchemaNameValue.providerHttpRequest,
+          "JsonResponse",
         ),
       ).pipe(Effect.provide(signatureHttpClientLive));
 
@@ -103,7 +99,7 @@ describe("SignatureHttpClient", () => {
           http.requestJson(
             { method: "GET", url: `${local.baseUrl}/status` },
             JsonResponseSchema,
-            SignatureKitSchemaNameValue.providerHttpRequest,
+            "JsonResponse",
           ),
         ).pipe(Effect.provide(signatureHttpClientLive)),
       );
@@ -130,7 +126,7 @@ describe("SignatureHttpClient", () => {
               timeoutMillis: 50,
             },
             JsonResponseSchema,
-            SignatureKitSchemaNameValue.providerHttpRequest,
+            "JsonResponse",
           ),
         ).pipe(Effect.provide(signatureHttpClientLive)),
       );
@@ -157,7 +153,7 @@ describe("SignatureHttpClient", () => {
               diagnosticUrl: `${local.baseUrl}/status?access_token=<redacted>`,
             },
             JsonResponseSchema,
-            SignatureKitSchemaNameValue.providerHttpRequest,
+            "JsonResponse",
           ),
         ).pipe(Effect.provide(signatureHttpClientLive)),
       );
@@ -179,7 +175,7 @@ describe("SignatureHttpClient", () => {
           http.requestJson(
             { method: "GET", url: `${local.baseUrl}/bad-json` },
             JsonResponseSchema,
-            SignatureKitSchemaNameValue.providerHttpRequest,
+            "JsonResponse",
           ),
         ).pipe(Effect.provide(signatureHttpClientLive)),
       );
@@ -187,7 +183,7 @@ describe("SignatureHttpClient", () => {
       expect(Result.isFailure(result)).toBe(true);
       if (Result.isFailure(result)) {
         expect(result.failure.code).toBe("signature-kit.RESPONSE_SHAPE");
-        expect(result.failure.schemaName).toBe("ProviderHttpRequest");
+        expect(result.failure.schemaName).toBe("JsonResponse");
       }
       yield* closeServer(local.server);
     }),
@@ -201,7 +197,7 @@ describe("SignatureHttpClient", () => {
           http.requestJson(
             { method: "GET", url: `${local.baseUrl}/bad-json` },
             JsonResponseSchema,
-            SignatureKitSchemaNameValue.docuSealSubmissionResult,
+            "DocuSealSubmissionResult",
           ),
         ).pipe(Effect.provide(signatureHttpClientLive)),
       );
@@ -221,7 +217,7 @@ describe("SignatureHttpClient", () => {
           http.requestJson(
             { method: "POST", url: "http://127.0.0.1:1/unreachable" },
             JsonResponseSchema,
-            SignatureKitSchemaNameValue.providerHttpRequest,
+            "JsonResponse",
           ),
         ).pipe(Effect.provide(signatureHttpClientLive)),
       );
@@ -245,7 +241,7 @@ describe("SignatureHttpClient", () => {
               timeoutMillis: 50,
             },
             JsonResponseSchema,
-            SignatureKitSchemaNameValue.providerHttpRequest,
+            "JsonResponse",
           ),
         ).pipe(Effect.provide(signatureHttpClientLive)),
       );

@@ -51,8 +51,10 @@ export const signXml = (
     );
     const xmlRuntime = yield* XmlRuntime;
     const algorithm = input.algorithm ?? "rsa-sha256";
-    const certificate = yield* signatures.certificate();
-    const signingKey = yield* signatures.importSigningKey(algorithm);
+    const [certificate, signingKey] = yield* Effect.all(
+      [signatures.certificate(), signatures.importSigningKey(algorithm)],
+      { concurrency: "unbounded" },
+    );
 
     const document = yield* xmlRuntime.parse(input.xml);
     const canonicalizationTransform = xmlCanonicalizationTransform(input.canonicalization);
@@ -68,18 +70,7 @@ export const signXml = (
             uri: `#${input.referenceId}`,
           };
 
-    const { SignedXml } = yield* Effect.tryPromise({
-      try: async () => {
-        // dynamic-import: xmldsigjs transitively checks reflect-metadata during CJS evaluation; XmlRuntime loaded the polyfill.
-        return import("xmldsigjs");
-      },
-      catch: () =>
-        new XmlError({
-          code: XmlErrorCodeValue.signFailed,
-          retryable: false,
-          operation: XmlOperationValue.sign,
-        }),
-    });
+    const SignedXml = yield* xmlRuntime.signedXml();
     const signedXml = new SignedXml();
     yield* Effect.tryPromise({
       try: () =>

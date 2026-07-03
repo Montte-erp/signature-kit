@@ -126,7 +126,7 @@ export function GetStarted() {
               </div>
 
               <div className="flex flex-1 flex-col p-4">
-                <CodeBlock code={FIRST_CALL} lang="tsx" className={FLUSH} />
+                <CodeBlock code={FIRST_CALL} lang="ts" className={FLUSH} />
               </div>
 
               <div className="mt-auto border-t border-border bg-muted/30 px-4 py-3">

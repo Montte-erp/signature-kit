@@ -41,33 +41,30 @@ export const ExtractedPdfSignatureSchema = Schema.Struct({
   signedData: Schema.Uint8Array,
   signature: Schema.Uint8Array,
   signatureCount: Schema.Number,
+  // The signed range must start at byte 0 and, for the newest signature, end at
+  // the end of the file — otherwise appended content escapes the signature
+  // (classic PDF signature-exclusion forgery).
+  startsAtZero: Schema.Boolean,
+  coversFileEnd: Schema.Boolean,
 });
 export type ExtractedPdfSignature = (typeof ExtractedPdfSignatureSchema)["Type"];
 
-const countByteRanges = (pdf: Uint8Array): number => {
-  let count = 0;
+const findByteRangeOffsets = (pdf: Uint8Array): Array<number> => {
+  const offsets: Array<number> = [];
   let offset = 0;
   while (offset < pdf.byteLength) {
     const found = indexOfBytes(pdf, BYTE_RANGE_PREFIX, offset);
-    if (found === -1) return count;
-    count++;
+    if (found === -1) return offsets;
+    offsets.push(found);
     offset = found + BYTE_RANGE_PREFIX.byteLength;
   }
-  return count;
+  return offsets;
 };
 
-const parseByteRange = (pdf: Uint8Array): Effect.Effect<PdfByteRange, PdfError> => {
-  const byteRangeStart = lastIndexOfBytes(pdf, BYTE_RANGE_PREFIX);
-  if (byteRangeStart === -1) {
-    return Effect.fail(
-      new PdfError({
-        code: PdfErrorCodeValue.placeholderNotFound,
-        retryable: false,
-        reason: "Failed to locate /ByteRange.",
-        operation: PdfOperationValue.verify,
-      }),
-    );
-  }
+const parseByteRangeAt = (
+  pdf: Uint8Array,
+  byteRangeStart: number,
+): Effect.Effect<PdfByteRange, PdfError> => {
   const byteRangeEnd = indexOfByte(pdf, RIGHT_BRACKET, byteRangeStart);
   if (byteRangeEnd === -1) {
     return Effect.fail(
@@ -187,11 +184,51 @@ export const preparePdfByteRange = (
   });
 };
 
-export const extractPdfSignature = (
+/**
+ * Total length of the DER TLV at the start of `bytes`, or undefined when the
+ * bytes do not begin with a well-formed SEQUENCE. Used to cut the CMS out of
+ * the zero-padded /Contents placeholder without corrupting signatures whose
+ * DER legitimately ends in 0x00 bytes.
+ */
+const derSequenceTotalLength = (bytes: Uint8Array): number | undefined => {
+  if (bytes.byteLength < 2 || bytes[0] !== 0x30) return undefined;
+  const firstLengthByte = bytes[1] ?? 0;
+  if (firstLengthByte < 0x80) return 2 + firstLengthByte;
+  const lengthByteCount = firstLengthByte & 0x7f;
+  if (lengthByteCount === 0 || lengthByteCount > 4 || bytes.byteLength < 2 + lengthByteCount) {
+    return undefined;
+  }
+  let contentLength = 0;
+  for (let index = 0; index < lengthByteCount; index += 1) {
+    contentLength = contentLength * 256 + (bytes[2 + index] ?? 0);
+  }
+  const total = 2 + lengthByteCount + contentLength;
+  return total <= bytes.byteLength ? total : undefined;
+};
+
+const extractPdfSignatureAt = (
   pdf: Uint8Array,
+  byteRangeStart: number,
+  signatureCount: number,
 ): Effect.Effect<ExtractedPdfSignature, PdfError> =>
   Effect.gen(function* () {
-    const byteRange = yield* parseByteRange(pdf);
+    const byteRange = yield* parseByteRangeAt(pdf, byteRangeStart);
+    const rangeEnd = byteRange[2] + byteRange[3];
+    if (
+      byteRange[1] < 0 ||
+      byteRange[3] < 0 ||
+      byteRange[2] <= byteRange[0] + byteRange[1] ||
+      rangeEnd > pdf.byteLength
+    ) {
+      return yield* Effect.fail(
+        new PdfError({
+          code: PdfErrorCodeValue.placeholderNotFound,
+          retryable: false,
+          reason: "Malformed /ByteRange values.",
+          operation: PdfOperationValue.verify,
+        }),
+      );
+    }
     const signedData = concatBytes([
       pdf.subarray(byteRange[0], byteRange[0] + byteRange[1]),
       pdf.subarray(byteRange[2], byteRange[2] + byteRange[3]),
@@ -208,11 +245,59 @@ export const extractPdfSignature = (
         }),
       );
     }
-    const signatureHex = trimTrailingZeroHex(asciiSlice(pdf, signatureHexStart, signatureHexEnd));
+    const paddedSignature = hexToBytes(asciiSlice(pdf, signatureHexStart, signatureHexEnd));
+    const derLength = derSequenceTotalLength(paddedSignature);
+    const signature =
+      derLength === undefined
+        ? hexToBytes(trimTrailingZeroHex(asciiSlice(pdf, signatureHexStart, signatureHexEnd)))
+        : paddedSignature.subarray(0, derLength);
     return {
       byteRange,
       signedData,
-      signature: hexToBytes(signatureHex),
-      signatureCount: countByteRanges(pdf),
+      signature,
+      signatureCount,
+      startsAtZero: byteRange[0] === 0,
+      coversFileEnd: rangeEnd === pdf.byteLength,
     };
+  });
+
+/** Every signature in the document, in file order (oldest first). */
+export const extractPdfSignatures = (
+  pdf: Uint8Array,
+): Effect.Effect<ReadonlyArray<ExtractedPdfSignature>, PdfError> =>
+  Effect.gen(function* () {
+    const offsets = findByteRangeOffsets(pdf);
+    if (offsets.length === 0) {
+      return yield* Effect.fail(
+        new PdfError({
+          code: PdfErrorCodeValue.placeholderNotFound,
+          retryable: false,
+          reason: "Failed to locate /ByteRange.",
+          operation: PdfOperationValue.verify,
+        }),
+      );
+    }
+    return yield* Effect.forEach(offsets, (offset) =>
+      extractPdfSignatureAt(pdf, offset, offsets.length),
+    );
+  });
+
+/** The newest signature (the one whose range must reach the end of the file). */
+export const extractPdfSignature = (
+  pdf: Uint8Array,
+): Effect.Effect<ExtractedPdfSignature, PdfError> =>
+  Effect.gen(function* () {
+    const signatures = yield* extractPdfSignatures(pdf);
+    const last = signatures[signatures.length - 1];
+    if (last === undefined) {
+      return yield* Effect.fail(
+        new PdfError({
+          code: PdfErrorCodeValue.placeholderNotFound,
+          retryable: false,
+          reason: "Failed to locate /ByteRange.",
+          operation: PdfOperationValue.verify,
+        }),
+      );
+    }
+    return last;
   });

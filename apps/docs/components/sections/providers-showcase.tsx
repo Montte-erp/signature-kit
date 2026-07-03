@@ -39,9 +39,8 @@ interface ProviderShowcase {
 }
 
 /**
- * The five remote providers, in display order. Every snippet is the SAME
- * request shape (title / documents / recipients) — only the `create*SignatureRequest`
- * call and its config change, which is the whole point of the section.
+ * The five remote providers, in display order. The snippets share the Alchemy
+ * resource pattern, but each package owns the request props its provider accepts.
  */
 const PROVIDERS_SHOWCASE: readonly ProviderShowcase[] = [
   {
@@ -100,7 +99,7 @@ export default Alchemy.Stack(
     return yield* AssinafySignatureRequest("contract", {
       title: "Contract",
       documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Carla Nunes", email: "carla@example.com", role: "signer" }],
+      recipients: [{ name: "Carla Nunes", email: "carla@example.com" }],
     })
   }),
 )`,
@@ -130,7 +129,7 @@ export default Alchemy.Stack(
     return yield* ZapSignSignatureRequest("contract", {
       title: "Contract",
       documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Davi Rocha", email: "davi@example.com", role: "signer" }],
+      recipients: [{ name: "Davi Rocha", email: "davi@example.com" }],
     })
   }),
 )`,

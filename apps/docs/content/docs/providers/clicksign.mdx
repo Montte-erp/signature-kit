@@ -3,7 +3,7 @@ title: Clicksign
 description: "Create Clicksign v1 document requests with Redacted credentials and typed SignatureKit errors."
 ---
 
-Clicksign creates the upstream document and signer, optionally notifies the recipient, then returns a normalized `RemoteSignatureRequest`. It is not a local `Signatures` backend and it does not mutate PDF bytes in-process.
+Clicksign creates the upstream document and signer, optionally notifies the recipient, then returns a Clicksign-owned `ClicksignSignatureRequestAttributes` record. It is not a local `Signatures` backend and it does not mutate PDF bytes in-process.
 
 ## Installation
 

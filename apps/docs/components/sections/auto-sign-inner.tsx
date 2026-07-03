@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils";
 import { captureDocsEvent } from "@/lib/posthog/client";
 import { createSyncStore, useSyncStore } from "@/lib/sync-store";
 import { m } from "@/paraglide/messages";
+import { getLocale } from "@/paraglide/runtime";
 
 /*
  * Auto-signature demo — heavy interactive body (loaded ssr:false from auto-sign.tsx
@@ -61,40 +62,42 @@ const LOREM = [
 
 // Each document showcases a different signature COMPONENT variant, so the demo
 // walks through the range (line · field · witnessed · rubrica).
+// Names/labels are Paraglide message refs (not strings) so they resolve in the
+// active locale at render/queue time.
 const DEMO_DOCS: ReadonlyArray<{
   readonly id: string;
-  readonly name: string;
+  readonly name: () => string;
   readonly paragraphs: ReadonlyArray<string>;
   readonly variant: SignatureVariant;
-  readonly variantLabel: string;
+  readonly variantLabel: () => string;
 }> = [
   {
     id: "doc-contrato",
-    name: "Contrato de prestação de serviços",
+    name: m.autosign_doc_contract_name,
     paragraphs: LOREM.slice(0, 5),
     variant: "line",
-    variantLabel: "Linha de assinatura",
+    variantLabel: m.autosign_variant_line,
   },
   {
     id: "doc-aditivo",
-    name: "Aditivo contratual",
+    name: m.autosign_doc_amendment_name,
     paragraphs: LOREM.slice(0, 3),
     variant: "field",
-    variantLabel: "Campo de assinatura",
+    variantLabel: m.autosign_variant_field,
   },
   {
     id: "doc-procuracao",
-    name: "Procuração",
+    name: m.autosign_doc_poa_name,
     paragraphs: LOREM.slice(1, 5),
     variant: "witnessed",
-    variantLabel: "Com testemunha",
+    variantLabel: m.autosign_variant_witnessed,
   },
   {
     id: "doc-adesao",
-    name: "Termo de adesão",
+    name: m.autosign_doc_terms_name,
     paragraphs: LOREM.slice(0, 4),
     variant: "initials",
-    variantLabel: "Rubrica + assinatura",
+    variantLabel: m.autosign_variant_initials,
   },
 ];
 
@@ -173,7 +176,7 @@ type QueueItem = { readonly id: string; readonly name: string; readonly mode: "p
 const statusEntry = (id: string, phase: DocPhase): readonly [string, DocPhase] => [id, phase];
 
 const initialState = (): AutoState => ({
-  docs: DEMO_DOCS.map((d) => ({ id: d.id, name: d.name, variantLabel: d.variantLabel })),
+  docs: DEMO_DOCS.map((d) => ({ id: d.id, name: d.name(), variantLabel: d.variantLabel() })),
   status: Object.fromEntries(DEMO_DOCS.map((d) => statusEntry(d.id, "queued"))),
   activeIndex: 0,
   busy: false,
@@ -217,7 +220,7 @@ const renderQueueItem = (item: QueueItem): Effect.Effect<void> =>
     }
 
     setPhase(item.id, "signing");
-    const signed: SignedMark = { ...SIGNER, date: new Date().toLocaleString("pt-BR") };
+    const signed: SignedMark = { ...SIGNER, date: new Date().toLocaleString(getLocale()) };
     const bytes = yield* Effect.promise(() =>
       generateFormalContractPdf({
         title: item.name,
@@ -238,8 +241,10 @@ const runQueueItems = (items: ReadonlyArray<QueueItem>): Effect.Effect<void> =>
         Effect.ensuring(Effect.sync(() => store.setState((s) => ({ ...s, busy: false })))),
       );
 
-void Effect.runPromise(
-  runQueueItems(DEMO_DOCS.map((demo) => ({ id: demo.id, name: demo.name, mode: "prepare" }))),
+// runPromiseExit: fire-and-forget queue runs must never surface as unhandled
+// promise rejections if PDF generation fails.
+void Effect.runPromiseExit(
+  runQueueItems(DEMO_DOCS.map((demo) => ({ id: demo.id, name: demo.name(), mode: "prepare" }))),
 );
 
 const go = (to: number): void => {
@@ -264,8 +269,8 @@ const autoSign = (): void => {
       }),
     ),
   }));
-  void Effect.runPromise(
-    runQueueItems(DEMO_DOCS.map((demo) => ({ id: demo.id, name: demo.name, mode: "sign" }))),
+  void Effect.runPromiseExit(
+    runQueueItems(DEMO_DOCS.map((demo) => ({ id: demo.id, name: demo.name(), mode: "sign" }))),
   );
 };
 
@@ -277,8 +282,8 @@ const resetDemo = (): void => {
     document_count: DEMO_DOCS.length,
   });
   store.setState(() => initialState());
-  void Effect.runPromise(
-    runQueueItems(DEMO_DOCS.map((demo) => ({ id: demo.id, name: demo.name, mode: "prepare" }))),
+  void Effect.runPromiseExit(
+    runQueueItems(DEMO_DOCS.map((demo) => ({ id: demo.id, name: demo.name(), mode: "prepare" }))),
   );
 };
 

@@ -118,6 +118,15 @@ describe("declarative smell rules", () => {
     ).toBe(false);
   });
 
+  const inlineImportType =
+    "const verify = (SignedXml: typeof " + "imp" + 'ort("xmldsigjs").SignedXml) => true;';
+
+  it("rejects inline import type annotations", () => {
+    expect(
+      anyCheckMatchesSource(architectureChecks, "formats/xml/src/verify.ts", inlineImportType),
+    ).toBe(true);
+  });
+
   it("scans package manifests so dependency checks are live", () => {
     expect(hasCheckedExtension("core/core/package.json")).toBe(true);
   });
@@ -220,6 +229,16 @@ export const ExampleProvider = () =>
         architectureChecks,
         "signers/example/src/index.ts",
         "list: () => listRequests().pipe(Effect.map((requests) => Array.from(requests))),",
+      ),
+    ).toBe(true);
+  });
+
+  it("blocks core packages from importing signer packages", () => {
+    expect(
+      anyCheckMatchesSource(
+        dependencyChecks,
+        "core/core/src/example.ts",
+        'import { providers } from "@signature-kit/clicksign";',
       ),
     ).toBe(true);
   });

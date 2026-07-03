@@ -67,6 +67,7 @@ import { caveat } from "@/lib/handwriting-font";
 import { cn } from "@/lib/utils";
 import { captureDocsEvent } from "@/lib/posthog/client";
 import { m } from "@/paraglide/messages";
+import { getLocale } from "@/paraglide/runtime";
 
 /*
  * In-browser A1 PDF signer — the real product, not a mock.
@@ -877,7 +878,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     previewLines.push(profile?.document ? `CPF/CNPJ: ${profile.document}` : "CPF / CNPJ");
   }
   if (stampDate) {
-    previewLines.push(new Date().toLocaleDateString("pt-BR"));
+    previewLines.push(new Date().toLocaleDateString(getLocale()));
   }
   // The placed marker shows the full mark; the every-page ghost shows the initials.
   const stampPreview = {
@@ -1214,7 +1215,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       lines.push(certValue.subject);
       if (certValue.document) lines.push(`CPF/CNPJ: ${certValue.document}`);
     }
-    if (stampDate) lines.push(now.toLocaleString("pt-BR"));
+    if (stampDate) lines.push(now.toLocaleString(getLocale()));
     // Two marks: the full handwriting MAIN signature (placed page) and the small
     // bracketed INITIALS rubrica (every other page). Rendered SYNCHRONOUSLY here
     // rather than read from the async-derived preview state, so a Sign click that

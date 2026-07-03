@@ -99,6 +99,18 @@ export const fetchIcpBrasilPadesPolicy = (
   options?: FetchIcpBrasilPadesPolicyOptions,
 ): Effect.Effect<IcpBrasilPolicy, CmsError> =>
   Effect.gen(function* () {
+    const valid = yield* Schema.decodeUnknownEffect(FetchIcpBrasilPadesPolicyOptionsSchema)(
+      options ?? {},
+    ).pipe(
+      Effect.mapError(
+        (issue) =>
+          new CmsError({
+            code: CmsErrorCodeValue.policyError,
+            reason: `Invalid ICP-Brasil PAdES policy fetch options: ${String(issue)}`,
+            operation: CmsOperationValue.policy,
+          }),
+      ),
+    );
     const response = yield* Effect.tryPromise({
       try: (signal) => fetch(IcpBrasilPadesPolicy.adRbV11.policyUri, { signal }),
       catch: () =>
@@ -109,7 +121,7 @@ export const fetchIcpBrasilPadesPolicy = (
         }),
     }).pipe(
       Effect.timeoutOrElse({
-        duration: Duration.millis(options?.timeoutMillis ?? DEFAULT_POLICY_TIMEOUT_MILLIS),
+        duration: Duration.millis(valid.timeoutMillis ?? DEFAULT_POLICY_TIMEOUT_MILLIS),
         orElse: () =>
           Effect.fail(
             new CmsError({

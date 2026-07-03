@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0
+
+- Assinafy now owns its signature-request props, attributes, state schema, schema
+  names, and retained no-op diff instead of using core remote-signature contracts.
+- Honor each signer `routingOrder` when creating Assinafy assignments, falling
+  back to listed order when none is provided.
+
+Breaking: request props now use `AssinafySignatureRequestProps` with
+`contentBase64` documents, and `getAssinafySignatureRequest` /
+`listAssinafySignatureRequests` return `AssinafySignatureRequestAttributes`
+instead of core `RemoteSignature*` types.
+
 ## 0.2.0
 
 - Rework lookup, listing, and deletion onto Assinafy's real document API

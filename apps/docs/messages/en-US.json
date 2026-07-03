@@ -38,8 +38,8 @@
   "showcase_feature_errors_desc": "Nothing throws. Every failure is one SignatureKitError on the Effect channel, tagged with the provider and a literal code.",
   "showcase_feature_redacted_label": "Redacted secrets",
   "showcase_feature_redacted_desc": "Tokens and API keys stay wrapped in Redacted until the HTTP boundary — never logged, never leaked.",
-  "showcase_feature_shape_label": "One request shape",
-  "showcase_feature_shape_desc": "The same title / documents / recipients request normalizes to a RemoteSignatureRequest across all eight providers.",
+  "showcase_feature_shape_label": "Provider-owned request shapes",
+  "showcase_feature_shape_desc": "Each remote signer exposes the documents, recipients, statuses, and limits its provider actually supports.",
   "showcase_card_provider": "Provider",
   "showcase_card_hint": "Use arrows or click a logo",
   "showcase_prev": "Previous provider",
@@ -213,5 +213,15 @@
   "autosign_download": "Download",
   "autosign_prev": "Previous document",
   "autosign_next": "Next document",
-  "autosign_note": "The cryptographic CMS step is illustrative here, but the visible signature stamp is baked onto the real PDF bytes — the same bytes you could download. For real PAdES signing with your own certificate, use the live signer above."
+  "autosign_note": "The cryptographic CMS step is illustrative here, but the visible signature stamp is baked onto the real PDF bytes — the same bytes you could download. For real PAdES signing with your own certificate, use the live signer above.",
+  "autosign_doc_contract_name": "Service agreement",
+  "autosign_doc_amendment_name": "Contract amendment",
+  "autosign_doc_poa_name": "Power of attorney",
+  "autosign_doc_terms_name": "Terms of adhesion",
+  "autosign_variant_line": "Signature line",
+  "autosign_variant_field": "Signature field",
+  "autosign_variant_witnessed": "With witness",
+  "autosign_variant_initials": "Initials + signature",
+  "install_copy_label": "Copy install command",
+  "install_copied_label": "Copied"
 }

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0
+
+- Remove the shared remote-signature provider/domain contracts from
+  `@signature-kit/core/config`; provider ids, resource props/attributes, state
+  models, and schema names now live in each signer package.
+- Allow `SignatureKitError.provider` and `schemaName` to carry provider-owned
+  string values, so HTTP and signer errors can report local provider facts.
+- Fix `x-ratelimit-reset` parsing by treating past-valued numbers as delta seconds
+  while preserving epoch seconds and `retryAfterEpochSeconds` on HTTP failures.
+
+Breaking: `SignatureKitSchemaNameValue`, the remote provider literal catalogs,
+`remote.*` operation values, and the `RemoteSignature*` contracts are no longer
+exported from `@signature-kit/core/config`; import provider request/response
+types from the signer package that owns that provider.
+
 ## 0.2.0
 
 - HTTP client now honors Effect interruption and request timeouts by driving `fetch` and

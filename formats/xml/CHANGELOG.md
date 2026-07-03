@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+- Move `SignedXml` construction into `XmlRuntime` and cache verification-key
+  imports, avoiding repeated XML-DSig module loads and repeated key imports
+  during signing and verification.
+- Import XML signing certificates and signing keys concurrently.
+
 ## 0.2.0
 
 - Security: `verifyXml` no longer trusts key material embedded in the document. Callers must

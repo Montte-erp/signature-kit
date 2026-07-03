@@ -41,8 +41,10 @@ export const signPdf = (
     const signatureAlgorithm = yield* signatureAlgorithmForHash(hashAlgorithm);
     const placeholderPdf = yield* addSignaturePlaceholder(input);
     const prepared = yield* preparePdfByteRange(placeholderPdf);
-    const certificate = yield* signatures.certificate();
-    const signingKey = yield* signatures.importSigningKey(signatureAlgorithm);
+    const [certificate, signingKey] = yield* Effect.all(
+      [signatures.certificate(), signatures.importSigningKey(signatureAlgorithm)],
+      { concurrency: "unbounded" },
+    );
     const icpBrasil =
       input.icpBrasil ??
       (input.policy === "pades-icp-brasil"

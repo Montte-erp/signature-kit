@@ -38,8 +38,8 @@ export function Hero() {
 
         <motion.h1
           className="mt-6 max-w-[20ch] text-[2.5rem]/[1.05] font-medium tracking-tight text-balance text-foreground sm:text-7xl lg:text-8xl"
-          initial={{ opacity: 0, transform: `translateY(${offset}px)` }}
-          animate={{ opacity: 1, transform: "translateY(0px)" }}
+          initial={{ opacity: 0, y: offset }}
+          animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.08, duration: 0.7, ease: EASE }}
         >
           {m.hero_title()}
@@ -47,8 +47,8 @@ export function Hero() {
 
         <motion.p
           className="mt-5 max-w-[60ch] text-base leading-relaxed text-pretty text-muted-foreground sm:text-xl"
-          initial={{ opacity: 0, transform: `translateY(${offset}px)` }}
-          animate={{ opacity: 1, transform: "translateY(0px)" }}
+          initial={{ opacity: 0, y: offset }}
+          animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.18, duration: 0.6, ease: EASE }}
         >
           {m.hero_subhead()}
@@ -56,8 +56,8 @@ export function Hero() {
 
         <motion.div
           className="mt-8 flex flex-wrap items-center justify-center gap-3"
-          initial={{ opacity: 0, transform: `translateY(${offset}px)` }}
-          animate={{ opacity: 1, transform: "translateY(0px)" }}
+          initial={{ opacity: 0, y: offset }}
+          animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.26, duration: 0.6, ease: EASE }}
         >
           <InstallCommand analyticsLocation="hero" />

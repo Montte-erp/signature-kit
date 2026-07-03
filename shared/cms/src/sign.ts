@@ -62,8 +62,10 @@ export const createDetachedSignedData = (
         }),
     });
 
-    const messageDigest = yield* digest(hashAlgorithm, valid.content);
-    const certificateSha256 = yield* digest("sha256", valid.certificateDer);
+    const [messageDigest, certificateSha256] = yield* Effect.all(
+      [digest(hashAlgorithm, valid.content), digest("sha256", valid.certificateDer)],
+      { concurrency: "unbounded" },
+    );
 
     const signed = yield* Effect.try({
       try: () =>

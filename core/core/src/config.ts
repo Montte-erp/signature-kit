@@ -145,138 +145,6 @@ export const VerificationResultSchema = Schema.Struct({
 });
 export type VerificationResult = (typeof VerificationResultSchema)["Type"];
 
-// =============================================================================
-// Remote signature workflow contracts
-// =============================================================================
-
-export const RemoteSignatureProviderSchema = Schema.Literals([
-  "clicksign",
-  "assinafy",
-  "zapsign",
-  "docuseal",
-  "documenso",
-]);
-export type RemoteSignatureProvider = (typeof RemoteSignatureProviderSchema)["Type"];
-
-export const RemoteSignatureStateSchema = Schema.Literals([
-  "draft",
-  "sent",
-  "completed",
-  "cancelled",
-  "deleted",
-  "declined",
-  "expired",
-]);
-export type RemoteSignatureState = (typeof RemoteSignatureStateSchema)["Type"];
-
-export const RemoteSignatureRecipientRoleSchema = Schema.Literals(["approver", "signer"]);
-export type RemoteSignatureRecipientRole = (typeof RemoteSignatureRecipientRoleSchema)["Type"];
-
-export const RemoteSignatureDocumentSchema = Schema.Struct({
-  fileName: nonEmptyString,
-  mimeType: nonEmptyString,
-  content: Schema.Uint8Array,
-});
-export type RemoteSignatureDocument = (typeof RemoteSignatureDocumentSchema)["Type"];
-
-export const RemoteSignatureRecipientSchema = Schema.Struct({
-  name: nonEmptyString,
-  email: nonEmptyString,
-  role: Schema.optional(RemoteSignatureRecipientRoleSchema),
-  routingOrder: Schema.optional(Schema.Number),
-});
-export type RemoteSignatureRecipient = (typeof RemoteSignatureRecipientSchema)["Type"];
-
-export const RemoteSignatureRequestInputSchema = Schema.Struct({
-  title: nonEmptyString,
-  subject: Schema.optional(nonEmptyString),
-  message: Schema.optional(nonEmptyString),
-  documents: Schema.NonEmptyArray(RemoteSignatureDocumentSchema),
-  recipients: Schema.NonEmptyArray(RemoteSignatureRecipientSchema),
-  send: Schema.optional(Schema.Boolean),
-  expiresAt: Schema.optional(Schema.Date),
-  redirectUrl: Schema.optional(nonEmptyString),
-});
-export type RemoteSignatureRequestInput = (typeof RemoteSignatureRequestInputSchema)["Type"];
-
-const base64String: Schema.ConstraintDecoder<string> = Schema.String.check(Schema.isBase64());
-
-export const RemoteSignatureDocumentPropsSchema = Schema.Struct({
-  fileName: nonEmptyString,
-  mimeType: nonEmptyString,
-  contentBase64: base64String,
-});
-export type RemoteSignatureDocumentProps = (typeof RemoteSignatureDocumentPropsSchema)["Type"];
-
-export const RemoteSignatureRequestPropsSchema = Schema.Struct({
-  title: nonEmptyString,
-  subject: Schema.optional(nonEmptyString),
-  message: Schema.optional(nonEmptyString),
-  documents: Schema.NonEmptyArray(RemoteSignatureDocumentPropsSchema),
-  recipients: Schema.NonEmptyArray(RemoteSignatureRecipientSchema),
-  send: Schema.optional(Schema.Boolean),
-  expiresAt: Schema.optional(Schema.Date),
-  redirectUrl: Schema.optional(nonEmptyString),
-});
-export type RemoteSignatureRequestProps = (typeof RemoteSignatureRequestPropsSchema)["Type"];
-
-export const remoteSignatureInputFromProps = (
-  props: RemoteSignatureRequestProps,
-): RemoteSignatureRequestInput => {
-  const [firstDocument, ...restDocuments] = props.documents;
-  return {
-    title: props.title,
-    documents: [
-      {
-        fileName: firstDocument.fileName,
-        mimeType: firstDocument.mimeType,
-        content: Uint8Array.fromBase64(firstDocument.contentBase64),
-      },
-      ...restDocuments.map((document) => ({
-        fileName: document.fileName,
-        mimeType: document.mimeType,
-        content: Uint8Array.fromBase64(document.contentBase64),
-      })),
-    ],
-    recipients: props.recipients,
-    ...(props.subject === undefined ? {} : { subject: props.subject }),
-    ...(props.message === undefined ? {} : { message: props.message }),
-    ...(props.send === undefined ? {} : { send: props.send }),
-    ...(props.expiresAt === undefined ? {} : { expiresAt: props.expiresAt }),
-    ...(props.redirectUrl === undefined ? {} : { redirectUrl: props.redirectUrl }),
-  };
-};
-
-export const RemoteSignatureRequestSchema = Schema.Struct({
-  provider: RemoteSignatureProviderSchema,
-  id: nonEmptyString,
-  state: RemoteSignatureStateSchema,
-  providerStatus: Schema.optional(Schema.String),
-  signingUrl: Schema.optional(Schema.String),
-  detailsUrl: Schema.optional(Schema.String),
-  downloadUrl: Schema.optional(Schema.String),
-});
-export type RemoteSignatureRequest = (typeof RemoteSignatureRequestSchema)["Type"];
-
-export const remoteSignatureInputFromResourceProps = (
-  provider: RemoteSignatureProvider,
-  props: unknown,
-): Effect.Effect<RemoteSignatureRequestInput, SignatureKitError> =>
-  Schema.decodeUnknownEffect(RemoteSignatureRequestPropsSchema)(props).pipe(
-    Effect.mapError(
-      (issue) =>
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.invalidInput,
-          retryable: false,
-          provider,
-          operation: SignatureKitOperationValue.schemaDecode,
-          schemaName: SignatureKitSchemaNameValue.remoteSignatureRequestProps,
-          issueMessage: String(issue),
-        }),
-    ),
-    Effect.map(remoteSignatureInputFromProps),
-  );
-
 /**
  * The capability seam. A signer owns "where the signing power comes from".
  * It never owns document-format mutation (XML/PDF live in format modules).
@@ -416,17 +284,17 @@ const signatureKitErrorCatalogByCode = {
   },
   "signature-kit.HTTP": {
     code: "signature-kit.HTTP",
-    message: "Remote signature HTTP request failed.",
+    message: "HTTP request failed.",
     overridable: true,
   },
   "signature-kit.RESPONSE_SHAPE": {
     code: "signature-kit.RESPONSE_SHAPE",
-    message: "Remote signature response shape was invalid.",
+    message: "HTTP response shape was invalid.",
     overridable: true,
   },
   "signature-kit.UNSUPPORTED_OPERATION": {
     code: "signature-kit.UNSUPPORTED_OPERATION",
-    message: "Remote signature operation is unsupported.",
+    message: "Operation is unsupported.",
     overridable: true,
   },
   "signature-kit.UNKNOWN": {
@@ -467,12 +335,6 @@ export const SignatureKitOperationSchema = Schema.Literals([
   "schema.decode",
   "http.request",
   "http.decode",
-  "remote.create",
-  "remote.get",
-  "remote.list",
-  "remote.cancel",
-  "remote.delete",
-  "remote.download",
 ]);
 export type SignatureKitOperation = (typeof SignatureKitOperationSchema)["Type"];
 export const SignatureKitOperationValue = {
@@ -484,86 +346,8 @@ export const SignatureKitOperationValue = {
   cryptoVerify: "crypto.verify",
   httpRequest: "http.request",
   httpDecode: "http.decode",
-  remoteCreate: "remote.create",
-  remoteGet: "remote.get",
-  remoteList: "remote.list",
-  remoteCancel: "remote.cancel",
-  remoteDelete: "remote.delete",
-  remoteDownload: "remote.download",
   schemaDecode: "schema.decode",
 } satisfies Record<string, SignatureKitOperation>;
-
-export const SignatureKitSchemaNameSchema = Schema.Literals([
-  "Certificate",
-  "CertificateSource",
-  "SignatureAlgorithm",
-  "SignInput",
-  "VerifyInput",
-  "A1SignerOptions",
-  "A1RemoteFetch",
-  "A1RemoteSource",
-  "RemoteSignatureRequestInput",
-  "RemoteSignatureRequestProps",
-  "ProviderHttpRequest",
-  "ClicksignProviderOptions",
-  "ClicksignDocumentResult",
-  "ClicksignSignerResult",
-  "ClicksignListResult",
-  "ClicksignDocumentsResult",
-  "AssinafyProviderOptions",
-  "AssinafyDocumentResult",
-  "AssinafySignerResult",
-  "AssinafyAssignmentResult",
-  "AssinafyAssignmentsResult",
-  "ZapSignProviderOptions",
-  "ZapSignDocumentResult",
-  "ZapSignDocumentsResult",
-  "DocuSealProviderOptions",
-  "DocuSealSubmissionResult",
-  "DocuSealSubmissionsResult",
-  "DocuSealSubmissionDocumentsResult",
-  "DocumensoProviderOptions",
-  "DocumensoCreateEnvelopeResult",
-  "DocumensoDistributeEnvelopeResult",
-  "DocumensoEnvelopeResult",
-  "DocumensoEnvelopeListResult",
-]);
-export type SignatureKitSchemaName = (typeof SignatureKitSchemaNameSchema)["Type"];
-export const SignatureKitSchemaNameValue = {
-  certificate: "Certificate",
-  certificateSource: "CertificateSource",
-  signatureAlgorithm: "SignatureAlgorithm",
-  signInput: "SignInput",
-  verifyInput: "VerifyInput",
-  remoteSignatureRequestInput: "RemoteSignatureRequestInput",
-  remoteSignatureRequestProps: "RemoteSignatureRequestProps",
-  providerHttpRequest: "ProviderHttpRequest",
-  clicksignProviderOptions: "ClicksignProviderOptions",
-  clicksignDocumentResult: "ClicksignDocumentResult",
-  clicksignSignerResult: "ClicksignSignerResult",
-  clicksignListResult: "ClicksignListResult",
-  clicksignDocumentsResult: "ClicksignDocumentsResult",
-  assinafyProviderOptions: "AssinafyProviderOptions",
-  assinafyDocumentResult: "AssinafyDocumentResult",
-  assinafySignerResult: "AssinafySignerResult",
-  assinafyAssignmentResult: "AssinafyAssignmentResult",
-  assinafyAssignmentsResult: "AssinafyAssignmentsResult",
-  zapSignProviderOptions: "ZapSignProviderOptions",
-  zapSignDocumentResult: "ZapSignDocumentResult",
-  zapSignDocumentsResult: "ZapSignDocumentsResult",
-  docuSealProviderOptions: "DocuSealProviderOptions",
-  docuSealSubmissionResult: "DocuSealSubmissionResult",
-  docuSealSubmissionsResult: "DocuSealSubmissionsResult",
-  docuSealSubmissionDocumentsResult: "DocuSealSubmissionDocumentsResult",
-  documensoProviderOptions: "DocumensoProviderOptions",
-  documensoCreateEnvelopeResult: "DocumensoCreateEnvelopeResult",
-  documensoDistributeEnvelopeResult: "DocumensoDistributeEnvelopeResult",
-  documensoEnvelopeResult: "DocumensoEnvelopeResult",
-  documensoEnvelopeListResult: "DocumensoEnvelopeListResult",
-  a1SignerOptions: "A1SignerOptions",
-  a1RemoteFetch: "A1RemoteFetch",
-  a1RemoteSource: "A1RemoteSource",
-} satisfies Record<string, SignatureKitSchemaName>;
 
 export class SignatureKitError extends Schema.TaggedErrorClass<SignatureKitError>()(
   "SignatureKitError",
@@ -571,10 +355,10 @@ export class SignatureKitError extends Schema.TaggedErrorClass<SignatureKitError
     code: SignatureKitErrorCodeSchema,
     retryable: Schema.Boolean,
     reason: Schema.optional(Schema.String),
-    operation: Schema.optional(SignatureKitOperationSchema),
-    schemaName: Schema.optional(SignatureKitSchemaNameSchema),
+    operation: Schema.optional(Schema.String),
+    schemaName: Schema.optional(Schema.String),
     issueMessage: Schema.optional(Schema.String),
-    provider: Schema.optional(RemoteSignatureProviderSchema),
+    provider: Schema.optional(Schema.String),
     status: Schema.optional(Schema.Number),
     retryAfterEpochSeconds: Schema.optional(Schema.Number),
   },

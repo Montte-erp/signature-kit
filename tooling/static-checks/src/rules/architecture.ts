@@ -38,6 +38,8 @@ const hasRetainedAlchemyResource = (source: string): boolean =>
 const hasAlchemyProviderService = (line: string): boolean => /\.Provider\.of\(\{/.test(line);
 
 const lacksProviderDiff = (source: string): boolean => !/\bdiff\s*:/.test(source);
+const hasInlineImportTypeAnnotation = (line: string): boolean =>
+  /(?:[:=]\s*|type\s+[A-Za-z_$][\w$]*\s*=\s*)(?:typeof\s+)?import\(["'][^"']+["']\)\./.test(line);
 
 const isInsideDeleteHandler = (context: CheckContext): boolean => {
   const before = context.lines
@@ -109,6 +111,13 @@ export const architectureChecks: readonly Check[] = [
     test: (context) =>
       alchemyProviderPathPattern.test(context.path) &&
       /\bArray\.from\(\s*requests\s*\)/.test(context.line),
+    ignoreImportLine: false,
+  },
+  {
+    message:
+      'Use top-level import type declarations instead of inline import("pkg").Type annotations.',
+    test: (context) =>
+      sourceModulePathPattern.test(context.path) && hasInlineImportTypeAnnotation(context.line),
     ignoreImportLine: false,
   },
 ];

@@ -1,6 +1,8 @@
 "use client";
 
+import { useInView } from "motion/react";
 import dynamic from "next/dynamic";
+import { useRef } from "react";
 
 import { FadeIn } from "@/components/fade-in";
 import { m } from "@/paraglide/messages";
@@ -44,6 +46,12 @@ function AutoSignSkeleton() {
 }
 
 export function AutoSign() {
+  // The inner demo weighs ~1MB (@react-pdf/renderer + pdfjs-dist) and starts
+  // generating PDFs on import, so only mount it once the section approaches
+  // the viewport.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const inView = useInView(bodyRef, { once: true, margin: "400px 0px" });
+
   return (
     <Section className="border-t border-border">
       <Container>
@@ -55,7 +63,7 @@ export function AutoSign() {
           />
         </FadeIn>
         <FadeIn delay={0.05}>
-          <AutoSignInner />
+          <div ref={bodyRef}>{inView ? <AutoSignInner /> : <AutoSignSkeleton />}</div>
         </FadeIn>
       </Container>
     </Section>

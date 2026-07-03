@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- Security: bound PKCS#12 MAC, PBKDF2, and legacy PBE iteration counts at 10M so
+  attacker-controlled `.pfx` files cannot pin the event loop before the password
+  is checked.
+
 ## 0.2.0
 
 - Fix SHA-512/SHA-384 message-length encoding for inputs ≥ 512 MiB (also corrects

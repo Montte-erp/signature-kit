@@ -1,7 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
-import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
-import { reconcileInput } from "../../__tests__/alchemy-provider";
+import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import {
   loadFlaggedConfig,
   optionalEnv,
@@ -17,6 +16,7 @@ import {
   documensoCredentialsLayer,
   getDocumensoSignatureRequest,
   listDocumensoSignatureRequests,
+  type DocumensoEnvelopeProps,
   type DocumensoProviderOptions,
 } from "../src/index";
 
@@ -61,11 +61,11 @@ const documensoOptions = (liveConfig: NonNullable<typeof config>): DocumensoProv
 
 const reconcileDocumensoSignatureRequest = (
   options: DocumensoProviderOptions,
-  request: RemoteSignatureRequestInput,
+  request: DocumensoEnvelopeProps,
 ) =>
   Effect.gen(function* () {
     const provider = yield* DocumensoSignatureRequest.Provider;
-    return yield* provider.reconcile(reconcileInput("documenso-live-request", request));
+    return yield* provider.reconcile(reconcileResourceProps("documenso-live-request", request));
   }).pipe(
     Effect.provide(DocumensoSignatureRequestProvider()),
     Effect.provide(documensoCredentialsLayer(options)),
@@ -93,7 +93,7 @@ if (config === undefined) {
               {
                 fileName: "signature-kit-live.pdf",
                 mimeType: "application/pdf",
-                content: livePdf(),
+                contentBase64: Buffer.from(livePdf()).toString("base64"),
               },
             ],
             recipients: [
@@ -106,7 +106,7 @@ if (config === undefined) {
             ],
             // Keep the envelope a draft so the lifecycle never emails a real recipient.
             send: false,
-          } satisfies RemoteSignatureRequestInput;
+          } satisfies DocumensoEnvelopeProps;
 
           const createResult = yield* Effect.result(
             reconcileDocumensoSignatureRequest(options, input),

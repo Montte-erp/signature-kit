@@ -38,8 +38,8 @@
   "showcase_feature_errors_desc": "Nada lança exceção. Toda falha é um SignatureKitError no canal do Effect, marcado com o provedor e um código literal.",
   "showcase_feature_redacted_label": "Segredos protegidos",
   "showcase_feature_redacted_desc": "Tokens e chaves de API permanecem em Redacted até a chamada HTTP — nunca logados, nunca vazados.",
-  "showcase_feature_shape_label": "Um formato de requisição",
-  "showcase_feature_shape_desc": "A mesma requisição title / documents / recipients normaliza para um RemoteSignatureRequest em todos os oito provedores.",
+  "showcase_feature_shape_label": "Formatos próprios por provedor",
+  "showcase_feature_shape_desc": "Cada signer remoto expõe os documentos, destinatários, status e limites que seu provedor realmente suporta.",
   "showcase_card_provider": "Provedor",
   "showcase_card_hint": "Use as setas ou clique em um logo",
   "showcase_prev": "Provedor anterior",
@@ -213,5 +213,15 @@
   "autosign_download": "Baixar",
   "autosign_prev": "Documento anterior",
   "autosign_next": "Próximo documento",
-  "autosign_note": "O passo criptográfico CMS aqui é ilustrativo, mas o carimbo de assinatura visível é aplicado sobre os bytes reais do PDF — os mesmos bytes que você poderia baixar. Para assinatura PAdES real com seu próprio certificado, use o assinador acima."
+  "autosign_note": "O passo criptográfico CMS aqui é ilustrativo, mas o carimbo de assinatura visível é aplicado sobre os bytes reais do PDF — os mesmos bytes que você poderia baixar. Para assinatura PAdES real com seu próprio certificado, use o assinador acima.",
+  "autosign_doc_contract_name": "Contrato de prestação de serviços",
+  "autosign_doc_amendment_name": "Aditivo contratual",
+  "autosign_doc_poa_name": "Procuração",
+  "autosign_doc_terms_name": "Termo de adesão",
+  "autosign_variant_line": "Linha de assinatura",
+  "autosign_variant_field": "Campo de assinatura",
+  "autosign_variant_witnessed": "Com testemunha",
+  "autosign_variant_initials": "Rubrica + assinatura",
+  "install_copy_label": "Copiar comando de instalação",
+  "install_copied_label": "Copiado"
 }

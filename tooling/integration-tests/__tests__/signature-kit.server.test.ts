@@ -44,9 +44,14 @@ describe("SignatureKit server integration", () => {
         xml: '<invoice Id="server-invoice"><amount>100.00</amount></invoice>',
         referenceId: "server-invoice",
       }).pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer));
+      const publicKeyDer = yield* signatures.certificate().pipe(
+        Effect.map((certificate) => certificate.publicKeyDer),
+        Effect.provide(layer),
+      );
       const xmlVerification = yield* verifyXml({
         xml: signedXml,
         requireReferenceUri: "#server-invoice",
+        publicKeyDer,
       }).pipe(Effect.provide(xmlRuntimeLayer));
       expect(xmlVerification.valid).toBe(true);
 

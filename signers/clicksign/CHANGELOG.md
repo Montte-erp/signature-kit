@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0
+
+- Clicksign now owns its document/signature-request props, attributes, state
+  schema, schema names, and retained no-op diff instead of using core
+  remote-signature contracts.
+- Cancel Clicksign documents with `PATCH /api/v1/documents/{key}/cancel`, matching
+  the provider API that rejected the previous `POST`.
+- Stop fabricating signed-document download URLs; absent signed-file URLs now stay
+  absent and download attempts fail as typed `unsupportedOperation` errors.
+- Enable sequential signing only when at least one signer has `routingOrder`, so
+  unordered multi-signer requests remain parallel.
+
+Breaking: request props now use `ClicksignSignatureRequestProps` with
+`contentBase64` documents, and `getClicksignSignatureRequest` /
+`listClicksignSignatureRequests` return `ClicksignSignatureRequestAttributes`
+instead of core `RemoteSignature*` types.
+
 ## 0.2.0
 
 - Authenticate same-host signed-document downloads (previously the fallback URL was requested

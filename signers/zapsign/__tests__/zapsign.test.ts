@@ -1,16 +1,14 @@
 import { describe, expect, it } from "@effect/vitest";
-import {
-  RemoteSignatureStateSchema,
-  SignatureKitErrorCodeValue,
-  type RemoteSignatureRequestInput,
-} from "@signature-kit/core/config";
+import { SignatureKitErrorCodeValue } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
-import { reconcileInput } from "../../__tests__/alchemy-provider";
+import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import { loadFlaggedConfig, optionalEnv, requiredEnv } from "../../../tooling/testing/env";
 import { Config, Effect, Redacted, Result, Schema } from "effect";
 import {
   ZapSignSignatureRequest,
+  ZapSignDocumentStateSchema,
   ZapSignSignatureRequestProvider,
+  type ZapSignDocumentProps,
   type ZapSignProviderOptions,
   zapSignCredentialsLayer,
   cancelZapSignSignatureRequest,
@@ -54,11 +52,11 @@ const livePdf = (): Uint8Array => {
 
 const reconcileZapSignSignatureRequest = (
   options: ZapSignProviderOptions,
-  request: RemoteSignatureRequestInput,
+  request: ZapSignDocumentProps,
 ) =>
   Effect.gen(function* () {
     const provider = yield* ZapSignSignatureRequest.Provider;
-    return yield* provider.reconcile(reconcileInput("zapsign-live-request", request));
+    return yield* provider.reconcile(reconcileResourceProps("zapsign-live-request", request));
   }).pipe(
     Effect.provide(ZapSignSignatureRequestProvider()),
     Effect.provide(zapSignCredentialsLayer(options)),
@@ -85,7 +83,7 @@ if (config === undefined) {
       {
         fileName: "signature-kit-live.pdf",
         mimeType: "application/pdf",
-        content: livePdf(),
+        contentBase64: Buffer.from(livePdf()).toString("base64"),
       },
     ],
     recipients: [
@@ -97,7 +95,7 @@ if (config === undefined) {
     ],
     send: false,
     expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-  } satisfies RemoteSignatureRequestInput;
+  } satisfies ZapSignDocumentProps;
 
   describe("ZapSign live API", () => {
     it.effect(
@@ -124,9 +122,9 @@ if (config === undefined) {
             expect(fetched.provider).toBe("zapsign");
             expect(fetched.id).toBe(documentToken);
             // `state` is derived from the real ZapSign status; assert it is a
-            // valid RemoteSignatureRequest state rather than pinning a literal
+            // valid ZapSignDocument state rather than pinning a literal
             // (a freshly created, unsent doc reports a "pending"-style status).
-            yield* Schema.decodeUnknownEffect(RemoteSignatureStateSchema)(fetched.state);
+            yield* Schema.decodeUnknownEffect(ZapSignDocumentStateSchema)(fetched.state);
             expect(fetched.providerStatus).toBeDefined();
 
             // 3. List requests, exercising the provider's Stream.paginate path
@@ -143,7 +141,7 @@ if (config === undefined) {
             yield* Effect.forEach(listed, (request) =>
               Effect.gen(function* () {
                 expect(request.provider).toBe("zapsign");
-                yield* Schema.decodeUnknownEffect(RemoteSignatureStateSchema)(request.state);
+                yield* Schema.decodeUnknownEffect(ZapSignDocumentStateSchema)(request.state);
               }),
             );
 

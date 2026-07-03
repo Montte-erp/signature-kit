@@ -288,6 +288,31 @@ describe("PDF signatures", () => {
     }),
   );
 
+  it.effect("rejects content appended after the signed range (signature-exclusion forgery)", () =>
+    Effect.gen(function* () {
+      const pfx = yield* readA1Fixture("ecnpj");
+      const pdf = yield* createPdf;
+      const signed = yield* signPdf({
+        pdf,
+        reason: "Forgery check",
+        signatureLength: 16384,
+      }).pipe(Effect.provide(a1SignaturesLayer({ pfx, password: PASSWORD })));
+
+      // Appending bytes leaves the CMS cryptographically intact but the
+      // signature no longer covers the end of the file — must be invalid.
+      const appended = encodeAscii("\n% forged incremental content\n%%EOF\n");
+      const forged = new Uint8Array(signed.byteLength + appended.byteLength);
+      forged.set(signed);
+      forged.set(appended, signed.byteLength);
+
+      const untouched = yield* verifyPdf({ pdf: signed });
+      const verification = yield* verifyPdf({ pdf: forged });
+
+      expect(untouched.valid).toBe(true);
+      expect(verification.valid).toBe(false);
+    }),
+  );
+
   it.effect("stamps a rubric on every page, then signs once over the whole document", () =>
     Effect.gen(function* () {
       const pfx = yield* readA1Fixture("ecnpj");

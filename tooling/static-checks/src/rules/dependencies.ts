@@ -8,6 +8,11 @@ const hasLegacyDependency = (line: string): boolean =>
 const hasMandatoryOtelDependency = (line: string): boolean =>
   /"@(?:effect\/opentelemetry|opentelemetry\/[^"/]+)"\s*:/.test(line);
 
+const importsSignerPackage = (line: string): boolean =>
+  /\bfrom\s+["']@signature-kit\/(?:a1|assinafy|clicksign|documenso|docuseal|zapsign)(?:\/[^"']*)?["']/.test(
+    line,
+  );
+
 export const dependencyChecks: readonly Check[] = [
   {
     message: "Replace legacy dependencies with modern alternatives: better-result, evlog, zod, ky.",
@@ -20,6 +25,12 @@ export const dependencyChecks: readonly Check[] = [
     test: ({ line, path }) =>
       /^(?:core|signers|formats)\/[^/]+\/package\.json$/.test(path) &&
       hasMandatoryOtelDependency(line),
+    ignoreImportLine: false,
+  },
+  {
+    message:
+      "Core packages must not import signer packages; dependency direction is core <- signers.",
+    test: ({ line, path }) => path.startsWith("core/") && importsSignerPackage(line),
     ignoreImportLine: false,
   },
 ];

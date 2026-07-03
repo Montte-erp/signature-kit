@@ -1,5 +1,6 @@
 import type { SignatureAlgorithm } from "@signature-kit/core/config";
 import { Effect, Schema } from "effect";
+import type { SignedXml as XmlDsigSignedXml } from "xmldsigjs";
 import {
   type XmlVerificationRequest,
   type XmlVerificationResult,
@@ -184,20 +185,9 @@ const verifySingleSignature = (
   document: Document,
   signatureElement: Element,
   publicKey: CryptoKey,
+  SignedXml: typeof XmlDsigSignedXml,
 ): Effect.Effect<boolean, XmlError> =>
   Effect.gen(function* () {
-    const { SignedXml } = yield* Effect.tryPromise({
-      try: async () => {
-        // dynamic-import: xmldsigjs transitively checks reflect-metadata during CJS evaluation; XmlRuntime loaded the polyfill.
-        return import("xmldsigjs");
-      },
-      catch: () =>
-        new XmlError({
-          code: XmlErrorCodeValue.verifyFailed,
-          retryable: false,
-          operation: XmlOperationValue.verify,
-        }),
-    });
     const signedXml = new SignedXml(document);
     yield* Effect.try({
       try: () => signedXml.LoadXml(signatureElement),
@@ -257,6 +247,7 @@ export const verifyXml = (
       ),
     );
     const xmlRuntime = yield* XmlRuntime;
+    const SignedXml = yield* xmlRuntime.signedXml();
     const signatureHashFallback = input.algorithm;
 
     const document = yield* xmlRuntime.parse(input.xml);
@@ -326,6 +317,7 @@ export const verifyXml = (
         document,
         signatureElement,
         publicKey,
+        SignedXml,
       );
       if (!singleSignatureValid) {
         valid = false;

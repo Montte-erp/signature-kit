@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- Validate ICP-Brasil PAdES policy fetch options before applying the timeout, and
+  compute the content digest and certificate digest concurrently during CMS
+  signing.
+
 ## 0.2.0
 
 - Bind RFC 3161 timestamp responses to the request: send a nonce, require PKIStatus

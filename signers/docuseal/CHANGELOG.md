@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0
+
+- DocuSeal now owns its submission props, attributes, state schema, schema names,
+  and retained no-op diff instead of using core remote-signature contracts.
+- Refuse signed-document downloads before a submission is completed, returning a
+  typed `unsupportedOperation` instead of silently returning the unsigned source
+  document.
+- Advertise `downloadUrl` only for completed submissions, because draft
+  submission document URLs can point at unsigned bytes.
+
+Breaking: request props now use `DocuSealSubmissionProps` with `contentBase64`
+documents, and `getDocuSealSignatureRequest` / `listDocuSealSignatureRequests`
+return `DocuSealSubmissionAttributes` instead of core `RemoteSignature*` types.
+
 ## 0.2.0
 
 - Deduplicate submitter roles so recipients sharing a role are accepted by DocuSeal.

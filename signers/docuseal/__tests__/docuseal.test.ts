@@ -1,7 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
-import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
 import { signatureHttpClientLive } from "@signature-kit/core/http";
-import { reconcileInput } from "../../__tests__/alchemy-provider";
+import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import { loadFlaggedConfig, optionalEnv, requiredEnv } from "../../../tooling/testing/env";
 import { Config, Effect, Redacted } from "effect";
 import {
@@ -12,6 +11,7 @@ import {
   getDocuSealSignatureRequest,
   listDocuSealSignatureRequests,
   type DocuSealProviderOptions,
+  type DocuSealSubmissionProps,
 } from "../src/index";
 
 const config = loadFlaggedConfig(
@@ -61,10 +61,10 @@ if (config === undefined) {
     ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
   };
 
-  const reconcileDocuSealSignatureRequest = (request: RemoteSignatureRequestInput) =>
+  const reconcileDocuSealSignatureRequest = (request: DocuSealSubmissionProps) =>
     Effect.gen(function* () {
       const provider = yield* DocuSealSignatureRequest.Provider;
-      return yield* provider.reconcile(reconcileInput("docuseal-live-request", request));
+      return yield* provider.reconcile(reconcileResourceProps("docuseal-live-request", request));
     }).pipe(
       Effect.provide(DocuSealSignatureRequestProvider()),
       Effect.provide(docuSealCredentialsLayer(options)),
@@ -96,7 +96,7 @@ if (config === undefined) {
               {
                 fileName: "signature-kit-live.pdf",
                 mimeType: "application/pdf",
-                content: livePdf(),
+                contentBase64: Buffer.from(livePdf()).toString("base64"),
               },
             ],
             recipients: [
@@ -114,7 +114,7 @@ if (config === undefined) {
               },
             ],
             send: false,
-          } satisfies RemoteSignatureRequestInput;
+          } satisfies DocuSealSubmissionProps;
 
           const created = yield* reconcileDocuSealSignatureRequest(input);
 

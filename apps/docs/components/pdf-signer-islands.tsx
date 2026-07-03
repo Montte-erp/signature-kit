@@ -1,9 +1,11 @@
 "use client";
 
+import { PenLine } from "lucide-react";
 import dynamic from "next/dynamic";
 import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import { m } from "@/paraglide/messages";
 
 const PdfSignerIsland = dynamic(() => import("./pdf-signer").then((mod) => mod.PdfSigner), {
   ssr: false,
@@ -13,7 +15,17 @@ const PdfSignerIsland = dynamic(() => import("./pdf-signer").then((mod) => mod.P
 
 const PdfSignerDialogIsland = dynamic(
   () => import("./pdf-signer").then((mod) => mod.PdfSignerDialog),
-  { ssr: false },
+  {
+    ssr: false,
+    // Static stand-in so the CTA exists in the prerendered HTML (no CLS, crawlable)
+    // while the heavy pdf-signer chunk loads.
+    loading: () => (
+      <PdfSignerDialogFallback>
+        {m.signer_open()}
+        <PenLine data-icon="inline-end" />
+      </PdfSignerDialogFallback>
+    ),
+  },
 );
 
 type PdfSignerProps = {

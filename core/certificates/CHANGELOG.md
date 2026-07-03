@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- Parse X.509 metadata and the SHA-256 fingerprint concurrently when reading a
+  certificate, and report certificate schema decode names without depending on
+  the removed core schema-name catalog.
+
 ## 0.2.0
 
 - Retain intermediate CA certificates (`intermediateCertificates`) so signatures can embed
