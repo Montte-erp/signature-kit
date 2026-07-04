@@ -6,19 +6,19 @@ description: "Instale os componentes shadcn do SignatureKit no seu app e seja do
 `@signature-kit/react` publica só hooks. Use o registry shadcn quando quiser um caminho pronto; os arquivos gerados entram no seu app, então storage, texto, estilo, fetch/tRPC e regras de produto continuam seus.
 
 ```bash title="Instalar um componente"
-npx shadcn@latest add https://signature-kit.dev/r/signature-dialog.json
+npx shadcn@latest add https://signaturekit.dev/r/signature-dialog.json
 ```
 
 ## Itens do registry
 
 | Item | Comando | Uso |
 | --- | --- | --- |
-| `signature-certificate-form` | `npx shadcn@latest add https://signature-kit.dev/r/signature-certificate-form.json` | Confirmação de senha com persistência por callbacks `getSavedPassword` / `onSavePassword`. |
-| `certificate-upload-form` | `npx shadcn@latest add https://signature-kit.dev/r/certificate-upload-form.json` | Selecionar `.pfx` / `.p12`, parsear no navegador com `useA1Certificate`, pré-visualizar metadados e chamar seu callback de upload. |
-| `signature-pdf-viewer` | `npx shadcn@latest add https://signature-kit.dev/r/signature-pdf-viewer.json` | Preview com `react-pdf`, destaque de âncoras de texto e posicionamento manual por clique. |
-| `signature-dialog` | `npx shadcn@latest add https://signature-kit.dev/r/signature-dialog.json` | Fluxo direto de assinatura A1 com `useA1Signer`, retry de senha salva, progresso e preview/download do PDF assinado. |
-| `signing-progress-list` | `npx shadcn@latest add https://signature-kit.dev/r/signing-progress-list.json` | Linhas de status por documento para uma tela de assinatura customizada. |
-| `pdf-signature-anchor` | `npx shadcn@latest add https://signature-kit.dev/r/pdf-signature-anchor.json` | Texto invisível de `@react-pdf/renderer` pareado com `findPdfTextAnchors`. |
+| `signature-certificate-form` | `npx shadcn@latest add https://signaturekit.dev/r/signature-certificate-form.json` | Confirmação de senha com persistência por callbacks `getSavedPassword` / `onSavePassword`. |
+| `certificate-upload-form` | `npx shadcn@latest add https://signaturekit.dev/r/certificate-upload-form.json` | Selecionar `.pfx` / `.p12`, parsear no navegador com `useA1Certificate`, pré-visualizar metadados e chamar seu callback de upload. |
+| `signature-pdf-viewer` | `npx shadcn@latest add https://signaturekit.dev/r/signature-pdf-viewer.json` | Preview com `react-pdf`, destaque de âncoras de texto e posicionamento manual por clique. |
+| `signature-dialog` | `npx shadcn@latest add https://signaturekit.dev/r/signature-dialog.json` | Fluxo direto de assinatura A1 com `useA1Signer`, retry de senha salva, progresso e preview/download do PDF assinado. |
+| `signing-progress-list` | `npx shadcn@latest add https://signaturekit.dev/r/signing-progress-list.json` | Linhas de status por documento para uma tela de assinatura customizada. |
+| `pdf-signature-anchor` | `npx shadcn@latest add https://signaturekit.dev/r/pdf-signature-anchor.json` | Texto invisível de `@react-pdf/renderer` pareado com `findPdfTextAnchors`. |
 
 ## Dialog de assinatura direta
 

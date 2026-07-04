@@ -8,13 +8,13 @@ Effect-safe PKCS#12 and X.509 parsing for certificate profiles, validity checks,
 bun add @signature-kit/certificates @signature-kit/signatures effect
 ```
 
-`effect` is the runtime peer. PKCS#12 password values stay `Redacted` until parsing.
+`effect` is a direct runtime dependency. PKCS#12 password values stay `Redacted` until parsing.
 
 ## Public surface
 
 - `@signature-kit/certificates` — `X509SubjectSchema`, `X509IssuerSchema`, `X509InfoSchema`, `CertificateSourceSchema`, `parseCertificate`, `parseX509`, `extractBrazilianFields`, `toSignerIdentity`, `isCertificateValid`, and `daysUntilExpiry`.
 
-`CertificateSource` accepts a PEM string, `ArrayBuffer`, or `ArrayBufferView`. `parseCertificate(source, password)` returns the normalized `Certificate` contract from `@signature-kit/signatures`; `parseX509(der)` returns X.509 metadata without requiring a private key.
+`CertificateSource` accepts an `ArrayBuffer` or `ArrayBufferView` of raw PKCS#12 bytes, or a `string`. A `string` source is treated as raw latin-1-encoded PKCS#12 bytes, not PEM text — PEM input is rejected and fails with `INVALID_FORMAT`. `parseCertificate(source, password)` returns the normalized `Certificate` contract from `@signature-kit/signatures`; `parseX509(der)` returns X.509 metadata without requiring a private key.
 
 ## Example
 

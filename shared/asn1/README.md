@@ -8,7 +8,7 @@ Pure ASN.1 DER decode/encode primitives and typed accessors used by SignatureKit
 bun add @signature-kit/asn1 effect
 ```
 
-`effect` is the runtime peer. This is a low-level support package; prefer higher-level SignatureKit packages unless you need raw ASN.1.
+`effect` is a direct runtime dependency. This is a low-level support package; prefer higher-level SignatureKit packages unless you need raw ASN.1.
 
 ## Public surface
 

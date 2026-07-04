@@ -8,7 +8,7 @@ Localized display-message resolution for SignatureKit tagged errors.
 bun add @signature-kit/i18n effect
 ```
 
-`effect` is the runtime peer because the option and catalog contracts are Schema-backed.
+`effect` is a direct runtime dependency because the option and catalog contracts are Schema-backed.
 
 ## Public surface
 

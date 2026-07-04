@@ -14,7 +14,7 @@ Add a signer backend at the application boundary, for example:
 bun add @signature-kit/a1
 ```
 
-`effect` is the runtime peer. DOM/XML runtime state is provided through `xmlRuntimeLayer`.
+`effect` is a direct runtime dependency. DOM/XML runtime state is provided through `xmlRuntimeLayer`.
 
 ## Public surface
 

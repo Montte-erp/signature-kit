@@ -32,7 +32,7 @@ const outputRoot = new URL("../public/r/", import.meta.url);
 const registry = {
   $schema: "https://ui.shadcn.com/schema/registry.json",
   name: "signature-kit",
-  homepage: "https://signature-kit.dev",
+  homepage: "https://signaturekit.dev",
   items: [
     {
       name: "signature-certificate-form",

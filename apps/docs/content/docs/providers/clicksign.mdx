@@ -57,7 +57,7 @@ export default class Contracts extends Alchemy.Stack<Contracts>()(
 ## Provider facts
 
 - v1 flow creates a document, signer, and optional notification.
-- One document per request; multi-document input fails as `signature-kit.UNSUPPORTED_OPERATION`.
+- One document per request; the props schema is a single-document tuple, so passing more than one document fails at schema decode time as `signature-kit.INVALID_INPUT`.
 - The access token is unwrapped only inside the package HTTP boundary.
 
 ## Errors

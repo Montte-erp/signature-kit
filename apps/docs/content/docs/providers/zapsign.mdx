@@ -45,7 +45,7 @@ export default class Contracts extends Alchemy.Stack<Contracts>()(
       title: "Service agreement",
       message: "Review and sign this document.",
       documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Ada Lovelace", email: "ada@example.com", role: "signer" }],
+      recipients: [{ name: "Ada Lovelace", email: "ada@example.com", routingOrder: 1 }],
       send: true,
     })
   }),
@@ -55,6 +55,7 @@ export default class Contracts extends Alchemy.Stack<Contracts>()(
 
 ## Provider facts
 
+- The `environment` option accepts `"production"`, `"sandbox"`, or `"brazil"` (base URL `https://br.api.zapsign.com.br/api/v1`).
 - Accepts a single PDF per request, matching ZapSign document upload.
 - Authorization uses a Redacted bearer token.
 - Unsupported MIME types or multiple documents fail before the HTTP call.

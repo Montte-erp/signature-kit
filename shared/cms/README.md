@@ -5,10 +5,10 @@ CMS/PKCS#7 detached signing and verification helpers, ICP-Brasil PAdES policy me
 ## Install
 
 ```sh
-bun add @signature-kit/cms @signature-kit/signatures effect
+bun add @signature-kit/cms effect
 ```
 
-`effect` is the runtime peer. This is a low-level support package; PDF signing normally goes through `@signature-kit/pdf`.
+`effect` is a direct runtime dependency. This is a low-level support package; PDF signing normally goes through `@signature-kit/pdf`.
 
 ## Public surface
 
@@ -41,7 +41,7 @@ const program = Effect.gen(function* () {
 
   return {
     policyOid: IcpBrasilPadesPolicy.adRbV11.policyOid,
-    signerSerial: inspection.signerSerial,
+    signerCommonName: inspection.signerCommonName,
     signedAttributes: inspection.signedAttributes.length,
   };
 });

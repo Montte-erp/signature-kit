@@ -45,7 +45,7 @@ export default class Contracts extends Alchemy.Stack<Contracts>()(
       title: "Service agreement",
       message: "Review and sign this document.",
       documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Ada Lovelace", email: "ada@example.com", role: "signer" }],
+      recipients: [{ name: "Ada Lovelace", email: "ada@example.com", routingOrder: 1 }],
       send: true,
     })
   }),
@@ -55,7 +55,7 @@ export default class Contracts extends Alchemy.Stack<Contracts>()(
 
 ## Provider facts
 
-- Credentials include both API key and account id.
+- Credentials include both API key and account id. Alternatively, pass `accessToken` instead of `apiKey` to authenticate with `Authorization: Bearer <token>` rather than `X-Api-Key`.
 - The adapter creates document, signer, and assignment in one request flow.
 - Recoverable HTTP and response-shape failures surface as `SignatureKitError`.
 

@@ -14,7 +14,7 @@ Add a signer backend at the application boundary, for example:
 bun add @signature-kit/a1
 ```
 
-`effect` is the runtime peer. The package consumes signing power through `@signature-kit/signatures`.
+`effect` is a direct runtime dependency. The package consumes signing power through `@signature-kit/signatures`.
 
 ## Public surface
 

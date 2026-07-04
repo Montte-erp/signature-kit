@@ -8,7 +8,7 @@ ITI/PAdES conformance and remote Validar client for PDFs signed with the ICP-Bra
 bun add @signature-kit/iti @signature-kit/http @signature-kit/pdf effect
 ```
 
-`effect` is the runtime peer. Provide `signatureHttpClientLive` only when calling the remote Validar client.
+`effect` is a direct runtime dependency. Provide `signatureHttpClientLive` only when calling the remote Validar client.
 
 ## Public surface
 
@@ -49,7 +49,7 @@ const program = Effect.gen(function* () {
 
 ITI validation reports are values; malformed inputs, HTTP failures outside the documented verdict shape, and schema failures use `SignatureKitError` from `@signature-kit/signatures`. Applications can render localized copy through `@signature-kit/i18n` with `signatureKitErrorMessages`, `pdfErrorMessages`, and `cmsErrorMessages`.
 
-Docs: <https://signaturekit.dev/en-US/docs/signing/iti>.
+Docs: <https://signaturekit.dev/en-US/docs/signing/pdf>.
 
 ## License
 

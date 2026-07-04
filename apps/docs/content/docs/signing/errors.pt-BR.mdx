@@ -18,12 +18,17 @@ Toda falha no core, no signer A1 e nos formatos é um `SignatureKitError` no can
 - `code` — um dos 21 literais `"signature-kit.*"` do [catálogo](#error-catalog).
 - `retryable` — um booleano decidido **no ponto da falha**, não fixo por code. O mesmo `code` pode chegar com `retryable: true` em um ponto de chamada e `false` em outro.
 - `reason?` — uma mensagem contextual opcional para logs e telemetria. A cópia de UI deve usar `code`, não interpretar esse texto.
-- `operation?` — a operação em que a falha ocorreu, útil para logging e telemetria.
+- `operation?` — uma `string` simples com o nome da operação em que a falha ocorreu, útil para logging e telemetria.
+- `schemaName?` — o nome do schema que falhou ao decodificar, quando a falha veio de `Schema.decodeUnknownEffect`.
+- `issueMessage?` — o texto formatado do issue de decode (`String(issue)`) dessa falha de schema.
+- `provider?` — o nome do provedor remoto, em falhas de API de provedor (Clicksign, Assinafy, ZapSign, DocuSeal, Documenso).
+- `status?` — o status HTTP upstream, quando a falha veio de uma resposta HTTP de provedor.
+- `retryAfterEpochSeconds?` — uma dica em epoch-seconds de quando tentar novamente, quando o upstream forneceu uma (por exemplo, uma resposta de rate limit).
 - `get message()` — a mensagem padrão em inglês para o code, ou `reason` nos codes marcados como _editable_.
 
 ```ts title="error-shape.ts"
-import { Effect } from "effect"
-import type { SignatureArtifact, SignatureKitError } from "@signature-kit/signatures"
+import type { Effect } from "effect"
+import type { SignatureArtifact, SignatureKitError, SignatureKitErrorCode } from "@signature-kit/signatures"
 
 // The error channel is typed: each failure is a SignatureKitError.
 declare const sign: Effect.Effect<SignatureArtifact, SignatureKitError>
@@ -33,7 +38,12 @@ class SignatureKitError {
   readonly code: SignatureKitErrorCode   // 21 "signature-kit.*" literals
   readonly retryable: boolean         // decided at the point of failure
   readonly reason?: string            // contextual message for logs
-  readonly operation?: SignatureKitOperation
+  readonly operation?: string
+  readonly schemaName?: string
+  readonly issueMessage?: string
+  readonly provider?: string
+  readonly status?: number
+  readonly retryAfterEpochSeconds?: number
   get message(): string               // default per code, or reason for editable codes
 }
 ```
@@ -76,6 +86,7 @@ Para interceptar uma falha específica e deixar o restante se propagar, use `Eff
 
 ```ts title="catch-if.ts"
 import { Effect } from "effect"
+import type { SignatureKitError } from "@signature-kit/signatures"
 
 // Filter only the failure this call site knows how to handle; the rest propagate, typed.
 const recovered = program.pipe(
@@ -93,7 +104,7 @@ const recovered = program.pipe(
   [`signature-kit.SIGN_FAILED`](#error-catalog) apenas quando `error.retryable` for `true`.
 </Callout>
 
-## Catálogo de erros
+## Catálogo de erros [#error-catalog]
 
 Todos os 21 codes de `SignatureKitError` e suas mensagens padrão. Os codes marcados como _editable_
 resolvem para `reason ?? default` em `message`. Cada linha é ancorável como `#err-<CODE>`
@@ -143,7 +154,7 @@ Além do `SignatureKitError`, os módulos de formato adicionam suas próprias fa
 
 <Cards>
   <Card title="XmlError">Codes `xml.*`. `signXml` retorna `XmlError | SignatureKitError`; `verifyXml` retorna apenas `XmlError` (sem o serviço Signatures).</Card>
-  <Card title="PdfError">Codes `pdf.*`. `signPdf` retorna `PdfError | CmsError | SignatureKitError`. Por exemplo, um `hashAlgorithm` fora de sha256/sha512 falha como `pdf.SIGN_FAILED`.</Card>
+  <Card title="PdfError">Codes `pdf.*`. `signPdf` retorna `PdfError | CmsError | SignatureKitError`. Por exemplo, `hashAlgorithm: "sha384"` falha como `pdf.SIGN_FAILED` — o backend de signer atual não tem contraparte `rsa-sha384`; `"sha1"` é aceito (mapeado para `rsa-sha1`).</Card>
   <Card title="APIs de provedores">Sem família paralela. Entrada inválida, HTTP remoto, formato de resposta e operação não suportada falham como `SignatureKitError` com `provider`, `operation`, `schemaName` e `status` quando esses metadados existem.</Card>
 </Cards>
 

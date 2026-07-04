@@ -1,6 +1,6 @@
 ---
 title: Clicksign
-description: "Create Clicksign v1 document requests with Redacted credentials and typed SignatureKit errors."
+description: "Crie requests de documento Clicksign v1 com credenciais Redacted e erros tipados do SignatureKit."
 ---
 
 Clicksign cria o documento e o signatário no upstream, opcionalmente notifica o destinatário e devolve um registro `ClicksignSignatureRequestAttributes` próprio da Clicksign. Não é backend local de `Signatures` e não muta bytes de PDF no processo.
@@ -57,7 +57,7 @@ export default class Contracts extends Alchemy.Stack<Contracts>()(
 ## Fatos do provider
 
 - Fluxo v1 cria documento, signatário e notificação opcional.
-- Um documento por request; múltiplos documentos falham como `signature-kit.UNSUPPORTED_OPERATION`.
+- Um documento por request; o schema de props é uma tupla de documento único, então passar mais de um documento falha na decodificação do schema como `signature-kit.INVALID_INPUT`.
 - O token é aberto apenas na fronteira HTTP do pacote.
 
 ## Erros

@@ -14,13 +14,13 @@ Add at least one signer backend at the application boundary, for example:
 bun add @signature-kit/a1
 ```
 
-`effect` is the runtime peer. Public APIs return typed `Effect.Effect` values.
+`effect` is a direct runtime dependency. Public APIs return typed `Effect.Effect` values.
 
 ## Public surface
 
 - `@signature-kit/signatures` — root export for signature algorithms, certificate/profile schemas, sign/verify input schemas, `SignerAdapter`, `Signatures`, `signatures`, `signaturesLayer`, `SignatureKitError`, `SignatureKitErrorCodeValue`, `signatureKitErrorCatalog`, and `signatureKitErrorMessages`.
 
-The `SignatureKitErrorCodeSchema` catalog has 21 codes: 18 domain/runtime codes plus the transport trio `signature-kit.HTTP`, `signature-kit.RESPONSE_SHAPE`, and `signature-kit.UNSUPPORTED_OPERATION`. Eight invariant codes are non-overridable in `SignatureKitError.message`: empty file, wrong password, expired/not-yet-valid certificate, missing Brazilian identifier, missing certificate/private key, corrupted file, and PEM extraction failure.
+The `SignatureKitErrorCodeSchema` catalog has 21 codes: 18 domain/runtime codes plus the transport trio `signature-kit.HTTP`, `signature-kit.RESPONSE_SHAPE`, and `signature-kit.UNSUPPORTED_OPERATION`. Ten invariant codes are non-overridable in `SignatureKitError.message`: empty file, wrong password, expired/not-yet-valid certificate, missing Brazilian identifier, missing certificate/private key, corrupted file, PEM extraction failure, and digest failure.
 
 ## Example
 

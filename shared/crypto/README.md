@@ -8,7 +8,7 @@ Shared cryptographic primitives for base64, PEM, PKCS#12, hashing, and cipher op
 bun add @signature-kit/crypto effect
 ```
 
-`effect` is the runtime peer. This is a low-level support package; prefer higher-level SignatureKit packages unless you need the primitive directly.
+`effect` is a direct runtime dependency. This is a low-level support package; prefer higher-level SignatureKit packages unless you need the primitive directly.
 
 ## Public surface
 

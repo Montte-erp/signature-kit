@@ -8,7 +8,7 @@ Alchemy v2 remote-signature provider for Documenso envelope creation, lookup, li
 bun add @signature-kit/documenso @signature-kit/http effect alchemy
 ```
 
-`effect` and `alchemy` are runtime peers. Provide `signatureHttpClientLive` at the stack boundary; `providers(options)` supplies only Documenso credentials and resource providers.
+`effect` and `alchemy` are direct runtime dependencies. Provide `signatureHttpClientLive` at the stack boundary; `providers(options)` supplies only Documenso credentials and resource providers.
 
 ## Public surface
 
@@ -73,7 +73,7 @@ export const downloadSigned = (envelopeId: string) =>
 
 ## Errors and i18n
 
-Invalid inputs, remote HTTP failures, unsupported operations, and invalid response shapes fail as `SignatureKitError` from `@signature-kit/signatures`. Applications can render localized copy through `@signature-kit/i18n` with `signatureKitErrorMessages`.
+Invalid inputs, remote HTTP failures, unsupported operations, and invalid response shapes fail as `SignatureKitError` from `@signature-kit/signatures`. Applications can render localized copy through `errorMessage` from `@signature-kit/i18n` with the `signatureKitErrorMessages` catalog from `@signature-kit/signatures`.
 
 Docs: <https://signaturekit.dev/en-US/docs/providers/documenso>.
 

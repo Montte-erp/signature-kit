@@ -38,19 +38,20 @@ import { a1SignaturesLayer } from "@signature-kit/a1/signer"
 import { signatures } from "@signature-kit/signatures"
 import { Effect, Redacted } from "effect"
 
-export const program = Effect.gen(function* () {
-  const identity = yield* signatures.inspect()
-  const artifact = yield* signatures.sign({ content, algorithm: "rsa-sha256" })
+export const signWithA1 = (content: Uint8Array, pfx: Uint8Array, password: string) =>
+  Effect.gen(function* () {
+    const identity = yield* signatures.inspect()
+    const artifact = yield* signatures.sign({ content, algorithm: "rsa-sha256" })
 
-  return { identity, artifact }
-}).pipe(
-  Effect.provide(
-    a1SignaturesLayer({
-      pfx,
-      password: Redacted.make("certificate-password"),
-    }),
-  ),
-)
+    return { identity, artifact }
+  }).pipe(
+    Effect.provide(
+      a1SignaturesLayer({
+        pfx,
+        password: Redacted.make(password),
+      }),
+    ),
+  )
 ```
 
 Esse programa não sabe onde a chave vive. A1 no navegador, A1 no servidor e módulos de formato fornecem ou consomem o mesmo serviço `Signatures`.

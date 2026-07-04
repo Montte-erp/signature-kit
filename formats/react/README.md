@@ -10,7 +10,7 @@ The package is intentionally hooks-only. It does not publish UI components, stor
 bun add @signature-kit/react @signature-kit/a1 @signature-kit/pdf effect react react-dom
 ```
 
-React is a peer dependency. `effect` is the runtime peer used by the hook actions.
+React is a peer dependency. `effect` is a direct runtime dependency used by the hook actions.
 
 Install the docs-hosted shadcn dialog into your app when you want owned UI:
 
@@ -24,8 +24,8 @@ Migration note: components moved out of the npm package and into the registry. R
 
 - `@signature-kit/react/a1` — `useA1Certificate`, `useA1Signer`, `getLoadedA1CertificateProfile`, and clear actions.
 - `@signature-kit/react/browser-pdf` — `usePdfObjectUrl(bytes)` with object URL cleanup.
-- `@signature-kit/react/builder` — tiny external-store helpers for headless builder state.
-- `@signature-kit/react/config` — hook input schemas, signer row types, certificate state types, and builder store contracts.
+- `@signature-kit/react/builder` — `createSyncStore`, `useSyncStore`, and other tiny external-store helpers for headless builder state.
+- `@signature-kit/react/config` — hook input schemas, signer row types, and certificate state types.
 
 Certificate persistence is not included. If an app remembers a password or encrypted PFX bytes, it owns that storage policy and passes fresh inputs back to the hooks.
 

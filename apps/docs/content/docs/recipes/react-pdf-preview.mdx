@@ -88,6 +88,7 @@ export function PdfPreview({ unsignedPdf, pages, sign }: PdfPreviewProps) {
 
 ```ts title="sign-from-preview.ts"
 import { a1SignaturesLayer } from "@signature-kit/a1/signer"
+import { type PdfSignatureRect } from "@signature-kit/pdf/config"
 import { prepareAndSignPdf } from "@signature-kit/pdf/workflow"
 import { Effect, Redacted } from "effect"
 
@@ -97,9 +98,9 @@ const sign = (rect: PdfSignatureRect): Promise<Uint8Array> =>
       pdf: unsignedPdf,
       pages,
       stampRects: [rect],
-      lines: [\"Maria Souza\", \"ICP-Brasil\"],
-      rubric: { initials: \"MS\" },
-      signing: { policy: \"pades-icp-brasil\", name: \"Maria Souza\" },
+      lines: ["Maria Souza", "ICP-Brasil"],
+      rubric: { initials: "MS" },
+      signing: { policy: "pades-icp-brasil", name: "Maria Souza" },
     }).pipe(Effect.provide(a1SignaturesLayer({ pfx, password: Redacted.make(password) }))),
   )
 ```

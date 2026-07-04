@@ -32,19 +32,21 @@ const stampRects = await Effect.runPromise(
   }),
 )
 
-const signedPdf = yield* prepareAndSignPdf({
-  pdf,
-  pages,
-  pageTextBoxes,
-  stampRects,
-  badge: {
-    header: { text: "ASSINADO DIGITALMENTE" },
-    rows: [[{ label: "Signatário", value: "Maria Souza" }]],
-    footer: [{ text: "ICP-Brasil" }],
-  },
-  rubric: { initials: "MS" },
-  signing: { policy: "pades-icp-brasil", name: "Maria Souza" },
-}).pipe(Effect.provide(layer))
+const signedPdf = await Effect.runPromise(
+  prepareAndSignPdf({
+    pdf,
+    pages,
+    pageTextBoxes,
+    stampRects,
+    badge: {
+      header: { text: "ASSINADO DIGITALMENTE" },
+      rows: [[{ label: "Signatário", value: "Maria Souza" }]],
+      footer: [{ text: "ICP-Brasil" }],
+    },
+    rubric: { initials: "MS" },
+    signing: { policy: "pades-icp-brasil", name: "Maria Souza" },
+  }).pipe(Effect.provide(layer)),
+)
 ```
 
 `digits` normaliza o matcher e o texto do PDF para strings numéricas, então `123.456.789-01` e `12345678901` casam. Os retângulos retornados são limitados aos bounds da página.

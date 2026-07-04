@@ -34,7 +34,7 @@ description: "Instale o core e o signer A1, forneça a layer Signatures e assine
   </Step>
 
   <Step title="Assine e verifique bytes">
-    O serviço expõe `signatures.inspect`, `signatures.sign` e `signatures.verify`. O algoritmo é `"rsa-sha256"` ou `"rsa-sha512"`.
+    O serviço expõe `signatures.inspect`, `signatures.sign` e `signatures.verify`. O algoritmo é `"rsa-sha256"` ou `"rsa-sha512"`; o catálogo também aceita o legado `"rsa-sha1"`, suportado por compatibilidade, mas desencorajado.
 
     ```ts title="sign.ts"
     const program = Effect.gen(function* () {
@@ -67,14 +67,17 @@ description: "Instale o core e o signer A1, forneça a layer Signatures e assine
     import { xmlRuntimeLayer } from "@signature-kit/xml/runtime"
     import { signPdf } from "@signature-kit/pdf/sign"
     import { a1SignaturesLayer } from "@signature-kit/a1/signer"
-    import { Effect } from "effect"
+    import { Effect, Redacted } from "effect"
 
-    const layer = a1SignaturesLayer({ pfx, password })
+    const layer = a1SignaturesLayer({
+      pfx,                                          // Uint8Array — bytes do .pfx/.p12
+      password: Redacted.make(process.env.A1_PASSWORD ?? ""),
+    })
 
-    const signedXml = yield* signXml({ xml, referenceId: "nfe-1" })
+    const signedXml = signXml({ xml, referenceId: "nfe-1" })
       .pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer))
 
-    const signedPdf = yield* signPdf({ pdf, policy: "pades-icp-brasil" })
+    const signedPdf = signPdf({ pdf, policy: "pades-icp-brasil" })
       .pipe(Effect.provide(layer))
     ```
   </Step>

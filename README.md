@@ -130,8 +130,8 @@ More registry items are listed in the React components recipe.
 bun run build && bun run check && bun run test
 ```
 
-`bun run test:validar-iti` submits committed fixtures to the real Validar endpoint when `SIGNATURE_KIT_ITI_VALIDATE=1` is set.
+`bun run test:validar-iti` submits committed fixtures to the real Validar endpoint (the script already sets `SIGNATURE_KIT_ITI_VALIDATE=1`).
 
 ## License
 
-MIT. See [`LICENSE`](LICENSE).
+MIT. See [LICENSE](LICENSE).

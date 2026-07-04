@@ -8,7 +8,7 @@ Effect-native HTTP transport seam for remote signature providers and validators,
 bun add @signature-kit/http @signature-kit/signatures effect
 ```
 
-`effect` is the runtime peer. Provider packages depend on this service contract but do not provide the live transport inside their provider layers.
+`effect` is a direct runtime dependency. Provider packages depend on this service contract but do not provide the live transport inside their provider layers.
 
 ## Public surface
 
@@ -16,11 +16,11 @@ bun add @signature-kit/http @signature-kit/signatures effect
 
 `SignatureHttpRequest` fields are `method`, `url`, optional `provider`, optional `headers`, optional `diagnosticUrl`, optional `body`, optional `acceptedStatuses`, and optional `timeoutMillis`. `requestJson(request, schema, schemaName)` decodes JSON at the HTTP seam; `requestBytes` and `requestVoid` cover binary downloads and no-body operations.
 
-Retry metadata is conservative: `GET`, `PUT`, and `DELETE` failures are marked retryable; `POST` and `PATCH` are not. HTTP 408, 429, and 5xx are retryable only when the method is retryable. `Retry-After` is preserved as `retryAfterEpochSeconds` when it can be parsed.
+Retry metadata is conservative: `GET`, `PUT`, and `DELETE` failures are marked retryable; `POST` and `PATCH` are not. HTTP 429 is always retryable regardless of method; 5xx is retryable only when the method itself is retryable. Other statuses, including 408, are not retryable. When a rate-limited response carries a reset time, the `x-ratelimit-reset` header is read before `Retry-After`, and the result is preserved as `retryAfterEpochSeconds`.
 
 Redaction rule: if credentials must appear in a transport URL, pass a credential-free `diagnosticUrl`; `SignatureKitError.reason` only uses the diagnostic URL.
 
-Multipart note: the current body contract is `string | Uint8Array`. If a provider needs multipart/form-data, extend `SignatureHttpBodySchema` with a typed multipart variant at this seam instead of bypassing `SignatureHttpClient`.
+Body contract: `SignatureHttpBodySchema` accepts `string | FormData | URLSearchParams`; multipart/form-data requests are sent via `FormData`.
 
 ## Example
 

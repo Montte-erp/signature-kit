@@ -8,7 +8,7 @@ Local A1 / PKCS#12 signer adapter that exposes signing power through the core `S
 bun add @signature-kit/a1 @signature-kit/signatures effect
 ```
 
-`effect` is the runtime peer. PKCS#12 passwords stay `Redacted` until the explicit parse/import boundary.
+`effect` is a direct runtime dependency. PKCS#12 passwords stay `Redacted` until the explicit parse/import boundary.
 
 ## Public surface
 
@@ -37,7 +37,7 @@ const program = signatures
 
 ## Errors and i18n
 
-A1 parse, import, sign, and certificate-profile failures surface as `SignatureKitError` from `@signature-kit/signatures`. Applications can render localized copy through `@signature-kit/i18n` with `signatureKitErrorMessages`.
+A1 parse, import, sign, and certificate-profile failures surface as `SignatureKitError` from `@signature-kit/signatures`. Applications can render localized copy through `errorMessage` from `@signature-kit/i18n` with the `signatureKitErrorMessages` catalog from `@signature-kit/signatures`.
 
 Docs: <https://signaturekit.dev/en-US/docs/a1-signing/browser-pdf-flow>.
 

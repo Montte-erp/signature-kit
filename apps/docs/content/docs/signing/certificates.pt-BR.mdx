@@ -124,6 +124,7 @@ description: "Leia a identidade do titular de um certificado A1 (e-CPF / e-CNPJ)
       brazilian: { cnpj: string | null; cpf: string | null }
       certPem: string
       certificateDer: Uint8Array
+      intermediateCertificates: readonly Uint8Array[]   // cadeia de CAs intermediárias, embutida pelo signPdf no SignedData da CMS
       publicKeyDer: Uint8Array
       privateKeyPem: Redacted<string>   // segredo, nunca impresso
     }

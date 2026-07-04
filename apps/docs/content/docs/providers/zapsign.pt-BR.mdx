@@ -1,6 +1,6 @@
 ---
 title: ZapSign
-description: "Create ZapSign PDF requests with Bearer credentials and typed SignatureKit errors."
+description: "Crie requests de PDF na ZapSign com credenciais Bearer e erros tipados do SignatureKit."
 ---
 
 ZapSign faz upload do PDF, cria a lista de signatários e devolve a primeira URL de assinatura quando disponível. O provider possui a cerimônia externa; SignatureKit possui validação e erros tipados.
@@ -45,7 +45,7 @@ export default class Contracts extends Alchemy.Stack<Contracts>()(
       title: "Contrato de serviço",
       message: "Revise e assine este documento.",
       documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Ana Silva", email: "ada@example.com", role: "signer" }],
+      recipients: [{ name: "Ana Silva", email: "ada@example.com", routingOrder: 1 }],
       send: true,
     })
   }),
@@ -55,6 +55,7 @@ export default class Contracts extends Alchemy.Stack<Contracts>()(
 
 ## Fatos do provider
 
+- A opção `environment` aceita `"production"`, `"sandbox"` ou `"brazil"` (base URL `https://br.api.zapsign.com.br/api/v1`).
 - Aceita um único PDF por request, como o upload de documento da ZapSign.
 - Autorização usa bearer token em `Redacted`.
 - MIME inválido ou múltiplos documentos falham antes da chamada HTTP.

@@ -57,5 +57,6 @@
     "postcss": "^8.5.15",
     "tailwindcss": "^4.3.1",
     "typescript": "latest"
-  }
+  },
+  "license": "MIT"
 }

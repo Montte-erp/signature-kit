@@ -40,12 +40,12 @@ export type SignerAdapter = {
 
 Every `SignerAdapter` implementation delivers exactly these six members:
 
-- `id: string` — identity of the signing backend. A1 uses `"a1"`. Provider APIs such as Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso use `create*SignatureRequest(...)` functions and do not go through this XML/PDF mutation seam.
+- `id: string` — identity of the signing backend. A1 uses `"a1"`. Provider APIs such as Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso are declared through the Alchemy Resource constructor pattern (for example `ClicksignSignatureRequest("id", props)`) and do not go through this XML/PDF mutation seam.
 - `inspect()` — returns `Effect<SignerIdentity, SignatureKitError>` with `subject`, `issuer`, `serialNumber`, `thumbprint`, `validFrom`, `validTo` and `document?` (CPF/CNPJ when ICP-Brasil).
 - `certificate()` — returns `Effect<Certificate, SignatureKitError>`, the full certificate (`certPem`, `certificateDer`, `publicKeyDer` and the `privateKeyPem: Redacted<string>`).
-- `importSigningKey(algorithm)` — materializes the signing `CryptoKey` for the requested `SignatureAlgorithm` (`"rsa-sha256"` or `"rsa-sha512"`).
+- `importSigningKey(algorithm)` — materializes the signing `CryptoKey` for the requested `SignatureAlgorithm` (`"rsa-sha256"` or `"rsa-sha512"`; the catalog also accepts the legacy, discouraged `"rsa-sha1"`).
 - `sign(input)` — takes `SignInput` (`{ content, algorithm }`) and returns a `SignatureArtifact` (`{ algorithm, signature }`).
-- `verify(input)` — takes `VerifyInput` (`{ content, signature, algorithm }`) and returns `VerificationResult`, whose field is `valid: boolean`.
+- `verify(input)` — takes `VerifyInput` (`{ content, signature, algorithm }`) and returns `VerificationResult` (`{ valid: boolean, algorithm: SignatureAlgorithm }`).
 
 <Callout type="info">
   Every member fails through the typed `SignatureKitError` error channel — never through a loose exception. The `retryable`
@@ -101,10 +101,14 @@ const program = Effect.gen(function* () {
   return result.valid
 })
 
-const signer = yield* loadA1SignerAdapter({ pfx, password: Redacted.make(pwd) })
+const run = Effect.gen(function* () {
+  const signer = yield* loadA1SignerAdapter({ pfx, password: Redacted.make(pwd) })
 
-// signaturesLayer(signer) -> Layer<Signatures>  (Layer.succeed)
-yield* program.pipe(Effect.provide(signaturesLayer(signer)))
+  // signaturesLayer(signer) -> Layer<Signatures>  (Layer.succeed)
+  return yield* program.pipe(Effect.provide(signaturesLayer(signer)))
+})
+
+await Effect.runPromise(run)
 ```
 
 ## Automatic provider for formats
@@ -125,12 +129,18 @@ import { Effect, Redacted } from "effect"
 // a1SignaturesLayer(options) -> Layer<Signatures, SignatureKitError>
 const layer = a1SignaturesLayer({ pfx, password: Redacted.make(pwd) })
 
-// The formats require Signatures; the layer is the only thing that changes per backend.
-const signedXml = yield* signXml({ xml, referenceId: "nfe-1" })
-  .pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer))
+export const program = Effect.gen(function* () {
+  // The formats require Signatures; the layer is the only thing that changes per backend.
+  const signedXml = yield* signXml({ xml, referenceId: "nfe-1" })
+    .pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer))
 
-const signedPdf = yield* signPdf({ pdf, policy: "pades-icp-brasil" })
-  .pipe(Effect.provide(layer))
+  const signedPdf = yield* signPdf({ pdf, policy: "pades-icp-brasil" })
+    .pipe(Effect.provide(layer))
+
+  return { signedXml, signedPdf }
+})
+
+await Effect.runPromise(program)
 ```
 
 <Callout type="info">
@@ -154,9 +164,15 @@ declare const hsmSigner: SignerAdapter  // another backend that satisfies the co
 
 const job = signPdf({ pdf, policy: "pades-ades" })
 
-// Same job, two backends — nothing about the PDF changes.
-const withA1 = yield* job.pipe(Effect.provide(signaturesLayer(a1Signer)))
-const withHsm = yield* job.pipe(Effect.provide(signaturesLayer(hsmSigner)))
+const program = Effect.gen(function* () {
+  // Same job, two backends — nothing about the PDF changes.
+  const withA1 = yield* job.pipe(Effect.provide(signaturesLayer(a1Signer)))
+  const withHsm = yield* job.pipe(Effect.provide(signaturesLayer(hsmSigner)))
+
+  return { withA1, withHsm }
+})
+
+await Effect.runPromise(program)
 ```
 
 <Callout type="info">
@@ -177,7 +193,7 @@ Every seam failure is a typed `SignatureKitError`. The most common ones when bui
 <Cards>
   <Card title="signature-kit.WRONG_PASSWORD" href="/docs/signing/errors#error-catalog">Incorrect certificate password in loadA1SignerAdapter.</Card>
   <Card title="signature-kit.NO_PRIVATE_KEY" href="/docs/signing/errors#error-catalog">The file contains no private key, so importSigningKey and sign have nothing to sign with.</Card>
-  <Card title="signature-kit.UNSUPPORTED_ALGORITHM" href="/docs/signing/errors#error-catalog">Algorithm outside "rsa-sha256" / "rsa-sha512".</Card>
+  <Card title="signature-kit.UNSUPPORTED_ALGORITHM" href="/docs/signing/errors#error-catalog">The loaded PKCS#12 container itself uses an unsupported encryption algorithm, raised while parsing the certificate/key — not for picking a `SignatureAlgorithm` outside the sign catalog, which instead fails as `signature-kit.INVALID_INPUT`.</Card>
   <Card title="signature-kit.KEY_IMPORT_FAILED" href="/docs/signing/errors#error-catalog">The CryptoKey could not be materialized in importSigningKey.</Card>
   <Card title="signature-kit.SIGN_FAILED" href="/docs/signing/errors#error-catalog">The sign operation failed in the backend.</Card>
 </Cards>
