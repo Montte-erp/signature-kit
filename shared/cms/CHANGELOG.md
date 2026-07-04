@@ -11,9 +11,10 @@
 - Validate ICP-Brasil PAdES policy fetch options before applying the timeout, and
   compute the content digest and certificate digest concurrently during CMS
   signing.
-- PAdES CMS no longer emits the prohibited signing-time signed attribute
-  (OID 1.2.840.113549.1.9.5); ITI Validar (PA_PAdES_AD_RB_v1_1) now approves
-  generated signatures. Signing time remains in the PDF dictionary M entry.
+- PAdES CMS output no longer emits the prohibited CMS `signingTime` signed
+  attribute (OID 1.2.840.113549.1.9.5); ITI Validar
+  (PA_PAdES_AD_RB_v1_1) now approves generated signatures. Signing time remains
+  in the PDF dictionary `/M` entry.
 
 ## 0.2.0
 
@@ -30,4 +31,4 @@ to `true` for unverified chains.
 
 - Initial npm-ready release for `@signature-kit/cms`.
 - Published package metadata, MIT license, README, and package-local changelog.
-- Ships cMS/PKCS#7 signing and verification helpers, including ICP-Brasil policy support and timestamp request contracts.
+- Ships CMS/PKCS#7 signing and verification helpers, including ICP-Brasil policy support and timestamp request contracts.

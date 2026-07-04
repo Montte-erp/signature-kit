@@ -14,8 +14,8 @@
 - Redact `access_token` from token-bearing signed-document diagnostic URLs, so
   typed error reasons never leak provider download secrets.
 - Limit create rollback deletion to unambiguous pre-effect 4xx failures (except
-  408/429); response-shape errors, 5xxs, and timeouts no longer delete possibly
-  live documents.
+  408, 409, and 429); response-shape errors, 5xxs, and timeouts no longer delete
+  possibly live documents.
 - Add offline local-HTTP-server coverage for Clicksign provider behavior in the
   default test suite.
 
@@ -37,4 +37,4 @@ instead of core `RemoteSignature*` types.
 
 - Initial npm-ready release for `@signature-kit/clicksign`.
 - Published package metadata, MIT license, README, and package-local changelog.
-- Ships alchemy v2 remote-signature provider for Clicksign document creation, lookup, cancellation, deletion, and signed-document download.
+- Ships an Alchemy v2 remote-signature provider for Clicksign document creation, lookup, cancellation, deletion, and signed-document download.

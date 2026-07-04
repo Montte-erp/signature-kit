@@ -7,8 +7,8 @@
 - Treat failed envelope distribution as still `draft` with `not_distributed`
   provider status instead of reporting it as sent.
 - Limit distribute rollback deletion to unambiguous pre-effect 4xx failures
-  (except 408/429); response-shape errors, 5xxs, and timeouts no longer delete
-  possibly live envelopes.
+  (except 408, 409, and 429); response-shape errors, 5xxs, and timeouts no
+  longer delete possibly live envelopes.
 - Accept missing recipient `signingUrl` values in create, get, and list responses.
 - Add offline local-HTTP-server coverage for Documenso provider behavior in the
   default test suite.
@@ -28,4 +28,4 @@ return `DocumensoEnvelope` instead of core `RemoteSignature*` types.
 
 - Initial npm-ready release for `@signature-kit/documenso`.
 - Published package metadata, MIT license, README, and package-local changelog.
-- Ships alchemy v2 remote-signature provider for Documenso envelope creation, lookup, deletion, and signed-document download.
+- Ships an Alchemy v2 remote-signature provider for Documenso envelope creation, lookup, deletion, and signed-document download.

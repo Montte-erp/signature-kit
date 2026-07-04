@@ -36,4 +36,4 @@ instead of core `RemoteSignature*` types.
 
 - Initial npm-ready release for `@signature-kit/assinafy`.
 - Published package metadata, MIT license, README, and package-local changelog.
-- Ships alchemy v2 remote-signature provider for Assinafy request creation, lookup, cancellation, deletion, and signed-document download.
+- Ships an Alchemy v2 remote-signature provider for Assinafy request creation, lookup, cancellation, deletion, and signed-document download.

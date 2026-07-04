@@ -1,6 +1,6 @@
 # @signature-kit/i18n
 
-Localized error-message resolution for SignatureKit tagged errors.
+Localized display-message resolution for SignatureKit tagged errors.
 
 ## Install
 
@@ -8,17 +8,49 @@ Localized error-message resolution for SignatureKit tagged errors.
 bun add @signature-kit/i18n effect
 ```
 
-## Export
+`effect` is the runtime peer because the option and catalog contracts are Schema-backed.
 
-- `@signature-kit/i18n`
+## Public surface
 
-## Runtime model
+- `@signature-kit/i18n` — `LocalizedCatalogSchema`, `LocalizedMessageMap`, `ErrorMessageOptionsSchema`, `ErrorMessageFallbackCodeSchema`, `ErrorMessageLocaleSchema`, `errorMessageFallbackMessages`, and `errorMessage(error, options)`.
 
-Call `errorMessage(error, options)` at the application boundary with the package catalogs your code can receive. The resolver reads `_tag` and `code` structurally; consumers do not need `instanceof`, `.code` sniffing helpers, or reason-string matching.
+`errorMessage(error, options)` reads `_tag` and `code` structurally. Consumers do not need `instanceof`, `.code` helper wrappers, or reason-string matching.
 
-## Version
+Resolution order for a known code:
 
-Current npm release line: `0.1.0`.
+1. `overrides[locale][code]`
+2. `catalogs[*][locale][code]`
+3. `overrides[fallbackLocale][code]`
+4. `catalogs[*][fallbackLocale][code]`
+5. generic fallback messages for the requested locale, fallback locale, then `en-US`
+
+The default fallback locale is `en-US`.
+
+## Example
+
+```ts
+import { errorMessage } from "@signature-kit/i18n";
+import { signatureKitErrorMessages, type SignatureKitError } from "@signature-kit/signatures";
+
+declare const error: SignatureKitError;
+
+const message = errorMessage(error, {
+  locale: "pt-BR",
+  fallbackLocale: "en-US",
+  catalogs: [signatureKitErrorMessages],
+  overrides: {
+    "pt-BR": {
+      "signature-kit.WRONG_PASSWORD": "Senha inválida para este certificado.",
+    },
+  },
+});
+```
+
+## Errors and i18n
+
+This package is the display layer. Package-specific message catalogs remain beside their `TaggedErrorClass` definitions: `signatureKitErrorMessages`, `pdfErrorMessages`, `xmlErrorMessages`, `cmsErrorMessages`, `cryptoErrorMessages`, and `asn1ErrorMessages`.
+
+Docs: <https://signaturekit.dev/en-US/docs/signing/errors>.
 
 ## License
 

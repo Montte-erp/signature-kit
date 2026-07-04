@@ -33,9 +33,10 @@
   signature.
 - Verify multi-signature PDFs one signed range at a time instead of
   materializing every signed-range copy simultaneously.
-- PAdES CMS no longer emits the prohibited signing-time signed attribute
-  (OID 1.2.840.113549.1.9.5); ITI Validar (PA_PAdES_AD_RB_v1_1) now approves
-  generated signatures. Signing time remains in the PDF dictionary M entry.
+- PAdES CMS output no longer emits the prohibited CMS `signingTime` signed
+  attribute (OID 1.2.840.113549.1.9.5); ITI Validar
+  (PA_PAdES_AD_RB_v1_1) now approves generated signatures. Signing time remains
+  in the PDF dictionary `/M` entry.
 
 Breaking: `policyTimeoutMillis` was removed from public PDF signing request
 schemas.
@@ -53,4 +54,4 @@ or a broken older signature now fail verification.
 
 - Initial npm-ready release for `@signature-kit/pdf`.
 - Published package metadata, MIT license, README, and package-local changelog.
-- Ships pDF/PAdES document preparation, visible signature placement, stamping, signing, verification, and browser text-box extraction.
+- Ships PDF/PAdES document preparation, visible signature placement, stamping, signing, verification, and browser text-box extraction.

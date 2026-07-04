@@ -1,6 +1,6 @@
 # @signature-kit/crypto
 
-Shared cryptographic primitives for PKCS#12, PEM, base64, hashing, and cipher operations.
+Shared cryptographic primitives for base64, PEM, PKCS#12, hashing, and cipher operations.
 
 ## Install
 
@@ -8,22 +8,39 @@ Shared cryptographic primitives for PKCS#12, PEM, base64, hashing, and cipher op
 bun add @signature-kit/crypto effect
 ```
 
-## Exports
+`effect` is the runtime peer. This is a low-level support package; prefer higher-level SignatureKit packages unless you need the primitive directly.
 
-- `@signature-kit/crypto/base64`
-- `@signature-kit/crypto/config`
-- `@signature-kit/crypto/pem`
-- `@signature-kit/crypto/pkcs12`
+## Public surface
 
-## Runtime model
+- `@signature-kit/crypto/base64` — `bytesToBase64` and `base64ToBytes`.
+- `@signature-kit/crypto/config` — `CryptoError`, `CryptoErrorCodeValue`, operation schemas, message catalogs, and `Pkcs12ResultSchema`.
+- `@signature-kit/crypto/pem` — `pemToDer` and `derToPem`.
+- `@signature-kit/crypto/pkcs12` — `parsePkcs12`.
 
-SignatureKit packages are Effect-native. Public APIs return typed `Effect.Effect` values; recoverable faults stay in the typed error channel; callers provide required services and layers explicitly at the application boundary.
+## Example
 
-This is a low-level support package: keep its surface narrow and prefer the higher-level SignatureKit packages unless you need the primitive directly.
+```ts
+import { bytesToBase64 } from "@signature-kit/crypto/base64";
+import { pemToDer } from "@signature-kit/crypto/pem";
+import { Effect } from "effect";
 
-## Version
+declare const certificatePem: string;
 
-Current npm release line: `0.1.0`.
+const program = Effect.gen(function* () {
+  const der = yield* pemToDer(certificatePem);
+
+  return {
+    der,
+    contentBase64: bytesToBase64(der),
+  };
+});
+```
+
+## Errors and i18n
+
+Crypto failures use the `CryptoError` code catalog and `cryptoErrorMessages`. Applications can render localized copy through `@signature-kit/i18n` by passing that catalog to `errorMessage`.
+
+Docs: <https://signaturekit.dev/en-US/docs/concepts/document-formats>.
 
 ## License
 

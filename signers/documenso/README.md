@@ -1,24 +1,81 @@
 # @signature-kit/documenso
 
-Alchemy v2 remote-signature provider for Documenso envelope creation, lookup, deletion, and signed-document download.
+Alchemy v2 remote-signature provider for Documenso envelope creation, lookup, listing, cancellation, deletion, and completed-document download.
 
 ## Install
 
 ```sh
-bun add @signature-kit/documenso effect alchemy
+bun add @signature-kit/documenso @signature-kit/http effect alchemy
 ```
 
-## Exports
+`effect` and `alchemy` are runtime peers. Provide `signatureHttpClientLive` at the stack boundary; `providers(options)` supplies only Documenso credentials and resource providers.
 
-- `@signature-kit/documenso`
+## Public surface
 
-## Runtime model
+- `@signature-kit/documenso` — Documenso envelope/document/recipient schemas, `DocumensoSignatureRequest`, `DocumensoProviders`, `providers`, `getDocumensoSignatureRequest`, `listDocumensoSignatureRequests`, `cancelDocumensoSignatureRequest`, `deleteDocumensoSignatureRequest`, and `downloadDocumensoSignedDocument`.
 
-SignatureKit packages are Effect-native. Public APIs return typed `Effect.Effect` values; recoverable faults stay in the typed error channel; callers provide required services and layers explicitly at the application boundary.
+Capability matrix:
 
-## Version
+| Capability                       | Supported                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------- |
+| Create retained Alchemy envelope | Yes                                                                       |
+| Get envelope                     | Yes                                                                       |
+| List envelopes                   | Yes                                                                       |
+| Cancel envelope                  | Yes                                                                       |
+| Delete envelope                  | Yes                                                                       |
+| Download signed document         | Yes, after the envelope is completed and an envelope item id is available |
 
-Current npm release line: `0.1.0`.
+Retained-resource semantics: Alchemy `reconcile` creates once and returns cached output on subsequent plans; provider `list` returns `[]`; `nuke` is skipped. Multi-step create rollback deletes remote state only after unambiguous pre-effect 4xx failures, excluding 408, 409, 429, 5xx, timeouts, and response-shape failures.
+
+## Example
+
+```ts
+import * as Alchemy from "alchemy";
+import {
+  DocumensoSignatureRequest,
+  downloadDocumensoSignedDocument,
+  providers as documensoProviders,
+  type DocumensoProviderOptions,
+} from "@signature-kit/documenso";
+import { signatureHttpClientLive } from "@signature-kit/http";
+import { Effect, Layer, Redacted } from "effect";
+
+declare const pdfBase64: string;
+declare const apiKey: string;
+
+const options: DocumensoProviderOptions = {
+  apiKey: Redacted.make(apiKey),
+};
+
+export default class Contracts extends Alchemy.Stack<Contracts>()(
+  "Contracts",
+  {
+    providers: Layer.merge(documensoProviders(options), signatureHttpClientLive),
+    state: Alchemy.inMemoryState(),
+  },
+  Effect.gen(function* () {
+    return yield* DocumensoSignatureRequest("service-agreement", {
+      title: "Service agreement",
+      documents: [
+        { fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 },
+      ],
+      recipients: [{ name: "Ada Lovelace", email: "ada@example.com", role: "signer" }],
+      send: true,
+    });
+  }),
+) {}
+
+export const downloadSigned = (envelopeId: string) =>
+  downloadDocumensoSignedDocument(options, envelopeId).pipe(
+    Effect.provide(signatureHttpClientLive),
+  );
+```
+
+## Errors and i18n
+
+Invalid inputs, remote HTTP failures, unsupported operations, and invalid response shapes fail as `SignatureKitError` from `@signature-kit/signatures`. Applications can render localized copy through `@signature-kit/i18n` with `signatureKitErrorMessages`.
+
+Docs: <https://signaturekit.dev/en-US/docs/providers/documenso>.
 
 ## License
 

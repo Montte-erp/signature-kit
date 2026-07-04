@@ -28,4 +28,4 @@ return `DocuSealSubmissionAttributes` instead of core `RemoteSignature*` types.
 
 - Initial npm-ready release for `@signature-kit/docuseal`.
 - Published package metadata, MIT license, README, and package-local changelog.
-- Ships alchemy v2 remote-signature provider for DocuSeal submission creation, lookup, deletion, and signed-document download.
+- Ships an Alchemy v2 remote-signature provider for DocuSeal submission creation, lookup, deletion, and signed-document download.

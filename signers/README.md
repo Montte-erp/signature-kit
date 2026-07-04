@@ -1,24 +1,16 @@
 # signers/
 
-Workspace group for signer backends and remote-signature adapters.
+Signer backends and remote-signature providers. Local signers expose signing power through `Signatures`; remote SaaS providers expose retained Alchemy resources for provider-side request workflows.
 
-- `signers/a1` → `@signature-kit/a1` — A1 / PKCS#12 local signing power.
-- `signers/clicksign` → `@signature-kit/clicksign` — Clicksign remote signing workflow.
-- `signers/assinafy` → `@signature-kit/assinafy` — Assinafy remote signing workflow.
-- `signers/zapsign` → `@signature-kit/zapsign` — ZapSign remote signing workflow.
-- `signers/docuseal` → `@signature-kit/docuseal` — DocuSeal remote signing workflow.
-- `signers/documenso` → `@signature-kit/documenso` — Documenso remote signing workflow.
+## Packages
 
-There is no `integrations/*` layer and no provider-neutral gateway package.
+- [`signers/a1`](a1/README.md) → `@signature-kit/a1` — local A1 / PKCS#12 signing power.
+- [`signers/assinafy`](assinafy/README.md) → `@signature-kit/assinafy` — Assinafy request creation, get/list/delete, and completed-document download; no public cancel API.
+- [`signers/clicksign`](clicksign/README.md) → `@signature-kit/clicksign` — Clicksign request creation, get/list/cancel/delete, and signed-file download.
+- [`signers/documenso`](documenso/README.md) → `@signature-kit/documenso` — Documenso envelope creation, get/list/cancel/delete, and completed-document download.
+- [`signers/docuseal`](docuseal/README.md) → `@signature-kit/docuseal` — DocuSeal submission creation, get/list/delete, and completed-document download; no public cancel API.
+- [`signers/zapsign`](zapsign/README.md) → `@signature-kit/zapsign` — ZapSign single-PDF document creation, get/list/cancel/delete, and signed-file download.
 
-```ts
-import { loadA1SignerAdapter } from "@signature-kit/a1/signer";
-import { Redacted } from "effect";
+Remote resources are retained: their providers return an empty Alchemy `list`, set `nuke: { skip: true }`, and reconcile existing outputs as no-ops. Use each package's explicit get/list/cancel/delete/download helpers for targeted provider API operations.
 
-const signer =
-  yield *
-  loadA1SignerAdapter({
-    pfx,
-    password: Redacted.make("secret"),
-  });
-```
+Docs: <https://signaturekit.dev/en-US/docs/concepts/remote-signature-requests>.
