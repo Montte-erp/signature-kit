@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1
+
+- Export English and pt-BR `xmlErrorMessages` catalogs for code-keyed display
+  copy.
+
+- Move `SignedXml` construction into `XmlRuntime` and cache verification-key
+  imports, avoiding repeated XML-DSig module loads and repeated key imports
+  during signing and verification.
+- Import XML signing certificates and signing keys concurrently.
+
 ## 0.2.0
 
 - Security: `verifyXml` no longer trusts key material embedded in the document. Callers must
@@ -17,4 +27,4 @@ self-verified documents.
 
 - Initial npm-ready release for `@signature-kit/xml`.
 - Published package metadata, MIT license, README, and package-local changelog.
-- Ships xML-DSig document signing and verification APIs with an explicit XmlRuntime service for DOM and serializer capabilities.
+- Ships XML-DSig document signing and verification APIs with an explicit XmlRuntime service for DOM and serializer capabilities.

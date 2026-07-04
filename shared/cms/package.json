@@ -1,6 +1,6 @@
 {
   "name": "@signature-kit/cms",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "files": [
     "dist",
@@ -26,6 +26,10 @@
     "./verify": {
       "types": "./dist/verify.d.ts",
       "import": "./dist/verify.js"
+    },
+    "./inspect": {
+      "types": "./dist/inspect.d.ts",
+      "import": "./dist/inspect.js"
     }
   },
   "publishConfig": {
@@ -41,7 +45,7 @@
     "@peculiar/asn1-ess": "2.8.0",
     "@peculiar/asn1-schema": "2.8.0",
     "@peculiar/asn1-x509": "2.8.0",
-    "@signature-kit/asn1": "^0.2.0",
+    "@signature-kit/asn1": "^0.2.1",
     "asn1js": "3.0.10",
     "effect": "4.0.0-beta.86",
     "pkijs": "3.4.0"

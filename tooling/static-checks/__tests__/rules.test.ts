@@ -98,16 +98,6 @@ describe("declarative smell rules", () => {
     expect(anyCheckMatches(typeSafetyChecks, "Effect.as({ ok: true })")).toBe(false);
   });
 
-  it("rejects re-export-only package index barrels", () => {
-    expect(
-      anyCheckMatchesSource(
-        architectureChecks,
-        "formats/pdf/src/index.ts",
-        'export { signPdf } from "./sign";\nexport type { PdfSigningRequest } from "./config";',
-      ),
-    ).toBe(true);
-  });
-
   it("allows real package entry modules", () => {
     expect(
       anyCheckMatchesSource(
@@ -118,8 +108,88 @@ describe("declarative smell rules", () => {
     ).toBe(false);
   });
 
+  const inlineImportType =
+    "const verify = (SignedXml: typeof " + "imp" + 'ort("xmldsigjs").SignedXml) => true;';
+
+  it("rejects inline import type annotations", () => {
+    expect(
+      anyCheckMatchesSource(architectureChecks, "formats/xml/src/verify.ts", inlineImportType),
+    ).toBe(true);
+  });
+
+  it("requires reasoned Effect run escapes in allowed React or docs paths", () => {
+    expect(
+      anyCheckMatchesSource(
+        effectBoundaryChecks,
+        "formats/react/src/a1.ts",
+        `
+// effect-boundary: React hook event action [allow-run: hook event-action boundary]
+const result = await Effect.runPromise(program);
+`,
+      ),
+    ).toBe(false);
+    expect(
+      anyCheckMatchesSource(
+        effectBoundaryChecks,
+        "formats/react/src/a1.ts",
+        `
+// effect-boundary: React hook event action [allow-run]
+const result = await Effect.runPromise(program);
+`,
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        effectBoundaryChecks,
+        "core/signatures/src/signatures.ts",
+        `
+// effect-boundary: React hook event action [allow-run: hook event-action boundary]
+const result = await Effect.runPromise(program);
+`,
+      ),
+    ).toBe(true);
+  });
+
+  it("requires reasoned secret escapes in allowed React or docs paths", () => {
+    expect(
+      anyCheckMatchesSource(
+        configChecks,
+        "formats/react/src/config.ts",
+        `
+const CredentialsSchema = Schema.Struct({
+  // secret-boundary: UI password import boundary [allow-string-secret: hook event-action boundary]
+  password: Schema.String,
+});
+`,
+      ),
+    ).toBe(false);
+    expect(
+      anyCheckMatchesSource(
+        configChecks,
+        "formats/react/src/config.ts",
+        `
+const CredentialsSchema = Schema.Struct({
+  // secret-boundary: UI password import boundary [allow-string-secret]
+  password: Schema.String,
+});
+`,
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        configChecks,
+        "core/signatures/src/signatures.ts",
+        `
+const CredentialsSchema = Schema.Struct({
+  // secret-boundary: UI password import boundary [allow-string-secret: hook event-action boundary]
+  password: Schema.String,
+});
+`,
+      ),
+    ).toBe(true);
+  });
   it("scans package manifests so dependency checks are live", () => {
-    expect(hasCheckedExtension("core/core/package.json")).toBe(true);
+    expect(hasCheckedExtension("core/signatures/package.json")).toBe(true);
   });
 
   it("rejects retained Alchemy providers without an explicit no-op diff seam", () => {
@@ -222,5 +292,69 @@ export const ExampleProvider = () =>
         "list: () => listRequests().pipe(Effect.map((requests) => Array.from(requests))),",
       ),
     ).toBe(true);
+  });
+
+  it("flags core package manifest dependencies on product packages", () => {
+    expect(
+      anyCheckMatchesSource(
+        dependencyChecks,
+        "core/signatures/package.json",
+        `
+{
+  "name": "@signature-kit/signatures",
+  "version": "1.0.0",
+  "dependencies": {
+    "@signature-kit/clicksign": "workspace:*",
+    "@signature-kit/documenso": "workspace:*",
+    "@signature-kit/pdf": "workspace:*",
+    "@signature-kit/iti": "workspace:*"
+  }
+}
+`,
+      ),
+    ).toBe(true);
+  });
+  it("flags validator package manifest dependencies on signer packages", () => {
+    expect(
+      anyCheckMatchesSource(
+        dependencyChecks,
+        "validators/iti/package.json",
+        `
+{
+  "name": "@signature-kit/iti",
+  "version": "1.0.0",
+  "dependencies": {
+    "@signature-kit/clicksign": "workspace:*"
+  }
+}
+`,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not flag signer manifests depending on focused core packages or core imports from shared packages", () => {
+    expect(
+      anyCheckMatchesSource(
+        dependencyChecks,
+        "signers/clicksign/package.json",
+        `
+{
+  "name": "@signature-kit/clicksign",
+  "dependencies": {
+    "@signature-kit/signatures": "workspace:*",
+    "@signature-kit/http": "workspace:*"
+  }
+}
+`,
+      ),
+    ).toBe(false);
+
+    expect(
+      anyCheckMatchesSource(
+        dependencyChecks,
+        "core/signatures/src/signatures.ts",
+        'import { Effect } from "effect";',
+      ),
+    ).toBe(false);
   });
 });

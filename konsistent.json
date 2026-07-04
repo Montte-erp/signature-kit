@@ -1,0 +1,141 @@
+{
+  "$schema": "node_modules/konsistent/konsistent.schema.json",
+  "version": "v1",
+  "kebabToPascalMap": {
+    "docuseal": "DocuSeal",
+    "zapsign": "ZapSign"
+  },
+  "conventions": [
+    {
+      "name": "package-directories-have-required-files",
+      "description": "Publishable package directories must keep the source directory, manifest, and changelog together.",
+      "paths": "{core,shared,formats,signers,validators}/{packageName}",
+      "must": {
+        "haveType": "directory",
+        "haveFiles": ["src", "package.json", "CHANGELOG.md"]
+      }
+    },
+    {
+      "name": "source-modules-are-not-barrels",
+      "description": "Source modules must not be pure re-export barrels; package exports point at real modules instead.",
+      "paths": [
+        "{core,shared,formats,signers,validators}/*/src/**/*.ts",
+        "{core,shared,formats,signers,validators}/*/src/**/*.tsx"
+      ],
+      "mustNot": {
+        "areBarrelFiles": true
+      }
+    },
+    {
+      "name": "non-signer-sources-must-not-import-remote-signers",
+      "description": "Core, shared, format, and validator sources cannot import remote signer packages.",
+      "paths": [
+        "{core,shared,formats,validators}/*/src/**/*.ts",
+        "{core,shared,formats,validators}/*/src/**/*.tsx"
+      ],
+      "must": [
+        { "name": "forbid-assinafy", "mustNot": { "importFrom": "@signature-kit/assinafy" } },
+        { "name": "forbid-clicksign", "mustNot": { "importFrom": "@signature-kit/clicksign" } },
+        { "name": "forbid-documenso", "mustNot": { "importFrom": "@signature-kit/documenso" } },
+        { "name": "forbid-docuseal", "mustNot": { "importFrom": "@signature-kit/docuseal" } },
+        { "name": "forbid-zapsign", "mustNot": { "importFrom": "@signature-kit/zapsign" } }
+      ]
+    },
+    {
+      "name": "non-react-sources-must-not-import-a1",
+      "description": "A1 is a signer package; only the React browser hooks package may import it.",
+      "paths": [
+        "{core,shared,validators}/*/src/**/*.ts",
+        "{core,shared,validators}/*/src/**/*.tsx",
+        "formats/{format:matches(^(pdf|xml)$)}/src/**/*.ts",
+        "formats/{format:matches(^(pdf|xml)$)}/src/**/*.tsx"
+      ],
+      "mustNot": {
+        "importFrom": "@signature-kit/a1"
+      }
+    },
+    {
+      "name": "core-shared-sources-must-not-import-formats",
+      "description": "Core and shared sources cannot import format packages.",
+      "paths": [
+        "{core,shared}/*/src/**/*.ts",
+        "{core,shared}/*/src/**/*.tsx"
+      ],
+      "must": [
+        { "name": "forbid-pdf", "mustNot": { "importFrom": "@signature-kit/pdf" } },
+        { "name": "forbid-react", "mustNot": { "importFrom": "@signature-kit/react" } },
+        { "name": "forbid-xml", "mustNot": { "importFrom": "@signature-kit/xml" } }
+      ]
+    },
+    {
+      "name": "non-validator-sources-must-not-import-validator",
+      "description": "Validators are leaf product surfaces and cannot be imported by non-validator sources.",
+      "paths": [
+        "{core,shared,formats,signers}/*/src/**/*.ts",
+        "{core,shared,formats,signers}/*/src/**/*.tsx"
+      ],
+      "mustNot": {
+        "importFrom": "@signature-kit/iti"
+      }
+    },
+    {
+      "name": "signer-sources-must-not-import-a1",
+      "description": "Signer packages are self-contained and cannot import another signer package.",
+      "paths": ["signers/*/src/**/*.ts", "!signers/a1/src/**/*.ts"],
+      "mustNot": { "importFrom": "@signature-kit/a1" }
+    },
+    {
+      "name": "signer-sources-must-not-import-assinafy",
+      "description": "Signer packages are self-contained and cannot import another signer package.",
+      "paths": ["signers/*/src/**/*.ts", "!signers/assinafy/src/**/*.ts"],
+      "mustNot": { "importFrom": "@signature-kit/assinafy" }
+    },
+    {
+      "name": "signer-sources-must-not-import-clicksign",
+      "description": "Signer packages are self-contained and cannot import another signer package.",
+      "paths": ["signers/*/src/**/*.ts", "!signers/clicksign/src/**/*.ts"],
+      "mustNot": { "importFrom": "@signature-kit/clicksign" }
+    },
+    {
+      "name": "signer-sources-must-not-import-documenso",
+      "description": "Signer packages are self-contained and cannot import another signer package.",
+      "paths": ["signers/*/src/**/*.ts", "!signers/documenso/src/**/*.ts"],
+      "mustNot": { "importFrom": "@signature-kit/documenso" }
+    },
+    {
+      "name": "signer-sources-must-not-import-docuseal",
+      "description": "Signer packages are self-contained and cannot import another signer package.",
+      "paths": ["signers/*/src/**/*.ts", "!signers/docuseal/src/**/*.ts"],
+      "mustNot": { "importFrom": "@signature-kit/docuseal" }
+    },
+    {
+      "name": "signer-sources-must-not-import-zapsign",
+      "description": "Signer packages are self-contained and cannot import another signer package.",
+      "paths": ["signers/*/src/**/*.ts", "!signers/zapsign/src/**/*.ts"],
+      "mustNot": { "importFrom": "@signature-kit/zapsign" }
+    },
+    {
+      "name": "remote-signer-index-surface",
+      "description": "Remote signer entry modules expose the uniform provider surface.",
+      "paths": "signers/{signer:matches(^(assinafy|clicksign|documenso|docuseal|zapsign)$)}/src/index.ts",
+      "must": {
+        "export": [
+          "${signer.toPascalCase()}ProviderId",
+          "${signer.toPascalCase()}ProviderOptionsSchema",
+          "${signer.toPascalCase()}SignatureRequest",
+          "${signer.toPascalCase()}SignatureRequestProvider",
+          "${signer.toPascalCase()}Providers",
+          "providers",
+          "get${signer.toPascalCase()}SignatureRequest",
+          "list${signer.toPascalCase()}SignatureRequests",
+          "delete${signer.toPascalCase()}SignatureRequest",
+          "download${signer.toPascalCase()}SignedDocument"
+        ],
+        "exportTypes": [
+          "${signer.toPascalCase()}ProviderOptions",
+          "${signer.toPascalCase()}SignatureRequest"
+        ]
+      }
+    }
+  ]
+}

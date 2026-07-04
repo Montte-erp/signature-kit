@@ -1,9 +1,9 @@
 import type { Check } from "../model";
 import { contractSuffixes, exportContractDeclarationPattern } from "../config";
-import { escapeRegex, isAdapterOrPackageFile, isFiscalCoreFile } from "./shared";
+import { escapeRegex, isAdapterOrPackageFile, isSignatureRuntimeFile } from "./shared";
 
 const hasManualSchemaContract = (line: string, path: string, source: string): boolean => {
-  if (!isAdapterOrPackageFile(path) && !isFiscalCoreFile(path)) {
+  if (!isAdapterOrPackageFile(path) && !isSignatureRuntimeFile(path)) {
     return false;
   }
 

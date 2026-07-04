@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 
-export type WorkspaceLayer = "shared" | "core" | "signers" | "formats" | "apps";
+export type WorkspaceLayer = "shared" | "core" | "signers" | "formats" | "validators" | "apps";
 
 type JsonObject = { readonly [key: string]: unknown };
 
@@ -24,15 +24,25 @@ export type WorkspaceLayerDiagnostic = {
   readonly message: string;
 };
 
-const workspaceRoots: readonly string[] = ["shared", "core", "signers", "formats"];
+const workspaceRoots: readonly string[] = ["shared", "core", "signers", "formats", "validators"];
 
 const allowedDependencyLayers: Record<WorkspaceLayer, readonly WorkspaceLayer[]> = {
   shared: ["shared"],
   core: ["shared", "core"],
   signers: ["shared", "core", "signers"],
   formats: ["shared", "core", "formats"],
+  validators: ["shared", "core", "formats", "validators"],
   apps: ["shared", "core", "signers", "formats", "apps"],
 };
+const allowedCrossLayerPackageDependencies: Record<string, readonly string[]> = {
+  "@signature-kit/react": ["@signature-kit/a1"],
+};
+
+const hasAllowedCrossLayerPackageDependency = (
+  workspacePackage: WorkspacePackage,
+  dependency: WorkspacePackage,
+): boolean =>
+  allowedCrossLayerPackageDependencies[workspacePackage.name]?.includes(dependency.name) ?? false;
 
 const sourceExtensions: Record<string, true> = {
   ".ts": true,
@@ -56,6 +66,7 @@ const layerForDirectory = (directory: string): WorkspaceLayer | undefined => {
     case "signers":
     case "formats":
     case "apps":
+    case "validators":
       return segment;
     default:
       return undefined;
@@ -325,7 +336,10 @@ const dependencyDiagnostics = (
       return [];
     }
 
-    if (allowedDependencyLayers[workspacePackage.layer].includes(dependency.layer)) {
+    if (
+      allowedDependencyLayers[workspacePackage.layer].includes(dependency.layer) ||
+      hasAllowedCrossLayerPackageDependency(workspacePackage, dependency)
+    ) {
       return [];
     }
 
@@ -404,7 +418,8 @@ const packageImportDiagnostics = (
   }
   if (
     !sourcePath.includes("/__tests__/") &&
-    !allowedDependencyLayers[workspacePackage.layer].includes(importedPackage.layer)
+    !allowedDependencyLayers[workspacePackage.layer].includes(importedPackage.layer) &&
+    !hasAllowedCrossLayerPackageDependency(workspacePackage, importedPackage)
   ) {
     diagnostics.push({
       path: sourcePath,

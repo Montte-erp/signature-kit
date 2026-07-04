@@ -8,7 +8,7 @@ ZapSign uploads a PDF, creates the signer list, and returns the first signing UR
 ## Installation
 
 ```package-install
-@signature-kit/core @signature-kit/zapsign
+@signature-kit/http @signature-kit/zapsign
 ```
 
 ## When to use
@@ -24,36 +24,38 @@ Use ZapSign when the product wants a hosted signing link after a simple PDF uplo
 ```ts title="zapsign.ts"
 import * as Alchemy from "alchemy"
 import { ZapSignSignatureRequest, providers as zapSignProviders } from "@signature-kit/zapsign"
-import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { signatureHttpClientLive } from "@signature-kit/http"
 import { Effect, Layer, Redacted } from "effect"
 
-export default Alchemy.Stack(
+export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
     providers: Layer.merge(
       zapSignProviders({
-      apiToken: Redacted.make(process.env.ZAPSIGN_API_TOKEN ?? ""),
-      environment: "sandbox",
-      locale: "pt-br",
+        apiToken: Redacted.make(process.env.ZAPSIGN_API_TOKEN ?? ""),
+        environment: "sandbox",
+        locale: "pt-br",
       }),
       signatureHttpClientLive,
     ),
+    state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
     return yield* ZapSignSignatureRequest("service-agreement", {
       title: "Service agreement",
       message: "Review and sign this document.",
       documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Ada Lovelace", email: "ada@example.com", role: "signer" }],
+      recipients: [{ name: "Ada Lovelace", email: "ada@example.com", routingOrder: 1 }],
       send: true,
     })
   }),
-)
+) {}
 ```
 
 
 ## Provider facts
 
+- The `environment` option accepts `"production"`, `"sandbox"`, or `"brazil"` (base URL `https://br.api.zapsign.com.br/api/v1`).
 - Accepts a single PDF per request, matching ZapSign document upload.
 - Authorization uses a Redacted bearer token.
 - Unsupported MIME types or multiple documents fail before the HTTP call.

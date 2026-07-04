@@ -7,10 +7,10 @@ description: "Install the core and the A1 signer, provide the Signatures layer, 
 
 <Steps>
   <Step title="Install the packages">
-    Start with the `@signature-kit/core` runtime and the `@signature-kit/a1` signer.
+    Start with the `@signature-kit/signatures` runtime and the `@signature-kit/a1` signer.
 
     ```package-install
-    @signature-kit/core @signature-kit/a1
+    @signature-kit/signatures @signature-kit/a1
     ```
   </Step>
 
@@ -19,7 +19,7 @@ description: "Install the core and the A1 signer, provide the Signatures layer, 
 
     ```ts title="signature-kit.ts"
     import { a1SignaturesLayer } from "@signature-kit/a1/signer"
-    import { signatures } from "@signature-kit/core/signatures"
+    import { signatures } from "@signature-kit/signatures"
     import { Effect, Redacted } from "effect"
 
     export const layer = a1SignaturesLayer({
@@ -34,7 +34,7 @@ description: "Install the core and the A1 signer, provide the Signatures layer, 
   </Step>
 
   <Step title="Sign and verify bytes">
-    The service exposes `signatures.inspect`, `signatures.sign`, and `signatures.verify`. The algorithm is `"rsa-sha256"` or `"rsa-sha512"`.
+    The service exposes `signatures.inspect`, `signatures.sign`, and `signatures.verify`. The algorithm is `"rsa-sha256"` or `"rsa-sha512"`; the catalog also accepts the legacy `"rsa-sha1"`, supported for compatibility but discouraged.
 
     ```ts title="sign.ts"
     const program = Effect.gen(function* () {
@@ -67,14 +67,17 @@ description: "Install the core and the A1 signer, provide the Signatures layer, 
     import { xmlRuntimeLayer } from "@signature-kit/xml/runtime"
     import { signPdf } from "@signature-kit/pdf/sign"
     import { a1SignaturesLayer } from "@signature-kit/a1/signer"
-    import { Effect } from "effect"
+    import { Effect, Redacted } from "effect"
 
-    const layer = a1SignaturesLayer({ pfx, password })
+    const layer = a1SignaturesLayer({
+      pfx,                                          // Uint8Array — bytes of the .pfx/.p12
+      password: Redacted.make(process.env.A1_PASSWORD ?? ""),
+    })
 
-    const signedXml = yield* signXml({ xml, referenceId: "nfe-1" })
+    const signedXml = signXml({ xml, referenceId: "nfe-1" })
       .pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer))
 
-    const signedPdf = yield* signPdf({ pdf, policy: "pades-icp-brasil" })
+    const signedPdf = signPdf({ pdf, policy: "pades-icp-brasil" })
       .pipe(Effect.provide(layer))
     ```
   </Step>

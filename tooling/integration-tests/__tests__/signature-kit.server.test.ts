@@ -5,8 +5,9 @@ import { verifyPdf } from "@signature-kit/pdf/verify";
 import { signXml } from "@signature-kit/xml/sign";
 import { verifyXml } from "@signature-kit/xml/verify";
 import { xmlRuntimeLayer } from "@signature-kit/xml/runtime";
-import { signatures } from "@signature-kit/core/signatures";
+import { signatures } from "@signature-kit/signatures";
 import { Effect, Redacted } from "effect";
+import { TestClock } from "effect/testing";
 import { readA1Fixture } from "../../testing/fixtures";
 
 const PASSWORD = Redacted.make("changeit");
@@ -23,6 +24,7 @@ describe("SignatureKit server integration", () => {
       expect(typeof document).toBe("undefined");
 
       const pfx = yield* readA1Fixture("ecpf");
+      yield* TestClock.setTime(Date.now());
       const profile = yield* parseA1CertificateProfile({ pfx, password: PASSWORD });
       expect(profile.document).toBe("12345678901");
       expect(profile.subject.length).toBeGreaterThan(0);
@@ -44,9 +46,14 @@ describe("SignatureKit server integration", () => {
         xml: '<invoice Id="server-invoice"><amount>100.00</amount></invoice>',
         referenceId: "server-invoice",
       }).pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer));
+      const publicKeyDer = yield* signatures.certificate().pipe(
+        Effect.map((certificate) => certificate.publicKeyDer),
+        Effect.provide(layer),
+      );
       const xmlVerification = yield* verifyXml({
         xml: signedXml,
         requireReferenceUri: "#server-invoice",
+        publicKeyDer,
       }).pipe(Effect.provide(xmlRuntimeLayer));
       expect(xmlVerification.valid).toBe(true);
 

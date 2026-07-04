@@ -26,16 +26,15 @@ and call the same `Signatures` service.
 
 ## Current package APIs
 
-### `@signature-kit/core`
+### Focused core packages
 
-- `SignatureKitError`, signature schemas, `SignerAdapter`, and remote signer request DTOs live in `@signature-kit/core/config`.
-- `SignatureHttpClient` lives in `@signature-kit/core/http`.
+- `SignatureKitError`, signature schemas, `SignerAdapter`, and remote signer request DTOs live in `@signature-kit/signatures`.
+- `SignatureHttpClient` lives in `@signature-kit/http`.
 - `signaturesLayer(signer) → Layer<Signatures>`
 - `signatures.inspect/sign/verify` require the `Signatures` service and stay
   backend-agnostic.
 
-`@signature-kit/core` is the shared contract surface plus the `Signatures` service;
-there is no root runtime facade and no separate contracts-only package.
+`@signature-kit/signatures` is the shared signature contract surface plus the `Signatures` service. `@signature-kit/http` is the transport seam. There is no umbrella core package and no separate contracts-only package.
 
 ### `@signature-kit/certificates`
 

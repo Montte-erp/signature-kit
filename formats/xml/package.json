@@ -1,6 +1,6 @@
 {
   "name": "@signature-kit/xml",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "files": [
     "dist",
@@ -40,8 +40,9 @@
   },
   "dependencies": {
     "@peculiar/x509": "2.0.0",
-    "@signature-kit/core": "^0.2.0",
-    "@signature-kit/crypto": "^0.2.0",
+    "@signature-kit/crypto": "^0.2.1",
+    "@signature-kit/i18n": "^0.1.0",
+    "@signature-kit/signatures": "^0.1.0",
     "@xmldom/xmldom": "^0.9.8",
     "effect": "4.0.0-beta.86",
     "reflect-metadata": "^0.2.2",
@@ -49,7 +50,7 @@
     "xmldsigjs": "2.8.7"
   },
   "devDependencies": {
-    "@signature-kit/a1": "^0.2.0",
+    "@signature-kit/a1": "^0.3.0",
     "xml-crypto": "6.1.2"
   },
   "nx": {

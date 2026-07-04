@@ -13,7 +13,7 @@ const hasInlineObservabilityLiteral = (context: CheckContext): boolean =>
 
 const hasDomainMagicString = (context: CheckContext): boolean =>
   !isCatalogFile(context.path) &&
-  /\b(?:code|operation|phase|schemaName|name)\s*:\s*["'](?:signature-kit\.|[a-z]+(?:\.[a-z_]+)+|[A-Z][A-Za-z0-9]+)[^"']*["']/.test(
+  /\b(?:code|operation|phase|name)\s*:\s*["'](?:signature-kit\.|[a-z]+(?:\.[a-z_]+)+|[A-Z][A-Za-z0-9]+)[^"']*["']/.test(
     context.rawLine,
   );
 
@@ -29,8 +29,7 @@ export const observabilityCatalogChecks: readonly Check[] = [
     ignoreImportLine: true,
   },
   {
-    message:
-      "Domain strings in code/operation/phase/schemaName/name must come from typed catalogs.",
+    message: "Domain strings in code/operation/phase/name must come from typed catalogs.",
     test: hasDomainMagicString,
     ignoreImportLine: true,
   },

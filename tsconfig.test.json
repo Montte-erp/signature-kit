@@ -17,6 +17,7 @@
     "formats/**/__tests__/**/*.tsx",
     "shared/**/__tests__/**/*.ts",
     "signers/**/__tests__/**/*.ts",
+    "validators/**/__tests__/**/*.ts",
     "tooling/integration-tests/**/*.ts",
     "tooling/static-checks/__tests__/**/*.ts",
     "tooling/testing/**/*.ts",

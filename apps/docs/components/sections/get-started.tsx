@@ -23,14 +23,14 @@ import { Container, Section, SectionHeading } from "./_shared";
  */
 
 const INSTALL: ReadonlyArray<{ readonly value: string; readonly label: string; readonly code: string }> = [
-  { value: "bun", label: "bun", code: "bun add @signature-kit/core @signature-kit/a1" },
-  { value: "npm", label: "npm", code: "npm install @signature-kit/core @signature-kit/a1" },
-  { value: "pnpm", label: "pnpm", code: "pnpm add @signature-kit/core @signature-kit/a1" },
-  { value: "yarn", label: "yarn", code: "yarn add @signature-kit/core @signature-kit/a1" },
+  { value: "bun", label: "bun", code: "bun add @signature-kit/signatures @signature-kit/a1" },
+  { value: "npm", label: "npm", code: "npm install @signature-kit/signatures @signature-kit/a1" },
+  { value: "pnpm", label: "pnpm", code: "pnpm add @signature-kit/signatures @signature-kit/a1" },
+  { value: "yarn", label: "yarn", code: "yarn add @signature-kit/signatures @signature-kit/a1" },
 ];
 
 const FIRST_CALL = `import { a1SignaturesLayer } from "@signature-kit/a1/signer"
-import { signatures } from "@signature-kit/core/signatures"
+import { signatures } from "@signature-kit/signatures"
 import { Effect, Redacted } from "effect"
 
 // Load the A1 / PKCS#12 container once — pfx is the .pfx/.p12 *bytes*.
@@ -95,7 +95,7 @@ export function GetStarted() {
               <div className="mt-auto border-t border-border bg-muted/30 px-4 py-3">
                 <p className="text-sm leading-relaxed text-pretty text-muted-foreground">
                   <code className="font-mono text-foreground">
-                    @signature-kit/core
+                    @signature-kit/signatures
                   </code>{" "}
                   {m.gs_note1()}{" "}
                   <span className="inline-flex flex-wrap items-center gap-1.5 align-middle">
@@ -126,7 +126,7 @@ export function GetStarted() {
               </div>
 
               <div className="flex flex-1 flex-col p-4">
-                <CodeBlock code={FIRST_CALL} lang="tsx" className={FLUSH} />
+                <CodeBlock code={FIRST_CALL} lang="ts" className={FLUSH} />
               </div>
 
               <div className="mt-auto border-t border-border bg-muted/30 px-4 py-3">

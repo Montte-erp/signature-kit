@@ -1,0 +1,18 @@
+{
+  "extends": "../../tooling/typescript/core.json",
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "references": [
+    {
+      "path": "../../core/signatures"
+    },
+    {
+      "path": "../../shared/cms"
+    },
+    {
+      "path": "../../signers/a1"
+    },
+    {
+      "path": "../../formats/pdf"
+    }
+  ]
+}

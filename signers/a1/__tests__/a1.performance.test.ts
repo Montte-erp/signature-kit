@@ -1,10 +1,18 @@
 import { describe, expect, it } from "@effect/vitest";
+import { parseCertificate } from "@signature-kit/certificates";
 import { loadA1SignerAdapter, parseA1CertificateProfile } from "@signature-kit/a1/signer";
 import { Effect, Redacted } from "effect";
+import { TestClock } from "effect/testing";
 import { readA1Fixture } from "../../../tooling/testing/fixtures";
 
 const PASSWORD = Redacted.make("changeit");
 const textEncoder = new TextEncoder();
+
+const setTestClockForCertificate = (pfx: Uint8Array) =>
+  Effect.gen(function* () {
+    const certificate = yield* parseCertificate(pfx, PASSWORD);
+    yield* TestClock.setTime(certificate.validity.notBefore.getTime() + 1_000);
+  });
 
 const millisecondsSince = (startedAt: number): number => performance.now() - startedAt;
 
@@ -12,6 +20,7 @@ describe("A1 signer performance", () => {
   it.effect("keeps certificate profile parsing within an app-request budget", () =>
     Effect.gen(function* () {
       const pfx = yield* readA1Fixture("ecpf");
+      yield* setTestClockForCertificate(pfx);
       const startedAt = performance.now();
 
       const profiles = yield* Effect.all(
@@ -28,6 +37,7 @@ describe("A1 signer performance", () => {
   it.effect("reuses imported signing keys for repeated app-side signatures", () =>
     Effect.gen(function* () {
       const pfx = yield* readA1Fixture("ecpf");
+      yield* setTestClockForCertificate(pfx);
       const signer = yield* loadA1SignerAdapter({ pfx, password: PASSWORD });
       const payloads = Array.from({ length: 25 }, (_, index) =>
         textEncoder.encode(`SignatureKit performance payload ${index}`),
@@ -61,6 +71,7 @@ describe("A1 signer performance", () => {
   it.effect("imports one CryptoKey per algorithm per adapter", () =>
     Effect.gen(function* () {
       const pfx = yield* readA1Fixture("ecpf");
+      yield* setTestClockForCertificate(pfx);
       const adapter = yield* loadA1SignerAdapter({ pfx, password: PASSWORD });
       const firstSha256 = yield* adapter.importSigningKey("rsa-sha256");
       const secondSha256 = yield* adapter.importSigningKey("rsa-sha256");

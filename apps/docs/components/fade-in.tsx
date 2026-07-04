@@ -24,8 +24,8 @@ export const FadeIn = ({
   return (
     <motion.div
       className={className}
-      initial={{ opacity: 0, transform: `translateY(${offset}px)` }}
-      whileInView={{ opacity: 1, transform: "translateY(0px)" }}
+      initial={{ opacity: 0, y: offset }}
+      whileInView={{ opacity: 1, y: 0 }}
       viewport={{ margin: "-80px", once: true }}
       transition={{ delay, duration: 0.55, ease: [0.23, 1, 0.32, 1] }}
     >

@@ -1,20 +1,18 @@
 import { describe, expect, it } from "@effect/vitest";
-import type {
-  RemoteSignatureRequest,
-  RemoteSignatureRequestInput,
-} from "@signature-kit/core/config";
-import { signatureHttpClientLive } from "@signature-kit/core/http";
-import { reconcileInput } from "../../__tests__/alchemy-provider";
+import { signatureHttpClientLive } from "@signature-kit/http";
+import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import { loadFlaggedConfig, optionalEnv, requiredEnv } from "../../../tooling/testing/env";
 import { Config, Effect, Redacted, Schema } from "effect";
 import {
   AssinafySignatureRequest,
   AssinafySignatureRequestProvider,
+  type AssinafySignatureRequestAttributes,
   assinafyCredentialsLayer,
   deleteAssinafySignatureRequest,
   getAssinafySignatureRequest,
   listAssinafySignatureRequests,
   type AssinafyProviderOptions,
+  type AssinafySignatureRequestProps,
 } from "../src/index";
 
 // Real end-to-end coverage against the Assinafy sandbox. There are no mocks:
@@ -142,7 +140,7 @@ const liveRecipientEmail = (email: string): string => {
 // direct document delete both accept already-deleted documents, and re-runs create
 // fresh unique signer emails so signer cleanup only targets this run's recipient.
 const deleteAssinafyArtifacts = (
-  request: RemoteSignatureRequest,
+  request: AssinafySignatureRequestAttributes,
   options: { readonly accountId: string; readonly apiKey: string; readonly recipientEmail: string },
 ) => {
   const documentUrl = request.detailsUrl;
@@ -207,11 +205,11 @@ const findCreatedDocumentAcrossPages = (
 
 const reconcileAssinafySignatureRequest = (
   options: AssinafyProviderOptions,
-  request: RemoteSignatureRequestInput,
+  request: AssinafySignatureRequestProps,
 ) =>
   Effect.gen(function* () {
     const provider = yield* AssinafySignatureRequest.Provider;
-    return yield* provider.reconcile(reconcileInput("assinafy-live-request", request));
+    return yield* provider.reconcile(reconcileResourceProps("assinafy-live-request", request));
   }).pipe(
     Effect.provide(AssinafySignatureRequestProvider()),
     Effect.provide(assinafyCredentialsLayer(options)),
@@ -244,20 +242,19 @@ if (config === undefined) {
               {
                 fileName: "signature-kit-live.pdf",
                 mimeType: "application/pdf",
-                content: livePdf(),
+                contentBase64: Buffer.from(livePdf()).toString("base64"),
               },
             ],
             recipients: [
               {
                 name: "SignatureKit Live Recipient",
                 email: recipientEmail,
-                role: "signer",
                 routingOrder: 1,
               },
             ],
             send: false,
             expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-          } satisfies RemoteSignatureRequestInput;
+          } satisfies AssinafySignatureRequestProps;
 
           // 1. create (draft): real multi-step upload -> signer -> assignment.
           const request = yield* reconcileAssinafySignatureRequest(providerOptions, input);
@@ -275,7 +272,7 @@ if (config === undefined) {
             expect(documentUrl).toBe(`${baseUrl}/v1/documents/${request.id}`);
 
             // 2. get by document id: the provider maps the real document resource
-            // and its embedded assignment into RemoteSignatureRequest.
+            // and its embedded assignment into AssinafySignatureRequestAttributes.
             const fetched = yield* getAssinafySignatureRequest(providerOptions, request.id).pipe(
               Effect.provide(signatureHttpClientLive),
             );

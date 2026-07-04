@@ -1,24 +1,35 @@
 import { describe, expect, it } from "@effect/vitest";
-import { signatures } from "@signature-kit/core/signatures";
-import { signatureHttpClientLive } from "@signature-kit/core/http";
+import { signatures } from "@signature-kit/signatures";
+import { parseCertificate } from "@signature-kit/certificates";
+import { signatureHttpClientLive } from "@signature-kit/http";
 import { Effect, Redacted, Result } from "effect";
+import { TestClock } from "effect/testing";
 import { readA1Fixture } from "../../../tooling/testing/fixtures";
 import {
   a1SignaturesLayer,
   a1SignaturesLayerFromUrl,
   fetchA1Pkcs12,
   loadA1SignerAdapter,
+  parseA1CertificateProfile,
   parseA1CertificateProfileFromUrl,
 } from "@signature-kit/a1/signer";
-import { SignatureKitErrorCodeValue } from "@signature-kit/core/config";
+import { SignatureKitErrorCodeValue } from "@signature-kit/signatures";
 
 const PASSWORD = Redacted.make("changeit");
 const textEncoder = new TextEncoder();
+
+const setTestClockForCertificate = (pfx: Uint8Array) =>
+  Effect.gen(function* () {
+    const certificate = yield* parseCertificate(pfx, PASSWORD);
+    yield* TestClock.setTime(certificate.validity.notBefore.getTime() + 1_000);
+    return certificate;
+  });
 
 describe("A1 signatures", () => {
   it.effect("loads an e-CPF A1 certificate and signs through the agnostic service", () =>
     Effect.gen(function* () {
       const pfx = yield* readA1Fixture("ecpf");
+      yield* setTestClockForCertificate(pfx);
       const content = textEncoder.encode("signature-kit e-cpf payload");
 
       const result = yield* Effect.gen(function* () {
@@ -49,6 +60,7 @@ describe("A1 signatures", () => {
   it.effect("loads an e-CPF A1 certificate and signs legacy RSA-SHA1", () =>
     Effect.gen(function* () {
       const pfx = yield* readA1Fixture("ecpf");
+      yield* setTestClockForCertificate(pfx);
       const content = textEncoder.encode("signature-kit legacy sha1 payload");
 
       const result = yield* Effect.gen(function* () {
@@ -81,9 +93,51 @@ describe("A1 signatures", () => {
       }
     }),
   );
+
+  it.effect("emits CERTIFICATE_EXPIRED for expired A1 profile certificates", () =>
+    Effect.gen(function* () {
+      const pfx = yield* readA1Fixture("ecpf");
+      const certificate = yield* setTestClockForCertificate(pfx);
+      yield* TestClock.setTime(certificate.validity.notAfter.getTime() + 1_000);
+      const result = yield* Effect.result(parseA1CertificateProfile({ pfx, password: PASSWORD }));
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe(SignatureKitErrorCodeValue.certificateExpired);
+      }
+    }),
+  );
+
+  it.effect("emits CERTIFICATE_NOT_YET_VALID for future A1 profile certificates", () =>
+    Effect.gen(function* () {
+      const pfx = yield* readA1Fixture("ecpf");
+      const certificate = yield* setTestClockForCertificate(pfx);
+      yield* TestClock.setTime(certificate.validity.notBefore.getTime() - 1_000);
+      const result = yield* Effect.result(parseA1CertificateProfile({ pfx, password: PASSWORD }));
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe(SignatureKitErrorCodeValue.certificateNotYetValid);
+      }
+    }),
+  );
+
+  it.effect("emits MISSING_BR_IDENTIFIER when the A1 profile has no CPF or CNPJ", () =>
+    Effect.gen(function* () {
+      const pfx = yield* readA1Fixture("no-br-id");
+      yield* setTestClockForCertificate(pfx);
+      const result = yield* Effect.result(parseA1CertificateProfile({ pfx, password: PASSWORD }));
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe(SignatureKitErrorCodeValue.missingBrIdentifier);
+      }
+    }),
+  );
   it.effect("loads an e-CNPJ A1 certificate and signs SHA-512", () =>
     Effect.gen(function* () {
       const pfx = yield* readA1Fixture("ecnpj");
+      yield* setTestClockForCertificate(pfx);
       const content = textEncoder.encode("signature-kit e-cnpj payload");
 
       const result = yield* Effect.gen(function* () {
@@ -107,6 +161,7 @@ describe("A1 signatures", () => {
   it.effect("signs empty, large, and repeated A1 payloads", () =>
     Effect.gen(function* () {
       const pfx = yield* readA1Fixture("ecpf");
+      yield* setTestClockForCertificate(pfx);
       const largePayload = new Uint8Array(1024 * 1024);
       largePayload.fill(0x5a);
       const payloads = [
@@ -145,6 +200,7 @@ describe("A1 signatures", () => {
   it.effect("exposes an A1 signer through the Signatures service", () =>
     Effect.gen(function* () {
       const pfx = yield* readA1Fixture("ecpf");
+      yield* setTestClockForCertificate(pfx);
       const content = textEncoder.encode("signature-kit runtime payload");
       const layer = a1SignaturesLayer({ pfx, password: PASSWORD });
 
@@ -169,6 +225,7 @@ describe("A1 signatures", () => {
   it.effect("caches imported WebCrypto keys per adapter", () =>
     Effect.gen(function* () {
       const pfx = yield* readA1Fixture("ecpf");
+      yield* setTestClockForCertificate(pfx);
       const result = yield* Effect.gen(function* () {
         const adapter = yield* loadA1SignerAdapter({ pfx, password: PASSWORD });
         const first = yield* adapter.importSigningKey("rsa-sha256");
@@ -185,6 +242,7 @@ describe("A1 signatures", () => {
   it.effect("loads an A1 certificate from a (presigned) URL and signs through the service", () =>
     Effect.gen(function* () {
       const pfx = yield* readA1Fixture("ecnpj");
+      yield* setTestClockForCertificate(pfx);
       // A data: URL stands in for a presigned URL so the test stays offline; the
       // fetch path is identical (GET -> arrayBuffer).
       const url = `data:application/x-pkcs12;base64,${Buffer.from(pfx).toString("base64")}`;

@@ -188,7 +188,8 @@ Every publishable package lives one level below them and owns its own `package.j
 
 #### `core/`
 
-- `core/core` → `@signature-kit/core`
+- `core/signatures` → `@signature-kit/signatures`
+- `core/http` → `@signature-kit/http`
 - `core/certificates` → `@signature-kit/certificates`
 
 #### `signers/`
@@ -220,15 +221,14 @@ Every publishable package lives one level below them and owns its own `package.j
 
 ## 5. Package Responsibilities
 
-### 5.1 `@signature-kit/core`
+### 5.1 Focused core packages
 
 Purpose:
 
-- own public runtime schemas, typed `SignatureKitError`, and signer contracts;
-- expose the `Signatures` service and `signaturesLayer` seam;
-- keep every package on the same `SignatureKitError` catalog;
-- expose remote signer request DTOs and the `SignatureHttpClient` seam without a
-  separate contracts-only package.
+- `@signature-kit/signatures` owns public signature-runtime schemas, typed `SignatureKitError`, signer contracts, the `Signatures` service, and `signaturesLayer` seam;
+- `@signature-kit/http` owns the `SignatureHttpClient` seam, request/response schemas, diagnostic URL handling, and retry metadata;
+- `@signature-kit/certificates` owns PKCS#12/X.509 parsing and identity helpers;
+- there is no umbrella core package and no standalone errors package.
 
 Must not depend on:
 
@@ -301,7 +301,7 @@ Its role is not generic signing logic. Its role is backend-specific protocol, au
 
 ```ts
 import { a1SignaturesLayer } from "@signature-kit/a1/signer";
-import { signatures } from "@signature-kit/core/signatures";
+import { signatures } from "@signature-kit/signatures";
 import { Effect, Redacted } from "effect";
 
 const program = Effect.gen(function* () {
@@ -406,7 +406,7 @@ type XmlSignatureModule = {
 
 ### 8.1 What is in the first working cut
 
-- `@signature-kit/core` and `@signature-kit/certificates`;
+- `@signature-kit/signatures`, `@signature-kit/http`, and `@signature-kit/certificates`;
 - `@signature-kit/a1` for PKCS#12 / PFX loading, password validation, e-CPF/e-CNPJ
   identity extraction, byte signing, and byte verification;
 - `@signature-kit/clicksign`, `@signature-kit/assinafy`, `@signature-kit/zapsign`,
@@ -434,7 +434,7 @@ A1 is the first delivery vehicle, not the architecture.
 That means:
 
 - A1 should be the first adapter package;
-- the core runtime should never mention PFX in its public contract;
+- the signatures runtime should never mention PFX in its public contract;
 - byte signing should remain format-agnostic;
 - XML signing should consume the signer contract instead of reaching into A1 internals.
 
@@ -501,7 +501,8 @@ The value should come from:
 
 ```txt
 core/
-  core/         # runtime schemas, errors, Signatures service
+  signatures/   # runtime schemas, errors, Signatures service
+  http/         # HTTP client service and transport schemas
   certificates/ # PKCS#12/X.509 parse + identity normalization
 signers/
   a1/           # PKCS#12 signer adapter
@@ -546,7 +547,7 @@ Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso.
 
 SignatureKit now has:
 
-1. one lean signer runtime in `@signature-kit/core`;
+1. one lean signer runtime in `@signature-kit/signatures` plus the focused `@signature-kit/http` transport seam;
 2. one real local backend in `@signature-kit/a1`;
 3. XML and PDF format modules that consume the same signing seam;
 4. direct remote signer packages for Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso;

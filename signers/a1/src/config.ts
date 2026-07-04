@@ -2,8 +2,8 @@
  * A1 signer adapter options.
  */
 
-import { redactedStringSchema } from "@signature-kit/core/config";
-import { SignatureHttpHeadersSchema } from "@signature-kit/core/http";
+import { redactedStringSchema } from "@signature-kit/signatures";
+import { SignatureHttpHeadersSchema } from "@signature-kit/http";
 import { Schema } from "effect";
 
 export const A1SignerOptionsSchema = Schema.Struct({

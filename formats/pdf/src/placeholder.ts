@@ -12,18 +12,25 @@ import { Effect } from "effect";
 import { PdfError, PdfErrorCodeValue, PdfOperationValue } from "./config";
 import type { PdfSigningRequest } from "./config";
 import { resolveSignatureWidgetPlacement } from "./placement";
+import { hasPdfByteRange } from "./byte-range";
 
 export const DEFAULT_SIGNATURE_LENGTH = 16384;
+export const DEFAULT_ICP_BRASIL_SIGNATURE_LENGTH = 32768;
 const BYTE_RANGE_PLACEHOLDER = "**********";
 const SIGNATURES_EXIST = 0x01;
 const APPEND_ONLY = 0x02;
 const PRINT_ANNOTATION = 0x04;
 
+const hasExistingSignature = hasPdfByteRange;
+
 export const addSignaturePlaceholder = (
   input: PdfSigningRequest,
 ): Effect.Effect<Uint8Array, PdfError> =>
   Effect.tryPromise({
-    try: () => PDFDocument.load(input.pdf),
+    // An already-signed PDF must be extended with an incremental update — a full
+    // reserialize would rewrite the bytes earlier signatures cover and break them.
+    try: () =>
+      PDFDocument.load(input.pdf, { forIncrementalUpdate: hasExistingSignature(input.pdf) }),
     catch: () =>
       new PdfError({
         code: PdfErrorCodeValue.invalidPdf,
@@ -46,6 +53,11 @@ export const addSignaturePlaceholder = (
             );
           }
 
+          const signatureLength =
+            input.signatureLength ??
+            (input.policy === "pades-icp-brasil"
+              ? DEFAULT_ICP_BRASIL_SIGNATURE_LENGTH
+              : DEFAULT_SIGNATURE_LENGTH);
           return Effect.tryPromise({
             try: async () => {
               const byteRange = PDFArray.withContext(pdfDoc.context);
@@ -54,9 +66,7 @@ export const addSignaturePlaceholder = (
               byteRange.push(PDFName.of(BYTE_RANGE_PLACEHOLDER));
               byteRange.push(PDFName.of(BYTE_RANGE_PLACEHOLDER));
 
-              const placeholder = PDFHexString.of(
-                String.fromCharCode(0).repeat(input.signatureLength ?? DEFAULT_SIGNATURE_LENGTH),
-              );
+              const placeholder = PDFHexString.of(String.fromCharCode(0).repeat(signatureLength));
               const signatureDict = pdfDoc.context.obj({
                 Type: "Sig",
                 Filter: "Adobe.PPKLite",

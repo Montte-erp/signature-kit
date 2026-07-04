@@ -24,6 +24,7 @@ export const roots = [
   "core",
   "signers",
   "formats",
+  "validators",
   "shared",
   "apps/docs/components/sections/providers-showcase.tsx",
   "apps/docs/content/docs/providers",
@@ -73,5 +74,10 @@ export const contractSuffixes: readonly string[] = [
 export const exportContractDeclarationPattern = new RegExp(
   `^\\s*export\\s+(?:interface|type)\\s+([A-Za-z_$][\\w$]*(?:${contractSuffixes.join("|")}))\\b`,
 );
-export const adapterOrPackagePathPrefixes: readonly string[] = ["core/", "signers/", "formats/"];
-export const fiscalCorePrefix = "core/core/";
+export const adapterOrPackagePathPrefixes: readonly string[] = [
+  "core/",
+  "signers/",
+  "formats/",
+  "validators/",
+];
+export const signatureRuntimePrefix = "core/signatures/";

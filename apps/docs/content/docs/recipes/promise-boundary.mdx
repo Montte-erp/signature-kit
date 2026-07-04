@@ -1,0 +1,33 @@
+---
+title: Promise boundary
+description: "Run SignatureKit Effects at the app boundary and keep typed failures as values."
+---
+
+SignatureKit APIs return `Effect` programs. In React handlers, server actions, route handlers, and job workers, run the program once at the boundary and convert the typed error channel into a `Result` value.
+
+```ts title="promise-boundary.ts"
+import { cmsErrorMessages } from "@signature-kit/cms/config"
+import { errorMessage } from "@signature-kit/i18n"
+import { pdfErrorMessages } from "@signature-kit/pdf/config"
+import { signatureKitErrorMessages } from "@signature-kit/signatures"
+import { Effect, Result } from "effect"
+
+const result = await Effect.runPromise(Effect.result(program))
+
+if (Result.isFailure(result)) {
+  const message = errorMessage(result.failure, {
+    locale: "pt-BR",
+    catalogs: [pdfErrorMessages, cmsErrorMessages, signatureKitErrorMessages],
+  })
+
+  return { ok: false, message, error: result.failure }
+}
+
+return { ok: true, value: result.success }
+```
+
+Use this shape instead of `try/catch` and string sniffing. The failure remains the real tagged error (`PdfError`, `CmsError`, or `SignatureKitError`), so UI copy can come from `@signature-kit/i18n` while telemetry still receives the structured `code`, `operation`, and schema metadata.
+
+<Callout type="info">
+  Library internals should keep returning `Effect`. `Effect.runPromise` belongs at the app/runtime boundary.
+</Callout>

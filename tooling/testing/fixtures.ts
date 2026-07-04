@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { Effect } from "effect";
 
-export type A1FixtureName = "ecpf" | "ecnpj";
+export type A1FixtureName = "ecpf" | "ecnpj" | "no-br-id";
 
 export const readA1Fixture = (name: A1FixtureName): Effect.Effect<Uint8Array> =>
   Effect.promise(

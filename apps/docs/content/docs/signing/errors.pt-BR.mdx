@@ -15,26 +15,36 @@ Toda falha no core, no signer A1 e nos formatos é um `SignatureKitError` no can
 
 `SignatureKitError` é uma classe com um `_tag` fixo igual a `"SignatureKitError"`. Seus campos:
 
-- `code` — um dos 18 literais `"signature-kit.*"` do [catálogo](#error-catalog).
+- `code` — um dos 21 literais `"signature-kit.*"` do [catálogo](#error-catalog).
 - `retryable` — um booleano decidido **no ponto da falha**, não fixo por code. O mesmo `code` pode chegar com `retryable: true` em um ponto de chamada e `false` em outro.
-- `reason?` — uma mensagem contextual opcional, mais específica do que a padrão.
-- `operation?` — a operação em que a falha ocorreu, útil para logging e telemetria.
-- `get message()` — a mensagem legível por humanos; resolve para `reason` quando presente, caso contrário para o texto padrão do code.
+- `reason?` — uma mensagem contextual opcional para logs e telemetria. A cópia de UI deve usar `code`, não interpretar esse texto.
+- `operation?` — uma `string` simples com o nome da operação em que a falha ocorreu, útil para logging e telemetria.
+- `schemaName?` — o nome do schema que falhou ao decodificar, quando a falha veio de `Schema.decodeUnknownEffect`.
+- `issueMessage?` — o texto formatado do issue de decode (`String(issue)`) dessa falha de schema.
+- `provider?` — o nome do provedor remoto, em falhas de API de provedor (Clicksign, Assinafy, ZapSign, DocuSeal, Documenso).
+- `status?` — o status HTTP upstream, quando a falha veio de uma resposta HTTP de provedor.
+- `retryAfterEpochSeconds?` — uma dica em epoch-seconds de quando tentar novamente, quando o upstream forneceu uma (por exemplo, uma resposta de rate limit).
+- `get message()` — a mensagem padrão em inglês para o code, ou `reason` nos codes marcados como _editable_.
 
 ```ts title="error-shape.ts"
-import { Effect } from "effect"
-import type { SignatureArtifact, SignatureKitError } from "@signature-kit/core/config"
+import type { Effect } from "effect"
+import type { SignatureArtifact, SignatureKitError, SignatureKitErrorCode } from "@signature-kit/signatures"
 
 // The error channel is typed: each failure is a SignatureKitError.
 declare const sign: Effect.Effect<SignatureArtifact, SignatureKitError>
 
 // _tag: "SignatureKitError"
 class SignatureKitError {
-  readonly code: SignatureKitErrorCode   // 18 "signature-kit.*" literals
+  readonly code: SignatureKitErrorCode   // 21 "signature-kit.*" literals
   readonly retryable: boolean         // decided at the point of failure
-  readonly reason?: string            // contextual message
-  readonly operation?: SignatureKitOperation
-  get message(): string               // default per code (reason ?? default)
+  readonly reason?: string            // contextual message for logs
+  readonly operation?: string
+  readonly schemaName?: string
+  readonly issueMessage?: string
+  readonly provider?: string
+  readonly status?: number
+  readonly retryAfterEpochSeconds?: number
+  get message(): string               // default per code, or reason for editable codes
 }
 ```
 
@@ -45,12 +55,12 @@ class SignatureKitError {
 
 ## Tratamento por code
 
-A união de erros tem uma única tag, então `Effect.catchTag("SignatureKitError", ...)` entra no canal e você discrimina pelo `error.code`. Um `switch` sobre `code` é exaustivo: o compilador exige todos os 18 literais.
+A união de erros tem uma única tag, então `Effect.catchTag("SignatureKitError", ...)` entra no canal e você discrimina pelo `error.code`. Um `switch` sobre `code` é exaustivo: o compilador exige todos os 21 literais.
 
 ```ts title="handle-error.ts"
 import { Effect } from "effect"
 import { a1SignaturesLayer } from "@signature-kit/a1/signer"
-import { signatures } from "@signature-kit/core/signatures"
+import { signatures } from "@signature-kit/signatures"
 
 const program = Effect.gen(function* () {
   return yield* signatures.sign({ content, algorithm: "rsa-sha256" })
@@ -76,6 +86,7 @@ Para interceptar uma falha específica e deixar o restante se propagar, use `Eff
 
 ```ts title="catch-if.ts"
 import { Effect } from "effect"
+import type { SignatureKitError } from "@signature-kit/signatures"
 
 // Filter only the failure this call site knows how to handle; the rest propagate, typed.
 const recovered = program.pipe(
@@ -93,14 +104,49 @@ const recovered = program.pipe(
   [`signature-kit.SIGN_FAILED`](#error-catalog) apenas quando `error.retryable` for `true`.
 </Callout>
 
-## Catálogo de erros
+## Catálogo de erros [#error-catalog]
 
-Todos os 18 codes de `SignatureKitError` e suas mensagens padrão. Os codes marcados como _editable_
+Todos os 21 codes de `SignatureKitError` e suas mensagens padrão. Os codes marcados como _editable_
 resolvem para `reason ?? default` em `message`. Cada linha é ancorável como `#err-<CODE>`
 (por exemplo [`#err-WRONG_PASSWORD`](#err-WRONG_PASSWORD)), de modo que outras páginas façam deep link
 direto para um code.
 
 <ErrorCatalog />
+
+## Mensagens de exibição localizadas
+
+Não localize inspecionando classes, campos `.code` soltos ou substrings de `reason`. Esse caminho quebra quando o texto diagnóstico muda:
+
+```ts title="nao-inspecione-reason.ts"
+export function getCertificateErrorMessage(error: unknown) {
+  const reason = error instanceof Error ? error.message : ""
+
+  if (reason.includes("not valid on the current date")) return "Certificado expirado"
+  if (reason.includes("Brazilian CPF or CNPJ")) {
+    return "Certificado não contém CPF ou CNPJ brasileiro"
+  }
+
+  return "Arquivo de certificado inválido"
+}
+```
+
+Use `@signature-kit/i18n` na fronteira da aplicação. Passe apenas os catálogos que aquele código pode receber; o resolver verifica `_tag` e `code` de forma estrutural e cai para inglês quando a locale pedida não existe:
+
+```ts title="mensagem-de-erro-localizada.ts"
+import { errorMessage } from "@signature-kit/i18n"
+import { signatureKitErrorMessages } from "@signature-kit/signatures"
+import { cryptoErrorMessages } from "@signature-kit/crypto/config"
+
+const message = errorMessage(error, {
+  locale: "pt-BR",
+  catalogs: [signatureKitErrorMessages, cryptoErrorMessages],
+  overrides: {
+    "pt-BR": {
+      "signature-kit.WRONG_PASSWORD": "Senha do certificado incorreta",
+    },
+  },
+})
+```
 
 ## Erros de formato e de provedor
 
@@ -108,7 +154,7 @@ Além do `SignatureKitError`, os módulos de formato adicionam suas próprias fa
 
 <Cards>
   <Card title="XmlError">Codes `xml.*`. `signXml` retorna `XmlError | SignatureKitError`; `verifyXml` retorna apenas `XmlError` (sem o serviço Signatures).</Card>
-  <Card title="PdfError">Codes `pdf.*`. `signPdf` retorna `PdfError | CmsError | SignatureKitError`. Por exemplo, um `hashAlgorithm` fora de sha256/sha512 falha como `pdf.SIGN_FAILED`.</Card>
+  <Card title="PdfError">Codes `pdf.*`. `signPdf` retorna `PdfError | CmsError | SignatureKitError`. Por exemplo, `hashAlgorithm: "sha384"` falha como `pdf.SIGN_FAILED` — o backend de signer atual não tem contraparte `rsa-sha384`; `"sha1"` é aceito (mapeado para `rsa-sha1`).</Card>
   <Card title="APIs de provedores">Sem família paralela. Entrada inválida, HTTP remoto, formato de resposta e operação não suportada falham como `SignatureKitError` com `provider`, `operation`, `schemaName` e `status` quando esses metadados existem.</Card>
 </Cards>
 
@@ -167,5 +213,5 @@ const request = ClicksignSignatureRequest("contract", {
 Os formatos e os signers são pacotes separados — instale apenas o que cada caminho usa.
 
 ```package-install
-@signature-kit/xml @signature-kit/pdf @signature-kit/core @signature-kit/clicksign
+@signature-kit/xml @signature-kit/pdf @signature-kit/http @signature-kit/clicksign
 ```

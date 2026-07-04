@@ -1,0 +1,89 @@
+---
+title: Componentes React
+description: "Instale os componentes shadcn do SignatureKit no seu app e seja dono do código de UI."
+---
+
+`@signature-kit/react` publica só hooks. Use o registry shadcn quando quiser um caminho pronto; os arquivos gerados entram no seu app, então storage, texto, estilo, fetch/tRPC e regras de produto continuam seus.
+
+```bash title="Instalar um componente"
+npx shadcn@latest add https://signaturekit.dev/r/signature-dialog.json
+```
+
+## Itens do registry
+
+| Item | Comando | Uso |
+| --- | --- | --- |
+| `signature-certificate-form` | `npx shadcn@latest add https://signaturekit.dev/r/signature-certificate-form.json` | Confirmação de senha com persistência por callbacks `getSavedPassword` / `onSavePassword`. |
+| `certificate-upload-form` | `npx shadcn@latest add https://signaturekit.dev/r/certificate-upload-form.json` | Selecionar `.pfx` / `.p12`, parsear no navegador com `useA1Certificate`, pré-visualizar metadados e chamar seu callback de upload. |
+| `signature-pdf-viewer` | `npx shadcn@latest add https://signaturekit.dev/r/signature-pdf-viewer.json` | Preview com `react-pdf`, destaque de âncoras de texto e posicionamento manual por clique. |
+| `signature-dialog` | `npx shadcn@latest add https://signaturekit.dev/r/signature-dialog.json` | Fluxo direto de assinatura A1 com `useA1Signer`, retry de senha salva, progresso e preview/download do PDF assinado. |
+| `signing-progress-list` | `npx shadcn@latest add https://signaturekit.dev/r/signing-progress-list.json` | Linhas de status por documento para uma tela de assinatura customizada. |
+| `pdf-signature-anchor` | `npx shadcn@latest add https://signaturekit.dev/r/pdf-signature-anchor.json` | Texto invisível de `@react-pdf/renderer` pareado com `findPdfTextAnchors`. |
+
+## Dialog de assinatura direta
+
+```tsx title="sign-button.tsx"
+import { SignatureDialog } from "@/components/signature-dialog"
+
+export function SignButton({ pfx }: { pfx: Uint8Array }) {
+  return (
+    <SignatureDialog
+      pfx={pfx}
+      anchorTokens={["{{signature}}"]}
+      getSavedPassword={() => null}
+      onWrongPassword={() => {
+        // Limpe aqui o storage de senha que pertence ao seu app.
+      }}
+      buildDocuments={async () => [
+        {
+          id: "contract",
+          name: "contract.pdf",
+          pdf: await fetch("/contract.pdf").then(async (response) =>
+            new Uint8Array(await response.arrayBuffer()),
+          ),
+          anchors: {
+            matchers: [{ text: "{{signature}}" }],
+            stampSize: { width: 180, height: 54 },
+          },
+        },
+      ]}
+      signing={{ policy: "pades-icp-brasil", reason: "Assinado com SignatureKit" }}
+      stamp={{
+        badge: {
+          header: { text: "ASSINADO DIGITALMENTE" },
+          rows: [[{ label: "Signatário", value: "Usuário atual" }]],
+          footer: [{ text: "ICP-Brasil" }, { text: "SignatureKit" }],
+        },
+        rubric: { initials: "UA" },
+      }}
+      onSigned={(rows) => {
+        // Envie, visualize ou baixe rows[n].signedPdf.
+      }}
+    />
+  )
+}
+```
+
+## Posicionamento por âncora
+
+Use texto invisível quando você gera PDFs com `@react-pdf/renderer`. O carimbo cai em um ponto determinístico e o usuário não precisa clicar em cada documento.
+
+```tsx title="contract.pdf.tsx"
+import { Text, View } from "@react-pdf/renderer"
+import { PdfSignatureAnchor } from "@/components/pdf-signature-anchor"
+
+export function ContractSignatureBlock() {
+  return (
+    <View>
+      <Text>Signatário</Text>
+      <PdfSignatureAnchor token="{{signature}}" />
+    </View>
+  )
+}
+```
+
+Use `signature-pdf-viewer` quando uma pessoa precisar confirmar as âncoras ou trocar para posicionamento manual por clique.
+
+### Ilha `react-pdf` no Next.js
+
+`react-pdf` toca APIs do navegador, então mantenha-o em um componente client carregado com `dynamic(() => import("./PdfPreviewIsland"), { ssr: false })`. Páginas server podem passar bytes, páginas e retângulos já validados para essa ilha; a ilha controla o estado de preview e os object URLs.

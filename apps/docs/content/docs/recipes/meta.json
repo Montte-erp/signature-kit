@@ -1,0 +1,11 @@
+{
+  "title": "Recipes",
+  "icon": "Sparkles",
+  "pages": [
+    "promise-boundary",
+    "react-signing-hook",
+    "react-components",
+    "react-pdf-preview",
+    "anchor-placement"
+  ]
+}

@@ -8,7 +8,7 @@ Assinafy creates a document, registers the signer, and creates the assignment in
 ## Installation
 
 ```package-install
-@signature-kit/core @signature-kit/assinafy
+@signature-kit/http @signature-kit/assinafy
 ```
 
 ## When to use
@@ -24,37 +24,38 @@ Use Assinafy when account-level organization and assignment tracking belong in A
 ```ts title="assinafy.ts"
 import * as Alchemy from "alchemy"
 import { AssinafySignatureRequest, providers as assinafyProviders } from "@signature-kit/assinafy"
-import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { signatureHttpClientLive } from "@signature-kit/http"
 import { Effect, Layer, Redacted } from "effect"
 
-export default Alchemy.Stack(
+export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
     providers: Layer.merge(
       assinafyProviders({
-      apiKey: Redacted.make(process.env.ASSINAFY_API_KEY ?? ""),
-      accountId: process.env.ASSINAFY_ACCOUNT_ID ?? "",
-      environment: "sandbox",
+        apiKey: Redacted.make(process.env.ASSINAFY_API_KEY ?? ""),
+        accountId: process.env.ASSINAFY_ACCOUNT_ID ?? "",
+        environment: "sandbox",
       }),
       signatureHttpClientLive,
     ),
+    state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
     return yield* AssinafySignatureRequest("service-agreement", {
       title: "Service agreement",
       message: "Review and sign this document.",
       documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Ada Lovelace", email: "ada@example.com", role: "signer" }],
+      recipients: [{ name: "Ada Lovelace", email: "ada@example.com", routingOrder: 1 }],
       send: true,
     })
   }),
-)
+) {}
 ```
 
 
 ## Provider facts
 
-- Credentials include both API key and account id.
+- Credentials include both API key and account id. Alternatively, pass `accessToken` instead of `apiKey` to authenticate with `Authorization: Bearer <token>` rather than `X-Api-Key`.
 - The adapter creates document, signer, and assignment in one request flow.
 - Recoverable HTTP and response-shape failures surface as `SignatureKitError`.
 

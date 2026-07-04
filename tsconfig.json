@@ -11,7 +11,13 @@
       "path": "shared/cms"
     },
     {
-      "path": "core/core"
+      "path": "core/signatures"
+    },
+    {
+      "path": "core/http"
+    },
+    {
+      "path": "core/i18n"
     },
     {
       "path": "core/certificates"
@@ -39,6 +45,12 @@
     },
     {
       "path": "formats/pdf"
+    },
+    {
+      "path": "formats/react"
+    },
+    {
+      "path": "validators/iti"
     }
   ]
 }

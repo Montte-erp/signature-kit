@@ -1,20 +1,19 @@
 /**
  * The first e-signature adapter: A1 / PKCS#12.
  */
-import { Signatures } from "@signature-kit/core/signatures";
-import { SignatureHttpClient } from "@signature-kit/core/http";
-import type { Certificate, SignatureAlgorithm, SignerAdapter } from "@signature-kit/core/config";
+import { Signatures } from "@signature-kit/signatures";
+import { SignatureHttpClient } from "@signature-kit/http";
+import type { Certificate, SignatureAlgorithm, SignerAdapter } from "@signature-kit/signatures";
 import {
   SignatureKitError,
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
-  SignatureKitSchemaNameValue,
   SignInputSchema,
   VerifyInputSchema,
-} from "@signature-kit/core/config";
+} from "@signature-kit/signatures";
 import { daysUntilExpiry, parseCertificate, toSignerIdentity } from "@signature-kit/certificates";
 import { pemToDer } from "@signature-kit/crypto/pem";
-import { Context, Effect, Layer, Redacted, Schema } from "effect";
+import { Clock, Context, Effect, Layer, Match, Redacted, Schema } from "effect";
 import {
   A1RemoteFetchSchema,
   A1RemoteSourceSchema,
@@ -27,14 +26,25 @@ import {
 
 const RSA_ALGORITHM_NAME = "RSASSA-PKCS1-v1_5";
 
+const RsaAlgorithmHashSchema = Schema.Literals(["SHA-1", "SHA-256", "SHA-512"]);
+type RsaAlgorithmHash = (typeof RsaAlgorithmHashSchema)["Type"];
+
 type RsaAlgorithm = {
   readonly name: typeof RSA_ALGORITHM_NAME;
-  readonly hash: "SHA-1" | "SHA-256" | "SHA-512";
+  readonly hash: RsaAlgorithmHash;
 };
+
+const rsaAlgorithmHash = (algorithm: SignatureAlgorithm): RsaAlgorithmHash =>
+  Match.value(algorithm).pipe(
+    Match.when("rsa-sha1", (): RsaAlgorithmHash => "SHA-1"),
+    Match.when("rsa-sha256", (): RsaAlgorithmHash => "SHA-256"),
+    Match.when("rsa-sha512", (): RsaAlgorithmHash => "SHA-512"),
+    Match.exhaustive,
+  );
 
 const rsaAlgorithm = (algorithm: SignatureAlgorithm): RsaAlgorithm => ({
   name: RSA_ALGORITHM_NAME,
-  hash: algorithm === "rsa-sha1" ? "SHA-1" : algorithm === "rsa-sha512" ? "SHA-512" : "SHA-256",
+  hash: rsaAlgorithmHash(algorithm),
 });
 
 /** Copy into a fresh ArrayBuffer-backed view so it satisfies `BufferSource`. */
@@ -158,7 +168,7 @@ const loadA1Certificate = (
         retryable: false,
         reason: "Invalid A1 signer options.",
         operation: SignatureKitOperationValue.schemaDecode,
-        schemaName: SignatureKitSchemaNameValue.a1SignerOptions,
+        schemaName: "A1SignerOptions",
         issueMessage: String(issue),
       });
     }),
@@ -169,12 +179,23 @@ const certificateProfile = (
   certificate: Certificate,
 ): Effect.Effect<A1CertificateProfile, SignatureKitError> =>
   Effect.gen(function* () {
-    if (!certificate.isValid) {
+    const currentTime = yield* Clock.currentTimeMillis;
+    if (currentTime > certificate.validity.notAfter.getTime()) {
       return yield* Effect.fail(
         new SignatureKitError({
-          code: SignatureKitErrorCodeValue.invalidInput,
+          code: SignatureKitErrorCodeValue.certificateExpired,
           retryable: false,
-          reason: `A1 certificate is not valid on the current date. Validity: ${certificate.validity.notBefore.toISOString()} to ${certificate.validity.notAfter.toISOString()}.`,
+          reason: `A1 certificate expired at ${certificate.validity.notAfter.toISOString()}.`,
+        }),
+      );
+    }
+
+    if (currentTime < certificate.validity.notBefore.getTime()) {
+      return yield* Effect.fail(
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.certificateNotYetValid,
+          retryable: false,
+          reason: `A1 certificate is not valid before ${certificate.validity.notBefore.toISOString()}.`,
         }),
       );
     }
@@ -183,7 +204,7 @@ const certificateProfile = (
     if (document === null) {
       return yield* Effect.fail(
         new SignatureKitError({
-          code: SignatureKitErrorCodeValue.invalidInput,
+          code: SignatureKitErrorCodeValue.missingBrIdentifier,
           retryable: false,
           reason: "A1 certificate does not contain a Brazilian CPF or CNPJ.",
         }),
@@ -231,7 +252,7 @@ export const createA1SignerAdapter = (certificate: Certificate): SignerAdapter =
             retryable: false,
             reason: "Invalid sign input.",
             operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.signInput,
+            schemaName: "SignInput",
             issueMessage: String(issue),
           });
         }),
@@ -250,7 +271,7 @@ export const createA1SignerAdapter = (certificate: Certificate): SignerAdapter =
             retryable: false,
             reason: "Invalid verify input.",
             operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.verifyInput,
+            schemaName: "VerifyInput",
             issueMessage: String(issue),
           });
         }),
@@ -335,7 +356,7 @@ export const fetchA1Pkcs12 = (
           code: SignatureKitErrorCodeValue.invalidInput,
           retryable: false,
           operation: SignatureKitOperationValue.schemaDecode,
-          schemaName: SignatureKitSchemaNameValue.a1RemoteFetch,
+          schemaName: "A1RemoteFetch",
           issueMessage: String(issue),
         }),
     ),
@@ -378,7 +399,7 @@ export const a1SignaturesLayerFromUrl = (
             code: SignatureKitErrorCodeValue.invalidInput,
             retryable: false,
             operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.a1RemoteSource,
+            schemaName: "A1RemoteSource",
             issueMessage: String(issue),
           }),
       ),
@@ -402,7 +423,7 @@ export const parseA1CertificateProfileFromUrl = (
           code: SignatureKitErrorCodeValue.invalidInput,
           retryable: false,
           operation: SignatureKitOperationValue.schemaDecode,
-          schemaName: SignatureKitSchemaNameValue.a1RemoteSource,
+          schemaName: "A1RemoteSource",
           issueMessage: String(issue),
         }),
     ),

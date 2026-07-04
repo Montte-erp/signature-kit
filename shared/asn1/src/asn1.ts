@@ -61,19 +61,33 @@ export const Asn1ErrorCodeValue = {
   oidError: "asn1.OID_ERROR",
 } satisfies Record<string, Asn1ErrorCode>;
 
+export const Asn1ErrorMessageLocaleSchema = Schema.Literals(["en-US", "pt-BR"]);
+export type Asn1ErrorMessageLocale = (typeof Asn1ErrorMessageLocaleSchema)["Type"];
+export const Asn1ErrorMessagesSchema = Schema.Record(
+  Asn1ErrorMessageLocaleSchema,
+  Schema.Record(Asn1ErrorCodeSchema, Schema.String),
+);
+export type Asn1ErrorMessages = (typeof Asn1ErrorMessagesSchema)["Type"];
+
+export const asn1ErrorMessages = {
+  "en-US": {
+    "asn1.DECODE_ERROR": "Failed to decode DER.",
+    "asn1.STRUCTURE_ERROR": "Unexpected ASN.1 structure.",
+    "asn1.OID_ERROR": "Failed to decode OID.",
+  },
+  "pt-BR": {
+    "asn1.DECODE_ERROR": "Não foi possível decodificar DER.",
+    "asn1.STRUCTURE_ERROR": "Estrutura ASN.1 inesperada.",
+    "asn1.OID_ERROR": "Não foi possível decodificar o OID.",
+  },
+} satisfies Record<Asn1ErrorMessageLocale, Record<Asn1ErrorCode, string>>;
+
 export class Asn1Error extends Schema.TaggedErrorClass<Asn1Error>()("Asn1Error", {
   code: Asn1ErrorCodeSchema,
   reason: Schema.optional(Schema.String),
 }) {
   get message(): string {
-    switch (this.code) {
-      case "asn1.DECODE_ERROR":
-        return this.reason ?? "Failed to decode DER.";
-      case "asn1.STRUCTURE_ERROR":
-        return this.reason ?? "Unexpected ASN.1 structure.";
-      case "asn1.OID_ERROR":
-        return this.reason ?? "Failed to decode OID.";
-    }
+    return this.reason ?? asn1ErrorMessages["en-US"][this.code];
   }
 }
 

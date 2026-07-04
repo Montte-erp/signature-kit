@@ -40,7 +40,6 @@ export const createDetachedSignedData = (
       ),
     );
     const hashAlgorithm = valid.hashAlgorithm ?? "sha256";
-    const signingTime = valid.signingTime ?? new Date();
 
     const certificate = yield* Effect.try({
       try: () => pkijs.Certificate.fromBER(toArrayBuffer(valid.certificateDer)),
@@ -62,8 +61,10 @@ export const createDetachedSignedData = (
         }),
     });
 
-    const messageDigest = yield* digest(hashAlgorithm, valid.content);
-    const certificateSha256 = yield* digest("sha256", valid.certificateDer);
+    const [messageDigest, certificateSha256] = yield* Effect.all(
+      [digest(hashAlgorithm, valid.content), digest("sha256", valid.certificateDer)],
+      { concurrency: "unbounded" },
+    );
 
     const signed = yield* Effect.try({
       try: () =>
@@ -82,7 +83,6 @@ export const createDetachedSignedData = (
                 attributes: [
                   ...buildSignedAttributes({
                     messageDigest,
-                    signingTime,
                     certificateSha256,
                     icpBrasil: valid.icpBrasil,
                   }),

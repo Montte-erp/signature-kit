@@ -1,3 +1,4 @@
+import { ErrorMessageLocaleSchema, type ErrorMessageLocale } from "@signature-kit/i18n";
 import { Schema } from "effect";
 import {
   CmsError,
@@ -6,7 +7,7 @@ import {
   IcpBrasilPolicySchema,
   TimestampOptionsSchema,
 } from "@signature-kit/cms/config";
-import { SignatureKitError } from "@signature-kit/core/config";
+import { SignatureKitError } from "@signature-kit/signatures";
 
 const nonEmptyString: Schema.ConstraintDecoder<string> = Schema.NonEmptyString;
 
@@ -51,6 +52,54 @@ export const PdfErrorCodeValue = {
   pdfLoadFailed: "pdf.PDF_LOAD_FAILED",
 } satisfies Record<string, PdfErrorCode>;
 
+export type PdfErrorMessageLocale = ErrorMessageLocale;
+export const PdfErrorMessagesSchema = Schema.Record(
+  ErrorMessageLocaleSchema,
+  Schema.Record(PdfErrorCodeSchema, Schema.String),
+);
+export type PdfErrorMessages = (typeof PdfErrorMessagesSchema)["Type"];
+
+export const pdfErrorMessages = {
+  "en-US": {
+    "pdf.INVALID_PDF": "Invalid PDF document.",
+    "pdf.INVALID_BUILDER_INPUT": "Invalid PDF signature builder input.",
+    "pdf.PLACEHOLDER_NOT_FOUND": "PDF signature placeholder was not found.",
+    "pdf.SIGNATURE_PLACEMENT_FAILED": "PDF signature placement failed.",
+    "pdf.SIGNATURE_TOO_LARGE": "PDF signature is too large for the reserved placeholder.",
+    "pdf.SIGN_FAILED": "PDF signing failed.",
+    "pdf.STAMP_FAILED": "PDF stamp rendering failed.",
+    "pdf.VERIFY_FAILED": "PDF signature verification failed.",
+    "pdf.EMPTY_TEMPLATE": "PDF signature template is empty.",
+    "pdf.DUPLICATE_ID": "PDF signature template contains a duplicate id.",
+    "pdf.UNKNOWN_DOCUMENT": "PDF document is not registered in the builder state.",
+    "pdf.UNKNOWN_ROLE": "PDF signer role is not registered in the builder state.",
+    "pdf.UNKNOWN_FIELD": "PDF signature field is not registered in the builder state.",
+    "pdf.FIELD_OUT_OF_BOUNDS": "PDF signature field is outside the page bounds.",
+    "pdf.NO_AVAILABLE_PLACEMENT": "No available PDF signature placement found.",
+    "pdf.FILE_READ_FAILED": "Failed to read the PDF file.",
+    "pdf.PDF_LOAD_FAILED": "Failed to load the PDF document.",
+  },
+  "pt-BR": {
+    "pdf.INVALID_PDF": "Documento PDF inválido.",
+    "pdf.INVALID_BUILDER_INPUT": "Entrada inválida para o builder de assinatura PDF.",
+    "pdf.PLACEHOLDER_NOT_FOUND": "Placeholder de assinatura PDF não encontrado.",
+    "pdf.SIGNATURE_PLACEMENT_FAILED": "Não foi possível posicionar a assinatura PDF.",
+    "pdf.SIGNATURE_TOO_LARGE": "A assinatura PDF é grande demais para o placeholder reservado.",
+    "pdf.SIGN_FAILED": "Não foi possível assinar o PDF.",
+    "pdf.STAMP_FAILED": "Não foi possível renderizar o carimbo no PDF.",
+    "pdf.VERIFY_FAILED": "Não foi possível verificar a assinatura PDF.",
+    "pdf.EMPTY_TEMPLATE": "O template de assinatura PDF está vazio.",
+    "pdf.DUPLICATE_ID": "O template de assinatura PDF contém um id duplicado.",
+    "pdf.UNKNOWN_DOCUMENT": "O documento PDF não está registrado no estado do builder.",
+    "pdf.UNKNOWN_ROLE": "O papel do signatário não está registrado no estado do builder.",
+    "pdf.UNKNOWN_FIELD": "O campo de assinatura PDF não está registrado no estado do builder.",
+    "pdf.FIELD_OUT_OF_BOUNDS": "O campo de assinatura PDF está fora dos limites da página.",
+    "pdf.NO_AVAILABLE_PLACEMENT": "Nenhuma posição de assinatura PDF disponível.",
+    "pdf.FILE_READ_FAILED": "Não foi possível ler o arquivo PDF.",
+    "pdf.PDF_LOAD_FAILED": "Não foi possível carregar o documento PDF.",
+  },
+} satisfies Record<PdfErrorMessageLocale, Record<PdfErrorCode, string>>;
+
 export const PdfOperationSchema = Schema.Literals([
   "pdf.parse",
   "pdf.placeholder",
@@ -68,6 +117,9 @@ export const PdfOperationSchema = Schema.Literals([
   "pdf.appearance",
   "pdf.blob.read",
   "pdf.document.load",
+  "pdf.document.merge",
+  "pdf.text-anchor.find",
+  "pdf.workflow.prepare-and-sign",
   "pdf.builder.create-template-from-bytes",
   "pdf.builder.create-state-from-bytes",
   "pdf.sign.field",
@@ -91,6 +143,9 @@ export const PdfOperationValue = {
   pdfAppearance: "pdf.appearance",
   readBlobBytes: "pdf.blob.read",
   loadDocument: "pdf.document.load",
+  mergeDocuments: "pdf.document.merge",
+  findTextAnchors: "pdf.text-anchor.find",
+  prepareAndSign: "pdf.workflow.prepare-and-sign",
   createTemplateFromBytes: "pdf.builder.create-template-from-bytes",
   createBuilderStateFromBytes: "pdf.builder.create-state-from-bytes",
   signField: "pdf.sign.field",
@@ -112,6 +167,10 @@ export const PdfSchemaNameSchema = Schema.Literals([
   "PdfRubricPageStampInput",
   "PdfVisibleStampInput",
   "PdfSigningBatchPreparationInput",
+  "PdfTextAnchorSearchInput",
+  "PdfPrepareAndSignInput",
+  "PdfRubricStamp",
+  "PdfMergeDocuments",
 ]);
 export type PdfSchemaName = (typeof PdfSchemaNameSchema)["Type"];
 export const PdfSchemaNameValue = {
@@ -130,6 +189,10 @@ export const PdfSchemaNameValue = {
   pdfRubricPageStampInput: "PdfRubricPageStampInput",
   pdfVisibleStampInput: "PdfVisibleStampInput",
   pdfSigningBatchPreparationInput: "PdfSigningBatchPreparationInput",
+  pdfTextAnchorSearchInput: "PdfTextAnchorSearchInput",
+  pdfPrepareAndSignInput: "PdfPrepareAndSignInput",
+  pdfRubricStamp: "PdfRubricStamp",
+  pdfMergeDocuments: "PdfMergeDocuments",
 } satisfies Record<string, PdfSchemaName>;
 
 export class PdfError extends Schema.TaggedErrorClass<PdfError>()("PdfError", {
@@ -141,7 +204,7 @@ export class PdfError extends Schema.TaggedErrorClass<PdfError>()("PdfError", {
   issueMessage: Schema.optional(Schema.String),
 }) {
   get message(): string {
-    return this.reason ?? this.code;
+    return this.reason ?? pdfErrorMessages["en-US"][this.code];
   }
 }
 
@@ -167,11 +230,22 @@ export const PdfRubricPagesSchema = Schema.Union([
 ]);
 export type PdfRubricPages = (typeof PdfRubricPagesSchema)["Type"];
 
+const pdfSignatureBadgeColorSchema = Schema.String.check(Schema.isPattern(/^#[0-9A-Fa-f]{6}$/));
+
+export const PdfRubricInitialsThemeSchema = Schema.Struct({
+  inkColor: Schema.optional(pdfSignatureBadgeColorSchema),
+  bracketColor: Schema.optional(pdfSignatureBadgeColorSchema),
+  backgroundColor: Schema.optional(pdfSignatureBadgeColorSchema),
+});
+export type PdfRubricInitialsTheme = (typeof PdfRubricInitialsThemeSchema)["Type"];
+
 export const PdfRubricStampSchema = Schema.Struct({
   rect: PdfCoordinateTupleSchema,
   pages: Schema.optional(PdfRubricPagesSchema),
   lines: Schema.optional(Schema.Array(Schema.String)),
   imagePng: Schema.optional(Schema.Uint8Array),
+  initials: Schema.optional(nonEmptyString),
+  initialsTheme: Schema.optional(PdfRubricInitialsThemeSchema),
   border: Schema.optional(Schema.Boolean),
 });
 export type PdfRubricStamp = (typeof PdfRubricStampSchema)["Type"];
@@ -181,6 +255,7 @@ export const PdfTextBoxSchema = Schema.Struct({
   y: Schema.Number,
   width: Schema.Number,
   height: Schema.Number,
+  text: Schema.optional(Schema.String),
 });
 export type PdfTextBox = (typeof PdfTextBoxSchema)["Type"];
 
@@ -270,7 +345,6 @@ export const PdfSigningRequestSchema = Schema.Struct({
   hashAlgorithm: Schema.optional(CmsHashAlgorithmSchema),
   policy: Schema.optional(PdfSignaturePolicySchema),
   icpBrasil: Schema.optional(IcpBrasilPolicySchema),
-  policyTimeoutMillis: Schema.optional(Schema.Number),
   timestamp: Schema.optional(TimestampOptionsSchema),
   appearance: Schema.optional(PdfSignatureAppearanceSchema),
 });
@@ -366,14 +440,110 @@ export const PdfSignaturePageSchema = Schema.Struct({
 });
 export type PdfSignaturePage = (typeof PdfSignaturePageSchema)["Type"];
 
+export const PdfTextAnchorMatcherSchema = Schema.Union([
+  Schema.Struct({ text: nonEmptyString }),
+  Schema.Struct({ digits: nonEmptyString }),
+]);
+export type PdfTextAnchorMatcher = (typeof PdfTextAnchorMatcherSchema)["Type"];
+
+export const PdfTextAnchorPlacementSchema = Schema.Literals(["above", "below"]);
+export type PdfTextAnchorPlacement = (typeof PdfTextAnchorPlacementSchema)["Type"];
+
+export const PdfStampSizeSchema = Schema.Struct({
+  width: Schema.Number,
+  height: Schema.Number,
+});
+export type PdfStampSize = (typeof PdfStampSizeSchema)["Type"];
+export const DEFAULT_PDF_ANCHOR_STAMP_SIZE: PdfStampSize = { width: 180, height: 54 };
+
+export const pdfTextAnchorMatchersFromProps = (
+  anchorTokens: ReadonlyArray<string>,
+  anchorDigits: ReadonlyArray<string>,
+): ReadonlyArray<PdfTextAnchorMatcher> => [
+  ...anchorTokens.filter((text) => text.length > 0).map((text) => ({ text })),
+  ...anchorDigits.filter((digits) => digits.length > 0).map((digits) => ({ digits })),
+];
+
+export const PdfTextAnchorSearchInputSchema = Schema.Struct({
+  pdf: Schema.optional(Schema.Uint8Array),
+  pages: Schema.optional(Schema.Array(PdfSignaturePageSchema)),
+  textBoxes: Schema.optional(Schema.Array(Schema.Array(PdfTextBoxSchema))),
+  matchers: Schema.Array(PdfTextAnchorMatcherSchema),
+  stampSize: PdfStampSizeSchema,
+  placement: Schema.optional(PdfTextAnchorPlacementSchema),
+  offset: Schema.optional(Schema.Number),
+});
+export type PdfTextAnchorSearchInput = (typeof PdfTextAnchorSearchInputSchema)["Type"];
+
+export const PdfMergeDocumentsSchema = Schema.Array(Schema.Uint8Array);
+export type PdfMergeDocuments = (typeof PdfMergeDocumentsSchema)["Type"];
+
+export const PdfVisibleStampQrSchema = Schema.Struct({
+  text: nonEmptyString,
+});
+export type PdfVisibleStampQr = (typeof PdfVisibleStampQrSchema)["Type"];
+
+export const PdfSignatureBadgeThemeSchema = Schema.Struct({
+  borderColor: Schema.optional(pdfSignatureBadgeColorSchema),
+  backgroundColor: Schema.optional(pdfSignatureBadgeColorSchema),
+  headerColor: Schema.optional(pdfSignatureBadgeColorSchema),
+  labelColor: Schema.optional(pdfSignatureBadgeColorSchema),
+  valueColor: Schema.optional(pdfSignatureBadgeColorSchema),
+  footerColor: Schema.optional(pdfSignatureBadgeColorSchema),
+  linkColor: Schema.optional(pdfSignatureBadgeColorSchema),
+  separatorColor: Schema.optional(pdfSignatureBadgeColorSchema),
+});
+export type PdfSignatureBadgeTheme = (typeof PdfSignatureBadgeThemeSchema)["Type"];
+
+export const PdfSignatureBadgeRowItemSchema = Schema.Struct({
+  label: nonEmptyString,
+  value: Schema.String,
+});
+export type PdfSignatureBadgeRowItem = (typeof PdfSignatureBadgeRowItemSchema)["Type"];
+
+export const PdfSignatureBadgeFooterSegmentSchema = Schema.Struct({
+  text: nonEmptyString,
+  link: Schema.optional(nonEmptyString),
+});
+export type PdfSignatureBadgeFooterSegment = (typeof PdfSignatureBadgeFooterSegmentSchema)["Type"];
+
+export const PdfSignatureBadgeSchema = Schema.Struct({
+  header: Schema.Struct({ text: nonEmptyString }),
+  rows: Schema.Array(Schema.Array(PdfSignatureBadgeRowItemSchema)),
+  footer: Schema.Array(PdfSignatureBadgeFooterSegmentSchema),
+  qr: Schema.optional(PdfVisibleStampQrSchema),
+  theme: Schema.optional(PdfSignatureBadgeThemeSchema),
+});
+export type PdfSignatureBadge = (typeof PdfSignatureBadgeSchema)["Type"];
+
 export const PdfVisibleStampInputSchema = Schema.Struct({
   pdf: Schema.Uint8Array,
   pageIndex: Schema.Number,
   rect: PdfSignatureRectSchema,
   inkPng: Schema.optional(Schema.Uint8Array),
-  lines: Schema.Array(Schema.String),
+  lines: Schema.optional(Schema.Array(Schema.String)),
+  badge: Schema.optional(PdfSignatureBadgeSchema),
   border: Schema.optional(Schema.Boolean),
-});
+  qr: Schema.optional(PdfVisibleStampQrSchema),
+}).check(
+  Schema.makeFilter((input) => {
+    if (input.badge !== undefined && input.lines !== undefined) {
+      return { path: ["badge"], issue: "Visible stamp badge and lines are mutually exclusive." };
+    }
+    if (
+      input.badge === undefined &&
+      input.lines === undefined &&
+      input.inkPng === undefined &&
+      input.qr === undefined
+    ) {
+      return {
+        path: ["lines"],
+        issue: "Visible stamp requires lines, a badge, inkPng, or qr.",
+      };
+    }
+    return undefined;
+  }),
+);
 export type PdfVisibleStampInput = (typeof PdfVisibleStampInputSchema)["Type"];
 
 export const PdfRubricPageStampInputSchema = Schema.Struct({
@@ -383,6 +553,8 @@ export const PdfRubricPageStampInputSchema = Schema.Struct({
   pageTextBoxes: Schema.optional(Schema.Array(Schema.Array(PdfTextBoxSchema))),
   lines: Schema.optional(Schema.Array(Schema.String)),
   imagePng: Schema.optional(Schema.Uint8Array),
+  initials: Schema.optional(nonEmptyString),
+  initialsTheme: Schema.optional(PdfRubricInitialsThemeSchema),
   border: Schema.optional(Schema.Boolean),
 });
 export type PdfRubricPageStampInput = (typeof PdfRubricPageStampInputSchema)["Type"];
@@ -586,7 +758,6 @@ export const PdfSigningInputSchema = Schema.Struct({
   hashAlgorithm: Schema.optional(CmsHashAlgorithmSchema),
   policy: Schema.optional(PdfSignaturePolicySchema),
   icpBrasil: Schema.optional(IcpBrasilPolicySchema),
-  policyTimeoutMillis: Schema.optional(Schema.Number),
   timestamp: Schema.optional(TimestampOptionsSchema),
 });
 export type PdfSigningInput = (typeof PdfSigningInputSchema)["Type"];
@@ -612,19 +783,28 @@ export const PdfSigningBatchSigningOptionsSchema = Schema.Struct({
   hashAlgorithm: Schema.optional(CmsHashAlgorithmSchema),
   policy: Schema.optional(PdfSignaturePolicySchema),
   icpBrasil: Schema.optional(IcpBrasilPolicySchema),
-  policyTimeoutMillis: Schema.optional(Schema.Number),
   timestamp: Schema.optional(TimestampOptionsSchema),
 });
 export type PdfSigningBatchSigningOptions = (typeof PdfSigningBatchSigningOptionsSchema)["Type"];
 
 export const PdfSigningBatchVisibleStampSchema = Schema.Struct({
-  lines: Schema.Array(Schema.String),
+  lines: Schema.optional(Schema.Array(Schema.String)),
+  badge: Schema.optional(PdfSignatureBadgeSchema),
   inkPng: Schema.optional(Schema.Uint8Array),
   rubricaPng: Schema.optional(Schema.Uint8Array),
   rubricLines: Schema.optional(Schema.Array(Schema.String)),
+  rubricInitials: Schema.optional(nonEmptyString),
+  rubricInitialsTheme: Schema.optional(PdfRubricInitialsThemeSchema),
   rubricEveryPage: Schema.optional(Schema.Boolean),
   border: Schema.optional(Schema.Boolean),
-});
+  qr: Schema.optional(PdfVisibleStampQrSchema),
+}).check(
+  Schema.makeFilter((input) =>
+    input.badge !== undefined && input.lines !== undefined
+      ? { path: ["badge"], issue: "Batch visible stamp badge and lines are mutually exclusive." }
+      : undefined,
+  ),
+);
 export type PdfSigningBatchVisibleStamp = (typeof PdfSigningBatchVisibleStampSchema)["Type"];
 
 export const PdfSigningBatchPreparationInputSchema = Schema.Struct({
@@ -634,6 +814,48 @@ export const PdfSigningBatchPreparationInputSchema = Schema.Struct({
 });
 export type PdfSigningBatchPreparationInput =
   (typeof PdfSigningBatchPreparationInputSchema)["Type"];
+
+export const PdfPrepareAndSignAnchorsSchema = Schema.Struct({
+  matchers: Schema.Array(PdfTextAnchorMatcherSchema),
+  stampSize: PdfStampSizeSchema,
+  placement: Schema.optional(PdfTextAnchorPlacementSchema),
+  offset: Schema.optional(Schema.Number),
+});
+export type PdfPrepareAndSignAnchors = (typeof PdfPrepareAndSignAnchorsSchema)["Type"];
+
+export const PdfPrepareAndSignRubricSchema = Schema.Struct({
+  lines: Schema.optional(Schema.Array(Schema.String)),
+  imagePng: Schema.optional(Schema.Uint8Array),
+  initials: Schema.optional(nonEmptyString),
+  initialsTheme: Schema.optional(PdfRubricInitialsThemeSchema),
+  border: Schema.optional(Schema.Boolean),
+});
+export type PdfPrepareAndSignRubric = (typeof PdfPrepareAndSignRubricSchema)["Type"];
+
+export const PdfPrepareAndSignInputSchema = Schema.Struct({
+  pdf: Schema.Uint8Array,
+  documentId: Schema.optional(nonEmptyString),
+  documentName: Schema.optional(nonEmptyString),
+  pages: Schema.optional(Schema.Array(PdfSignaturePageSchema)),
+  pageTextBoxes: Schema.optional(Schema.Array(Schema.Array(PdfTextBoxSchema))),
+  stampRects: Schema.optional(Schema.Array(PdfSignatureRectSchema)),
+  anchors: Schema.optional(PdfPrepareAndSignAnchorsSchema),
+  stampSize: Schema.optional(PdfStampSizeSchema),
+  badge: Schema.optional(PdfSignatureBadgeSchema),
+  lines: Schema.optional(Schema.Array(Schema.String)),
+  inkPng: Schema.optional(Schema.Uint8Array),
+  border: Schema.optional(Schema.Boolean),
+  qr: Schema.optional(PdfVisibleStampQrSchema),
+  rubric: Schema.optional(PdfPrepareAndSignRubricSchema),
+  signing: PdfSigningBatchSigningOptionsSchema,
+}).check(
+  Schema.makeFilter((input) =>
+    input.badge !== undefined && input.lines !== undefined
+      ? { path: ["badge"], issue: "Visible stamp badge and lines are mutually exclusive." }
+      : undefined,
+  ),
+);
+export type PdfPrepareAndSignInput = (typeof PdfPrepareAndSignInputSchema)["Type"];
 
 export const PdfSigningBatchItemSchema = Schema.Struct({
   id: nonEmptyString,
@@ -688,11 +910,17 @@ export const PdfVerificationRequestSchema = Schema.Struct({
 export type PdfVerificationRequest = (typeof PdfVerificationRequestSchema)["Type"];
 
 export const PdfVerificationResultSchema = Schema.Struct({
+  /**
+   * Cryptographic and byte-range coverage integrity. Without `trustedRoots`,
+   * this does not bind the signer to a trusted chain; supply `trustedRoots` to
+   * make `valid` require `chainValid`.
+   */
   valid: Schema.Boolean,
   chainValid: Schema.Boolean,
   revocationStatus: CmsRevocationStatusSchema,
   signatureCount: Schema.Number,
   byteRange: PdfCoordinateTupleSchema,
+  /** Newest signature's signer serial number. */
   signerSerialNumber: Schema.NullOr(Schema.String),
 });
 export type PdfVerificationResult = (typeof PdfVerificationResultSchema)["Type"];

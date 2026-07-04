@@ -1,9 +1,20 @@
 import type { Check, CheckContext } from "../model";
 import { allowedEffectProvideSites } from "../config";
 
-const hasEscapedEffectBoundary = (line: string): boolean =>
-  /\bEffect\.(runSync|runPromise|runFork|runCallback)(?:Exit)?\b/.test(line) ||
-  /\bSchema\.(?:decode|encode)(?:Unknown)?(?:Sync|Promise)\b/.test(line);
+const hasLocalEffectRunBoundary = (context: CheckContext): boolean => {
+  if (!context.path.startsWith("formats/react/src/") && !context.path.startsWith("apps/docs/")) {
+    return false;
+  }
+  const current = context.rawLine;
+  const previous = context.rawLines[context.lineNumber - 2] ?? "";
+  const boundaryPattern = /\/\/\s*effect-boundary:\s*\S[\s\S]*\[allow-run:\s*[^\]]+\]/;
+  return boundaryPattern.test(current) || boundaryPattern.test(previous);
+};
+
+const hasEscapedEffectBoundary = (context: CheckContext): boolean =>
+  !hasLocalEffectRunBoundary(context) &&
+  (/\bEffect\.(runSync|runPromise|runFork|runCallback)(?:Exit)?\b/.test(context.line) ||
+    /\bSchema\.(?:decode|encode)(?:Unknown)?(?:Sync|Promise)\b/.test(context.line));
 
 const hasLegacyEffectServiceApi = (line: string): boolean =>
   /\b(?:Context\.(?:Reference|Tag|GenericTag)|Effect\.(?:Tag|Service))\s*[<(]/.test(line);
@@ -37,7 +48,7 @@ export const effectBoundaryChecks: readonly Check[] = [
   {
     message:
       "Do not escape the Effect error channel with runSync/runPromise/runFork or Schema.decodeUnknownSync.",
-    test: ({ line }) => hasEscapedEffectBoundary(line),
+    test: hasEscapedEffectBoundary,
     ignoreImportLine: false,
   },
   {

@@ -15,11 +15,10 @@ import {
   SignatureKitError,
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
-  SignatureKitSchemaNameValue,
   type BrazilianFields,
   type Certificate,
   type SignerIdentity,
-} from "@signature-kit/core/config";
+} from "@signature-kit/signatures";
 import { Effect, Redacted, Schema } from "effect";
 
 const OID_COMMON_NAME = "2.5.4.3";
@@ -88,7 +87,7 @@ export const parseCertificate = (
             retryable: false,
             reason: "Invalid certificate source.",
             operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.certificateSource,
+            schemaName: "CertificateSource",
             issueMessage: String(issue),
           }),
       ),
@@ -123,8 +122,10 @@ export const parseCertificate = (
     );
     const certPem = derToPem(pkcs12.certificate, "CERTIFICATE");
     const keyPem = derToPem(pkcs12.privateKey, "PRIVATE KEY");
-    const x509 = yield* parseX509(pkcs12.certificate);
-    const fingerprint = yield* digestSha256Hex(pkcs12.certificate);
+    const [x509, fingerprint] = yield* Effect.all(
+      [parseX509(pkcs12.certificate), digestSha256Hex(pkcs12.certificate)],
+      { concurrency: "unbounded" },
+    );
 
     return yield* Schema.decodeUnknownEffect(CertificateSchema)({
       serialNumber: x509.serialNumber,
@@ -140,19 +141,7 @@ export const parseCertificate = (
       intermediateCertificates: pkcs12.chain,
       publicKeyDer: x509.publicKeyDer,
       privateKeyPem: keyPem,
-    }).pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            reason: "Invalid parsed certificate.",
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.certificate,
-            issueMessage: String(issue),
-          }),
-      ),
-    );
+    }).pipe(Effect.orDie);
   });
 
 export const extractBrazilianFields = (
@@ -678,7 +667,7 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
             retryable: false,
             reason: "Invalid parsed X.509 certificate.",
             operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.certificate,
+            schemaName: "X509Info",
             issueMessage: String(issue),
           }),
       ),

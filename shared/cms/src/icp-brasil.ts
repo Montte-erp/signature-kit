@@ -13,9 +13,46 @@ const FetchIcpBrasilPadesPolicyOptionsSchema = Schema.Struct({
 });
 type FetchIcpBrasilPadesPolicyOptions = (typeof FetchIcpBrasilPadesPolicyOptionsSchema)["Type"];
 
-export const IcpBrasilPadesPolicy = {
+const ICP_BRASIL_AD_RB_V11_POLICY_HASH = Uint8Array.of(
+  0x44,
+  0xfc,
+  0x58,
+  0x16,
+  0xeb,
+  0x2d,
+  0x70,
+  0x5d,
+  0x8c,
+  0x8f,
+  0x02,
+  0x2a,
+  0x7f,
+  0x93,
+  0xb3,
+  0xfb,
+  0x49,
+  0xed,
+  0xfa,
+  0xe1,
+  0xa7,
+  0xb9,
+  0x14,
+  0x9e,
+  0xf6,
+  0xfa,
+  0xb8,
+  0x33,
+  0xe9,
+  0xbb,
+  0x63,
+  0xf8,
+);
+
+export const IcpBrasilPadesPolicy: { readonly adRbV11: IcpBrasilPolicy } = {
   adRbV11: {
     policyOid: "2.16.76.1.7.1.11.1.1",
+    policyHash: ICP_BRASIL_AD_RB_V11_POLICY_HASH,
+    policyHashAlgorithm: "sha256",
     policyUri: "http://politicas.icpbrasil.gov.br/PA_PAdES_AD_RB_v1_1.der",
   },
 };
@@ -99,6 +136,18 @@ export const fetchIcpBrasilPadesPolicy = (
   options?: FetchIcpBrasilPadesPolicyOptions,
 ): Effect.Effect<IcpBrasilPolicy, CmsError> =>
   Effect.gen(function* () {
+    const valid = yield* Schema.decodeUnknownEffect(FetchIcpBrasilPadesPolicyOptionsSchema)(
+      options ?? {},
+    ).pipe(
+      Effect.mapError(
+        (issue) =>
+          new CmsError({
+            code: CmsErrorCodeValue.policyError,
+            reason: `Invalid ICP-Brasil PAdES policy fetch options: ${String(issue)}`,
+            operation: CmsOperationValue.policy,
+          }),
+      ),
+    );
     const response = yield* Effect.tryPromise({
       try: (signal) => fetch(IcpBrasilPadesPolicy.adRbV11.policyUri, { signal }),
       catch: () =>
@@ -109,7 +158,7 @@ export const fetchIcpBrasilPadesPolicy = (
         }),
     }).pipe(
       Effect.timeoutOrElse({
-        duration: Duration.millis(options?.timeoutMillis ?? DEFAULT_POLICY_TIMEOUT_MILLIS),
+        duration: Duration.millis(valid.timeoutMillis ?? DEFAULT_POLICY_TIMEOUT_MILLIS),
         orElse: () =>
           Effect.fail(
             new CmsError({

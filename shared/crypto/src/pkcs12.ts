@@ -63,6 +63,22 @@ const OID_SHA512 = "2.16.840.1.101.3.4.2.3";
 
 type Pkcs12Error = CryptoError | Asn1Error;
 
+// Iteration counts come from the (attacker-controlled) file; the KDFs run in
+// pure JS, so an unbounded count pins the event loop before the password is
+// even checked. OpenSSL defaults to 2048; 10M gives generous headroom.
+const MAX_KDF_ITERATIONS = 10_000_000;
+
+const boundedIterations = (iterations: number, label: string): Effect.Effect<number, CryptoError> =>
+  Number.isSafeInteger(iterations) && iterations >= 1 && iterations <= MAX_KDF_ITERATIONS
+    ? Effect.succeed(iterations)
+    : Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.corruptedFile,
+          reason: `Unreasonable ${label} iteration count: ${iterations}.`,
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
+      );
+
 const elementAt = (
   nodes: readonly Asn1Node[],
   index: number,
@@ -257,10 +273,12 @@ const verifyMac = (
     const expectedDigest = yield* bytesOf(yield* elementAt(digestInfo, 1, "MAC digest"));
     const macSalt = yield* bytesOf(yield* elementAt(macFields, 1, "MAC salt"));
 
-    const iterations =
+    const iterations = yield* boundedIterations(
       macFields.length >= 3
         ? Number(yield* integerBigInt(yield* elementAt(macFields, 2, "MAC iterations")))
-        : 1;
+        : 1,
+      "MAC",
+    );
 
     const algorithm = macHashAlgorithm(macAlgOid);
     const macKey = pkcs12Kdf(
@@ -324,8 +342,9 @@ const decryptPbes2 = (
 
     const pbkdf2Params = yield* childrenOf(yield* elementAt(kdfInfo, 1, "PBKDF2-params"));
     const salt = yield* bytesOf(yield* elementAt(pbkdf2Params, 0, "PBKDF2 salt"));
-    const iterations = Number(
-      yield* integerBigInt(yield* elementAt(pbkdf2Params, 1, "PBKDF2 iterations")),
+    const iterations = yield* boundedIterations(
+      Number(yield* integerBigInt(yield* elementAt(pbkdf2Params, 1, "PBKDF2 iterations"))),
+      "PBKDF2",
     );
 
     let prf: HmacHashAlgorithm = "sha1";
@@ -378,7 +397,10 @@ const decryptPbe = (
   return Effect.gen(function* () {
     const params = yield* childrenOf(algorithmParams);
     const salt = yield* bytesOf(yield* elementAt(params, 0, "PBE salt"));
-    const iterations = Number(yield* integerBigInt(yield* elementAt(params, 1, "PBE iterations")));
+    const iterations = yield* boundedIterations(
+      Number(yield* integerBigInt(yield* elementAt(params, 1, "PBE iterations"))),
+      "PBE",
+    );
     const derive = (length: number, purpose: number): Uint8Array =>
       pkcs12Kdf(bmpPassword, salt, iterations, purpose, length, "sha1");
 

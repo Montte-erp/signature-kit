@@ -41,7 +41,7 @@ const program = signPdf({
   ),
 )
 
-const signedPdf: Uint8Array = yield* program  // signed PDF, pades-ades policy
+const signedPdf = await Effect.runPromise(program)  // signed PDF, pades-ades policy
 ```
 
 `signatureLength` reserves the bytes of the `/Contents` field that holds the CMS — too small a value fails the signature. `reason` and `name` default to `"Digital signature"` and `"SignatureKit signer"`. Other optional fields: `contactInfo`, `location`, `signingTime`, `timestamp`, and `appearance`.
@@ -83,18 +83,17 @@ const joaoProgram = signPdf({
   ),
 )
 
-const [mariaSignedPdf, joaoSignedPdf] = yield* Effect.all([
-  mariaProgram,
-  joaoProgram,
-])
+const [mariaSignedPdf, joaoSignedPdf] = await Effect.runPromise(
+  Effect.all([mariaProgram, joaoProgram]),
+)
 ```
 
 This signs two PDF copies under two different PKCS#12 certificates without sharing secrets or process-global signer state. Today `signPdf` writes one PDF signature per output file; don't model a same-file multi-party workflow by silently re-signing already signed bytes unless your verifier covers that exact flow.
 
 
 <Callout type="warn">
-  `hashAlgorithm` only accepts `"sha256"` (→ `rsa-sha256`) or `"sha512"` (→ `rsa-sha512`). Values like `sha1` or `sha384`
-  fail with `pdf.SIGN_FAILED`.
+  `hashAlgorithm` accepts `"sha256"` (→ `rsa-sha256`, default), `"sha512"` (→ `rsa-sha512`), and the legacy `"sha1"` (→ `rsa-sha1`). Only `"sha384"`
+  fails, with `pdf.SIGN_FAILED`.
 </Callout>
 
 ## Position a visual signature
@@ -102,20 +101,22 @@ This signs two PDF copies under two different PKCS#12 certificates without shari
 `appearance.placement.kind: "auto"` computes a visible rectangle on the chosen page from the preferred anchor, avoiding collision with existing widgets/annotations — no manual coordinates when you just want a signature in the footer/corner. Without `appearance`, the signature stays invisible for compatibility.
 
 ```ts title="position-pdf-signature.ts"
-const signed = yield* signPdf({
-  pdf,
-  appearance: {
-    placement: {
-      kind: "auto",          // visible placement, computed by the PDF
-      page: "last",          // auto default; use pageIndex for an exact page
-      anchor: "bottom-right",
-      width: 180,
-      height: 54,
-      margin: 36,
-      gap: 8,                // clearance against existing widgets/annotations
+const signed = await Effect.runPromise(
+  signPdf({
+    pdf,
+    appearance: {
+      placement: {
+        kind: "auto",          // visible placement, computed by the PDF
+        page: "last",          // auto default; use pageIndex for an exact page
+        anchor: "bottom-right",
+        width: 180,
+        height: 54,
+        margin: 36,
+        gap: 8,                // clearance against existing widgets/annotations
+      },
     },
-  },
-}).pipe(Effect.provide(layer))
+  }).pipe(Effect.provide(layer)),
+)
 
 // Manual: PDF coordinates [left, bottom, right, top]
 const manual = { appearance: { placement: { kind: "manual", pageIndex: 0, widgetRect: [72, 72, 216, 108] } } }
@@ -128,43 +129,36 @@ Use `kind: "manual"` when your application already has reliable coordinates, and
 
 ## ICP-Brasil PAdES policy
 
-`PdfSignaturePolicy` has exactly two values: `"pades-ades"` (default) and `"pades-icp-brasil"`. When you choose `"pades-icp-brasil"` **without** the `icpBrasil` field, the module automatically fetches the AD-RB Signature Policy — control this remote fetch with `policyTimeoutMillis`. To avoid the network, pass the explicit `icpBrasil` object.
+`PdfSignaturePolicy` has exactly two values: `"pades-ades"` (default) and `"pades-icp-brasil"`. When you choose `"pades-icp-brasil"` without `icpBrasil`, the PDF package uses the pinned PA_PAdES_AD_RB_v1_1 metadata from `@signature-kit/cms`; no app-side policy assembly or runtime policy fetch is needed. ICP-Brasil signatures reserve 32768 `/Contents` bytes by default unless you set `signatureLength`.
 
 ```ts title="icp-brasil-policy.ts"
 // PdfSignaturePolicy = "pades-ades" | "pades-icp-brasil"
 // Signature default when policy is omitted: "pades-ades"
 
-// Automatic fetch of the AD-RB policy (without explicit icpBrasil)
-const auto = signPdf({
+const signed = signPdf({
   pdf,
   policy: "pades-icp-brasil",
-  policyTimeoutMillis: 10_000,   // limit for the remote SP fetch
 }).pipe(Effect.provide(layer))
 
-// Explicit ICP-Brasil policy — you provide the identifiers
+// Explicit policy input still wins when you need a different AD-RB/AD-RT policy.
 const explicit = signPdf({
   pdf,
   policy: "pades-icp-brasil",
-  hashAlgorithm: "sha256",       // only "sha256" or "sha512"
-  icpBrasil: {
-    policyOid: "2.16.76.1.7.1.11.1.1",
-    policyHash: new Uint8Array(32),
-    policyHashAlgorithm: "sha256",
-    policyUri: "http://politicas.icpbrasil.gov.br/PA_PAdES_AD_RB_v1_1.der",
-  },
+  hashAlgorithm: "sha256",
+  signatureLength: 49152,
+  icpBrasil: customPolicy,
 }).pipe(Effect.provide(layer))
 ```
 
-The explicit object carries `policyOid`, `policyHash`, `policyHashAlgorithm`, and `policyUri` — the same AD-RB SP identifiers the automatic fetch would bring, now pinned in your code.
-
-<Callout type="warn" title="Remote SP fetch">
-  Without the explicit `icpBrasil` object, `"pades-icp-brasil"` performs a remote fetch of the AD-RB Signature Policy — subject to the
-  network and to `policyTimeoutMillis`. In environments without outbound access, provide the `icpBrasil` object to avoid the call.
-</Callout>
+The bundled AD-RB object carries `policyOid`, `policyHash`, `policyHashAlgorithm`, and `policyUri` from PA_PAdES_AD_RB_v1_1.
 
 <Callout type="info">
-  keep `policyHashAlgorithm` consistent with the signature's `hashAlgorithm` — use `"sha256"` or `"sha512"` in both.
+  Keep `policyHashAlgorithm` consistent with the signature's `hashAlgorithm` when you provide a custom `icpBrasil` object — use `"sha256"` or `"sha512"` in both.
 </Callout>
+
+## Merge PDFs
+
+`mergePdfs([first, second])` copies pages into a new PDF. It does **not** preserve source AcroForm fields, document metadata, or catalog-level form state; use it for flattened/page-content workflows, not for preserving interactive forms.
 
 ## Verify with verifyPdf
 
@@ -175,7 +169,7 @@ import { verifyPdf } from "@signature-kit/pdf/verify"
 import { Effect } from "effect"
 
 // verifyPdf does NOT require the Signatures service — there is no .pipe(Effect.provide(...))
-const result = yield* verifyPdf({ pdf: signedPdf })
+const result = await Effect.runPromise(verifyPdf({ pdf: signedPdf }))
 
 result.valid             // boolean — CMS integrity over the byteRange
 result.chainValid        // boolean — signer chain verified
@@ -185,16 +179,17 @@ result.byteRange         // [number, number, number, number]
 result.signerSerialNumber // string | null — serial of the signer certificate
 ```
 
-`byteRange` is the quadruple covered by the signature; `signerSerialNumber` is `null` when the PDF has no signature.
+`byteRange` is the quadruple covered by the signature. An unsigned PDF (no `/ByteRange`) is not a successful `signerSerialNumber: null` result — `verifyPdf` fails on the error channel with `pdf.PLACEHOLDER_NOT_FOUND`.
 
 ## Errors you may see
 
 PDF signing and verification fail with codes from the `pdf.*` family (`PdfError`); failures from the A1 signer that provides `Signatures` arrive as `signature-kit.*`.
 
-- [`pdf.SIGN_FAILED`](/docs/signing/errors) — unsupported `hashAlgorithm` (e.g. `sha1`/`sha384`).
+- [`pdf.SIGN_FAILED`](/docs/signing/errors) — unsupported `hashAlgorithm` (only `sha384` is rejected).
 - [`pdf.SIGNATURE_TOO_LARGE`](/docs/signing/errors) — the CMS exceeded the reserved space; increase `signatureLength`.
 - [`pdf.SIGNATURE_PLACEMENT_FAILED`](/docs/signing/errors) — automatic placement found no space or received invalid dimensions.
 - [`pdf.INVALID_PDF`](/docs/signing/errors) — the bytes don't form a valid PDF to sign or verify.
+- [`pdf.PLACEHOLDER_NOT_FOUND`](/docs/signing/errors) — `verifyPdf` found no `/ByteRange`, e.g. an unsigned PDF.
 - [`signature-kit.WRONG_PASSWORD`](/docs/signing/errors) — wrong A1 password when providing the signatures service.
 
 ## Continue from here

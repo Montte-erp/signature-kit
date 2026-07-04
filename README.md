@@ -1,183 +1,137 @@
 # SignatureKit
 
-Effect-native digital-signature infrastructure for browser and server runtimes.
+Effect-native digital-signature infrastructure for TypeScript runtimes.
 
-SignatureKit is built around one seam: a signer adapter owns where signing power
-comes from, while format modules own XML/PDF mutation.
+SignatureKit separates signing power from document mutation: signer adapters expose one typed `Signatures` service, while format packages own PDF/PAdES and XML-DSig bytes. A1 / PKCS#12 is the first local backend; remote SaaS providers are modeled as retained Alchemy resources, not as local key holders.
 
-## Current status
-
-- A1 / PKCS#12 certificate loading.
-- e-CPF and e-CNPJ identity extraction.
-- Backend-agnostic `Signatures` service (`Context.Service` + `Layer`, Effect 4).
-- Raw byte signing and verification.
-- XML-DSig enveloped signatures via `xmldsigjs`.
-- PDF detached CMS signatures via `@cantoo/pdf-lib` + `@signature-kit/cms`.
-- PDF-owned browser builder state, placement queues, A1 signing helpers, and PAdES coordinate conversion.
-- Browser + server support: WebCrypto-first, no `Buffer` in library internals.
-- ICP-Brasil PAdES shape: supported when `policy: "pades-icp-brasil"` is used.
-  This embeds `signing-certificate-v2` and `signature-policy-identifier`
-  attributes.
-- Real ITI Validar smoke: `bun run test:validar-iti` submits a generated PDF to
-  `https://validar.iti.gov.br/arquivo`. With the bundled self-signed e-CNPJ
-  fixture the official service returns HTTP 406 / “assinaturas desconhecidas”,
-  which proves the real endpoint was reached but does not prove ICP-Brasil
-  trust-chain acceptance. Full ICP-Brasil compliance still requires running the
-  same test with a real ICP-Brasil A1 certificate and expecting HTTP 200.
-
-Compared with `@f-o-t/e-signature@1.9.0`: that package advertises “PAdES PDF
-signing with ICP-Brasil compliance” and downloads
-`PA_PAdES_AD_RB_v1_1.der`. SignatureKit implements the same policy hook in an
-Effect-native service architecture and now has an official endpoint smoke; the
-remaining release gate is an HTTP 200 ITI result with a real ICP-Brasil
-certificate.
-
-## DX benchmark
-
-- SignatureKit centers usage on one Effect capability seam: `Signatures`
-  (`Context.Service` + `Layer`). Apps choose a signer layer once and all byte,
-  XML, PDF, and React flows consume that seam.
-- PayKit centers provider portability on one configured instance and separate
-  provider packages. SignatureKit centers remote providers on Alchemy resources:
-  Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso expose retained
-  `*SignatureRequest` resource constructors plus `providers(options)` layers over
-  `SignatureHttpClient`.
-- Deliberate difference: SignatureKit is a cryptographic runtime, not a SaaS
-  workflow app. Core does not import XML, PDF, A1, or provider packages; each seam
-  stays replaceable.
-
-## Packages
+## Package map
 
 ```text
-shared/asn1        @signature-kit/asn1                ASN.1 DER decode/encode
-shared/crypto      @signature-kit/crypto              PKCS#12, PEM, hashes, cipher primitives
-shared/cms         @signature-kit/cms                 CMS/PKCS#7, ICP attrs, RFC 3161 timestamping
-core/core          @signature-kit/core                runtime schemas, typed errors, Signatures service
-core/certificates  @signature-kit/certificates        Effect-safe PKCS#12/X.509 certificate API
-signers/a1         @signature-kit/a1                  A1 / PKCS#12 signer adapter
-signers/clicksign  @signature-kit/clicksign           Clicksign remote signer
-signers/assinafy   @signature-kit/assinafy            Assinafy remote signer
-signers/zapsign    @signature-kit/zapsign             ZapSign remote signer
-signers/docuseal   @signature-kit/docuseal            DocuSeal remote signer
-signers/documenso  @signature-kit/documenso            Documenso remote signer
-formats/xml        @signature-kit/xml                 XML-DSig sign/verify
-formats/pdf        @signature-kit/pdf                 PDF detached CMS sign/verify
+core/signatures     @signature-kit/signatures    Runtime schemas, typed errors, Signatures service
+core/http           @signature-kit/http          HTTP client service, retries, response decoding, redacted diagnostics
+core/certificates   @signature-kit/certificates  PKCS#12 and X.509 parsing plus signer identity helpers
+core/i18n           @signature-kit/i18n          Code-keyed localized error-message resolution
+
+shared/asn1         @signature-kit/asn1          Pure ASN.1 DER decode/encode and typed accessors
+shared/crypto       @signature-kit/crypto        Base64, PEM, PKCS#12, hashing, and cipher primitives
+shared/cms          @signature-kit/cms           CMS/PKCS#7 detached signatures, ICP-Brasil policy attrs, RFC 3161
+
+formats/pdf         @signature-kit/pdf           PDF/PAdES signing, verification, badges, anchors, rubrics, workflows
+formats/xml         @signature-kit/xml           XML-DSig signing and verification over an explicit XmlRuntime
+formats/react       @signature-kit/react         Headless browser A1 signing hooks
+
+signers/a1          @signature-kit/a1            Local A1 / PKCS#12 signer adapter
+signers/assinafy    @signature-kit/assinafy      Assinafy retained remote-signature request resource
+signers/clicksign   @signature-kit/clicksign     Clicksign retained remote-signature request resource
+signers/documenso   @signature-kit/documenso     Documenso retained envelope resource
+signers/docuseal    @signature-kit/docuseal      DocuSeal retained submission resource
+signers/zapsign     @signature-kit/zapsign       ZapSign retained single-PDF document resource
+
+validators/iti      @signature-kit/iti           Local ITI conformance pre-check and Validar remote client
 ```
 
-## Usage sketch
+See the package READMEs for the exact export maps. Several packages are subpath-only; examples below use only paths present in each `package.json` `exports` map.
 
-### Local signing runtime
+## Quick start: A1 + PDF + ICP-Brasil + ITI
+
+```sh
+bun add @signature-kit/a1 @signature-kit/pdf @signature-kit/iti @signature-kit/http effect
+```
 
 ```ts
 import { a1SignaturesLayer } from "@signature-kit/a1/signer";
-import { signatures } from "@signature-kit/core/signatures";
+import { signatureHttpClientLive } from "@signature-kit/http";
+import { validatePdfConformance } from "@signature-kit/iti/conformance";
+import { validatePdfWithIti } from "@signature-kit/iti/remote";
+import { prepareAndSignPdf } from "@signature-kit/pdf/workflow";
 import { Effect, Redacted } from "effect";
 
-const program = Effect.gen(function* () {
-  const identity = yield* signatures.inspect();
-  const artifact = yield* signatures.sign({
-    content,
-    algorithm: "rsa-sha256",
-  });
+declare const pdf: Uint8Array;
+declare const pfx: Uint8Array;
+declare const trustedRoots: Uint8Array[];
 
-  return { identity, artifact };
-}).pipe(
-  Effect.provide(
-    a1SignaturesLayer({
-      pfx,
-      password: Redacted.make("secret"),
-    }),
+const result = await Effect.runPromise(
+  Effect.gen(function* () {
+    const signed = yield* prepareAndSignPdf({
+      pdf,
+      badge: {
+        header: { text: "Assinado digitalmente" },
+        rows: [[{ label: "Documento", value: "Contrato" }]],
+        footer: [{ text: "Validar no ITI", link: "https://validar.iti.gov.br/" }],
+        qr: { text: "https://validar.iti.gov.br/" },
+      },
+      signing: {
+        policy: "pades-icp-brasil",
+        reason: "Assinatura digital",
+        name: "Maria Silva",
+        location: "BR",
+      },
+    });
+
+    const localConformance = yield* validatePdfConformance({ pdf: signed, trustedRoots });
+    const remoteValidation = yield* validatePdfWithIti({
+      source: { pdf: signed },
+      fileName: "signed.pdf",
+    });
+
+    return { signed, localConformance, remoteValidation };
+  }).pipe(
+    Effect.provide(a1SignaturesLayer({ pfx, password: Redacted.make("secret") })),
+    Effect.provide(signatureHttpClientLive),
   ),
 );
 ```
 
-### XML/PDF formats over the same signer
+`policy: "pades-icp-brasil"` uses the pinned ICP-Brasil PA_PAdES_AD_RB_v1_1 policy metadata from `@signature-kit/cms`. Generated AD-RB PAdES signatures are accepted by `validar.iti.gov.br` when the signing certificate chains to a trusted ICP-Brasil root. The local `@signature-kit/iti` conformance pre-check verifies the same structural requirements before a remote submission: ByteRange coverage, CMS cryptography, AD-RB policy OID, `signing-certificate-v2`, and the AD-RB prohibition on CMS `signingTime`. The remote client models the official 406 untrusted-certificate response as a typed `untrusted_certificate` report, not as a transport failure.
 
-```ts
-import { signaturesLayer } from "@signature-kit/core/signatures";
-import { signPdf } from "@signature-kit/pdf/sign";
-import { verifyPdf } from "@signature-kit/pdf/verify";
-import { signXml } from "@signature-kit/xml/sign";
-import { xmlRuntimeLayer } from "@signature-kit/xml/runtime";
-import { verifyXml } from "@signature-kit/xml/verify";
-import { Effect } from "effect";
+## React and shadcn
 
-// Reuse any SignerAdapter, including the A1 signer from the previous example.
-const documentProgram = Effect.gen(function* () {
-  const layer = signaturesLayer(signer);
+`@signature-kit/react` is hooks-only: `useA1Certificate`, `useA1Signer`, external-store helpers, and browser PDF object URLs. UI components moved to the docs-hosted shadcn registry so apps own their chrome:
 
-  const signedXml = yield* signXml({ xml, referenceId: "doc-1" }).pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer));
-  const signedPdf = yield* signPdf({
-    pdf,
-    policy: "pades-icp-brasil",
-    reason: "Approval",
-    location: "BR",
-  }).pipe(Effect.provide(layer));
-
-  const xmlResult = yield* verifyXml({ xml: signedXml, requireReferenceUri: "#doc-1" }).pipe(Effect.provide(xmlRuntimeLayer));
-  const pdfResult = yield* verifyPdf({ pdf: signedPdf });
-
-  return { signedXml, signedPdf, xmlResult, pdfResult };
-});
+```sh
+npx shadcn@latest add https://signaturekit.dev/r/signature-dialog.json
 ```
 
-### Remote provider workflows
+More registry items are listed in the React components recipe.
 
-```ts
-import * as Alchemy from "alchemy";
-import { ClicksignSignatureRequest, providers as clicksignProviders } from "@signature-kit/clicksign";
-import { signatureHttpClientLive } from "@signature-kit/core/http";
-import { Effect, Layer, Redacted } from "effect";
+## Documentation
 
-export default Alchemy.Stack(
-  "Contracts",
-  {
-    providers: clicksignProviders({
-      environment: "sandbox",
-      accessToken: Redacted.make("clicksign-token"),
-    }).pipe(Layer.provide(signatureHttpClientLive)),
-  },
-  Effect.gen(function* () {
-    return yield* ClicksignSignatureRequest("contract", {
-      title: "Contract",
-      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Ana Silva", email: "ana@example.com" }],
-    });
-  }),
-);
-```
+- Docs site: <https://signaturekit.dev/en-US/docs>
+- Quick start: <https://signaturekit.dev/en-US/docs/get-started/quickstart>
+- A1 browser PDF flow: <https://signaturekit.dev/en-US/docs/a1-signing/browser-pdf-flow>
+- PDF signing: <https://signaturekit.dev/en-US/docs/signing/pdf>
+- XML signing: <https://signaturekit.dev/en-US/docs/signing/xml>
+- Remote providers: <https://signaturekit.dev/en-US/docs/concepts/remote-signature-requests>
+- Error handling: <https://signaturekit.dev/en-US/docs/signing/errors>
+
+## Package READMEs
+
+- [`core/signatures`](core/signatures/README.md)
+- [`core/http`](core/http/README.md)
+- [`core/certificates`](core/certificates/README.md)
+- [`core/i18n`](core/i18n/README.md)
+- [`shared/asn1`](shared/asn1/README.md)
+- [`shared/crypto`](shared/crypto/README.md)
+- [`shared/cms`](shared/cms/README.md)
+- [`formats/pdf`](formats/pdf/README.md)
+- [`formats/xml`](formats/xml/README.md)
+- [`formats/react`](formats/react/README.md)
+- [`signers/a1`](signers/a1/README.md)
+- [`signers/assinafy`](signers/assinafy/README.md)
+- [`signers/clicksign`](signers/clicksign/README.md)
+- [`signers/documenso`](signers/documenso/README.md)
+- [`signers/docuseal`](signers/docuseal/README.md)
+- [`signers/zapsign`](signers/zapsign/README.md)
+- [`validators/iti`](validators/iti/README.md)
 
 ## Validation
 
-```bash
-bun install
-bun run check
-bun run test
-bun run test:validar-iti
+```sh
+bun run build && bun run check && bun run test
 ```
 
-`bun run test:validar-iti` is intentionally external and hits the real ITI
-service. By default it uses the bundled non-ICP fixture and expects HTTP 406 from
-Validar. To use a real certificate and assert acceptance:
+`bun run test:validar-iti` submits committed fixtures to the real Validar endpoint (the script already sets `SIGNATURE_KIT_ITI_VALIDATE=1`).
 
-```bash
-SIGNATURE_KIT_ITI_P12_PATH=/path/to/real-a1.p12 \
-SIGNATURE_KIT_ITI_P12_PASSWORD=secret \
-bun run test:validar-iti
-```
+## License
 
-Current verification includes:
-
-Tests run on Vitest through `@effect/vitest` (`it.effect`) so Effect workflows
-stay in the Effect runtime instead of escaping through ad-hoc `runPromise` calls.
-
-- A1 e-CPF and e-CNPJ sign/verify.
-- WebCrypto key cache behavior.
-- XML valid and tampered signatures.
-- PDF ByteRange/CMS valid and tampered signatures.
-- ICP-Brasil policy attribute embedding.
-- Browser secure-context smoke for XML and PDF signing.
-- Real ITI Validar endpoint smoke with the bundled non-ICP fixture.
-
-Latest local performance smoke: 12 XML+PDF sign/verify iterations averaged
-~125 ms per iteration on the current workstation.
+MIT. See [LICENSE](LICENSE).

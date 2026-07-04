@@ -1,37 +1,39 @@
-import type { CmsError } from "@signature-kit/cms/config";
-import { fetchIcpBrasilPadesPolicy } from "@signature-kit/cms/icp-brasil";
+import type { CmsError, CmsHashAlgorithm } from "@signature-kit/cms/config";
+import { IcpBrasilPadesPolicy } from "@signature-kit/cms/icp-brasil";
 import { createDetachedSignedData } from "@signature-kit/cms/sign";
-import { signatures } from "@signature-kit/core/signatures";
-import type { Signatures } from "@signature-kit/core/signatures";
-import type { SignatureAlgorithm, SignatureKitError } from "@signature-kit/core/config";
-import { Effect } from "effect";
+import { signatures } from "@signature-kit/signatures";
+import type { Signatures } from "@signature-kit/signatures";
+import type { SignatureAlgorithm, SignatureKitError } from "@signature-kit/signatures";
+import { Effect, Match } from "effect";
 import { PdfError, PdfErrorCodeValue, PdfOperationValue } from "./config";
 import type { PdfSigningRequest } from "./config";
 import { bytesToHex, encodeAscii, replaceRange } from "./bytes";
 import { preparePdfByteRange } from "./byte-range";
 import { addSignaturePlaceholder } from "./placeholder";
 
+const rsaSha1SignatureAlgorithm: SignatureAlgorithm = "rsa-sha1";
+const rsaSha256SignatureAlgorithm: SignatureAlgorithm = "rsa-sha256";
+const rsaSha512SignatureAlgorithm: SignatureAlgorithm = "rsa-sha512";
+
 const signatureAlgorithmForHash = (
-  hashAlgorithm: "sha256" | "sha1" | "sha384" | "sha512",
-): Effect.Effect<SignatureAlgorithm, PdfError> => {
-  switch (hashAlgorithm) {
-    case "sha1":
-      return Effect.succeed("rsa-sha1");
-    case "sha256":
-      return Effect.succeed("rsa-sha256");
-    case "sha512":
-      return Effect.succeed("rsa-sha512");
-    case "sha384":
-      return Effect.fail(
+  hashAlgorithm: CmsHashAlgorithm,
+): Effect.Effect<SignatureAlgorithm, PdfError> =>
+  Match.value(hashAlgorithm).pipe(
+    Match.when("sha1", () => Effect.succeed(rsaSha1SignatureAlgorithm)),
+    Match.when("sha256", () => Effect.succeed(rsaSha256SignatureAlgorithm)),
+    Match.when("sha512", () => Effect.succeed(rsaSha512SignatureAlgorithm)),
+    Match.when("sha384", () =>
+      Effect.fail(
         new PdfError({
           code: PdfErrorCodeValue.signFailed,
           retryable: false,
           reason: `PDF signing does not support ${hashAlgorithm} with the current signer backend.`,
           operation: PdfOperationValue.sign,
         }),
-      );
-  }
-};
+      ),
+    ),
+    Match.exhaustive,
+  );
 
 export const signPdf = (
   input: PdfSigningRequest,
@@ -41,20 +43,19 @@ export const signPdf = (
     const signatureAlgorithm = yield* signatureAlgorithmForHash(hashAlgorithm);
     const placeholderPdf = yield* addSignaturePlaceholder(input);
     const prepared = yield* preparePdfByteRange(placeholderPdf);
-    const certificate = yield* signatures.certificate();
-    const signingKey = yield* signatures.importSigningKey(signatureAlgorithm);
+    const [certificate, signingKey] = yield* Effect.all(
+      [signatures.certificate(), signatures.importSigningKey(signatureAlgorithm)],
+      { concurrency: "unbounded" },
+    );
     const icpBrasil =
       input.icpBrasil ??
-      (input.policy === "pades-icp-brasil"
-        ? yield* fetchIcpBrasilPadesPolicy({ timeoutMillis: input.policyTimeoutMillis })
-        : undefined);
+      (input.policy === "pades-icp-brasil" ? IcpBrasilPadesPolicy.adRbV11 : undefined);
     const cms = yield* createDetachedSignedData({
       content: prepared.signedData,
       signingKey,
       certificateDer: certificate.certificateDer,
       chainDer: certificate.intermediateCertificates,
       hashAlgorithm,
-      signingTime: input.signingTime,
       icpBrasil,
       timestamp: input.timestamp,
     });

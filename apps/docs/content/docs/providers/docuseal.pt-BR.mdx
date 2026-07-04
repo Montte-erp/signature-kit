@@ -1,6 +1,6 @@
 ---
 title: DocuSeal
-description: "Create DocuSeal PDF submissions with X-Auth-Token credentials and typed SignatureKit errors."
+description: "Crie submissions de PDF na DocuSeal com credenciais X-Auth-Token e erros tipados do SignatureKit."
 ---
 
 DocuSeal cria uma submissão PDF e devolve links de submitter. É uma API de request de provider, não uma layer local de signer.
@@ -8,7 +8,7 @@ DocuSeal cria uma submissão PDF e devolve links de submitter. É uma API de req
 ## Instalação
 
 ```package-install
-@signature-kit/core @signature-kit/docuseal
+@signature-kit/http @signature-kit/docuseal
 ```
 
 ## Quando usar
@@ -24,21 +24,22 @@ Use DocuSeal quando um signer remoto open-source deve hospedar a submissão e co
 ```ts title="docuseal.ts"
 import * as Alchemy from "alchemy"
 import { DocuSealSignatureRequest, providers as docuSealProviders } from "@signature-kit/docuseal"
-import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { signatureHttpClientLive } from "@signature-kit/http"
 import { Effect, Layer, Redacted } from "effect"
 
-export default Alchemy.Stack(
+export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
     providers: Layer.merge(
       docuSealProviders({
-      apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
-      baseUrl: "https://api.docuseal.com",
-      sendSms: false,
-      submittersOrder: "preserved",
+        apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
+        baseUrl: "https://api.docuseal.com",
+        sendSms: false,
+        submittersOrder: "preserved",
       }),
       signatureHttpClientLive,
     ),
+    state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
     return yield* DocuSealSignatureRequest("contrato-de-servico", {
@@ -49,7 +50,7 @@ export default Alchemy.Stack(
       send: true,
     })
   }),
-)
+) {}
 ```
 
 

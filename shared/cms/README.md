@@ -1,6 +1,6 @@
 # @signature-kit/cms
 
-CMS/PKCS#7 signing and verification helpers, including ICP-Brasil policy support and timestamp request contracts.
+CMS/PKCS#7 detached signing and verification helpers, ICP-Brasil PAdES policy metadata, inspection utilities, and RFC 3161 timestamp request contracts.
 
 ## Install
 
@@ -8,22 +8,50 @@ CMS/PKCS#7 signing and verification helpers, including ICP-Brasil policy support
 bun add @signature-kit/cms effect
 ```
 
-## Exports
+`effect` is a direct runtime dependency. This is a low-level support package; PDF signing normally goes through `@signature-kit/pdf`.
 
-- `@signature-kit/cms/config`
-- `@signature-kit/cms/icp-brasil`
-- `@signature-kit/cms/sign`
-- `@signature-kit/cms/verify`
+## Public surface
 
-## Runtime model
+- `@signature-kit/cms/config` — `CmsError`, `CmsErrorCodeValue`, `CmsOperationValue`, `CmsHashAlgorithmValue`, `CmsVerifyResultSchema`, `TimestampOptionsSchema`, policy schemas, and `cmsErrorMessages`.
+- `@signature-kit/cms/icp-brasil` — `IcpBrasilPadesPolicy`, `parseIcpBrasilPadesPolicy`, and `fetchIcpBrasilPadesPolicy`.
+- `@signature-kit/cms/inspect` — `inspectDetachedSignedData` plus signed-attribute and inspection schemas.
+- `@signature-kit/cms/sign` — `createDetachedSignedData`.
+- `@signature-kit/cms/verify` — `verifyDetachedSignedData`.
 
-SignatureKit packages are Effect-native. Public APIs return typed `Effect.Effect` values; recoverable faults stay in the typed error channel; callers provide required services and layers explicitly at the application boundary.
+`IcpBrasilPadesPolicy.adRbV11` is the pinned PA_PAdES_AD_RB_v1_1 policy:
 
-This is a low-level support package: keep its surface narrow and prefer the higher-level SignatureKit packages unless you need the primitive directly.
+- OID: `2.16.76.1.7.1.11.1.1`
+- Hash algorithm: `sha256`
+- Policy hash: `44fc5816eb2d705d8c8f022a7f93b3fb49edfae1a7b9149ef6fab833e9bb63f8`
+- URI: `http://politicas.icpbrasil.gov.br/PA_PAdES_AD_RB_v1_1.der`
 
-## Version
+PAdES AD-RB signatures must not include CMS `signingTime`; the PDF dictionary owns signing time. `@signature-kit/iti` rejects generated signatures that include the prohibited attribute.
 
-Current npm release line: `0.1.0`.
+## Example
+
+```ts
+import { IcpBrasilPadesPolicy } from "@signature-kit/cms/icp-brasil";
+import { inspectDetachedSignedData } from "@signature-kit/cms/inspect";
+import { Effect } from "effect";
+
+declare const cms: Uint8Array;
+
+const program = Effect.gen(function* () {
+  const inspection = yield* inspectDetachedSignedData({ cms });
+
+  return {
+    policyOid: IcpBrasilPadesPolicy.adRbV11.policyOid,
+    signerCommonName: inspection.signerCommonName,
+    signedAttributes: inspection.signedAttributes.length,
+  };
+});
+```
+
+## Errors and i18n
+
+CMS failures use the `CmsError` code catalog and `cmsErrorMessages`. Applications can render localized copy through `@signature-kit/i18n` by passing that catalog to `errorMessage`.
+
+Docs: <https://signaturekit.dev/en-US/docs/signing/pdf>.
 
 ## License
 

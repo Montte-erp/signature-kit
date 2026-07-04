@@ -1,13 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
-import type { RemoteSignatureRequestInput } from "@signature-kit/core/config";
-import { RemoteSignatureStateSchema } from "@signature-kit/core/config";
-import { signatureHttpClientLive } from "@signature-kit/core/http";
-import { reconcileInput } from "../../__tests__/alchemy-provider";
+import { signatureHttpClientLive } from "@signature-kit/http";
+import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import { loadFlaggedConfig, optionalEnv, requiredEnv } from "../../../tooling/testing/env";
 import { Config, Effect, Redacted, Result } from "effect";
 import {
   ClicksignSignatureRequest,
   ClicksignSignatureRequestProvider,
+  ClicksignSignatureRequestStateSchema,
   cancelClicksignSignatureRequest,
   clicksignCredentialsLayer,
   deleteClicksignSignatureRequest,
@@ -15,6 +14,7 @@ import {
   getClicksignSignatureRequest,
   listClicksignSignatureRequests,
   type ClicksignProviderOptions,
+  type ClicksignSignatureRequestProps,
 } from "../src/index";
 
 const config = loadFlaggedConfig(
@@ -51,7 +51,7 @@ const livePdf = (): Uint8Array => {
   );
 };
 
-const knownStates = new Set<string>(RemoteSignatureStateSchema.literals);
+const knownStates = new Set<string>(ClicksignSignatureRequestStateSchema.literals);
 
 if (config === undefined) {
   describe.skip("Clicksign live API", () => {
@@ -74,7 +74,7 @@ if (config === undefined) {
         {
           fileName: "signature-kit-live.pdf",
           mimeType: "application/pdf",
-          content: livePdf(),
+          contentBase64: Buffer.from(livePdf()).toString("base64"),
         },
       ],
       recipients: [
@@ -87,10 +87,10 @@ if (config === undefined) {
       ],
       send: false,
       expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-    } satisfies RemoteSignatureRequestInput;
+    } satisfies ClicksignSignatureRequestProps;
 
     const provider = yield* ClicksignSignatureRequest.Provider;
-    return yield* provider.reconcile(reconcileInput("clicksign-live-request", input));
+    return yield* provider.reconcile(reconcileResourceProps("clicksign-live-request", input));
   }).pipe(
     Effect.provide(ClicksignSignatureRequestProvider()),
     Effect.provide(clicksignCredentialsLayer(options)),

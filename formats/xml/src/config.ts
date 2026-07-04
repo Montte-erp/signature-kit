@@ -1,5 +1,7 @@
-import { Schema } from "effect";
-import { SignatureAlgorithmSchema } from "@signature-kit/core/config";
+import { ErrorMessageLocaleSchema, type ErrorMessageLocale } from "@signature-kit/i18n";
+import type { SignatureAlgorithm } from "@signature-kit/signatures";
+import { SignatureAlgorithmSchema } from "@signature-kit/signatures";
+import { Match, Schema } from "effect";
 
 export const XmlErrorCodeSchema = Schema.Literals([
   "xml.INVALID_INPUT",
@@ -23,6 +25,36 @@ export const XmlErrorCodeValue = {
   signFailed: "xml.SIGN_FAILED",
   verifyFailed: "xml.VERIFY_FAILED",
 } satisfies Record<string, XmlErrorCode>;
+
+export type XmlErrorMessageLocale = ErrorMessageLocale;
+export const XmlErrorMessagesSchema = Schema.Record(
+  ErrorMessageLocaleSchema,
+  Schema.Record(XmlErrorCodeSchema, Schema.String),
+);
+export type XmlErrorMessages = (typeof XmlErrorMessagesSchema)["Type"];
+
+export const xmlErrorMessages = {
+  "en-US": {
+    "xml.INVALID_INPUT": "Invalid XML signing input.",
+    "xml.RUNTIME_UNAVAILABLE": "XML runtime is unavailable.",
+    "xml.INVALID_XML": "Invalid XML document.",
+    "xml.SIGNATURE_NOT_FOUND": "XML signature was not found.",
+    "xml.UNSUPPORTED_ALGORITHM": "Unsupported XML signature algorithm.",
+    "xml.KEY_IMPORT_FAILED": "Failed to import the XML verification key.",
+    "xml.SIGN_FAILED": "Failed to sign the XML document.",
+    "xml.VERIFY_FAILED": "Failed to verify the XML signature.",
+  },
+  "pt-BR": {
+    "xml.INVALID_INPUT": "Entrada inválida para assinatura XML.",
+    "xml.RUNTIME_UNAVAILABLE": "Runtime XML indisponível.",
+    "xml.INVALID_XML": "Documento XML inválido.",
+    "xml.SIGNATURE_NOT_FOUND": "Assinatura XML não encontrada.",
+    "xml.UNSUPPORTED_ALGORITHM": "Algoritmo de assinatura XML não suportado.",
+    "xml.KEY_IMPORT_FAILED": "Não foi possível importar a chave de verificação XML.",
+    "xml.SIGN_FAILED": "Não foi possível assinar o documento XML.",
+    "xml.VERIFY_FAILED": "Não foi possível verificar a assinatura XML.",
+  },
+} satisfies Record<XmlErrorMessageLocale, Record<XmlErrorCode, string>>;
 
 export const XmlOperationSchema = Schema.Literals([
   "xml.runtime",
@@ -55,6 +87,22 @@ export const XmlCanonicalizationValue = {
   exclusive: "exclusive",
   inclusive: "inclusive",
 } satisfies Record<string, XmlCanonicalization>;
+
+export const XmlHashAlgorithmSchema = Schema.Literals(["SHA-1", "SHA-256", "SHA-512"]);
+export type XmlHashAlgorithm = (typeof XmlHashAlgorithmSchema)["Type"];
+
+export const XmlVerificationKeySourceSchema = Schema.Literals(["certificate", "spki"]);
+export type XmlVerificationKeySource = (typeof XmlVerificationKeySourceSchema)["Type"];
+
+export const xmlHashAlgorithmFromSignatureAlgorithm = (
+  algorithm: SignatureAlgorithm,
+): XmlHashAlgorithm =>
+  Match.value(algorithm).pipe(
+    Match.when("rsa-sha1", (): XmlHashAlgorithm => "SHA-1"),
+    Match.when("rsa-sha256", (): XmlHashAlgorithm => "SHA-256"),
+    Match.when("rsa-sha512", (): XmlHashAlgorithm => "SHA-512"),
+    Match.exhaustive,
+  );
 
 export const XmlSigningRequestSchema = Schema.Struct({
   xml: Schema.String,
@@ -91,6 +139,6 @@ export class XmlError extends Schema.TaggedErrorClass<XmlError>()("XmlError", {
   issueMessage: Schema.optional(Schema.String),
 }) {
   get message(): string {
-    return this.reason ?? this.code;
+    return this.reason ?? xmlErrorMessages["en-US"][this.code];
   }
 }

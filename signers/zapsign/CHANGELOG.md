@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0
+
+- ZapSign now owns its single-PDF document props, attributes, state schema, schema
+  names, and retained no-op diff instead of using core remote-signature contracts.
+- Keep `detailsUrl` pointed at the ZapSign request-details endpoint instead of
+  the raw unsigned PDF.
+- Expose `downloadUrl` only from ZapSign's `signed_file` value, so callers no
+  longer receive an unsigned PDF URL as the signed artifact.
+- Add offline local-HTTP-server coverage for ZapSign provider behavior in the
+  default test suite.
+
+Breaking: request props now use `ZapSignDocumentProps` with a single
+`application/pdf` document tuple and `contentBase64`, and
+`getZapSignSignatureRequest` / `listZapSignSignatureRequests` return
+`ZapSignDocument` instead of core `RemoteSignature*` types.
+
 ## 0.2.0
 
 - Map signer refusal (`refused`/`rejected`) to `declined` instead of `cancelled`.
@@ -14,4 +30,4 @@
 
 - Initial npm-ready release for `@signature-kit/zapsign`.
 - Published package metadata, MIT license, README, and package-local changelog.
-- Ships alchemy v2 remote-signature provider for ZapSign document creation, lookup, cancellation, deletion, and signed-document download.
+- Ships an Alchemy v2 remote-signature provider for ZapSign document creation, lookup, cancellation, deletion, and signed-document download.

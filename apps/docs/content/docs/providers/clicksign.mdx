@@ -3,12 +3,12 @@ title: Clicksign
 description: "Create Clicksign v1 document requests with Redacted credentials and typed SignatureKit errors."
 ---
 
-Clicksign creates the upstream document and signer, optionally notifies the recipient, then returns a normalized `RemoteSignatureRequest`. It is not a local `Signatures` backend and it does not mutate PDF bytes in-process.
+Clicksign creates the upstream document and signer, optionally notifies the recipient, then returns a Clicksign-owned `ClicksignSignatureRequestAttributes` record. It is not a local `Signatures` backend and it does not mutate PDF bytes in-process.
 
 ## Installation
 
 ```package-install
-@signature-kit/core @signature-kit/clicksign
+@signature-kit/http @signature-kit/clicksign
 ```
 
 ## When to use
@@ -24,21 +24,22 @@ Use Clicksign when the signing ceremony, reminders, and audit trail live in Clic
 ```ts title="clicksign.ts"
 import * as Alchemy from "alchemy"
 import { ClicksignSignatureRequest, providers as clicksignProviders } from "@signature-kit/clicksign"
-import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { signatureHttpClientLive } from "@signature-kit/http"
 import { Effect, Layer, Redacted } from "effect"
 
-export default Alchemy.Stack(
+export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
     providers: Layer.merge(
       clicksignProviders({
-      accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
-      environment: "sandbox",
-      locale: "pt-BR",
-      autoClose: true,
+        accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
+        environment: "sandbox",
+        locale: "pt-BR",
+        autoClose: true,
       }),
       signatureHttpClientLive,
     ),
+    state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
     return yield* ClicksignSignatureRequest("service-agreement", {
@@ -49,14 +50,14 @@ export default Alchemy.Stack(
       send: true,
     })
   }),
-)
+) {}
 ```
 
 
 ## Provider facts
 
 - v1 flow creates a document, signer, and optional notification.
-- One document per request; multi-document input fails as `signature-kit.UNSUPPORTED_OPERATION`.
+- One document per request; the props schema is a single-document tuple, so passing more than one document fails at schema decode time as `signature-kit.INVALID_INPUT`.
 - The access token is unwrapped only inside the package HTTP boundary.
 
 ## Errors

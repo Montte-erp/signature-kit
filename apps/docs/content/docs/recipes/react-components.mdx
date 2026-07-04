@@ -1,0 +1,89 @@
+---
+title: React components
+description: "Install SignatureKit's shadcn registry components into your app and own the UI code."
+---
+
+`@signature-kit/react` is hooks-only. Install UI with the shadcn registry when you want a ready path; the generated files land in your app, so storage, copy, styling, fetch/tRPC, and product behavior stay yours.
+
+```bash title="Install one component"
+npx shadcn@latest add https://signaturekit.dev/r/signature-dialog.json
+```
+
+## Registry items
+
+| Item | Command | Use it for |
+| --- | --- | --- |
+| `signature-certificate-form` | `npx shadcn@latest add https://signaturekit.dev/r/signature-certificate-form.json` | Password confirmation with callback-owned `getSavedPassword` / `onSavePassword`. |
+| `certificate-upload-form` | `npx shadcn@latest add https://signaturekit.dev/r/certificate-upload-form.json` | Pick `.pfx` / `.p12`, parse it in the browser with `useA1Certificate`, preview metadata, then call your upload callback. |
+| `signature-pdf-viewer` | `npx shadcn@latest add https://signaturekit.dev/r/signature-pdf-viewer.json` | `react-pdf` preview with text-anchor highlighting and manual click-to-place rectangles. |
+| `signature-dialog` | `npx shadcn@latest add https://signaturekit.dev/r/signature-dialog.json` | Direct A1 signing flow around `useA1Signer`, saved-password retry, progress, and signed-PDF download preview. |
+| `signing-progress-list` | `npx shadcn@latest add https://signaturekit.dev/r/signing-progress-list.json` | Standalone per-document status rows for a custom signing screen. |
+| `pdf-signature-anchor` | `npx shadcn@latest add https://signaturekit.dev/r/pdf-signature-anchor.json` | Invisible `@react-pdf/renderer` text token paired with `findPdfTextAnchors`. |
+
+## Direct signing dialog
+
+```tsx title="sign-button.tsx"
+import { SignatureDialog } from "@/components/signature-dialog"
+
+export function SignButton({ pfx }: { pfx: Uint8Array }) {
+  return (
+    <SignatureDialog
+      pfx={pfx}
+      anchorTokens={["{{signature}}"]}
+      getSavedPassword={() => null}
+      onWrongPassword={() => {
+        // Clear your app-owned password storage here.
+      }}
+      buildDocuments={async () => [
+        {
+          id: "contract",
+          name: "contract.pdf",
+          pdf: await fetch("/contract.pdf").then(async (response) =>
+            new Uint8Array(await response.arrayBuffer()),
+          ),
+          anchors: {
+            matchers: [{ text: "{{signature}}" }],
+            stampSize: { width: 180, height: 54 },
+          },
+        },
+      ]}
+      signing={{ policy: "pades-icp-brasil", reason: "Signed with SignatureKit" }}
+      stamp={{
+        badge: {
+          header: { text: "DIGITALLY SIGNED" },
+          rows: [[{ label: "Signer", value: "Current user" }]],
+          footer: [{ text: "ICP-Brasil" }, { text: "SignatureKit" }],
+        },
+        rubric: { initials: "CU" },
+      }}
+      onSigned={(rows) => {
+        // Upload, preview, or download rows[n].signedPdf.
+      }}
+    />
+  )
+}
+```
+
+## Anchor-first placement
+
+Use invisible text anchors when you generate PDFs with `@react-pdf/renderer`. This keeps placement deterministic and avoids asking a user to click every document.
+
+```tsx title="contract.pdf.tsx"
+import { Text, View } from "@react-pdf/renderer"
+import { PdfSignatureAnchor } from "@/components/pdf-signature-anchor"
+
+export function ContractSignatureBlock() {
+  return (
+    <View>
+      <Text>Signer</Text>
+      <PdfSignatureAnchor token="{{signature}}" />
+    </View>
+  )
+}
+```
+
+Use `signature-pdf-viewer` when a human needs to confirm anchor results or switch to manual click-to-place.
+
+### Next.js `react-pdf` island
+
+`react-pdf` touches browser APIs, so keep it in a client component loaded with `dynamic(() => import("./PdfPreviewIsland"), { ssr: false })`. Server pages can pass validated PDF bytes, pages, and rectangles into that island; the island owns preview state and object URLs.

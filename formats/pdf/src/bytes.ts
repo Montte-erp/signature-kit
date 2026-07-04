@@ -90,9 +90,3 @@ export const hexToBytes = (hex: string): Uint8Array => {
   }
   return bytes;
 };
-
-export const trimTrailingZeroHex = (hex: string): string => {
-  let end = hex.length;
-  while (end >= 2 && hex.slice(end - 2, end) === "00") end -= 2;
-  return hex.slice(0, end);
-};

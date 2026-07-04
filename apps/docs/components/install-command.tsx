@@ -6,10 +6,11 @@ import { useState } from "react";
 import { Effect, Result } from "effect";
 
 import { Button } from "@/components/ui/button";
+import { m } from "@/paraglide/messages";
 import { captureDocsEvent } from "@/lib/posthog/client";
 import { cn } from "@/lib/utils";
 
-const DEFAULT_COMMAND = "bun add @signature-kit/core @signature-kit/a1";
+const DEFAULT_COMMAND = "bun add @signature-kit/signatures @signature-kit/a1";
 
 type InstallCommandProps = {
   readonly command?: string;
@@ -56,7 +57,7 @@ export const InstallCommand = ({
       type="button"
       variant="outline"
       size="lg"
-      aria-label={copied ? "Copied" : "Copy install command"}
+      aria-label={copied ? m.install_copied_label() : m.install_copy_label()}
       onClick={handleCopy}
       className={cn("gap-3 font-mono text-foreground", className)}
     >

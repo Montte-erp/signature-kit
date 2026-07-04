@@ -1,14 +1,14 @@
 ---
 title: Clicksign
-description: "Create Clicksign v1 document requests with Redacted credentials and typed SignatureKit errors."
+description: "Crie requests de documento Clicksign v1 com credenciais Redacted e erros tipados do SignatureKit."
 ---
 
-Clicksign cria o documento e o signatário no upstream, opcionalmente notifica o destinatário e devolve um `RemoteSignatureRequest` normalizado. Não é backend local de `Signatures` e não muta bytes de PDF no processo.
+Clicksign cria o documento e o signatário no upstream, opcionalmente notifica o destinatário e devolve um registro `ClicksignSignatureRequestAttributes` próprio da Clicksign. Não é backend local de `Signatures` e não muta bytes de PDF no processo.
 
 ## Instalação
 
 ```package-install
-@signature-kit/core @signature-kit/clicksign
+@signature-kit/http @signature-kit/clicksign
 ```
 
 ## Quando usar
@@ -24,21 +24,22 @@ Use Clicksign quando a cerimônia, lembretes e trilha de auditoria vivem na Clic
 ```ts title="clicksign.ts"
 import * as Alchemy from "alchemy"
 import { ClicksignSignatureRequest, providers as clicksignProviders } from "@signature-kit/clicksign"
-import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { signatureHttpClientLive } from "@signature-kit/http"
 import { Effect, Layer, Redacted } from "effect"
 
-export default Alchemy.Stack(
+export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
     providers: Layer.merge(
       clicksignProviders({
-      accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
-      environment: "sandbox",
-      locale: "pt-BR",
-      autoClose: true,
+        accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
+        environment: "sandbox",
+        locale: "pt-BR",
+        autoClose: true,
       }),
       signatureHttpClientLive,
     ),
+    state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
     return yield* ClicksignSignatureRequest("contrato-de-servico", {
@@ -49,14 +50,14 @@ export default Alchemy.Stack(
       send: true,
     })
   }),
-)
+) {}
 ```
 
 
 ## Fatos do provider
 
 - Fluxo v1 cria documento, signatário e notificação opcional.
-- Um documento por request; múltiplos documentos falham como `signature-kit.UNSUPPORTED_OPERATION`.
+- Um documento por request; o schema de props é uma tupla de documento único, então passar mais de um documento falha na decodificação do schema como `signature-kit.INVALID_INPUT`.
 - O token é aberto apenas na fronteira HTTP do pacote.
 
 ## Erros

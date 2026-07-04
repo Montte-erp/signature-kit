@@ -3,28 +3,144 @@ import {
   SignatureKitError,
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
-  SignatureKitSchemaNameValue,
   redactedStringSchema,
-  remoteSignatureInputFromResourceProps,
-} from "@signature-kit/core/config";
-import type {
-  RemoteSignatureProvider,
-  RemoteSignatureRecipient,
-  RemoteSignatureRequest,
-  RemoteSignatureRequestInput,
-  RemoteSignatureRequestProps,
-} from "@signature-kit/core/config";
-import {
-  SignatureHttpClient,
-  bearerAuthorization,
-  normalizedBaseUrl,
-} from "@signature-kit/core/http";
-import type { SignatureHttpClientService } from "@signature-kit/core/http";
+} from "@signature-kit/signatures";
+import { SignatureHttpClient, bearerAuthorization, normalizedBaseUrl } from "@signature-kit/http";
+import type { SignatureHttpClientService } from "@signature-kit/http";
 import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
-import { Context, Effect, Layer, Option, Schema, Stream } from "effect";
+import { Context, Effect, Layer, Match, Option, Schema, Stream } from "effect";
 
-const PROVIDER: RemoteSignatureProvider = "zapsign";
+const ZapSignSchemaName = {
+  providerOptions: "ZapSignProviderOptions",
+  signatureRequestProps: "ZapSignDocumentProps",
+  documentResult: "ZapSignDocumentResult",
+  documentsResult: "ZapSignDocumentsResult",
+} satisfies Record<string, string>;
+
+const ZapSignOperation = {
+  create: "zapsign.create",
+  download: "zapsign.download",
+} satisfies Record<string, string>;
+
+const base64String: Schema.ConstraintDecoder<string> = Schema.String.check(Schema.isBase64());
+
+export const ZapSignProviderId = "zapsign";
+const PROVIDER = ZapSignProviderId;
+
+export const ZapSignDocumentStateSchema = Schema.Literals([
+  "draft",
+  "sent",
+  "completed",
+  "cancelled",
+  "deleted",
+  "declined",
+  "expired",
+]);
+export type ZapSignDocumentState = (typeof ZapSignDocumentStateSchema)["Type"];
+
+export const ZapSignPdfDocumentSchema = Schema.Struct({
+  fileName: Schema.NonEmptyString,
+  mimeType: Schema.Literal("application/pdf"),
+  content: Schema.Uint8Array,
+});
+export type ZapSignPdfDocument = (typeof ZapSignPdfDocumentSchema)["Type"];
+
+export const ZapSignPdfDocumentPropsSchema = Schema.Struct({
+  fileName: Schema.NonEmptyString,
+  mimeType: Schema.Literal("application/pdf"),
+  contentBase64: base64String,
+});
+export type ZapSignPdfDocumentProps = (typeof ZapSignPdfDocumentPropsSchema)["Type"];
+
+export const ZapSignSignerSchema = Schema.Struct({
+  name: Schema.NonEmptyString,
+  email: Schema.NonEmptyString,
+  routingOrder: Schema.optional(Schema.Number),
+});
+export type ZapSignSigner = (typeof ZapSignSignerSchema)["Type"];
+
+export const ZapSignDocumentInputSchema = Schema.Struct({
+  title: Schema.NonEmptyString,
+  message: Schema.optional(Schema.NonEmptyString),
+  documents: Schema.Tuple([ZapSignPdfDocumentSchema]),
+  recipients: Schema.NonEmptyArray(ZapSignSignerSchema),
+  send: Schema.optional(Schema.Boolean),
+  expiresAt: Schema.optional(Schema.Date),
+  redirectUrl: Schema.optional(Schema.NonEmptyString),
+});
+export type ZapSignDocumentInput = (typeof ZapSignDocumentInputSchema)["Type"];
+
+export const ZapSignDocumentPropsSchema = Schema.Struct({
+  title: Schema.NonEmptyString,
+  message: Schema.optional(Schema.NonEmptyString),
+  documents: Schema.Tuple([ZapSignPdfDocumentPropsSchema]),
+  recipients: Schema.NonEmptyArray(ZapSignSignerSchema),
+  send: Schema.optional(Schema.Boolean),
+  expiresAt: Schema.optional(Schema.Date),
+  redirectUrl: Schema.optional(Schema.NonEmptyString),
+});
+export type ZapSignDocumentProps = (typeof ZapSignDocumentPropsSchema)["Type"];
+
+export const ZapSignDocumentSchema = Schema.Struct({
+  provider: Schema.Literal(PROVIDER),
+  id: Schema.NonEmptyString,
+  state: ZapSignDocumentStateSchema,
+  providerStatus: Schema.optional(Schema.String),
+  signingUrl: Schema.optional(Schema.String),
+  detailsUrl: Schema.optional(Schema.String),
+  downloadUrl: Schema.optional(Schema.String),
+});
+export type ZapSignDocument = (typeof ZapSignDocumentSchema)["Type"];
+
+const zapsignSignatureRequestNoopDiff: { readonly action: "noop" } = { action: "noop" };
+
+const zapsignSignatureRequestDiff = ({
+  olds,
+}: {
+  readonly olds: ZapSignDocumentProps | undefined;
+}): Effect.Effect<typeof zapsignSignatureRequestNoopDiff | undefined> =>
+  Effect.succeed(olds === undefined ? undefined : zapsignSignatureRequestNoopDiff);
+
+const zapsignSignatureRequestInputFromProps = (
+  props: ZapSignDocumentProps,
+): ZapSignDocumentInput => {
+  const [document] = props.documents;
+  return {
+    title: props.title,
+    documents: [
+      {
+        fileName: document.fileName,
+        mimeType: document.mimeType,
+        content: Uint8Array.fromBase64(document.contentBase64),
+      },
+    ],
+    recipients: props.recipients,
+    ...(props.message === undefined ? {} : { message: props.message }),
+    ...(props.send === undefined ? {} : { send: props.send }),
+    ...(props.expiresAt === undefined ? {} : { expiresAt: props.expiresAt }),
+    ...(props.redirectUrl === undefined ? {} : { redirectUrl: props.redirectUrl }),
+  };
+};
+
+const zapsignSignatureRequestInputFromResourceProps = (
+  props: unknown,
+): Effect.Effect<ZapSignDocumentInput, SignatureKitError> =>
+  Schema.decodeUnknownEffect(ZapSignDocumentPropsSchema)(props).pipe(
+    Effect.mapError(
+      (issue) =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.invalidInput,
+          retryable: false,
+          provider: PROVIDER,
+          operation: SignatureKitOperationValue.schemaDecode,
+          schemaName: ZapSignSchemaName.signatureRequestProps,
+          issueMessage: String(issue),
+        }),
+    ),
+    Effect.map(zapsignSignatureRequestInputFromProps),
+  );
+
 const ZAPSIGN_PROVIDER_COLLECTION_ID = "@signature-kit/zapsign/Providers";
 const SANDBOX_BASE_URL = "https://sandbox.api.zapsign.com.br/api/v1";
 const PRODUCTION_BASE_URL = "https://api.zapsign.com.br/api/v1";
@@ -86,8 +202,8 @@ const ZapSignDocumentsResultSchema = Schema.Struct({
 
 export type ZapSignSignatureRequest = Resource<
   "SignatureKit.ZapSignSignatureRequest",
-  RemoteSignatureRequestProps,
-  RemoteSignatureRequest
+  ZapSignDocumentProps,
+  ZapSignDocument
 >;
 
 export const ZapSignSignatureRequest = Resource<ZapSignSignatureRequest>(
@@ -113,7 +229,7 @@ export const zapSignCredentialsLayer = (
             retryable: false,
             provider: PROVIDER,
             operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.zapSignProviderOptions,
+            schemaName: ZapSignSchemaName.providerOptions,
             issueMessage: String(issue),
           }),
       ),
@@ -131,8 +247,8 @@ const zapSignBaseUrl = (options: ZapSignProviderOptions): string => {
 
 const signerPayload = (
   options: ZapSignProviderOptions,
-  recipient: RemoteSignatureRecipient,
-  input: RemoteSignatureRequestInput,
+  recipient: ZapSignSigner,
+  input: ZapSignDocumentInput,
   index: number,
 ) => ({
   name: recipient.name,
@@ -145,67 +261,63 @@ const signerPayload = (
 });
 const zapsignPathParam = (id: string): string => encodeURIComponent(id);
 
-const zapSignRequestState = (status: string | undefined): RemoteSignatureRequest["state"] => {
+const ZapSignStatusSchema = Schema.Literals([
+  "draft",
+  "signed",
+  "completed",
+  "declined",
+  "refused",
+  "rejected",
+  "cancelled",
+  "canceled",
+  "deleted",
+  "expired",
+]);
+const isZapSignStatus = Schema.is(ZapSignStatusSchema);
+
+const zapSignDocumentState = (status: string | undefined): ZapSignDocument["state"] => {
   if (status === undefined) return "sent";
-  switch (status.toLowerCase()) {
-    case "draft":
-      return "draft";
-    case "signed":
-    case "completed":
-      return "completed";
-    case "declined":
-    case "refused":
-    case "rejected":
-      return "declined";
-    case "cancelled":
-    case "canceled":
-      return "cancelled";
-    case "deleted":
-      return "deleted";
-    case "expired":
-      return "expired";
-    default:
-      return "sent";
-  }
+  const normalized = status.toLowerCase();
+  if (!isZapSignStatus(normalized)) return "sent";
+  return Match.value(normalized).pipe(
+    Match.when("draft", (): ZapSignDocument["state"] => "draft"),
+    Match.whenOr("signed", "completed", (): ZapSignDocument["state"] => "completed"),
+    Match.whenOr("declined", "refused", "rejected", (): ZapSignDocument["state"] => "declined"),
+    Match.whenOr("cancelled", "canceled", (): ZapSignDocument["state"] => "cancelled"),
+    Match.when("deleted", (): ZapSignDocument["state"] => "deleted"),
+    Match.when("expired", (): ZapSignDocument["state"] => "expired"),
+    Match.orElse((): ZapSignDocument["state"] => "sent"),
+  );
 };
 
-const toRemoteSignatureRequest = (
+const toZapSignDocument = (
+  baseUrl: string,
   result: ZapSignDocumentResult,
-  state?: RemoteSignatureRequest["state"],
-): RemoteSignatureRequest => {
+  state?: ZapSignDocument["state"],
+): ZapSignDocument => {
   const signingUrl = result.signers?.[0]?.sign_url;
-  const originalFile = result.original_file;
   const signedFile = result.signed_file;
 
   return {
     provider: PROVIDER,
     id: result.token,
-    state: state ?? zapSignRequestState(result.status),
+    state: state ?? zapSignDocumentState(result.status),
+    // detailsUrl is the provider request-details endpoint, consistent with the
+    // other providers — original_file is the raw UNSIGNED PDF, not details.
+    detailsUrl: `${baseUrl}/docs/${zapsignPathParam(result.token)}/`,
     ...(result.status === undefined ? {} : { providerStatus: result.status }),
     ...(signingUrl === undefined || signingUrl === null ? {} : { signingUrl }),
-    ...(originalFile === undefined || originalFile === null ? {} : { detailsUrl: originalFile }),
     ...(signedFile === undefined || signedFile === null ? {} : { downloadUrl: signedFile }),
   };
 };
 
-const createRemoteRequest = (
+const createZapSignDocument = (
   http: SignatureHttpClientService,
   options: ZapSignProviderOptions,
   baseUrl: string,
-  input: RemoteSignatureRequestInput,
-): Effect.Effect<RemoteSignatureRequest, SignatureKitError> => {
-  const document = input.documents[0];
-  if (input.documents.length !== 1 || document?.mimeType !== "application/pdf") {
-    return Effect.fail(
-      new SignatureKitError({
-        code: SignatureKitErrorCodeValue.unsupportedOperation,
-        retryable: false,
-        provider: PROVIDER,
-        operation: SignatureKitOperationValue.remoteCreate,
-        reason: "ZapSign creates one PDF document per signature request.",
-      }),
-    );
-  }
+  input: ZapSignDocumentInput,
+): Effect.Effect<ZapSignDocument, SignatureKitError> => {
+  const [document] = input.documents;
 
   return http
     .requestJson(
@@ -234,11 +346,11 @@ const createRemoteRequest = (
         }),
       },
       ZapSignDocumentResultSchema,
-      SignatureKitSchemaNameValue.zapSignDocumentResult,
+      ZapSignSchemaName.documentResult,
     )
     .pipe(
       Effect.map((result) =>
-        toRemoteSignatureRequest(result, input.send === false ? "draft" : "sent"),
+        toZapSignDocument(baseUrl, result, input.send === false ? "draft" : "sent"),
       ),
     );
 };
@@ -248,7 +360,7 @@ const getZapSignSignatureRequestInternal = (
   options: ZapSignProviderOptions,
   baseUrl: string,
   id: string,
-): Effect.Effect<RemoteSignatureRequest, SignatureKitError> =>
+): Effect.Effect<ZapSignDocument, SignatureKitError> =>
   http
     .requestJson(
       {
@@ -260,9 +372,9 @@ const getZapSignSignatureRequestInternal = (
         },
       },
       ZapSignDocumentResultSchema,
-      SignatureKitSchemaNameValue.zapSignDocumentResult,
+      ZapSignSchemaName.documentResult,
     )
-    .pipe(Effect.map((result) => toRemoteSignatureRequest(result)));
+    .pipe(Effect.map((result) => toZapSignDocument(baseUrl, result)));
 
 const resolveZapSignListNextUrl = (
   baseUrl: string,
@@ -303,7 +415,7 @@ const listZapSignSignatureRequestsInternal = (
   http: SignatureHttpClientService,
   options: ZapSignProviderOptions,
   baseUrl: string,
-): Effect.Effect<RemoteSignatureRequest[], SignatureKitError> => {
+): Effect.Effect<ZapSignDocument[], SignatureKitError> => {
   const initialUrl = new URL(`${baseUrl}/docs/`);
   initialUrl.searchParams.set("page", "1");
   initialUrl.searchParams.set("include_signers", "true");
@@ -320,18 +432,16 @@ const listZapSignSignatureRequestsInternal = (
           },
         },
         ZapSignDocumentsResultSchema,
-        SignatureKitSchemaNameValue.zapSignDocumentsResult,
+        ZapSignSchemaName.documentsResult,
       )
       .pipe(
-        Effect.map(
-          (page): readonly [ReadonlyArray<RemoteSignatureRequest>, Option.Option<string>] => {
-            const nextUrl = resolveZapSignListNextUrl(baseUrl, page.next);
-            return [
-              page.results.map((item) => toRemoteSignatureRequest(item)),
-              nextUrl === null ? Option.none() : Option.some(nextUrl),
-            ];
-          },
-        ),
+        Effect.map((page): readonly [ReadonlyArray<ZapSignDocument>, Option.Option<string>] => {
+          const nextUrl = resolveZapSignListNextUrl(baseUrl, page.next);
+          return [
+            page.results.map((item) => toZapSignDocument(baseUrl, item)),
+            nextUrl === null ? Option.none() : Option.some(nextUrl),
+          ];
+        }),
       ),
   ).pipe(Stream.runCollect);
 };
@@ -400,7 +510,7 @@ const downloadZapSignSignedDocumentInternal = (
           code: SignatureKitErrorCodeValue.unsupportedOperation,
           retryable: false,
           provider: PROVIDER,
-          operation: SignatureKitOperationValue.remoteDownload,
+          operation: ZapSignOperation.download,
           reason: "No signed-file URL is available for this ZapSign request.",
         }),
       );
@@ -416,8 +526,11 @@ export const ZapSignSignatureRequestProvider = () =>
       const baseUrl = zapSignBaseUrl(options);
 
       return ZapSignSignatureRequest.Provider.of({
-        diff: ({ olds }) => Effect.succeed(olds === undefined ? undefined : { action: "noop" }),
-        list: () => listZapSignSignatureRequestsInternal(http, options, baseUrl),
+        nuke: { skip: true },
+        diff: zapsignSignatureRequestDiff,
+        list: () =>
+          // Retained resources must not feed account-wide nuke enumeration.
+          Effect.succeed([]),
         read: ({ output }) =>
           output === undefined
             ? Effect.succeed(undefined)
@@ -429,8 +542,8 @@ export const ZapSignSignatureRequestProvider = () =>
               ),
         reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
-          const input = yield* remoteSignatureInputFromResourceProps(PROVIDER, news);
-          return yield* createRemoteRequest(http, options, baseUrl, input);
+          const input = yield* zapsignSignatureRequestInputFromResourceProps(news);
+          return yield* createZapSignDocument(http, options, baseUrl, input);
         }),
         delete: ({ output }) =>
           deleteZapSignSignatureRequestInternal(http, options, baseUrl, output.id),
@@ -451,7 +564,7 @@ export const providers = (options: ZapSignProviderOptions) =>
 export const getZapSignSignatureRequest = (
   options: ZapSignProviderOptions,
   id: string,
-): Effect.Effect<RemoteSignatureRequest, SignatureKitError, SignatureHttpClient> =>
+): Effect.Effect<ZapSignDocument, SignatureKitError, SignatureHttpClient> =>
   Effect.gen(function* () {
     const valid = yield* Schema.decodeUnknownEffect(ZapSignProviderOptionsSchema)(options).pipe(
       Effect.mapError(
@@ -461,7 +574,7 @@ export const getZapSignSignatureRequest = (
             retryable: false,
             provider: PROVIDER,
             operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.zapSignProviderOptions,
+            schemaName: ZapSignSchemaName.providerOptions,
             issueMessage: String(issue),
           }),
       ),
@@ -472,7 +585,7 @@ export const getZapSignSignatureRequest = (
 
 export const listZapSignSignatureRequests = (
   options: ZapSignProviderOptions,
-): Effect.Effect<readonly RemoteSignatureRequest[], SignatureKitError, SignatureHttpClient> =>
+): Effect.Effect<readonly ZapSignDocument[], SignatureKitError, SignatureHttpClient> =>
   Effect.gen(function* () {
     const valid = yield* Schema.decodeUnknownEffect(ZapSignProviderOptionsSchema)(options).pipe(
       Effect.mapError(
@@ -482,7 +595,7 @@ export const listZapSignSignatureRequests = (
             retryable: false,
             provider: PROVIDER,
             operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.zapSignProviderOptions,
+            schemaName: ZapSignSchemaName.providerOptions,
             issueMessage: String(issue),
           }),
       ),
@@ -504,7 +617,7 @@ export const cancelZapSignSignatureRequest = (
             retryable: false,
             provider: PROVIDER,
             operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.zapSignProviderOptions,
+            schemaName: ZapSignSchemaName.providerOptions,
             issueMessage: String(issue),
           }),
       ),
@@ -526,7 +639,7 @@ export const deleteZapSignSignatureRequest = (
             retryable: false,
             provider: PROVIDER,
             operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.zapSignProviderOptions,
+            schemaName: ZapSignSchemaName.providerOptions,
             issueMessage: String(issue),
           }),
       ),
@@ -548,7 +661,7 @@ export const downloadZapSignSignedDocument = (
             retryable: false,
             provider: PROVIDER,
             operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: SignatureKitSchemaNameValue.zapSignProviderOptions,
+            schemaName: ZapSignSchemaName.providerOptions,
             issueMessage: String(issue),
           }),
       ),

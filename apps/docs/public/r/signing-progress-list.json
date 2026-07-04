@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "signing-progress-list",
+  "type": "registry:component",
+  "title": "Signing Progress List",
+  "description": "Standalone per-document signing status list for pending, signing, signed, and failed rows.",
+  "registryDependencies": [
+    "badge"
+  ],
+  "dependencies": [
+    "lucide-react"
+  ],
+  "files": [
+    {
+      "path": "registry/default/signing-progress-list/signing-progress-list.tsx",
+      "type": "registry:component",
+      "target": "components/signature-kit/signing-progress-list.tsx",
+      "content": "\"use client\";\n\nimport { CheckCircle2, Loader2, XCircle } from \"lucide-react\";\nimport * as React from \"react\";\n\nimport { Badge } from \"@/components/ui/badge\";\nimport { cn } from \"@/lib/utils\";\n\nexport type SigningProgressRow = {\n  readonly id: string;\n  readonly name: string;\n  readonly status: \"pending\" | \"signing\" | \"signed\" | \"failed\";\n  readonly error?: unknown;\n};\n\nexport type SigningProgressListProps = {\n  readonly rows: ReadonlyArray<SigningProgressRow>;\n  readonly formatError?: (error: unknown) => string;\n  readonly emptyLabel?: string;\n  readonly className?: string;\n};\n\nconst statusLabel = (status: SigningProgressRow[\"status\"]): string => {\n  if (status === \"pending\") return \"Pending\";\n  if (status === \"signing\") return \"Signing\";\n  if (status === \"signed\") return \"Signed\";\n  return \"Failed\";\n};\n\nconst statusVariant = (status: SigningProgressRow[\"status\"]): \"secondary\" | \"outline\" =>\n  status === \"signed\" || status === \"signing\" ? \"secondary\" : \"outline\";\n\nexport function SigningProgressList({\n  rows,\n  formatError,\n  emptyLabel = \"No documents queued yet.\",\n  className,\n}: SigningProgressListProps) {\n  return (\n    <div data-slot=\"signing-progress-list\" className={cn(\"flex flex-col gap-2\", className)}>\n      {rows.length === 0 ? (\n        <p className=\"rounded-md border border-dashed border-border px-3 py-2 text-sm text-muted-foreground\">\n          {emptyLabel}\n        </p>\n      ) : (\n        <ul className=\"flex flex-col gap-1.5\">\n          {rows.map((row) => (\n            <li\n              key={row.id}\n              data-slot=\"signing-progress-row\"\n              data-status={row.status}\n              className=\"flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2 text-sm\"\n            >\n              <div className=\"min-w-0\">\n                <p className=\"truncate font-medium text-card-foreground\">{row.name}</p>\n                {row.status === \"failed\" && row.error !== undefined ? (\n                  <p className=\"mt-0.5 line-clamp-2 text-xs text-destructive\">\n                    {formatError?.(row.error) ?? \"Could not sign this document.\"}\n                  </p>\n                ) : null}\n              </div>\n              <Badge variant={statusVariant(row.status)} className=\"shrink-0 gap-1.5\">\n                {row.status === \"signing\" ? (\n                  <Loader2 aria-hidden className=\"size-3 animate-spin\" />\n                ) : row.status === \"signed\" ? (\n                  <CheckCircle2 aria-hidden className=\"size-3\" />\n                ) : row.status === \"failed\" ? (\n                  <XCircle aria-hidden className=\"size-3\" />\n                ) : null}\n                {statusLabel(row.status)}\n              </Badge>\n            </li>\n          ))}\n        </ul>\n      )}\n    </div>\n  );\n}\n"
+    }
+  ]
+}

@@ -2,8 +2,9 @@ import * as React from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { describe, expect, it } from "vitest";
 
-import { makeDummyPdf, A4 } from "./helpers/dummy-pdf";
-import type { PdfDocumentProxy, PdfPageProps } from "../components/pdf-page";
+import { A4, makeDummyPdf } from "./helpers/dummy-pdf";
+import { PdfPage, loadPdfjs } from "../components/pdf-page";
+import type { PdfDocumentProxy } from "../components/pdf-page";
 
 /**
  * Browser-mode placement test (run via apps/docs/vitest.browser.config.ts). The
@@ -13,9 +14,8 @@ import type { PdfDocumentProxy, PdfPageProps } from "../components/pdf-page";
  * positions as page fractions.
  *
  * Like the other `*.browser.test.*` files in this repo, it self-skips under the
- * plain `vitest run` (node) discovery and only really runs in the Chromium
- * browser config — so the DOM-only / vite-`?url` imports stay inside the browser
- * branch and never break the node collection pass.
+ * plain `vitest run` (node) discovery. The real component loader owns pdf.js and
+ * points at the same react-pdf-bundled pdfjs major that production uses.
  */
 
 const rafTick = () =>
@@ -41,18 +41,12 @@ if (typeof document === "undefined") {
 } else {
   describe("PdfPage (browser render)", () => {
     let doc: PdfDocumentProxy | undefined;
-    let PdfPage: React.ComponentType<PdfPageProps> | undefined;
     let container: HTMLDivElement | undefined;
     let root: Root | undefined;
 
     const ensureLoaded = async () => {
       if (doc) return;
-      const pdfjs = await import("pdfjs-dist");
-      // Vite serves the worker as a LOCAL asset (no CDN / network in the headless
-      // browser), so the real rasteriser runs against our dummy PDF.
-      const workerUrl = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url")).default;
-      pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-      PdfPage = (await import("../components/pdf-page")).PdfPage;
+      const pdfjs = await loadPdfjs();
       const bytes = await makeDummyPdf({ pages: 1, size: A4, label: "Browser dummy" });
       // pdf.js detaches the input buffer → slice so the source stays intact.
       doc = await pdfjs.getDocument({ data: bytes.slice() }).promise;
@@ -79,10 +73,6 @@ if (typeof document === "undefined") {
       expect.fail("missing test container");
     };
 
-    const currentPdfPage = (): React.ComponentType<PdfPageProps> => {
-      if (PdfPage !== undefined) return PdfPage;
-      expect.fail("PdfPage was not loaded");
-    };
 
     const currentDoc = (): PdfDocumentProxy => {
       if (doc !== undefined) return doc;
@@ -93,7 +83,7 @@ if (typeof document === "undefined") {
       await ensureLoaded();
       const placements: Array<[number, number]> = [];
       mount(
-        React.createElement(currentPdfPage(), {
+        React.createElement(PdfPage, {
           doc: currentDoc(),
           pageNumber: 1,
           widthPt: A4.width,
@@ -145,7 +135,7 @@ if (typeof document === "undefined") {
         height: 48,
       };
       mount(
-        React.createElement(currentPdfPage(), {
+        React.createElement(PdfPage, {
           doc: currentDoc(),
           pageNumber: 1,
           widthPt: A4.width,
