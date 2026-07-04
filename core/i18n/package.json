@@ -34,6 +34,10 @@
     "@signature-kit/signatures": "^0.1.0"
   },
   "nx": {
+    "implicitDependencies": [
+      "!@signature-kit/signatures",
+      "!@signature-kit/crypto"
+    ],
     "targets": {
       "npm-pack": {
         "executor": "nx:run-commands",
