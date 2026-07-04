@@ -1,0 +1,57 @@
+---
+title: Legal validity
+description: "How Brazilian signature levels, ICP-Brasil certificates, A1/A3 devices, PAdES policy, and verification fit together."
+---
+
+**What you'll do:** place SignatureKit's technical guarantees in the Brazilian legal model without pretending code alone decides legal validity.
+
+This page is engineering context, not legal advice. Ask counsel before deciding whether a workflow satisfies a statute, court, regulator, or customer contract.
+
+## Signature levels in Lei 14.063/2020
+
+Brazilian law distinguishes three broad electronic-signature levels:
+
+| Level | What it means | Common trust model |
+| --- | --- | --- |
+| Simple (`simples`) | Identifies the signatory or associates data with them. | Login, email link, device/session evidence, provider audit trail. |
+| Advanced (`avançada`) | Identifies the signatory, uses data under their exclusive control, and detects later changes. | Strong identity proofing plus cryptographic or provider controls outside ICP-Brasil. |
+| Qualified (`qualificada`) | Uses an ICP-Brasil digital certificate. | ICP-Brasil certificate and compatible signature policy. |
+
+MP 2.200-2/2001 created ICP-Brasil and gives ICP-Brasil certificate signatures a strong presumption of authenticity and integrity. That presumption is legal context; your system still needs the right signatory authority, consent flow, audit trail, document scope, and retention.
+
+## A1 vs A3
+
+A1 and A3 are certificate custody models, not different legal levels by themselves.
+
+- A1: the private key is in a password-protected PKCS#12 file (`.pfx` / `.p12`). SignatureKit supports A1 locally through `@signature-kit/a1`.
+- A3: the private key stays in hardware or a remote qualified signing service. A future A3/HSM signer can satisfy the same `Signatures` service without moving PDF/XML code.
+
+## Where `pades-icp-brasil` + A1 lands
+
+When you sign a PDF with an ICP-Brasil A1 certificate and `policy: "pades-icp-brasil"`, SignatureKit builds a PAdES AD-RB profile with the pinned PA_PAdES_AD_RB_v1_1 policy metadata. In the Lei 14.063/2020 vocabulary, that is the technical path used for a qualified electronic signature when the certificate belongs to the signatory and the process around it is valid.
+
+```ts title="qualified-pades.ts"
+import { signPdf } from "@signature-kit/pdf/sign"
+
+const signed = signPdf({
+  pdf,
+  policy: "pades-icp-brasil",
+  name: "Maria Souza",
+}).pipe(Effect.provide(a1SignaturesLayer({ pfx, password })))
+```
+
+## Verification is not the same as legal validity
+
+`verifyPdf`, `validatePdfConformance`, and `validatePdfWithIti` answer technical questions: cryptographic coverage, CMS attributes, policy OID, chain checks when roots are supplied, and the official validator's current verdict. They do not answer whether the signatory had authority, consented to the exact document, used the certificate under a valid mandate, or whether the surrounding workflow meets a specific legal requirement.
+
+<Callout type="warn" title="Verification is necessary, not sufficient">
+  Treat a green verifier as evidence. Do not treat it as a legal conclusion. Keep the document, the signature bytes, validation report, identity evidence, timestamps, and the application audit trail together.
+</Callout>
+
+## Continue from here
+
+<Cards>
+  <Card title="ITI validation" href="/docs/signing/iti">Run local and official AD-RB validation.</Card>
+  <Card title="PDF/PAdES" href="/docs/signing/pdf">Create the PAdES signature and visible stamp.</Card>
+  <Card title="Remote requests" href="/docs/concepts/remote-signature-requests">Understand provider-owned ceremonies and audit trails.</Card>
+</Cards>

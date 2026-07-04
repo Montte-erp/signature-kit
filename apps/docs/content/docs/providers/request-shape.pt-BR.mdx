@@ -1,15 +1,19 @@
 ---
 title: Shape de request
-description: "Os fatos de request compartilhados por cada API de provedor."
+description: "Cada pacote de provedor expõe os fatos de request que sua API upstream suporta: documentos, destinatários, envelopes, links, notificações e helpers de lifecycle."
 ---
 
-APIs de provedores criam cerimônias de assinatura no upstream. Elas não são backends locais de `Signatures`: o provedor possui links, notificações, destinatários, envelopes e UX de auditoria. O SignatureKit mantém as chamadas boring: input tipado, credenciais Redacted, `SignatureHttpClient` e `SignatureKitError` em falhas recuperáveis.
+**O que você vai fazer:** comparar capacidades de provedores, escolher o pacote que combina com sua cerimônia upstream e evitar tratar provedores remotos como backends locais de `Signatures`.
+
+APIs de provedores criam cerimônias de assinatura upstream. Elas não são backends locais de `Signatures`: o provedor possui links, notificações, destinatários, envelopes e UX de auditoria. O SignatureKit mantém as chamadas simples: input tipado, credenciais Redacted, `SignatureHttpClient` e `SignatureKitError` em falhas recuperáveis.
+
+## Instale os pacotes que você usa
 
 ```package-install
 @signature-kit/http @signature-kit/clicksign @signature-kit/assinafy @signature-kit/zapsign @signature-kit/docuseal @signature-kit/documenso
 ```
 
-## Providers
+## Provedores
 
 <Cards>
   <Card title="Clicksign" href="/docs/providers/clicksign">Fluxo v1 de documento + signatário, um documento por request.</Card>
@@ -19,10 +23,20 @@ APIs de provedores criam cerimônias de assinatura no upstream. Elas não são b
   <Card title="Documenso" href="/docs/providers/documenso">Envelopes v2 open-source com distribuição opcional.</Card>
 </Cards>
 
-## Shape compartilhado
+## Matriz de capacidades
 
-Todo provider começa dos mesmos fatos de request do SignatureKit: `title`, `documents`, `recipients`, `subject`, `message`, `send`, `expiresAt` e `redirectUrl` opcionais. Cada página de provider explica como esses fatos mapeiam para seu protocolo upstream.
+| Provedor | Documentos por request | Roteamento/ordem | Cancelar | Deletar | Download | Listar | Estilo de auth |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Clicksign | Um `ClicksignDocumentInput` | `routingOrder` opcional no signatário | Sim — `cancelClicksignSignatureRequest` via `PATCH /documents/{key}/cancel` | Sim — `deleteClicksignSignatureRequest` | Sim — `downloadClicksignSignedDocument`, apenas quando Clicksign expõe URL de arquivo assinado | Sim — `listClicksignSignatureRequests` | `accessToken` Redacted em query param, com URL diagnóstica redigida |
+| Assinafy | Um `AssinafyDocumentUpload` | `routingOrder` opcional no signatário | Nenhum helper público de cancelamento exportado | Sim — `deleteAssinafySignatureRequest` | Sim — `downloadAssinafySignedDocument`, apenas depois que um artefato concluído é exposto | Sim — `listAssinafySignatureRequests` | `apiKey` Redacted ou `accessToken` Bearer Redacted |
+| ZapSign | Um documento PDF, forçado como `application/pdf` | `routingOrder` opcional no signatário | Sim — `cancelZapSignSignatureRequest` | Sim — `deleteZapSignSignatureRequest` | Sim — `downloadZapSignSignedDocument`, apenas quando ZapSign expõe `signed_file` | Sim — `listZapSignSignatureRequests` | `apiToken` Redacted, modo de auth opcional (`tokenEmail`, `tokenSms`, `tokenWhatsApp`, `certificadoDigital`) |
+| DocuSeal | Um ou mais uploads `DocuSealSubmissionDocument` | `submittersOrder: "preserved"` quando a ordem upstream precisa ser mantida | Nenhum helper público de cancelamento exportado | Sim — `deleteDocuSealSignatureRequest` | Sim — `downloadDocuSealSignedDocument`, apenas para submissões concluídas com URLs de documento do provedor | Sim — `listDocuSealSignatureRequests` | API key Redacted em `X-Auth-Token` |
+| Documenso | Um ou mais uploads `DocumensoEnvelopeDocument` | Papel do recipient e `routingOrder` opcional mapeiam para campos do envelope | Sim — `cancelDocumensoSignatureRequest` | Sim — `deleteDocumensoSignatureRequest` | Sim — `downloadDocumensoSignedDocument`, depois que o envelope está concluído e um item de envelope existe | Sim — `listDocumensoSignatureRequests` | API key Redacted com esquema `raw` ou `bearer` |
+
+## Local vs remoto
 
 <Callout type="info" title="Local vs remoto">
-  Use `@signature-kit/pdf` + `Signatures` quando o SignatureKit deve assinar bytes. Use funções de request de provider quando uma plataforma upstream possui a cerimônia.
+  Use `@signature-kit/pdf` + `Signatures` quando o SignatureKit precisa assinar bytes. Use funções de request de provedor quando uma plataforma upstream possui a cerimônia, notificações, UX do signatário e trilha de auditoria.
 </Callout>
+
+Cada página de provedor documenta os helpers de lifecycle realmente exportados por aquele pacote. Se um provedor não tem endpoint de cancelamento ou URL segura de download, a documentação não inventa um.

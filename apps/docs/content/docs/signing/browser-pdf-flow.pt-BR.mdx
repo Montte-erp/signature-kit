@@ -3,6 +3,8 @@ title: Fluxo PDF no navegador
 description: "Leia um PDF, monte o template de posicionamento A1 e assine com os helpers de navegador."
 ---
 
+**O que você vai fazer:** ler bytes de PDF a partir de um arquivo no navegador, montar estado validado de posicionamento, manter estado de UI fora do render do React e assinar o campo escolhido com a layer A1 na fronteira da ação do usuário.
+
 Os helpers de navegador são a ponte tipada entre um input de arquivo e o estado do builder PDF. Eles mantêm bytes no `Effect`, produzem um template de posicionamento validado e assinam o campo selecionado com a layer A1 fornecida.
 
 ## Passos
@@ -61,5 +63,5 @@ Use `signPdfSignatureBatch(items, callbacks)` quando um certificado A1 assina mu
 
 <Cards>
   <Card title="PDF/PAdES" href="/docs/signing/pdf">Assinatura CMS detached e tamanho de placeholder para documentos PDF.</Card>
-  <Card title="Demo A1 ao vivo" href="/pt-BR/assine-documentos-gratis">Rode o signer do navegador com a mesma fronteira.</Card>
+  <LocalizedCard title="Demo A1 ao vivo" href="/assine-documentos-gratis">Rode o signer do navegador com a mesma fronteira.</LocalizedCard>
 </Cards>

@@ -168,10 +168,13 @@ with a `Provider.effect` and a collection layer); follow that shape.
   service through the typed `X.Provider.of({ ... })` constructor.
 - **Wire by visibility.** `Layer.provide` for private resource providers;
   `Layer.provideMerge` for public credential/auth machinery a consumer also needs.
-  Bundle a provider collection as a `providers()` layer.
+  Bundle a provider collection as a `providers(options)` layer.
   A signer `providers(options)` layer may provide private credentials, but it must
   not bake in `signatureHttpClientLive`; transport remains a caller-provided
-  `SignatureHttpClient` requirement.
+  `SignatureHttpClient` requirement. At an Alchemy `StackProps.providers`
+  boundary, provide transport explicitly and collapse provider-construction
+  failures to defects so the stack gets a `Layer<never, never, StackServices>`:
+  `providers(options).pipe(Layer.provide(signatureHttpClientLive), Layer.orDie)`.
 - **Retained remote-signature requests are immutable.** If the upstream workflow
   cannot be safely updated or deleted after creation, say so in the provider:
   `reconcile` returns cached `output` after creation, `delete` only acts on a

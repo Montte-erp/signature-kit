@@ -1,7 +1,9 @@
 ---
 title: Assinafy
-description: "Create Assinafy requests with account-scoped credentials and typed SignatureKit errors."
+description: "Create Assinafy document requests with account-scoped credentials and typed SignatureKit errors."
 ---
+
+**What you'll do:** create a Assinafy remote-signature request, keep credentials Redacted, and use only the lifecycle helpers exported by `@signature-kit/assinafy`.
 
 Assinafy creates a document, registers the signer, and creates the assignment in the configured account. SignatureKit keeps the request shape typed and leaves ceremony ownership to Assinafy.
 
@@ -13,7 +15,7 @@ Assinafy creates a document, registers the signer, and creates the assignment in
 
 ## When to use
 
-Use Assinafy when account-level organization and assignment tracking belong in Assinafy. Use local signing when your app owns the signature bytes and placement.
+Use Assinafy when account-level organization and assignment tracking belong in Assinafy. Use local signing when your app owns the signed bytes and placement.
 
 <Callout type="error" title="Keep credentials Redacted">
   Provider tokens enter as `Redacted.make(...)` and are unwrapped only inside the package HTTP boundary. Never pass remote tokens to React components or logs.
@@ -30,34 +32,43 @@ import { Effect, Layer, Redacted } from "effect"
 export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
-    providers: Layer.merge(
-      assinafyProviders({
-        apiKey: Redacted.make(process.env.ASSINAFY_API_KEY ?? ""),
+    providers: assinafyProviders({
         accountId: process.env.ASSINAFY_ACCOUNT_ID ?? "",
+        apiKey: Redacted.make(process.env.ASSINAFY_API_KEY ?? ""),
         environment: "sandbox",
-      }),
-      signatureHttpClientLive,
-    ),
+      }).pipe(
+        // effect-boundary: Alchemy StackProps.providers closes provider and transport layers. [allow-provide]
+        Layer.provide(signatureHttpClientLive),
+        Layer.orDie,
+      ),
     state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
-    return yield* AssinafySignatureRequest("service-agreement", {
+    return yield* AssinafySignatureRequest("contract", {
       title: "Service agreement",
-      message: "Review and sign this document.",
-      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Ada Lovelace", email: "ada@example.com", routingOrder: 1 }],
-      send: true,
+      message: "Please sign this agreement.",
+      documents: [
+        { fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 },
+      ],
+      recipients: [{ name: "Maria Souza", email: "maria@example.com", routingOrder: 1 }],
+      send: false,
     })
   }),
 ) {}
 ```
 
+## Lifecycle
 
-## Provider facts
+| Function | Supported | Notes |
+| --- | --- | --- |
+| `AssinafySignatureRequest(id, props)` | Yes | Retained Alchemy resource. `reconcile` creates once and returns cached output on later plans. |
+| `getAssinafySignatureRequest(options, id)` | Yes | Reads the upstream request state. |
+| `listAssinafySignatureRequests(options)` | Yes | Package-level upstream list endpoint; Alchemy provider `list` returns `[]` and `nuke` is skipped. |
+| Cancel helper | Not exported | This provider package does not expose a public cancel helper. Use delete only when the upstream supports removing the remote request. |
+| `deleteAssinafySignatureRequest(options, id)` | Yes | Deletes the upstream request when the provider supports deletion. A missing remote is success. |
+| `downloadAssinafySignedDocument(options, id)` | Yes | Only succeeds after Assinafy exposes a completed download artifact; before that it fails as `signature-kit.UNSUPPORTED_OPERATION`. |
 
-- Credentials include both API key and account id. Alternatively, pass `accessToken` instead of `apiKey` to authenticate with `Authorization: Bearer <token>` rather than `X-Api-Key`.
-- The adapter creates document, signer, and assignment in one request flow.
-- Recoverable HTTP and response-shape failures surface as `SignatureKitError`.
+Multi-step create rollback deletes remote state only after unambiguous pre-effect 4xx failures, excluding 408, 409, 429, 5xx, timeouts, and response-shape failures.
 
 ## Errors
 
@@ -66,7 +77,6 @@ Invalid input, remote HTTP failures, and invalid response shapes fail as `Signat
 ## Related
 
 <Cards>
-  <Card title="Clicksign" href="/docs/providers/clicksign">v1 document + signer flow, one document per request.</Card>
-  <Card title="ZapSign" href="/docs/providers/zapsign">Bearer-token PDF upload with first signing URL.</Card>
+  <Card title="Provider request shapes" href="/docs/providers/request-shape">Compare all provider capabilities.</Card>
   <Card title="Remote requests" href="/docs/concepts/remote-signature-requests">Why remote providers are not local Signatures backends.</Card>
 </Cards>

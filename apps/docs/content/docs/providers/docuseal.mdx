@@ -3,6 +3,8 @@ title: DocuSeal
 description: "Create DocuSeal PDF submissions with X-Auth-Token credentials and typed SignatureKit errors."
 ---
 
+**What you'll do:** create a DocuSeal remote-signature request, keep credentials Redacted, and use only the lifecycle helpers exported by `@signature-kit/docuseal`.
+
 DocuSeal creates a PDF submission and returns submitter links. It is a provider request API, not a local signer layer.
 
 ## Installation
@@ -30,35 +32,43 @@ import { Effect, Layer, Redacted } from "effect"
 export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
-    providers: Layer.merge(
-      docuSealProviders({
+    providers: docuSealProviders({
         apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
-        baseUrl: "https://api.docuseal.com",
-        sendSms: false,
         submittersOrder: "preserved",
-      }),
-      signatureHttpClientLive,
-    ),
+      }).pipe(
+        // effect-boundary: Alchemy StackProps.providers closes provider and transport layers. [allow-provide]
+        Layer.provide(signatureHttpClientLive),
+        Layer.orDie,
+      ),
     state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
-    return yield* DocuSealSignatureRequest("service-agreement", {
+    return yield* DocuSealSignatureRequest("contract", {
       title: "Service agreement",
-      message: "Review and sign this document.",
-      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Ada Lovelace", email: "ada@example.com", role: "signer" }],
-      send: true,
+      subject: "Please sign",
+      message: "Please sign this agreement.",
+      documents: [
+        { fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 },
+      ],
+      recipients: [{ name: "Maria Souza", email: "maria@example.com", role: "signer" }],
+      send: false,
     })
   }),
 ) {}
 ```
 
+## Lifecycle
 
-## Provider facts
+| Function | Supported | Notes |
+| --- | --- | --- |
+| `DocuSealSignatureRequest(id, props)` | Yes | Retained Alchemy resource. `reconcile` creates once and returns cached output on later plans. |
+| `getDocuSealSignatureRequest(options, id)` | Yes | Reads the upstream request state. |
+| `listDocuSealSignatureRequests(options)` | Yes | Package-level upstream list endpoint; Alchemy provider `list` returns `[]` and `nuke` is skipped. |
+| Cancel helper | Not exported | This provider package does not expose a public cancel helper. Use delete only when the upstream supports removing the remote request. |
+| `deleteDocuSealSignatureRequest(options, id)` | Yes | Deletes the upstream request when the provider supports deletion. A missing remote is success. |
+| `downloadDocuSealSignedDocument(options, id)` | Yes | Only succeeds for completed submissions when provider document URLs are present; otherwise it fails as `signature-kit.UNSUPPORTED_OPERATION`. |
 
-- Creates a PDF submission through DocuSeal’s API.
-- `send: false` creates a draft without emailing submitters.
-- Submitter order can be preserved when the upstream supports it.
+Create is a single submission POST, so there is no multi-step rollback sequence to compensate after a partial provider workflow. Subsequent plans reuse cached output.
 
 ## Errors
 
@@ -67,7 +77,6 @@ Invalid input, remote HTTP failures, and invalid response shapes fail as `Signat
 ## Related
 
 <Cards>
-  <Card title="Clicksign" href="/docs/providers/clicksign">v1 document + signer flow, one document per request.</Card>
-  <Card title="Assinafy" href="/docs/providers/assinafy">Document, signer, and assignment inside an account.</Card>
+  <Card title="Provider request shapes" href="/docs/providers/request-shape">Compare all provider capabilities.</Card>
   <Card title="Remote requests" href="/docs/concepts/remote-signature-requests">Why remote providers are not local Signatures backends.</Card>
 </Cards>

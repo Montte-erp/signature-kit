@@ -1,0 +1,74 @@
+---
+title: Localized errors
+description: "Render SignatureKit, PDF, XML, CMS, crypto, and ASN.1 typed errors through @signature-kit/i18n without sniffing reason text."
+---
+
+**What you'll do:** keep raw typed errors until the application boundary, then render localized copy with `errorMessage(...)`, the exact catalogs your code can receive, and optional app-specific overrides.
+
+Do not localize by sniffing classes, loose `.code` fields, or substrings from `reason`. Diagnostic text changes; literal code catalogs are the contract.
+
+```ts title="do-not-sniff-reason.ts"
+export function getCertificateErrorMessage(error: unknown) {
+  const reason = error instanceof Error ? error.message : ""
+
+  if (reason.includes("not valid on the current date")) return "Certificado expirado"
+  if (reason.includes("Brazilian CPF or CNPJ")) {
+    return "Certificado não contém CPF ou CNPJ brasileiro"
+  }
+
+  return "Arquivo de certificado inválido"
+}
+```
+
+## Resolve at the app boundary
+
+```ts title="localized-error-message.ts"
+import { cmsErrorMessages } from "@signature-kit/cms/config"
+import { cryptoErrorMessages } from "@signature-kit/crypto/config"
+import { errorMessage } from "@signature-kit/i18n"
+import { pdfErrorMessages } from "@signature-kit/pdf/config"
+import { signatureKitErrorMessages } from "@signature-kit/signatures"
+import { xmlErrorMessages } from "@signature-kit/xml/config"
+
+const message = errorMessage(error, {
+  locale: "pt-BR",
+  catalogs: [
+    signatureKitErrorMessages,
+    pdfErrorMessages,
+    xmlErrorMessages,
+    cmsErrorMessages,
+    cryptoErrorMessages,
+  ],
+  overrides: {
+    "pt-BR": {
+      "signature-kit.WRONG_PASSWORD": "Senha do certificado incorreta",
+    },
+  },
+})
+```
+
+Pass only the catalogs reachable from that call. A PDF signing UI usually needs `signatureKitErrorMessages`, `pdfErrorMessages`, and `cmsErrorMessages`; an XML-only verifier usually needs `xmlErrorMessages` only. The resolver checks `_tag` and `code` structurally, falls back to English when the requested locale is missing, and leaves telemetry free to receive the original error value.
+
+## In React hooks
+
+`@signature-kit/react` keeps row failures as raw `PdfError`, `CmsError`, or `SignatureKitError`. Render copy when you display a row; do not replace the stored error with a string.
+
+```tsx title="row-error.tsx"
+import { cmsErrorMessages } from "@signature-kit/cms/config"
+import { errorMessage } from "@signature-kit/i18n"
+import { pdfErrorMessages } from "@signature-kit/pdf/config"
+import { signatureKitErrorMessages } from "@signature-kit/signatures"
+
+const label = errorMessage(row.error, {
+  locale: "pt-BR",
+  catalogs: [pdfErrorMessages, cmsErrorMessages, signatureKitErrorMessages],
+})
+```
+
+## Continue from here
+
+<Cards>
+  <Card title="Typed error channel" href="/docs/signing/errors">The raw error shape and SignatureKit catalog.</Card>
+  <Card title="React signing hook" href="/docs/recipes/react-signing-hook">Where hook row failures preserve typed errors.</Card>
+  <Card title="Promise boundary" href="/docs/recipes/promise-boundary">Use `Effect.result` without losing the error value.</Card>
+</Cards>

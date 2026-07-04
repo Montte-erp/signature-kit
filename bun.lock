@@ -40,6 +40,7 @@
         "@signature-kit/pdf": "^0.3.0",
         "@signature-kit/react": "^0.1.0",
         "@signature-kit/signatures": "^0.1.0",
+        "@signature-kit/xml": "^0.2.1",
         "@tanstack/react-form": "0.11.0",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
@@ -158,7 +159,7 @@
         "xmldsigjs": "2.8.7",
       },
       "devDependencies": {
-        "@signature-kit/a1": "^0.2.1",
+        "@signature-kit/a1": "^0.3.0",
         "xml-crypto": "6.1.2",
       },
     },

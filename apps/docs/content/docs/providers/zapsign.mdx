@@ -3,7 +3,9 @@ title: ZapSign
 description: "Create ZapSign PDF requests with Bearer credentials and typed SignatureKit errors."
 ---
 
-ZapSign uploads a PDF, creates the signer list, and returns the first signing URL when available. The provider owns the external ceremony; SignatureKit owns request validation and typed errors.
+**What you'll do:** create a ZapSign remote-signature request, keep credentials Redacted, and use only the lifecycle helpers exported by `@signature-kit/zapsign`.
+
+ZapSign uploads a single PDF, creates a signer list, and returns the first signing URL when available. The local schema enforces the single-PDF `application/pdf` input shape.
 
 ## Installation
 
@@ -30,35 +32,42 @@ import { Effect, Layer, Redacted } from "effect"
 export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
-    providers: Layer.merge(
-      zapSignProviders({
+    providers: zapSignProviders({
         apiToken: Redacted.make(process.env.ZAPSIGN_API_TOKEN ?? ""),
         environment: "sandbox",
-        locale: "pt-br",
-      }),
-      signatureHttpClientLive,
-    ),
+      }).pipe(
+        // effect-boundary: Alchemy StackProps.providers closes provider and transport layers. [allow-provide]
+        Layer.provide(signatureHttpClientLive),
+        Layer.orDie,
+      ),
     state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
-    return yield* ZapSignSignatureRequest("service-agreement", {
+    return yield* ZapSignSignatureRequest("contract", {
       title: "Service agreement",
-      message: "Review and sign this document.",
-      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Ada Lovelace", email: "ada@example.com", routingOrder: 1 }],
-      send: true,
+      message: "Please sign this agreement.",
+      documents: [
+        { fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 },
+      ],
+      recipients: [{ name: "Maria Souza", email: "maria@example.com", routingOrder: 1 }],
+      send: false,
     })
   }),
 ) {}
 ```
 
+## Lifecycle
 
-## Provider facts
+| Function | Supported | Notes |
+| --- | --- | --- |
+| `ZapSignSignatureRequest(id, props)` | Yes | Retained Alchemy resource. `reconcile` creates once and returns cached output on later plans. |
+| `getZapSignSignatureRequest(options, id)` | Yes | Reads the upstream request state. |
+| `listZapSignSignatureRequests(options)` | Yes | Package-level upstream list endpoint; Alchemy provider `list` returns `[]` and `nuke` is skipped. |
+| `cancelZapSignSignatureRequest(options, id)` | Yes | Uses the provider cancel endpoint for cancellable remote requests. |
+| `deleteZapSignSignatureRequest(options, id)` | Yes | Deletes the upstream request when the provider supports deletion. A missing remote is success. |
+| `downloadZapSignSignedDocument(options, id)` | Yes | Only succeeds when ZapSign exposes `signed_file`; before that it fails as `signature-kit.UNSUPPORTED_OPERATION`. |
 
-- The `environment` option accepts `"production"`, `"sandbox"`, or `"brazil"` (base URL `https://br.api.zapsign.com.br/api/v1`).
-- Accepts a single PDF per request, matching ZapSign document upload.
-- Authorization uses a Redacted bearer token.
-- Unsupported MIME types or multiple documents fail before the HTTP call.
+Create is a single-document POST; no multi-step rollback sequence is needed to compensate after a partial provider workflow. Subsequent plans reuse cached output.
 
 ## Errors
 
@@ -67,7 +76,6 @@ Invalid input, remote HTTP failures, and invalid response shapes fail as `Signat
 ## Related
 
 <Cards>
-  <Card title="Clicksign" href="/docs/providers/clicksign">v1 document + signer flow, one document per request.</Card>
-  <Card title="Assinafy" href="/docs/providers/assinafy">Document, signer, and assignment inside an account.</Card>
+  <Card title="Provider request shapes" href="/docs/providers/request-shape">Compare all provider capabilities.</Card>
   <Card title="Remote requests" href="/docs/concepts/remote-signature-requests">Why remote providers are not local Signatures backends.</Card>
 </Cards>

@@ -29,66 +29,55 @@ export function CertificateForm() {
         const file = form.get("certificate")
         const password = form.get("password")
         if (!(file instanceof File) || typeof password !== "string") return
-        await certificate.load(new Uint8Array(await file.arrayBuffer()), password)
+        await certificate.load(file, password)
       }}
     >
       <input name="certificate" type="file" accept=".pfx,.p12" />
       <input name="password" type="password" />
-      <button type="submit" disabled={certificate.status === "loading"}>Load</button>
-      {certificate.profile ? <p>{certificate.profile.subject}</p> : null}
-      {certificate.error ? <p>{certificate.error.code}</p> : null}
+      <button type="submit">Load certificate</button>
     </form>
   )
 }
 ```
 
-`load(pfx, password)` wraps the password with `Redacted.make` inside the action and stores the last valid certificate credentials only in the hook store. Persistence is intentionally absent; apps own encrypted storage and password retention policy.
+`certificate.state` carries the raw typed error when loading fails. Keep it raw until render time.
 
-## Sequential signing
+## Sequential PDF signing
 
 ```tsx title="sign-documents.tsx"
-import { useA1Signer } from "@signature-kit/react/a1"
+import { usePdfSignatureQueue } from "@signature-kit/react/browser-pdf"
 
-export function SignDocuments({ pfx, pdf }: { pfx: Uint8Array; pdf: Uint8Array }) {
-  const signer = useA1Signer()
+export function SignDocuments({ items }: { items: readonly PdfSignatureQueueItem[] }) {
+  const queue = usePdfSignatureQueue()
 
   return (
     <button
-      type="button"
-      disabled={signer.busy}
-      onClick={async () => {
-        await signer.sign({
-          documents: [
-            {
-              id: "contract",
-              name: "contract.pdf",
-              pdf,
-              anchors: {
-                matchers: [{ text: "{{signature}}" }],
-                stampSize: { width: 180, height: 54 },
-              },
-            },
-          ],
-          credentials: { pfx, password: "changeit" },
-          signing: { policy: "pades-icp-brasil", reason: "Signed with SignatureKit" },
-          stamp: {
-            badge: {
-              header: { text: "DIGITALLY SIGNED" },
-              rows: [[{ label: "Signer", value: "Current user" }]],
-              footer: [{ text: "ICP-Brasil" }, { text: "SignatureKit" }],
-            },
-            rubric: { initials: "CU" },
-          },
-        })
-      }}
+      disabled={queue.snapshot.busy}
+      onClick={() => queue.sign(items)}
     >
-      Sign {signer.rows.length} document(s)
+      Sign documents
     </button>
   )
 }
 ```
 
-Rows update in order: `pending → signing → signed | failed`. Signing runs at concurrency 1, and row failures keep the raw typed error (`PdfError`, `CmsError`, or `SignatureKitError`) so apps can call `@signature-kit/i18n` `errorMessage(...)` with their locale and catalogs.
+Rows update in order: `pending -> signing -> signed | failed`. Signing runs at concurrency 1, and row failures keep the raw typed error (`PdfError`, `CmsError`, or `SignatureKitError`) so apps can call `@signature-kit/i18n` `errorMessage(...)` with their locale and catalogs.
+
+## Localized row errors
+
+```tsx title="row-error.tsx"
+import { cmsErrorMessages } from "@signature-kit/cms/config"
+import { errorMessage } from "@signature-kit/i18n"
+import { pdfErrorMessages } from "@signature-kit/pdf/config"
+import { signatureKitErrorMessages } from "@signature-kit/signatures"
+
+const label = errorMessage(row.error, {
+  locale: "pt-BR",
+  catalogs: [signatureKitErrorMessages, pdfErrorMessages, cmsErrorMessages],
+})
+```
+
+See [Localized errors](/docs/signing/i18n) for the catalog and override pattern. Do not store `label` in queue state; store the raw error value and render the localized copy at the component boundary.
 
 ## PDF object URLs
 

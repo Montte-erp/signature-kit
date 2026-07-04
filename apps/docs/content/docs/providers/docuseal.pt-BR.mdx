@@ -1,9 +1,11 @@
 ---
 title: DocuSeal
-description: "Crie submissions de PDF na DocuSeal com credenciais X-Auth-Token e erros tipados do SignatureKit."
+description: "Crie submissões PDF DocuSeal com credenciais X-Auth-Token e erros tipados do SignatureKit."
 ---
 
-DocuSeal cria uma submissão PDF e devolve links de submitter. É uma API de request de provider, não uma layer local de signer.
+**O que você vai fazer:** criar um request remoto de assinatura DocuSeal, manter credenciais Redacted e usar apenas os helpers de lifecycle exportados por `@signature-kit/docuseal`.
+
+DocuSeal cria uma submissão PDF e devolve links de submitter. É uma API de request de provedor, não uma layer local de signer.
 
 ## Instalação
 
@@ -13,10 +15,10 @@ DocuSeal cria uma submissão PDF e devolve links de submitter. É uma API de req
 
 ## Quando usar
 
-Use DocuSeal quando um signer remoto open-source deve hospedar a submissão e coletar assinaturas. Use assinatura local quando SignatureKit precisa produzir os bytes finais.
+Use DocuSeal quando um signatário remoto open-source deve hospedar a submissão e coletar assinaturas. Use assinatura local quando o SignatureKit deve produzir os bytes finais.
 
 <Callout type="error" title="Mantenha credenciais Redacted">
-  Tokens de provider entram como `Redacted.make(...)` e são abertos apenas dentro da fronteira HTTP do pacote. Nunca passe tokens remotos para componentes React ou logs.
+  Tokens de provedor entram como `Redacted.make(...)` e são abertos apenas dentro da fronteira HTTP do pacote. Nunca passe tokens remotos para componentes React ou logs.
 </Callout>
 
 ## Request mínimo
@@ -30,35 +32,43 @@ import { Effect, Layer, Redacted } from "effect"
 export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
-    providers: Layer.merge(
-      docuSealProviders({
+    providers: docuSealProviders({
         apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
-        baseUrl: "https://api.docuseal.com",
-        sendSms: false,
         submittersOrder: "preserved",
-      }),
-      signatureHttpClientLive,
-    ),
+      }).pipe(
+        // effect-boundary: Alchemy StackProps.providers closes provider and transport layers. [allow-provide]
+        Layer.provide(signatureHttpClientLive),
+        Layer.orDie,
+      ),
     state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
-    return yield* DocuSealSignatureRequest("contrato-de-servico", {
-      title: "Contrato de serviço",
-      message: "Revise e assine este documento.",
-      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Ana Silva", email: "ada@example.com", role: "signer" }],
-      send: true,
+    return yield* DocuSealSignatureRequest("contract", {
+      title: "Contrato de prestação de serviço",
+      subject: "Assine",
+      message: "Assine este contrato.",
+      documents: [
+        { fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 },
+      ],
+      recipients: [{ name: "Maria Souza", email: "maria@example.com", role: "signer" }],
+      send: false,
     })
   }),
 ) {}
 ```
 
+## Lifecycle
 
-## Fatos do provider
+| Função | Suportada | Notas |
+| --- | --- | --- |
+| `DocuSealSignatureRequest(id, props)` | Sim | Recurso Alchemy retido. `reconcile` cria uma vez e devolve o output em cache nos planos seguintes. |
+| `getDocuSealSignatureRequest(options, id)` | Sim | Lê o estado do request upstream. |
+| `listDocuSealSignatureRequests(options)` | Sim | Endpoint upstream de listagem no pacote; o `list` do provider Alchemy devolve `[]` e `nuke` é pulado. |
+| Helper de cancelamento | Não exportado | Este pacote de provedor não expõe helper público de cancelamento. Use delete apenas quando o upstream suporta remover o request remoto. |
+| `deleteDocuSealSignatureRequest(options, id)` | Sim | Deleta o request upstream quando o provedor suporta deleção. Remoto ausente é sucesso. |
+| `downloadDocuSealSignedDocument(options, id)` | Sim | Só funciona para submissões concluídas quando URLs de documento do provedor estão presentes; caso contrário falha como `signature-kit.UNSUPPORTED_OPERATION`. |
 
-- Cria uma submissão PDF pela API do DocuSeal.
-- `send: false` cria draft sem enviar email aos submitters.
-- A ordem dos submitters pode ser preservada quando o upstream suporta.
+A criação é um único POST de submissão, então não há sequência de rollback multi-etapa para compensar após workflow parcial do provedor. Planos seguintes reutilizam o output em cache.
 
 ## Erros
 
@@ -67,7 +77,6 @@ Input inválido, falhas HTTP remotas e shapes de resposta inválidos falham como
 ## Relacionados
 
 <Cards>
-  <Card title="Clicksign" href="/docs/providers/clicksign">Fluxo v1 de documento + signatário, um documento por request.</Card>
-  <Card title="Assinafy" href="/docs/providers/assinafy">Documento, signatário e assignment dentro de uma conta.</Card>
-  <Card title="Requests remotos" href="/docs/concepts/remote-signature-requests">Por que providers remotos não são backends locais de Signatures.</Card>
+  <Card title="Shapes de request de provedores" href="/docs/providers/request-shape">Compare todas as capacidades dos provedores.</Card>
+  <Card title="Requests remotos" href="/docs/concepts/remote-signature-requests">Por que provedores remotos não são backends locais de Signatures.</Card>
 </Cards>

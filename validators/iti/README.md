@@ -49,7 +49,7 @@ const program = Effect.gen(function* () {
 
 ITI validation reports are values; malformed inputs, HTTP failures outside the documented verdict shape, and schema failures use `SignatureKitError` from `@signature-kit/signatures`. Applications can render localized copy through `@signature-kit/i18n` with `signatureKitErrorMessages`, `pdfErrorMessages`, and `cmsErrorMessages`.
 
-Docs: <https://signaturekit.dev/en-US/docs/signing/pdf>.
+Docs: <https://signaturekit.dev/en-US/docs/signing/iti>.
 
 ## License
 

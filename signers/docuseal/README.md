@@ -50,7 +50,7 @@ const options: DocuSealProviderOptions = {
 export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
-    providers: Layer.merge(docusealProviders(options), signatureHttpClientLive),
+    providers: docusealProviders(options).pipe(Layer.provide(signatureHttpClientLive), Layer.orDie),
     state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {

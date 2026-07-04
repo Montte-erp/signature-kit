@@ -1,0 +1,74 @@
+---
+title: Erros localizados
+description: "Renderize erros tipados de SignatureKit, PDF, XML, CMS, crypto e ASN.1 via @signature-kit/i18n sem inspecionar texto de reason."
+---
+
+**O que você vai fazer:** manter erros tipados brutos até a fronteira da aplicação e então renderizar cópia localizada com `errorMessage(...)`, os catálogos exatos que aquele código pode receber e overrides específicos da app quando necessário.
+
+Não localize inspecionando classes, campos `.code` soltos ou substrings de `reason`. Texto diagnóstico muda; catálogos de código literal são o contrato.
+
+```ts title="nao-inspecione-reason.ts"
+export function getCertificateErrorMessage(error: unknown) {
+  const reason = error instanceof Error ? error.message : ""
+
+  if (reason.includes("not valid on the current date")) return "Certificado expirado"
+  if (reason.includes("Brazilian CPF or CNPJ")) {
+    return "Certificado não contém CPF ou CNPJ brasileiro"
+  }
+
+  return "Arquivo de certificado inválido"
+}
+```
+
+## Resolva na fronteira da app
+
+```ts title="mensagem-de-erro-localizada.ts"
+import { cmsErrorMessages } from "@signature-kit/cms/config"
+import { cryptoErrorMessages } from "@signature-kit/crypto/config"
+import { errorMessage } from "@signature-kit/i18n"
+import { pdfErrorMessages } from "@signature-kit/pdf/config"
+import { signatureKitErrorMessages } from "@signature-kit/signatures"
+import { xmlErrorMessages } from "@signature-kit/xml/config"
+
+const message = errorMessage(error, {
+  locale: "pt-BR",
+  catalogs: [
+    signatureKitErrorMessages,
+    pdfErrorMessages,
+    xmlErrorMessages,
+    cmsErrorMessages,
+    cryptoErrorMessages,
+  ],
+  overrides: {
+    "pt-BR": {
+      "signature-kit.WRONG_PASSWORD": "Senha do certificado incorreta",
+    },
+  },
+})
+```
+
+Passe apenas os catálogos alcançáveis por aquele ponto de chamada. Uma UI de assinatura PDF normalmente precisa de `signatureKitErrorMessages`, `pdfErrorMessages` e `cmsErrorMessages`; um verificador XML isolado normalmente precisa só de `xmlErrorMessages`. O resolver verifica `_tag` e `code` estruturalmente, cai para inglês quando a locale pedida não existe e preserva o valor de erro original para telemetria.
+
+## Nos hooks React
+
+`@signature-kit/react` preserva falhas de linha como `PdfError`, `CmsError` ou `SignatureKitError` brutos. Renderize a cópia quando for exibir a linha; não substitua o erro armazenado por uma string.
+
+```tsx title="erro-da-linha.tsx"
+import { cmsErrorMessages } from "@signature-kit/cms/config"
+import { errorMessage } from "@signature-kit/i18n"
+import { pdfErrorMessages } from "@signature-kit/pdf/config"
+import { signatureKitErrorMessages } from "@signature-kit/signatures"
+
+const label = errorMessage(row.error, {
+  locale: "pt-BR",
+  catalogs: [pdfErrorMessages, cmsErrorMessages, signatureKitErrorMessages],
+})
+```
+
+## Continue a partir daqui
+
+<Cards>
+  <Card title="Canal de erro tipado" href="/docs/signing/errors">O shape bruto do erro e o catálogo SignatureKit.</Card>
+  <Card title="Hook de assinatura React" href="/docs/recipes/react-signing-hook">Onde falhas por linha preservam erros tipados.</Card>
+  <Card title="Fronteira de Promise" href="/docs/recipes/promise-boundary">Use `Effect.result` sem perder o valor de erro.</Card>
+</Cards>

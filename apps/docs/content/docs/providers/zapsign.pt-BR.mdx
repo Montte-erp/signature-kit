@@ -1,9 +1,11 @@
 ---
 title: ZapSign
-description: "Crie requests de PDF na ZapSign com credenciais Bearer e erros tipados do SignatureKit."
+description: "Crie requests PDF ZapSign com credenciais Bearer e erros tipados do SignatureKit."
 ---
 
-ZapSign faz upload do PDF, cria a lista de signatários e devolve a primeira URL de assinatura quando disponível. O provider possui a cerimônia externa; SignatureKit possui validação e erros tipados.
+**O que você vai fazer:** criar um request remoto de assinatura ZapSign, manter credenciais Redacted e usar apenas os helpers de lifecycle exportados por `@signature-kit/zapsign`.
+
+ZapSign faz upload de um único PDF, cria a lista de signatários e devolve a primeira URL de assinatura quando disponível. O schema local força o shape de um único PDF `application/pdf`.
 
 ## Instalação
 
@@ -16,7 +18,7 @@ ZapSign faz upload do PDF, cria a lista de signatários e devolve a primeira URL
 Use ZapSign quando o produto quer um link hospedado de assinatura após upload simples de PDF. Use A1/PDF local quando não há cerimônia upstream.
 
 <Callout type="error" title="Mantenha credenciais Redacted">
-  Tokens de provider entram como `Redacted.make(...)` e são abertos apenas dentro da fronteira HTTP do pacote. Nunca passe tokens remotos para componentes React ou logs.
+  Tokens de provedor entram como `Redacted.make(...)` e são abertos apenas dentro da fronteira HTTP do pacote. Nunca passe tokens remotos para componentes React ou logs.
 </Callout>
 
 ## Request mínimo
@@ -30,35 +32,42 @@ import { Effect, Layer, Redacted } from "effect"
 export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
-    providers: Layer.merge(
-      zapSignProviders({
+    providers: zapSignProviders({
         apiToken: Redacted.make(process.env.ZAPSIGN_API_TOKEN ?? ""),
         environment: "sandbox",
-        locale: "pt-br",
-      }),
-      signatureHttpClientLive,
-    ),
+      }).pipe(
+        // effect-boundary: Alchemy StackProps.providers closes provider and transport layers. [allow-provide]
+        Layer.provide(signatureHttpClientLive),
+        Layer.orDie,
+      ),
     state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
-    return yield* ZapSignSignatureRequest("contrato-de-servico", {
-      title: "Contrato de serviço",
-      message: "Revise e assine este documento.",
-      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Ana Silva", email: "ada@example.com", routingOrder: 1 }],
-      send: true,
+    return yield* ZapSignSignatureRequest("contract", {
+      title: "Contrato de prestação de serviço",
+      message: "Assine este contrato.",
+      documents: [
+        { fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 },
+      ],
+      recipients: [{ name: "Maria Souza", email: "maria@example.com", routingOrder: 1 }],
+      send: false,
     })
   }),
 ) {}
 ```
 
+## Lifecycle
 
-## Fatos do provider
+| Função | Suportada | Notas |
+| --- | --- | --- |
+| `ZapSignSignatureRequest(id, props)` | Sim | Recurso Alchemy retido. `reconcile` cria uma vez e devolve o output em cache nos planos seguintes. |
+| `getZapSignSignatureRequest(options, id)` | Sim | Lê o estado do request upstream. |
+| `listZapSignSignatureRequests(options)` | Sim | Endpoint upstream de listagem no pacote; o `list` do provider Alchemy devolve `[]` e `nuke` é pulado. |
+| `cancelZapSignSignatureRequest(options, id)` | Sim | Usa o endpoint de cancelamento do provedor para requests remotos canceláveis. |
+| `deleteZapSignSignatureRequest(options, id)` | Sim | Deleta o request upstream quando o provedor suporta deleção. Remoto ausente é sucesso. |
+| `downloadZapSignSignedDocument(options, id)` | Sim | Só funciona quando a ZapSign expõe `signed_file`; antes disso falha como `signature-kit.UNSUPPORTED_OPERATION`. |
 
-- A opção `environment` aceita `"production"`, `"sandbox"` ou `"brazil"` (base URL `https://br.api.zapsign.com.br/api/v1`).
-- Aceita um único PDF por request, como o upload de documento da ZapSign.
-- Autorização usa bearer token em `Redacted`.
-- MIME inválido ou múltiplos documentos falham antes da chamada HTTP.
+A criação é um POST de documento único; não há sequência de rollback multi-etapa para compensar após workflow parcial do provedor. Planos seguintes reutilizam o output em cache.
 
 ## Erros
 
@@ -67,7 +76,6 @@ Input inválido, falhas HTTP remotas e shapes de resposta inválidos falham como
 ## Relacionados
 
 <Cards>
-  <Card title="Clicksign" href="/docs/providers/clicksign">Fluxo v1 de documento + signatário, um documento por request.</Card>
-  <Card title="Assinafy" href="/docs/providers/assinafy">Documento, signatário e assignment dentro de uma conta.</Card>
-  <Card title="Requests remotos" href="/docs/concepts/remote-signature-requests">Por que providers remotos não são backends locais de Signatures.</Card>
+  <Card title="Shapes de request de provedores" href="/docs/providers/request-shape">Compare todas as capacidades dos provedores.</Card>
+  <Card title="Requests remotos" href="/docs/concepts/remote-signature-requests">Por que provedores remotos não são backends locais de Signatures.</Card>
 </Cards>

@@ -3,6 +3,8 @@ title: Documenso
 description: "Create Documenso v2 envelopes with multipart PDF uploads and typed SignatureKit errors."
 ---
 
+**What you'll do:** create a Documenso remote-signature request, keep credentials Redacted, and use only the lifecycle helpers exported by `@signature-kit/documenso`.
+
 Documenso creates a v2 envelope, uploads PDFs as multipart files, and can distribute the envelope when `send` is enabled.
 
 ## Installation
@@ -30,33 +32,42 @@ import { Effect, Layer, Redacted } from "effect"
 export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
-    providers: Layer.merge(
-      documensoProviders({
+    providers: documensoProviders({
         apiKey: Redacted.make(process.env.DOCUMENSO_API_KEY ?? ""),
-        baseUrl: "https://app.documenso.com/api/v2",
-      }),
-      signatureHttpClientLive,
-    ),
+        authorizationScheme: "bearer",
+      }).pipe(
+        // effect-boundary: Alchemy StackProps.providers closes provider and transport layers. [allow-provide]
+        Layer.provide(signatureHttpClientLive),
+        Layer.orDie,
+      ),
     state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
-    return yield* DocumensoSignatureRequest("service-agreement", {
+    return yield* DocumensoSignatureRequest("contract", {
       title: "Service agreement",
-      message: "Review and sign this document.",
-      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Ada Lovelace", email: "ada@example.com", role: "signer" }],
-      send: true,
+      message: "Please sign this agreement.",
+      documents: [
+        { fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 },
+      ],
+      recipients: [{ name: "Maria Souza", email: "maria@example.com", role: "signer", routingOrder: 1 }],
+      send: false,
     })
   }),
 ) {}
 ```
 
+## Lifecycle
 
-## Provider facts
+| Function | Supported | Notes |
+| --- | --- | --- |
+| `DocumensoSignatureRequest(id, props)` | Yes | Retained Alchemy resource. `reconcile` creates once and returns cached output on later plans. |
+| `getDocumensoSignatureRequest(options, id)` | Yes | Reads the upstream request state. |
+| `listDocumensoSignatureRequests(options)` | Yes | Package-level upstream list endpoint; Alchemy provider `list` returns `[]` and `nuke` is skipped. |
+| `cancelDocumensoSignatureRequest(options, id)` | Yes | Uses the provider cancel endpoint for cancellable remote requests. |
+| `deleteDocumensoSignatureRequest(options, id)` | Yes | Deletes the upstream request when the provider supports deletion. A missing remote is success. |
+| `downloadDocumensoSignedDocument(options, id)` | Yes | Only succeeds after the envelope is completed and an envelope item id is available; otherwise it fails as `signature-kit.UNSUPPORTED_OPERATION`. |
 
-- Uses the v2 envelope API with multipart file uploads.
-- `send: false` stops after creation and returns a draft request.
-- Recipient roles and signing order map to Documenso envelope fields.
+Multi-step create rollback deletes remote state only after unambiguous pre-effect 4xx failures, excluding 408, 409, 429, 5xx, timeouts, and response-shape failures.
 
 ## Errors
 
@@ -65,7 +76,6 @@ Invalid input, remote HTTP failures, and invalid response shapes fail as `Signat
 ## Related
 
 <Cards>
-  <Card title="Clicksign" href="/docs/providers/clicksign">v1 document + signer flow, one document per request.</Card>
-  <Card title="Assinafy" href="/docs/providers/assinafy">Document, signer, and assignment inside an account.</Card>
+  <Card title="Provider request shapes" href="/docs/providers/request-shape">Compare all provider capabilities.</Card>
   <Card title="Remote requests" href="/docs/concepts/remote-signature-requests">Why remote providers are not local Signatures backends.</Card>
 </Cards>

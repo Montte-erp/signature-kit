@@ -3,7 +3,9 @@ title: Clicksign
 description: "Crie requests de documento Clicksign v1 com credenciais Redacted e erros tipados do SignatureKit."
 ---
 
-Clicksign cria o documento e o signatário no upstream, opcionalmente notifica o destinatário e devolve um registro `ClicksignSignatureRequestAttributes` próprio da Clicksign. Não é backend local de `Signatures` e não muta bytes de PDF no processo.
+**O que você vai fazer:** criar um request remoto de assinatura Clicksign, manter credenciais Redacted e usar apenas os helpers de lifecycle exportados por `@signature-kit/clicksign`.
+
+Clicksign cria o documento e o signatário no upstream, opcionalmente notifica o destinatário e devolve um registro `ClicksignSignatureRequestAttributes` próprio da Clicksign. Ele não é backend local de `Signatures` e não muta bytes de PDF no processo.
 
 ## Instalação
 
@@ -13,10 +15,10 @@ Clicksign cria o documento e o signatário no upstream, opcionalmente notifica o
 
 ## Quando usar
 
-Use Clicksign quando a cerimônia, lembretes e trilha de auditoria vivem na Clicksign. Use assinatura A1/PDF local quando o app precisa produzir os bytes assinados diretamente.
+Use Clicksign quando a cerimônia de assinatura, lembretes e trilha de auditoria vivem na Clicksign. Use assinatura local A1/PDF quando sua app precisa produzir os bytes assinados diretamente.
 
 <Callout type="error" title="Mantenha credenciais Redacted">
-  Tokens de provider entram como `Redacted.make(...)` e são abertos apenas dentro da fronteira HTTP do pacote. Nunca passe tokens remotos para componentes React ou logs.
+  Tokens de provedor entram como `Redacted.make(...)` e são abertos apenas dentro da fronteira HTTP do pacote. Nunca passe tokens remotos para componentes React ou logs.
 </Callout>
 
 ## Request mínimo
@@ -30,35 +32,43 @@ import { Effect, Layer, Redacted } from "effect"
 export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
-    providers: Layer.merge(
-      clicksignProviders({
-        accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
+    providers: clicksignProviders({
+        accessToken: Redacted.make(process.env.CLICKSIGN_ACCESS_TOKEN ?? ""),
         environment: "sandbox",
-        locale: "pt-BR",
         autoClose: true,
-      }),
-      signatureHttpClientLive,
-    ),
+      }).pipe(
+        // effect-boundary: Alchemy StackProps.providers closes provider and transport layers. [allow-provide]
+        Layer.provide(signatureHttpClientLive),
+        Layer.orDie,
+      ),
     state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
-    return yield* ClicksignSignatureRequest("contrato-de-servico", {
-      title: "Contrato de serviço",
+    return yield* ClicksignSignatureRequest("contract", {
+      title: "Contrato de prestação de serviço",
       message: "Revise e assine este documento.",
-      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Ana Silva", email: "ada@example.com", role: "signer" }],
+      documents: [
+        { fileName: "contract.pdf", contentBase64: pdfBase64, mimeType: "application/pdf" },
+      ],
+      recipients: [{ name: "Maria Souza", email: "maria@example.com", role: "signer" }],
       send: true,
     })
   }),
 ) {}
 ```
 
+## Lifecycle
 
-## Fatos do provider
+| Função | Suportada | Notas |
+| --- | --- | --- |
+| `ClicksignSignatureRequest(id, props)` | Sim | Recurso Alchemy retido. `reconcile` cria uma vez e devolve o output em cache nos planos seguintes. |
+| `getClicksignSignatureRequest(options, id)` | Sim | Lê o estado do request upstream. |
+| `listClicksignSignatureRequests(options)` | Sim | Endpoint upstream de listagem no pacote; o `list` do provider Alchemy devolve `[]` e `nuke` é pulado. |
+| `cancelClicksignSignatureRequest(options, id)` | Sim | Usa o endpoint de cancelamento do provedor para requests remotos canceláveis. |
+| `deleteClicksignSignatureRequest(options, id)` | Sim | Deleta o request upstream quando o provedor suporta deleção. Remoto ausente é sucesso. |
+| `downloadClicksignSignedDocument(options, id)` | Sim | Só funciona quando a Clicksign expõe URL de arquivo assinado no estado concluído. Antes disso falha como `signature-kit.UNSUPPORTED_OPERATION`. |
 
-- Fluxo v1 cria documento, signatário e notificação opcional.
-- Um documento por request; o schema de props é uma tupla de documento único, então passar mais de um documento falha na decodificação do schema como `signature-kit.INVALID_INPUT`.
-- O token é aberto apenas na fronteira HTTP do pacote.
+Rollback de recurso retido é conservador: cleanup de criação multi-etapa só deleta estado remoto depois de falhas 4xx inequívocas antes do efeito externo final. Ele não faz rollback depois de 408, 409, 429, 5xx, timeouts, falhas de shape de resposta ou depois de efeitos de notificação.
 
 ## Erros
 
@@ -67,7 +77,6 @@ Input inválido, falhas HTTP remotas e shapes de resposta inválidos falham como
 ## Relacionados
 
 <Cards>
-  <Card title="Assinafy" href="/docs/providers/assinafy">Documento, signatário e assignment dentro de uma conta.</Card>
-  <Card title="ZapSign" href="/docs/providers/zapsign">Upload PDF com Bearer token e primeira URL de assinatura.</Card>
-  <Card title="Requests remotos" href="/docs/concepts/remote-signature-requests">Por que providers remotos não são backends locais de Signatures.</Card>
+  <Card title="Shapes de request de provedores" href="/docs/providers/request-shape">Compare todas as capacidades dos provedores.</Card>
+  <Card title="Requests remotos" href="/docs/concepts/remote-signature-requests">Por que provedores remotos não são backends locais de Signatures.</Card>
 </Cards>

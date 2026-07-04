@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import defaultMdxComponents from "fumadocs-ui/mdx";
 import { Tab, Tabs } from "fumadocs-ui/components/tabs";
 import { Step, Steps } from "fumadocs-ui/components/steps";
@@ -7,8 +8,27 @@ import { File, Files, Folder } from "fumadocs-ui/components/files";
 import { Callout } from "fumadocs-ui/components/callout";
 import { Card, Cards } from "fumadocs-ui/components/card";
 import type { MDXComponents } from "mdx/types";
+import { localePath } from "@/lib/links";
 import { ErrorCatalog } from "./error-catalog";
 import { Mermaid } from "./mermaid";
+
+function LocalizedCard({
+  title,
+  href,
+  description,
+  children,
+}: {
+  readonly title: string;
+  readonly href: string;
+  readonly description?: string;
+  readonly children?: ReactNode;
+}) {
+  return (
+    <Card title={title} href={localePath(href)} description={description}>
+      {children}
+    </Card>
+  );
+}
 
 export function getMDXComponents(components?: MDXComponents): MDXComponents {
   return {
@@ -26,6 +46,7 @@ export function getMDXComponents(components?: MDXComponents): MDXComponents {
     Callout,
     Card,
     Cards,
+    LocalizedCard,
     ErrorCatalog,
     Mermaid,
     ...components,

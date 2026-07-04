@@ -3,6 +3,8 @@ title: Browser PDF flow
 description: "Read a PDF, build the A1 signature placement template, and sign with the browser helpers."
 ---
 
+**What you'll do:** read PDF bytes from a browser file, build a validated signature placement state, keep UI state outside React render, and sign the selected field with the A1 layer at the user-action boundary.
+
 The browser helpers are the typed bridge between a file input and the PDF builder state. They keep byte handling in `Effect`, produce a validated placement template, and sign the selected field with the provided A1 layer.
 
 ## Steps
@@ -61,5 +63,5 @@ Use `signPdfSignatureBatch(items, callbacks)` when one A1 certificate signs many
 
 <Cards>
   <Card title="PDF/PAdES" href="/docs/signing/pdf">Detached CMS signing and placeholder sizing for PDF documents.</Card>
-  <Card title="Live A1 demo" href="/pt-BR/assine-documentos-gratis">Run the existing browser signer with the same boundary.</Card>
+  <LocalizedCard title="Live A1 demo" href="/assine-documentos-gratis">Run the existing browser signer with the same boundary.</LocalizedCard>
 </Cards>

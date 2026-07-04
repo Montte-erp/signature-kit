@@ -1,0 +1,116 @@
+---
+title: ITI validation
+description: "Run local ICP-Brasil PAdES AD-RB conformance checks and, when needed, submit the signed PDF to the official Validar ITI endpoint."
+---
+
+**What you'll do:** pre-check a signed PDF with `validatePdfConformance`, understand the report vocabulary, and optionally submit the same bytes with `validatePdfWithIti` to `validar.iti.gov.br`.
+
+`@signature-kit/iti` validates the profile that matters for ICP-Brasil PAdES AD-RB PDFs. It does not sign; it reads the finished PDF and returns reports as values. Malformed inputs, transport failures outside the documented ITI verdict shapes, and schema failures still use `SignatureKitError` in the Effect error channel.
+
+## Install
+
+```package-install
+@signature-kit/iti @signature-kit/http @signature-kit/pdf
+```
+
+## Local conformance pre-check
+
+`validatePdfConformance({ pdf, trustedRoots? })` runs offline. It extracts the PDF signatures, verifies the PDF byte range and CMS cryptography through `verifyPdf` / CMS verification, inspects signed attributes, and returns an `ItiConformanceReport`.
+
+```ts title="iti-local.ts"
+import { validatePdfConformance } from "@signature-kit/iti/conformance"
+import { Effect } from "effect"
+
+const report = await Effect.runPromise(
+  validatePdfConformance({
+    pdf: signedPdf,
+    // Optional: DER root certificates you trust for chain validation.
+    trustedRoots,
+  }),
+)
+
+report.validator       // "iti.conformance"
+report.standard        // "PA_PAdES_AD_RB_v1_1"
+report.approved        // boolean
+report.outcome         // "approved" | "rejected"
+report.signatureCount  // number
+```
+
+The local checker verifies these AD-RB facts:
+
+- mandatory signed attributes: `IdMessageDigest`, `IdContentType`, `IdAaEtsSigPolicyId`, and `IdAaSigningCertificateV2`;
+- prohibited CMS `signingTime` for `PA_PAdES_AD_RB_v1_1`;
+- the AD-RB policy OID `2.16.76.1.7.1.11.1.1` at the `sigPolicyId` position — not merely inside a qualifier;
+- PDF signature dictionary coverage: the first byte range starts at zero and the newest signature covers the file end;
+- byte-range integrity and CMS cipher/digest validity through `verifyPdf` and CMS verification;
+- certification-path status only when you pass `trustedRoots`.
+
+<Callout type="warn" title="trustedRoots gates chain approval">
+  Without `trustedRoots`, `certificationPath` is `"not_checked"`. A report can still be structurally approved locally, but you have not proven the signer chains to a root you trust.
+</Callout>
+
+## Remote ITI client
+
+`validatePdfWithIti(input)` submits a multipart form to `https://validar.iti.gov.br/arquivo`. It accepts a source union: pass bytes with `{ source: { pdf } }`, or ask the shared `SignatureHttpClient` to fetch bytes first with `{ source: { url } }`.
+
+```ts title="iti-remote.ts"
+import { signatureHttpClientLive } from "@signature-kit/http"
+import { validatePdfWithIti } from "@signature-kit/iti/remote"
+import { Effect } from "effect"
+
+const remote = await Effect.runPromise(
+  validatePdfWithIti({
+    source: { pdf: signedPdf },
+    fileName: "service-agreement.pdf",
+  }).pipe(Effect.provide(signatureHttpClientLive)),
+)
+
+const fromUrl = await Effect.runPromise(
+  validatePdfWithIti({
+    source: { url: "https://example.com/service-agreement.pdf" },
+    fileName: "service-agreement.pdf",
+  }).pipe(Effect.provide(signatureHttpClientLive)),
+)
+```
+
+The multipart field is `signature_files[]` with `Content-Type: application/pdf`. The remote report always embeds the local conformance report as `conformance`; verifier-report responses also expose `localConformance` for compatibility with code that wants to name the local pass explicitly.
+
+## Report vocabulary
+
+| Report | `validator` | `outcome` | `approved` | Notes |
+| --- | --- | --- | --- | --- |
+| Local conformance | `"iti.conformance"` | `"approved"` or `"rejected"` | boolean | Contains `signatures[]`, each with `structure`, `cipher`, `digest`, `certificationPath`, `policyOid`, and `attributes[]`. |
+| Remote verifier | `"iti.remote"` | `"approved"`, `"rejected"`, or `"unknown"` | boolean | Preserves `rawVerifierReport`; `remoteOutcome`/`remoteApproved` appear only when ITI exposes a recognizable verdict. |
+| Untrusted certificate | `"iti.remote"` | `"untrusted_certificate"` | `false` | ITI returned the documented HTTP 406 shape. See below. |
+
+Attribute statuses use the ITI-shaped vocabulary `"Valid"`, `"Invalid"`, and `"NotChecked"`. Certification path status is `"valid"`, `"invalid"`, or `"not_checked"`.
+
+## 406 means untrusted certificate, not transport failure
+
+The official endpoint can return HTTP 406 for a structurally valid signature whose certificate is not trusted by ITI — common with test certificates and local fixtures. SignatureKit accepts 406 for this endpoint and returns a value:
+
+```ts title="untrusted-certificate.ts"
+remote.outcome   // "untrusted_certificate"
+remote.approved  // false
+remote.errorCode // 406
+remote.hash      // string from ITI
+remote.name      // verifier name from ITI
+```
+
+That result is different from `signature-kit.HTTP`: the request succeeded, and the official validator gave a business verdict.
+
+## Errors you might see
+
+<Cards>
+  <Card title="signature-kit.INVALID_INPUT" href="/docs/signing/errors#err-INVALID_INPUT">The local or remote input did not match the Schema contract.</Card>
+  <Card title="signature-kit.RESPONSE_SHAPE" href="/docs/signing/errors#err-RESPONSE_SHAPE">The remote endpoint returned JSON outside the supported `verifierReport` or 406 untrusted-certificate shapes.</Card>
+  <Card title="signature-kit.HTTP" href="/docs/signing/errors#err-HTTP">The URL source download or ITI submission failed outside the accepted verdict statuses.</Card>
+</Cards>
+
+## Continue from here
+
+<Cards>
+  <Card title="PDF/PAdES" href="/docs/signing/pdf">Generate the AD-RB signature that ITI expects.</Card>
+  <Card title="Legal validity" href="/docs/concepts/legal-validity">Understand verification, ICP-Brasil presumption, and what SignatureKit does not decide.</Card>
+  <Card title="Localized errors" href="/docs/signing/i18n">Render `SignatureKitError`, `PdfError`, and `CmsError` with the right catalogs.</Card>
+</Cards>

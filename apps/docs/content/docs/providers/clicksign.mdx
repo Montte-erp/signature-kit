@@ -3,6 +3,8 @@ title: Clicksign
 description: "Create Clicksign v1 document requests with Redacted credentials and typed SignatureKit errors."
 ---
 
+**What you'll do:** create a Clicksign remote-signature request, keep credentials Redacted, and use only the lifecycle helpers exported by `@signature-kit/clicksign`.
+
 Clicksign creates the upstream document and signer, optionally notifies the recipient, then returns a Clicksign-owned `ClicksignSignatureRequestAttributes` record. It is not a local `Signatures` backend and it does not mutate PDF bytes in-process.
 
 ## Installation
@@ -30,35 +32,43 @@ import { Effect, Layer, Redacted } from "effect"
 export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
-    providers: Layer.merge(
-      clicksignProviders({
-        accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
+    providers: clicksignProviders({
+        accessToken: Redacted.make(process.env.CLICKSIGN_ACCESS_TOKEN ?? ""),
         environment: "sandbox",
-        locale: "pt-BR",
         autoClose: true,
-      }),
-      signatureHttpClientLive,
-    ),
+      }).pipe(
+        // effect-boundary: Alchemy StackProps.providers closes provider and transport layers. [allow-provide]
+        Layer.provide(signatureHttpClientLive),
+        Layer.orDie,
+      ),
     state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
-    return yield* ClicksignSignatureRequest("service-agreement", {
+    return yield* ClicksignSignatureRequest("contract", {
       title: "Service agreement",
-      message: "Review and sign this document.",
-      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Ada Lovelace", email: "ada@example.com", role: "signer" }],
+      message: "Please review and sign this document.",
+      documents: [
+        { fileName: "contract.pdf", contentBase64: pdfBase64, mimeType: "application/pdf" },
+      ],
+      recipients: [{ name: "Maria Souza", email: "maria@example.com", role: "signer" }],
       send: true,
     })
   }),
 ) {}
 ```
 
+## Lifecycle
 
-## Provider facts
+| Function | Supported | Notes |
+| --- | --- | --- |
+| `ClicksignSignatureRequest(id, props)` | Yes | Retained Alchemy resource. `reconcile` creates once and returns cached output on later plans. |
+| `getClicksignSignatureRequest(options, id)` | Yes | Reads the upstream request state. |
+| `listClicksignSignatureRequests(options)` | Yes | Package-level upstream list endpoint; Alchemy provider `list` returns `[]` and `nuke` is skipped. |
+| `cancelClicksignSignatureRequest(options, id)` | Yes | Uses the provider cancel endpoint for cancellable remote requests. |
+| `deleteClicksignSignatureRequest(options, id)` | Yes | Deletes the upstream request when the provider supports deletion. A missing remote is success. |
+| `downloadClicksignSignedDocument(options, id)` | Yes | Only succeeds when Clicksign exposes a signed-file URL in the completed state. Before that it fails as `signature-kit.UNSUPPORTED_OPERATION`. |
 
-- v1 flow creates a document, signer, and optional notification.
-- One document per request; the props schema is a single-document tuple, so passing more than one document fails at schema decode time as `signature-kit.INVALID_INPUT`.
-- The access token is unwrapped only inside the package HTTP boundary.
+Retained-resource rollback is conservative: multi-step create cleanup deletes remote state only after unambiguous pre-effect 4xx failures. It does not roll back after 408, 409, 429, 5xx, timeouts, response-shape failures, or after notification side effects.
 
 ## Errors
 
@@ -67,7 +77,6 @@ Invalid input, remote HTTP failures, and invalid response shapes fail as `Signat
 ## Related
 
 <Cards>
-  <Card title="Assinafy" href="/docs/providers/assinafy">Document, signer, and assignment inside an account.</Card>
-  <Card title="ZapSign" href="/docs/providers/zapsign">Bearer-token PDF upload with first signing URL.</Card>
+  <Card title="Provider request shapes" href="/docs/providers/request-shape">Compare all provider capabilities.</Card>
   <Card title="Remote requests" href="/docs/concepts/remote-signature-requests">Why remote providers are not local Signatures backends.</Card>
 </Cards>

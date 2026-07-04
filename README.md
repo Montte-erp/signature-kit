@@ -98,8 +98,9 @@ More registry items are listed in the React components recipe.
 
 - Docs site: <https://signaturekit.dev/en-US/docs>
 - Quick start: <https://signaturekit.dev/en-US/docs/get-started/quickstart>
-- A1 browser PDF flow: <https://signaturekit.dev/en-US/docs/a1-signing/browser-pdf-flow>
+- A1 browser PDF flow: <https://signaturekit.dev/en-US/docs/signing/browser-pdf-flow>
 - PDF signing: <https://signaturekit.dev/en-US/docs/signing/pdf>
+- ITI validation: <https://signaturekit.dev/en-US/docs/signing/iti>
 - XML signing: <https://signaturekit.dev/en-US/docs/signing/xml>
 - Remote providers: <https://signaturekit.dev/en-US/docs/concepts/remote-signature-requests>
 - Error handling: <https://signaturekit.dev/en-US/docs/signing/errors>

@@ -10,9 +10,9 @@ SignatureKit has one signing boundary: the `Signatures` Effect service. Start wi
 
 <Cards>
   <Card title="Install A1" href="/docs/get-started/installation" description="Add the Effect runtime, the core Signatures service, and the PKCS#12 signer." />
-  <Card title="First signature" href="/docs/get-started/quickstart" description="Load an A1 certificate, inspect the identity, sign bytes, and verify the result." />
+  <Card title="First signature" href="/docs/get-started/quickstart" description="Load an A1 certificate, inspect the identity, sign bytes, validate a PDF, and verify the result." />
   <Card title="PDF/PAdES" href="/docs/signing/pdf" description="Sign PDFs by placing a detached CMS signature into a PDF placeholder." />
-  <Card title="Browser PDF flow" href="/docs/a1-signing/browser-pdf-flow" description="Read PDF bytes, render placement UI, and provide the A1 layer only at the action boundary." />
+  <Card title="Browser PDF flow" href="/docs/signing/browser-pdf-flow" description="Read PDF bytes, render placement UI, and provide the A1 layer only at the action boundary." />
 </Cards>
 
 ## One boundary
@@ -68,6 +68,8 @@ The program knows the contract, not the key location. Browser A1, server A1, XML
 
 <Cards>
   <Card title="PDF/PAdES" href="/docs/signing/pdf" description="Detached CMS signing and placeholder sizing for PDF documents." />
+  <Card title="ITI validation" href="/docs/signing/iti" description="Local AD-RB conformance pre-checks plus the official Validar ITI client." />
+  <Card title="Legal validity" href="/docs/concepts/legal-validity" description="Brazilian signature levels, ICP-Brasil presumption, A1/A3, and verification limits." />
   <Card title="XML-DSig" href="/docs/signing/xml" description="XML mutation through an explicit XmlRuntime dependency." />
   <Card title="Provider APIs" href="/docs/providers/request-shape" description="Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso as explicit upstream request packages." />
   <Card title="Error catalog" href="/docs/signing/errors" description="Literal error codes and the metadata preserved at each failure point." />
@@ -76,9 +78,3 @@ The program knows the contract, not the key location. Browser A1, server A1, XML
 ```package-install
 @signature-kit/signatures @signature-kit/a1
 ```
-
-<Callout type="warn" title="Local checks are not legal validity">
-  `verifyXml`, `verifyPdf`, and `signatures.verify` confirm the cryptography against the key in the
-  document — not legal validity. Verify with your own ICP-Brasil trust chain and policy before
-  treating a signed document as valid.
-</Callout>

@@ -51,7 +51,7 @@ const options: ZapSignProviderOptions = {
 export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
-    providers: Layer.merge(zapsignProviders(options), signatureHttpClientLive),
+    providers: zapsignProviders(options).pipe(Layer.provide(signatureHttpClientLive), Layer.orDie),
     state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {

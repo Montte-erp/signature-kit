@@ -3,6 +3,7 @@
   "icon": "Lightbulb",
   "pages": [
     "mental-model",
+    "legal-validity",
     "signer-boundary",
     "effect-runtime",
     "document-formats",

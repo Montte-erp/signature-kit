@@ -1,35 +1,36 @@
 ---
 title: Primeiro Uso
-description: "Carregue um certificado A1, inspecione a identidade e assine seus primeiros bytes — depois um XML e um PDF — em um único programa Effect."
+description: "Carregue um certificado A1, inspecione a identidade, assine bytes e depois assine e valide um PDF pronto para o ITI no mesmo caminho Effect."
 ---
 
-**O que você vai fazer:** montar um programa Effect que carrega o certificado A1, lê a identidade, assina e verifica bytes — depois assina um XML e um PDF reaproveitando a mesma camada de assinatura.
+**O que você vai fazer:** montar um programa Effect que carrega o certificado A1, lê a identidade, assina e verifica bytes — depois assina um PDF com a política AD-RB ICP-Brasil e valida localmente antes de um envio oficial opcional ao ITI.
 
 <Steps>
   <Step title="Instalar">
-    Adicione a camada de assinatura central e o signer A1. Inclua `effect` para o runtime do `Effect` e o `Redacted`.
+    Adicione a fronteira central, o signer A1, os formatos PDF/XML, o validador ITI, o cliente HTTP compartilhado e `effect` para o runtime do `Effect` e o `Redacted`.
 
     ```bash
-    bun add @signature-kit/signatures @signature-kit/a1 effect
+    bun add @signature-kit/signatures @signature-kit/a1 @signature-kit/pdf @signature-kit/xml @signature-kit/iti @signature-kit/http effect
     ```
   </Step>
 
   <Step title="Carregue o A1, inspecione, assine e verifique">
-    O `a1SignaturesLayer` recebe os bytes do `.pfx` e a senha em `Redacted` e fornece o serviço `Signatures`. Dentro de um único `Effect.gen`, o `signatures.inspect()` retorna um `SignerIdentity` normalizado — o `document` traz o e-CPF ou o e-CNPJ quando presente — e então `signatures.sign` e `signatures.verify` rodam sobre a mesma camada de assinatura. O `verify` retorna um valor: `result.valid` é um `boolean`, e uma falha real surge como um `SignatureKitError` no canal de erro, nunca uma exceção lançada.
+    O `a1SignaturesLayer` recebe os bytes do `.pfx` e a senha em `Redacted` e fornece o serviço `Signatures`. Dentro de um único `Effect.gen`, o `signatures.inspect()` retorna um `SignerIdentity` normalizado — o `document` traz o e-CPF ou o e-CNPJ quando presente — e então `signatures.sign` e `signatures.verify` rodam sobre a mesma fronteira. O `verify` retorna um valor: `result.valid` é um `boolean`, e uma falha real surge como um `SignatureKitError` no canal de erro, nunca uma exceção lançada.
 
     <Callout type="error" title="Os bytes do .pfx, não o caminho">
       `pfx` é um `Uint8Array` com o conteúdo binário do `.pfx`/`.p12` — não a string com o caminho do arquivo. Mantenha esses bytes e a senha fora de logs e do controle de versão.
     </Callout>
 
-    ```ts title="quickstart.ts"
+    ```ts title="quickstart.node.ts"
+    import { readFileSync } from "node:fs"
     import { a1SignaturesLayer } from "@signature-kit/a1/signer"
     import { signatures } from "@signature-kit/signatures"
     import { Effect, Redacted } from "effect"
 
-    const layer = a1SignaturesLayer({
-      pfx,                                          // Uint8Array — bytes do .pfx/.p12
-      password: Redacted.make(process.env.A1_PASSWORD ?? ""),
-    })
+    const pfx = new Uint8Array(readFileSync("certificates/a1.pfx"))
+    const password = Redacted.make(process.env.A1_PASSWORD ?? "")
+
+    const layer = a1SignaturesLayer({ pfx, password })
 
     export const program = Effect.gen(function* () {
       // identidade normalizada — identity.document traz e-CPF / e-CNPJ
@@ -64,25 +65,47 @@ description: "Carregue um certificado A1, inspecione a identidade e assine seus 
   </Step>
 
   <Step title="Assine XML e PDF">
-    Ambos os formatos consomem a mesma camada de assinatura via `Effect.provide`; a linha do `layer` é idêntica à da etapa anterior. O XML também precisa do `xmlRuntimeLayer`; `verifyXml` / `verifyPdf` leem a chave pública do documento e não exigem a camada de assinatura.
+    Ambos os formatos consomem a mesma fronteira via `Effect.provide`; a linha do `layer` é idêntica à etapa anterior. O XML também precisa do `xmlRuntimeLayer`; `verifyXml` / `verifyPdf` leem a chave pública do documento e não exigem a fronteira de assinatura.
 
     ```ts title="documents.ts"
     import { signXml } from "@signature-kit/xml/sign"
     import { xmlRuntimeLayer } from "@signature-kit/xml/runtime"
     import { signPdf } from "@signature-kit/pdf/sign"
-    import { a1SignaturesLayer } from "@signature-kit/a1/signer"
-    import { Effect, Redacted } from "effect"
-
-    const layer = a1SignaturesLayer({
-      pfx,                                          // Uint8Array — bytes do .pfx/.p12
-      password: Redacted.make(process.env.A1_PASSWORD ?? ""),
-    })
+    import { Effect } from "effect"
 
     const signedXml = signXml({ xml, referenceId: "nfe-1" })
       .pipe(Effect.provide(layer), Effect.provide(xmlRuntimeLayer))
 
-    const signedPdf = signPdf({ pdf, policy: "pades-icp-brasil" })
-      .pipe(Effect.provide(layer))
+    const signedPdf = signPdf({
+      pdf,
+      policy: "pades-icp-brasil",
+      name: "Maria Souza",
+    }).pipe(Effect.provide(layer))
+    ```
+  </Step>
+
+  <Step title="Valide o PDF assinado">
+    Feche o ciclo antes de entregar o arquivo. `validatePdfConformance` checa a estrutura AD-RB offline; `validatePdfWithIti` opcionalmente envia os mesmos bytes ao endpoint oficial do Validar. Passe `trustedRoots` quando quiser validação local da cadeia; sem raízes, o caminho de certificação vem como `"not_checked"`.
+
+    ```ts title="validate-pdf.ts"
+    import { signatureHttpClientLive } from "@signature-kit/http"
+    import { validatePdfConformance } from "@signature-kit/iti/conformance"
+    import { validatePdfWithIti } from "@signature-kit/iti/remote"
+    import { Effect } from "effect"
+
+    const validation = Effect.gen(function* () {
+      const local = yield* validatePdfConformance({
+        pdf: signedPdf,
+        trustedRoots,
+      })
+
+      const remote = yield* validatePdfWithIti({
+        source: { pdf: signedPdf },
+        fileName: "signed.pdf",
+      })
+
+      return { local, remote }
+    }).pipe(Effect.provide(signatureHttpClientLive))
     ```
   </Step>
 </Steps>
@@ -90,18 +113,18 @@ description: "Carregue um certificado A1, inspecione a identidade e assine seus 
 ## Erros que você pode encontrar
 
 <Callout type="warn" title="Senha do certificado incorreta">
-  Se a senha do `.pfx` estiver errada, a camada de assinatura falha com [`signature-kit.WRONG_PASSWORD`](/docs/signing/errors#error-catalog) no canal de erro — e não com uma exceção. Verifique o segredo antes de prosseguir.
+  Se a senha do `.pfx` estiver errada, a fronteira falha com [`signature-kit.WRONG_PASSWORD`](/docs/signing/errors#err-WRONG_PASSWORD) no canal de erro — e não com uma exceção. Verifique o segredo antes de prosseguir.
 </Callout>
 
-- [`signature-kit.WRONG_PASSWORD`](/docs/signing/errors#error-catalog) — senha do certificado incorreta.
-- [`signature-kit.SIGN_FAILED`](/docs/signing/errors#error-catalog) — falha ao assinar o conteúdo.
-- [`signature-kit.VERIFY_FAILED`](/docs/signing/errors#error-catalog) — falha ao verificar a assinatura.
+- [`signature-kit.WRONG_PASSWORD`](/docs/signing/errors#err-WRONG_PASSWORD) — senha do certificado incorreta.
+- [`signature-kit.SIGN_FAILED`](/docs/signing/errors#err-SIGN_FAILED) — falha ao assinar o conteúdo.
+- [`signature-kit.VERIFY_FAILED`](/docs/signing/errors#err-VERIFY_FAILED) — falha ao verificar a assinatura.
 
 ## Leitura complementar
 
 <Cards>
-  <Card title="A camada de assinatura" href="/docs/signing/signers">O SignerAdapter: a junção por onde o poder de assinar entra.</Card>
-  <Card title="XML-DSig & PDF/PAdES" href="/docs/signing/xml">Assine NF-e e PDFs PAdES reaproveitando a mesma camada de assinatura A1.</Card>
-  <Card title="Certificados A1" href="/docs/signing/certificates">PKCS#12, X.509 e identidade ICP-Brasil (e-CPF / e-CNPJ).</Card>
+  <Card title="A fronteira de assinatura" href="/docs/signing/signers">O SignerAdapter: a junção por onde o poder de assinar entra.</Card>
+  <Card title="PDF/PAdES" href="/docs/signing/pdf">Assine PDFs PAdES reaproveitando a mesma fronteira A1.</Card>
+  <Card title="Validação ITI" href="/docs/signing/iti">Pré-valide conformidade AD-RB e chame o validador oficial do ITI.</Card>
   <Card title="Canal de erro tipado" href="/docs/signing/errors">O SignatureKitError e o catálogo de códigos literais.</Card>
 </Cards>

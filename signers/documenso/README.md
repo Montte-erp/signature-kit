@@ -50,7 +50,10 @@ const options: DocumensoProviderOptions = {
 export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
-    providers: Layer.merge(documensoProviders(options), signatureHttpClientLive),
+    providers: documensoProviders(options).pipe(
+      Layer.provide(signatureHttpClientLive),
+      Layer.orDie,
+    ),
     state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {

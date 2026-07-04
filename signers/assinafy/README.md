@@ -53,7 +53,7 @@ const options: AssinafyProviderOptions = {
 export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
-    providers: Layer.merge(assinafyProviders(options), signatureHttpClientLive),
+    providers: assinafyProviders(options).pipe(Layer.provide(signatureHttpClientLive), Layer.orDie),
     state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {

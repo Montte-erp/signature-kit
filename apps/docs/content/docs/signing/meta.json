@@ -1,11 +1,14 @@
 {
-  "title": "Signers",
+  "title": "Signing",
   "icon": "PenTool",
   "pages": [
     "signers",
     "certificates",
     "pdf",
+    "iti",
     "xml",
-    "errors"
+    "browser-pdf-flow",
+    "errors",
+    "i18n"
   ]
 }

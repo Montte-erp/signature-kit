@@ -1,0 +1,57 @@
+---
+title: Validade jurídica
+description: "Como níveis de assinatura no Brasil, certificados ICP-Brasil, A1/A3, política PAdES e verificação se encaixam."
+---
+
+**O que você vai fazer:** posicionar as garantias técnicas do SignatureKit dentro do modelo jurídico brasileiro sem fingir que código sozinho decide validade jurídica.
+
+Esta página é contexto de engenharia, não aconselhamento jurídico. Consulte seu jurídico antes de decidir se um fluxo atende a uma lei, tribunal, regulador ou contrato com cliente.
+
+## Níveis de assinatura na Lei 14.063/2020
+
+A lei brasileira separa três níveis amplos de assinatura eletrônica:
+
+| Nível | O que significa | Modelo comum de confiança |
+| --- | --- | --- |
+| Simples | Identifica o signatário ou associa dados a ele. | Login, link por email, evidência de dispositivo/sessão, trilha de auditoria do provedor. |
+| Avançada | Identifica o signatário, usa dados sob controle exclusivo dele e detecta alterações posteriores. | Prova de identidade forte mais controles criptográficos ou de provedor fora da ICP-Brasil. |
+| Qualificada | Usa certificado digital ICP-Brasil. | Certificado ICP-Brasil e política de assinatura compatível. |
+
+A MP 2.200-2/2001 criou a ICP-Brasil e dá às assinaturas com certificado ICP-Brasil uma presunção forte de autenticidade e integridade. Essa presunção é contexto jurídico; seu sistema ainda precisa tratar poderes do signatário, consentimento, trilha de auditoria, escopo do documento e retenção.
+
+## A1 vs A3
+
+A1 e A3 são modelos de guarda da chave, não níveis jurídicos diferentes por si só.
+
+- A1: a chave privada fica em um arquivo PKCS#12 protegido por senha (`.pfx` / `.p12`). O SignatureKit suporta A1 localmente via `@signature-kit/a1`.
+- A3: a chave privada fica em hardware ou em um serviço remoto qualificado. Um signer futuro de A3/HSM pode satisfazer o mesmo serviço `Signatures` sem mover código de PDF/XML.
+
+## Onde `pades-icp-brasil` + A1 se encaixa
+
+Quando você assina um PDF com certificado A1 ICP-Brasil e `policy: "pades-icp-brasil"`, o SignatureKit monta um perfil PAdES AD-RB com os metadados fixos da PA_PAdES_AD_RB_v1_1. No vocabulário da Lei 14.063/2020, esse é o caminho técnico usado para uma assinatura eletrônica qualificada quando o certificado pertence ao signatário e o processo ao redor é válido.
+
+```ts title="pades-qualificada.ts"
+import { signPdf } from "@signature-kit/pdf/sign"
+
+const signed = signPdf({
+  pdf,
+  policy: "pades-icp-brasil",
+  name: "Maria Souza",
+}).pipe(Effect.provide(a1SignaturesLayer({ pfx, password })))
+```
+
+## Verificação não é a mesma coisa que validade jurídica
+
+`verifyPdf`, `validatePdfConformance` e `validatePdfWithIti` respondem perguntas técnicas: cobertura criptográfica, atributos CMS, OID da política, checagem de cadeia quando raízes são fornecidas e o veredito atual do validador oficial. Eles não respondem se o signatário tinha poderes, consentiu com aquele documento, usou o certificado sob mandato válido ou se o fluxo ao redor atende um requisito jurídico específico.
+
+<Callout type="warn" title="Verificação é necessária, não suficiente">
+  Trate um verificador verde como evidência. Não trate isso como conclusão jurídica. Guarde o documento, os bytes da assinatura, o relatório de validação, a evidência de identidade, timestamps e a trilha de auditoria da aplicação juntos.
+</Callout>
+
+## Continue a partir daqui
+
+<Cards>
+  <Card title="Validação ITI" href="/docs/signing/iti">Rode a validação local e oficial de AD-RB.</Card>
+  <Card title="PDF/PAdES" href="/docs/signing/pdf">Crie a assinatura PAdES e o carimbo visível.</Card>
+  <Card title="Requests remotos" href="/docs/concepts/remote-signature-requests">Entenda cerimônias e trilhas de auditoria controladas pelo provedor.</Card>
+</Cards>

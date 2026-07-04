@@ -1,19 +1,15 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
-
   "locale_switcher_label": "Select language",
   "locale_name_en": "EN",
   "locale_name_pt": "PT-BR",
-
   "nav_docs": "Docs",
   "nav_providers": "Providers",
   "nav_errors": "Errors",
-
   "hero_badge": "Open source · MIT · A Montte product",
   "hero_title": "One typed boundary for every signature.",
   "hero_subhead": "A1/PKCS#12, PDF/PAdES, XML-DSig, and remote providers, all Effect-native. Swap the signer, keep the program — browser or server, typed errors, Redacted secrets.",
   "hero_cta_docs": "Read the docs",
-
   "signer_eyebrow": "Live · in your browser",
   "signer_title": "Sign a real PDF, right here.",
   "signer_lead": "No backend, no upload, no SaaS. Drop in a PDF, click where the signature goes, load your A1 (e-CPF / e-CNPJ), and sign with WebCrypto. The document and the private key never leave the page.",
@@ -26,7 +22,6 @@
   "signer_step2_body": "Drop the PAdES signature rectangle anywhere on any page.",
   "signer_step3_title": "Sign with your A1",
   "signer_step3_body": "Your .pfx and password sign in-browser via WebCrypto.",
-
   "showcase_eyebrow": "Remote providers",
   "showcase_title": "One SDK for every signer.",
   "showcase_lead": "Eight signature providers, one request shape. Pick a provider — the create*SignatureRequest call swaps, your application code doesn't.",
@@ -46,7 +41,6 @@
   "showcase_next": "Next provider",
   "showcase_copy": "Copy",
   "showcase_copied": "Copied",
-
   "cap_eyebrow": "Seven capabilities",
   "cap_title": "Everything you sign, one API.",
   "cap_lead": "A1 / PKCS#12 in the browser or on the server, PDF·PAdES and XML-DSig, eight remote providers, one typed error channel, and a React surface for in-browser signing — the same Effect-native ergonomics across every backend.",
@@ -65,7 +59,6 @@
   "cap6_desc": "Nothing throws. Every failure is one SignatureKitError carrying one of 18 literal codes, caught in the Effect error channel.",
   "cap7_title": "Sign PDF in the browser",
   "cap7_desc": "@signature-kit/pdf owns browser file reads, placement state, and A1 PDF signing. The live signer above renders the app UI around that typed boundary.",
-
   "gs_eyebrow": "Two steps",
   "gs_title": "Your first signature, end to end.",
   "gs_lead": "Install the core package and the A1 signer, then construct one layer and run a program that inspects the certificate and signs.",
@@ -77,13 +70,11 @@
   "gs_note2_c": ". From here, swap the A1 layer for a format —",
   "gs_note2_d": "or",
   "gs_note2_e": "— or hand the program to a remote provider.",
-
   "sponsors_eyebrow": "Backed by",
   "final_eyebrow": "Ready when you are",
   "final_title": "Ship the signing layer once.",
   "final_lead": "Open source, MIT licensed, Effect-native. A1, PDF, XML, and remote providers behind one typed program — every failure a value you can match on.",
   "final_cta": "Quickstart",
-
   "footer_brand_blurb": "Typed digital signatures for TypeScript — A1 certificates, PDF, XML, and remote providers. Open source, MIT.",
   "footer_col_docs": "Docs",
   "footer_col_providers": "Providers",
@@ -98,7 +89,6 @@
   "footer_link_blog": "Blog",
   "footer_attribution_prefix": "Developed and maintained by",
   "footer_copyright": "© 2026 Montte · MIT License",
-
   "signer_dialog_title": "Sign PDFs in your browser",
   "signer_dialog_desc": "Place each signature, load your A1, and sign — all locally with WebCrypto. Nothing is uploaded.",
   "signer_close": "Close",
@@ -106,17 +96,14 @@
   "signer_doc_label": "Document",
   "signer_step_optional": "Optional",
   "signer_step_edit": "Edit",
-
   "signer_doc_one": "document",
   "signer_doc_many": "documents",
   "signer_continue": "Continue",
-
   "signer_aria_page_placement": "Page {page}: press Enter to place the signature at the center, then use the arrow keys to move it. You can also click anywhere on the page.",
   "signer_aria_remove": "Remove {name}",
   "signer_aria_download": "Download {name}",
   "signer_doc_page": "page {page}",
   "signer_doc_not_placed": "not placed",
-
   "signer_signing_progress": "Signing {current} of {total}…",
   "signer_download": "Download",
   "signer_download_all": "Download all",
@@ -126,7 +113,6 @@
   "signer_signing_short": "Signing…",
   "signer_queued": "Queued",
   "signer_next_unplaced": "Next unplaced ({count} left)",
-
   "signer_status_placed": "Signature placed. Move to the next document, or add your A1 certificate.",
   "signer_status_reading_pdfs": "Reading PDFs…",
   "signer_status_click_to_place": "Click the page to drop the signature box on each document.",
@@ -137,7 +123,6 @@
   "signer_status_signing": "Signing in your browser with WebCrypto…",
   "signer_status_signed": "Signed. Download the PDFs and verify them in any PAdES reader.",
   "signer_error_signing_failed": "Signing failed.",
-
   "signer_step_documents": "Documents",
   "signer_step1_summary": "{docs} {noun} · placed: {placed}",
   "signer_add_pdfs": "Add PDFs",
@@ -145,7 +130,6 @@
   "signer_step1_hint_place": "Click the page to drop the signature box. Keyboard: focus it, Enter to place, arrows to nudge.",
   "signer_step1_hint_some": "Some documents still need a signature — pick them above to place it.",
   "signer_step1_hint_all": "All documents placed. Continue to your A1 certificate.",
-
   "signer_step_a1": "A1 certificate",
   "signer_step2_hint": "Place every signature first",
   "signer_step2_summary_loaded": "Loaded · password set",
@@ -154,7 +138,6 @@
   "signer_cert_password": "Certificate password",
   "signer_step2_note_a": "One certificate signs the whole batch. The .pfx stays in local memory and the password is wrapped in",
   "signer_step2_note_b": ". Nothing is uploaded.",
-
   "signer_step_stamp": "Stamp",
   "signer_step3_hint": "Add your certificate first",
   "signer_step3_summary_none": "No visible stamp",
@@ -177,7 +160,6 @@
   "signer_bit_date": "Date & time",
   "signer_bit_everypage": "Every page",
   "signer_bit_qr": "QR validation",
-
   "signer_step_sign": "Sign",
   "signer_step4_hint": "Finish steps 1 and 2",
   "signer_step4_summary_signed": "Signed · ready to download",
@@ -186,7 +168,6 @@
   "signer_validate": "Validate at validar.iti.gov.br",
   "signer_sign_again": "Sign again",
   "signer_validate_note": "Opens the official ICP-Brasil validator — upload a downloaded PDF there for the conformance report.",
-
   "signer_err_render": "Failed to render the PDF.",
   "signer_err_dimensions": "Missing dimensions for the placed page.",
   "signer_err_prepare_doc": "Failed to prepare this document.",
@@ -211,7 +192,6 @@
   "signer_place_none": "Couldn't place automatically — click each page to position the signature.",
   "signer_place_all": "Best guess — place all {count}",
   "signer_place_reposition": "Best guess — reposition all",
-
   "autosign_eyebrow": "Auto-signature",
   "autosign_title": "Position once. Sign the whole stack.",
   "autosign_lead": "Several real contracts are generated in your browser with @react-pdf/renderer, rendered on the same pdf.js placement canvas the signer uses, then auto-placed and signed in a queue — one document at a time.",
@@ -238,5 +218,7 @@
   "autosign_variant_witnessed": "With witness",
   "autosign_variant_initials": "Initials + signature",
   "install_copy_label": "Copy install command",
-  "install_copied_label": "Copied"
+  "install_copied_label": "Copied",
+  "cap8_title": "Official ITI validation",
+  "cap8_desc": "Validate ICP-Brasil PAdES PDFs locally and against validar.iti.gov.br with typed 406 untrusted-certificate results."
 }

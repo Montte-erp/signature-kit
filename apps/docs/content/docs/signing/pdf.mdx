@@ -1,13 +1,15 @@
 ---
 title: PDF / PAdES
-description: "Sign PDFs with PAdES via signPdf, apply the ICP-Brasil policy (AD-RB), and verify with verifyPdf."
+description: "Sign PDFs with PAdES via signPdf, apply the ICP-Brasil AD-RB policy, add visible stamps, and verify with verifyPdf."
 ---
 
-**What you'll do:** sign PDF bytes in PAdES with `signPdf`, choose the `"pades-ades"` or `"pades-icp-brasil"` (AD-RB) policy, and verify the result with `verifyPdf`. The `Signatures` seam, provided by `a1SignaturesLayer`, does the signing; the PDF module only mutates the document.
+**What you'll do:** sign PDF bytes in PAdES with `signPdf`, choose the `"pades-ades"` or `"pades-icp-brasil"` (AD-RB) policy, add optional visible stamps, and verify the result with `verifyPdf`.
+
+The `Signatures` seam, provided by `a1SignaturesLayer`, does the signing; the PDF module only mutates the document.
 
 ## Install the package
 
-The PDF module is `@signature-kit/pdf`. It consumes the seam provided by the A1 signer.
+The PDF module is `@signature-kit/pdf`. It consumes the same provider layer as the XML module.
 
 ```package-install
 @signature-kit/pdf
@@ -26,176 +28,136 @@ import { signPdf } from "@signature-kit/pdf/sign"
 import { a1SignaturesLayer } from "@signature-kit/a1/signer"
 import { Effect, Redacted } from "effect"
 
-const program = signPdf({
-  pdf,                          // Uint8Array — bytes of the original PDF
-  reason: "Contract approval",
-  name: "Maria Souza",
-  location: "New York, US",
-  signatureLength: 16384,       // bytes reserved for the CMS /Contents
-}).pipe(
-  Effect.provide(
-    a1SignaturesLayer({
-      pfx,                                   // Uint8Array — PKCS#12 (.pfx/.p12)
-      password: Redacted.make(process.env.A1_PASSWORD ?? ""),
-    }),
-  ),
-)
-
-const signedPdf = await Effect.runPromise(program)  // signed PDF, pades-ades policy
-```
-
-`signatureLength` reserves the bytes of the `/Contents` field that holds the CMS — too small a value fails the signature. `reason` and `name` default to `"Digital signature"` and `"SignatureKit signer"`. Other optional fields: `contactInfo`, `location`, `signingTime`, `timestamp`, and `appearance`.
-
-## Two A1 certificates, two signed PDFs
-
-`Signatures` is an Effect requirement, so certificate choice stays at the call site. Provide one `a1SignaturesLayer` per signer when two people sign independent PDF outputs from the same source bytes.
-
-```ts title="two-a1-signers.ts"
-import { signPdf } from "@signature-kit/pdf/sign"
-import { a1SignaturesLayer } from "@signature-kit/a1/signer"
-import { Effect, Redacted } from "effect"
-
-const mariaProgram = signPdf({
-  pdf: unsignedPdf,
-  reason: "Maria approved the contract",
-  name: "Maria Souza",
-  signatureLength: 16384,
-}).pipe(
-  Effect.provide(
-    a1SignaturesLayer({
-      pfx: mariaPfx,
-      password: Redacted.make(mariaPassword),
-    }),
-  ),
-)
-
-const joaoProgram = signPdf({
-  pdf: unsignedPdf,
-  reason: "João approved the contract",
-  name: "João Silva",
-  signatureLength: 16384,
-}).pipe(
-  Effect.provide(
-    a1SignaturesLayer({
-      pfx: joaoPfx,
-      password: Redacted.make(joaoPassword),
-    }),
-  ),
-)
-
-const [mariaSignedPdf, joaoSignedPdf] = await Effect.runPromise(
-  Effect.all([mariaProgram, joaoProgram]),
-)
-```
-
-This signs two PDF copies under two different PKCS#12 certificates without sharing secrets or process-global signer state. Today `signPdf` writes one PDF signature per output file; don't model a same-file multi-party workflow by silently re-signing already signed bytes unless your verifier covers that exact flow.
-
-
-<Callout type="warn">
-  `hashAlgorithm` accepts `"sha256"` (→ `rsa-sha256`, default), `"sha512"` (→ `rsa-sha512`), and the legacy `"sha1"` (→ `rsa-sha1`). Only `"sha384"`
-  fails, with `pdf.SIGN_FAILED`.
-</Callout>
-
-## Position a visual signature
-
-`appearance.placement.kind: "auto"` computes a visible rectangle on the chosen page from the preferred anchor, avoiding collision with existing widgets/annotations — no manual coordinates when you just want a signature in the footer/corner. Without `appearance`, the signature stays invisible for compatibility.
-
-```ts title="position-pdf-signature.ts"
-const signed = await Effect.runPromise(
+const signedPdf = await Effect.runPromise(
   signPdf({
     pdf,
-    appearance: {
-      placement: {
-        kind: "auto",          // visible placement, computed by the PDF
-        page: "last",          // auto default; use pageIndex for an exact page
-        anchor: "bottom-right",
-        width: 180,
-        height: 54,
-        margin: 36,
-        gap: 8,                // clearance against existing widgets/annotations
-      },
-    },
-  }).pipe(Effect.provide(layer)),
+    name: "Maria Souza",
+    reason: "Signed for approval",
+    location: "São Paulo, BR",
+    policy: "pades-icp-brasil",
+    signatureLength: 32768,
+  }).pipe(
+    Effect.provide(
+      a1SignaturesLayer({
+        pfx,
+        password: Redacted.make(password),
+      }),
+    ),
+  ),
 )
-
-// Manual: PDF coordinates [left, bottom, right, top]
-const manual = { appearance: { placement: { kind: "manual", pageIndex: 0, widgetRect: [72, 72, 216, 108] } } }
-
-// Invisible: /Widget field without a visual area
-const invisible = { appearance: { placement: { kind: "invisible" } } }
 ```
 
-Use `kind: "manual"` when your application already has reliable coordinates, and `kind: "invisible"` when the PDF should carry only the cryptographic signature. If auto can't find space within the margins, the effect fails with `pdf.SIGNATURE_PLACEMENT_FAILED` in the typed channel.
+`signatureLength` reserves the `/Contents` placeholder. If the CMS signature is larger than the placeholder, signing fails with `pdf.SIGNATURE_TOO_LARGE`; increase the placeholder and sign again.
 
-## ICP-Brasil PAdES policy
+## ICP-Brasil AD-RB policy
 
-`PdfSignaturePolicy` has exactly two values: `"pades-ades"` (default) and `"pades-icp-brasil"`. When you choose `"pades-icp-brasil"` without `icpBrasil`, the PDF package uses the pinned PA_PAdES_AD_RB_v1_1 metadata from `@signature-kit/cms`; no app-side policy assembly or runtime policy fetch is needed. ICP-Brasil signatures reserve 32768 `/Contents` bytes by default unless you set `signatureLength`.
+`policy: "pades-icp-brasil"` uses the pinned PA_PAdES_AD_RB_v1_1 policy metadata from `@signature-kit/cms/icp-brasil`. You can override policy metadata only when you own the policy facts.
 
-```ts title="icp-brasil-policy.ts"
-// PdfSignaturePolicy = "pades-ades" | "pades-icp-brasil"
-// Signature default when policy is omitted: "pades-ades"
-
-const signed = signPdf({
+```ts title="explicit-policy.ts"
+const signedPdf = signPdf({
   pdf,
-  policy: "pades-icp-brasil",
-}).pipe(Effect.provide(layer))
-
-// Explicit policy input still wins when you need a different AD-RB/AD-RT policy.
-const explicit = signPdf({
-  pdf,
-  policy: "pades-icp-brasil",
-  hashAlgorithm: "sha256",
-  signatureLength: 49152,
-  icpBrasil: customPolicy,
-}).pipe(Effect.provide(layer))
+  policy: {
+    oid: "2.16.76.1.7.1.11.1.1",
+    hashBase64: policyHashBase64,
+    hashAlgorithm: "sha256",
+  },
+})
 ```
 
-The bundled AD-RB object carries `policyOid`, `policyHash`, `policyHashAlgorithm`, and `policyUri` from PA_PAdES_AD_RB_v1_1.
-
-<Callout type="info">
-  Keep `policyHashAlgorithm` consistent with the signature's `hashAlgorithm` when you provide a custom `icpBrasil` object — use `"sha256"` or `"sha512"` in both.
+<Callout type="warn" title="AD-RB forbids CMS signingTime">
+  With `policy: "pades-icp-brasil"`, the CMS `signingTime` signed attribute is prohibited. SignatureKit keeps it out of CMS for AD-RB; an optional `timestamp` only feeds the PDF signature dictionary `M`. The official ITI validator rejects CMS signatures that carry `signingTime` under this policy.
 </Callout>
 
-## Merge PDFs
+## Visible stamps
 
-`mergePdfs([first, second])` copies pages into a new PDF. It does **not** preserve source AcroForm fields, document metadata, or catalog-level form state; use it for flattened/page-content workflows, not for preserving interactive forms.
+Visible stamps are drawn before the cryptographic signature is embedded, so the stamped page bytes are covered by the signature. Pass `stamp` to `signPdf` for one full visible block, and `rubric` when you need initials/rubrics on other pages.
 
-## Verify with verifyPdf
+```ts title="visible-stamp.ts"
+const signedPdf = signPdf({
+  pdf,
+  policy: "pades-icp-brasil",
+  stamp: {
+    pageIndex: 0,
+    rect: [72, 72, 260, 124],
+    badge: {
+      header: { text: "DIGITALLY SIGNED" },
+      rows: [
+        [{ label: "Signer", value: "Maria Souza" }],
+        [{ label: "CPF", value: "***.123.456-**" }],
+      ],
+      footer: [
+        { text: "ICP-Brasil" },
+        { text: "Validate at ITI", link: "https://validar.iti.gov.br/" },
+      ],
+      qr: { text: "https://validar.iti.gov.br/" },
+      theme: {
+        borderColor: "#1D4ED8",
+        backgroundColor: "#FFFFFF",
+        headerBackgroundColor: "#DBEAFE",
+        qrColor: "#1E3A8A",
+      },
+    },
+  },
+})
+```
 
-`verifyPdf(input: PdfVerificationRequest)` returns an `Effect<PdfVerificationResult, PdfError | CmsError>` — **without** a `Signatures` requirement, so there is no `Effect.provide(...)` here. Optionally pass `trustedRoots` (a list of `Uint8Array`) to validate the chain against your own roots.
+The `badge` schema supports:
+
+- `header.text` for the top label;
+- `rows` as one or more rows of `{ label?, value }` cells;
+- `footer` segments with optional `link`; links become PDF annotations;
+- `qr.text` for a generated QR code rendered into the badge;
+- `theme` hex colors for border, background, header, text, separator, QR, and footer accents.
+
+Use `inkPng` when you already have a handwritten signature image. Use `lines` for plain text, or `badge` for the structured government-style stamp. A visible stamp requires exactly one of `lines`, `badge`, `inkPng`, or `qr`.
+
+```ts title="ink-and-rubric.ts"
+const signedPdf = signPdf({
+  pdf,
+  stamp: {
+    pageIndex: 0,
+    rect: [72, 72, 220, 118],
+    inkPng: signatureImagePng,
+  },
+  rubric: {
+    rect: [500, 36, 560, 72],
+    pages: "all-except-signature",
+    initials: "MS",
+    initialsTheme: {
+      inkColor: "#111827",
+      bracketColor: "#2563EB",
+      backgroundColor: "#EFF6FF",
+    },
+  },
+})
+```
+
+`pages: "all-except-signature"` is the safe rubric default: the main signature page gets the full visible block; the other pages get initials. Single-page documents skip the rubric pass.
+
+For anchor-based placement — finding text such as "Assinatura" and turning it into a rectangle — use the [anchor placement recipe](/docs/recipes/anchor-placement).
+
+## Verify a PDF
+
+`verifyPdf` checks the PDF ByteRange, CMS signature, and coverage. It returns a value, so invalid signatures are represented as `valid: false`.
 
 ```ts title="verify-pdf.ts"
 import { verifyPdf } from "@signature-kit/pdf/verify"
-import { Effect } from "effect"
 
-// verifyPdf does NOT require the Signatures service — there is no .pipe(Effect.provide(...))
-const result = await Effect.runPromise(verifyPdf({ pdf: signedPdf }))
+const report = await Effect.runPromise(verifyPdf({ pdf: signedPdf }))
 
-result.valid             // boolean — CMS integrity over the byteRange
-result.chainValid        // boolean — signer chain verified
-result.revocationStatus  // "checked" | "not_checked" — revocation evidence was evaluated
-result.signatureCount    // number  — signatures found in the PDF
-result.byteRange         // [number, number, number, number]
-result.signerSerialNumber // string | null — serial of the signer certificate
+report.valid
+report.signatures.length
 ```
 
-`byteRange` is the quadruple covered by the signature. An unsigned PDF (no `/ByteRange`) is not a successful `signerSerialNumber: null` result — `verifyPdf` fails on the error channel with `pdf.PLACEHOLDER_NOT_FOUND`.
+If you also need AD-RB profile validation, run `validatePdfConformance` from `@signature-kit/iti/conformance` after signing.
 
-## Errors you may see
+## Errors
 
-PDF signing and verification fail with codes from the `pdf.*` family (`PdfError`); failures from the A1 signer that provides `Signatures` arrive as `signature-kit.*`.
-
-- [`pdf.SIGN_FAILED`](/docs/signing/errors) — unsupported `hashAlgorithm` (only `sha384` is rejected).
-- [`pdf.SIGNATURE_TOO_LARGE`](/docs/signing/errors) — the CMS exceeded the reserved space; increase `signatureLength`.
-- [`pdf.SIGNATURE_PLACEMENT_FAILED`](/docs/signing/errors) — automatic placement found no space or received invalid dimensions.
-- [`pdf.INVALID_PDF`](/docs/signing/errors) — the bytes don't form a valid PDF to sign or verify.
-- [`pdf.PLACEHOLDER_NOT_FOUND`](/docs/signing/errors) — `verifyPdf` found no `/ByteRange`, e.g. an unsigned PDF.
-- [`signature-kit.WRONG_PASSWORD`](/docs/signing/errors) — wrong A1 password when providing the signatures service.
-
-## Continue from here
+<ErrorCatalog family="pdf" />
 
 <Cards>
-  <Card title="XML-DSig" href="/docs/signing/xml">The other format over the same Signatures seam, for NF-e XML.</Card>
-  <Card title="Provider APIs" href="/docs/providers/request-shape">Provider packages for Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso.</Card>
-  <Card title="Typed error channel" href="/docs/signing/errors">The catalog of pdf.* and signature-kit.* codes that can fail.</Card>
+  <Card title="ITI validation" href="/docs/signing/iti">Local AD-RB conformance and official Validar ITI submission.</Card>
+  <Card title="XML-DSig" href="/docs/signing/xml">The other format over the same Signatures seam.</Card>
+  <Card title="Provider API request shape" href="/docs/providers/request-shape">Provider packages for Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso.</Card>
+  <Card title="Typed error channel" href="/docs/signing/errors">The catalog of pdf.*, cms.*, and signature-kit.* codes that can fail.</Card>
 </Cards>

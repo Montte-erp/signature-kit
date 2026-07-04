@@ -1,0 +1,116 @@
+---
+title: Validação ITI
+description: "Rode a pré-checagem local de conformidade PAdES AD-RB ICP-Brasil e, quando necessário, envie o PDF assinado ao Validar ITI oficial."
+---
+
+**O que você vai fazer:** pré-validar um PDF assinado com `validatePdfConformance`, entender o vocabulário do relatório e opcionalmente enviar os mesmos bytes com `validatePdfWithIti` para `validar.iti.gov.br`.
+
+`@signature-kit/iti` valida o perfil relevante para PDFs PAdES AD-RB ICP-Brasil. Ele não assina; ele lê o PDF final e devolve relatórios como valores. Inputs malformados, falhas de transporte fora dos formatos de veredito documentados pelo ITI e falhas de Schema continuam usando `SignatureKitError` no canal de erro do Effect.
+
+## Instale
+
+```package-install
+@signature-kit/iti @signature-kit/http @signature-kit/pdf
+```
+
+## Pré-checagem local de conformidade
+
+`validatePdfConformance({ pdf, trustedRoots? })` roda offline. Ele extrai as assinaturas do PDF, verifica ByteRange e criptografia CMS via `verifyPdf` / verificação CMS, inspeciona atributos assinados e devolve um `ItiConformanceReport`.
+
+```ts title="iti-local.ts"
+import { validatePdfConformance } from "@signature-kit/iti/conformance"
+import { Effect } from "effect"
+
+const report = await Effect.runPromise(
+  validatePdfConformance({
+    pdf: signedPdf,
+    // Opcional: certificados raiz em DER nos quais você confia.
+    trustedRoots,
+  }),
+)
+
+report.validator       // "iti.conformance"
+report.standard        // "PA_PAdES_AD_RB_v1_1"
+report.approved        // boolean
+report.outcome         // "approved" | "rejected"
+report.signatureCount  // number
+```
+
+A checagem local valida estes fatos de AD-RB:
+
+- atributos assinados obrigatórios: `IdMessageDigest`, `IdContentType`, `IdAaEtsSigPolicyId` e `IdAaSigningCertificateV2`;
+- `signingTime` CMS proibido para `PA_PAdES_AD_RB_v1_1`;
+- OID da política AD-RB `2.16.76.1.7.1.11.1.1` na posição `sigPolicyId` — não apenas dentro de um qualifier;
+- cobertura do dicionário de assinatura PDF: o primeiro byte range começa em zero e a assinatura mais nova cobre o fim do arquivo;
+- integridade de ByteRange e validade de cifra/digest CMS via `verifyPdf` e verificação CMS;
+- status do caminho de certificação apenas quando você passa `trustedRoots`.
+
+<Callout type="warn" title="trustedRoots controla aprovação da cadeia">
+  Sem `trustedRoots`, `certificationPath` é `"not_checked"`. O relatório ainda pode ser aprovado estruturalmente, mas você não provou que o signatário encadeia até uma raiz em que você confia.
+</Callout>
+
+## Cliente remoto ITI
+
+`validatePdfWithIti(input)` envia um formulário multipart para `https://validar.iti.gov.br/arquivo`. Ele aceita uma união de origem: passe bytes com `{ source: { pdf } }`, ou peça ao `SignatureHttpClient` compartilhado para baixar os bytes primeiro com `{ source: { url } }`.
+
+```ts title="iti-remoto.ts"
+import { signatureHttpClientLive } from "@signature-kit/http"
+import { validatePdfWithIti } from "@signature-kit/iti/remote"
+import { Effect } from "effect"
+
+const remote = await Effect.runPromise(
+  validatePdfWithIti({
+    source: { pdf: signedPdf },
+    fileName: "contrato-de-servico.pdf",
+  }).pipe(Effect.provide(signatureHttpClientLive)),
+)
+
+const fromUrl = await Effect.runPromise(
+  validatePdfWithIti({
+    source: { url: "https://example.com/contrato-de-servico.pdf" },
+    fileName: "contrato-de-servico.pdf",
+  }).pipe(Effect.provide(signatureHttpClientLive)),
+)
+```
+
+O campo multipart é `signature_files[]` com `Content-Type: application/pdf`. O relatório remoto sempre embute o relatório local em `conformance`; respostas com `verifierReport` também expõem `localConformance` para código que quer nomear explicitamente a etapa local.
+
+## Vocabulário do relatório
+
+| Relatório | `validator` | `outcome` | `approved` | Notas |
+| --- | --- | --- | --- | --- |
+| Conformidade local | `"iti.conformance"` | `"approved"` ou `"rejected"` | boolean | Contém `signatures[]`, cada uma com `structure`, `cipher`, `digest`, `certificationPath`, `policyOid` e `attributes[]`. |
+| Verificador remoto | `"iti.remote"` | `"approved"`, `"rejected"` ou `"unknown"` | boolean | Preserva `rawVerifierReport`; `remoteOutcome`/`remoteApproved` aparecem apenas quando o ITI expõe um veredito reconhecível. |
+| Certificado não confiável | `"iti.remote"` | `"untrusted_certificate"` | `false` | O ITI retornou o shape documentado de HTTP 406. Veja abaixo. |
+
+Status de atributo usam o vocabulário no formato do ITI: `"Valid"`, `"Invalid"` e `"NotChecked"`. O status do caminho de certificação é `"valid"`, `"invalid"` ou `"not_checked"`.
+
+## 406 significa certificado não confiável, não falha de transporte
+
+O endpoint oficial pode retornar HTTP 406 para uma assinatura estruturalmente válida cujo certificado não é confiável para o ITI — comum com certificados de teste e fixtures locais. O SignatureKit aceita 406 nesse endpoint e devolve um valor:
+
+```ts title="certificado-nao-confiavel.ts"
+remote.outcome   // "untrusted_certificate"
+remote.approved  // false
+remote.errorCode // 406
+remote.hash      // string vinda do ITI
+remote.name      // nome do verificador vindo do ITI
+```
+
+Esse resultado é diferente de `signature-kit.HTTP`: a requisição funcionou, e o validador oficial deu um veredito de negócio.
+
+## Erros que você pode encontrar
+
+<Cards>
+  <Card title="signature-kit.INVALID_INPUT" href="/docs/signing/errors#err-INVALID_INPUT">O input local ou remoto não corresponde ao contrato de Schema.</Card>
+  <Card title="signature-kit.RESPONSE_SHAPE" href="/docs/signing/errors#err-RESPONSE_SHAPE">O endpoint remoto devolveu JSON fora dos shapes suportados de `verifierReport` ou 406 de certificado não confiável.</Card>
+  <Card title="signature-kit.HTTP" href="/docs/signing/errors#err-HTTP">O download por URL ou o envio ao ITI falhou fora dos status aceitos como veredito.</Card>
+</Cards>
+
+## Continue a partir daqui
+
+<Cards>
+  <Card title="PDF/PAdES" href="/docs/signing/pdf">Gere a assinatura AD-RB que o ITI espera.</Card>
+  <Card title="Validade jurídica" href="/docs/concepts/legal-validity">Entenda verificação, presunção ICP-Brasil e o que o SignatureKit não decide.</Card>
+  <Card title="Erros localizados" href="/docs/signing/i18n">Renderize `SignatureKitError`, `PdfError` e `CmsError` com os catálogos corretos.</Card>
+</Cards>

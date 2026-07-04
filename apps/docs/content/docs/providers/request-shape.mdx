@@ -1,9 +1,13 @@
 ---
 title: Provider request shapes
-description: "Each provider package exposes the request facts its upstream API supports."
+description: "Each provider package exposes the request facts its upstream API supports: documents, recipients, envelopes, links, notifications, and lifecycle helpers."
 ---
 
+**What you'll do:** compare provider capabilities, choose the package that matches your upstream ceremony, and avoid treating remote providers as local `Signatures` backends.
+
 Provider APIs create upstream signing ceremonies. They are not local `Signatures` backends: the provider owns links, notifications, recipients, envelopes, and audit UX. SignatureKit keeps the calls boring: typed input, Redacted credentials, `SignatureHttpClient`, and `SignatureKitError` on recoverable failures.
+
+## Install the provider packages you use
 
 ```package-install
 @signature-kit/http @signature-kit/clicksign @signature-kit/assinafy @signature-kit/zapsign @signature-kit/docuseal @signature-kit/documenso
@@ -19,10 +23,20 @@ Provider APIs create upstream signing ceremonies. They are not local `Signatures
   <Card title="Documenso" href="/docs/providers/documenso">Open-source v2 envelopes with optional distribution.</Card>
 </Cards>
 
-## Provider-owned request shapes
+## Capability matrix
 
-Each signer package defines the documents, recipients, routing, status values, and limits its upstream API actually supports. Clicksign, Assinafy, and ZapSign encode their single-document constraints in their local resource-props schemas; DocuSeal and Documenso keep multi-document provider models.
+| Provider | Documents per request | Routing/order | Cancel | Delete | Download | List | Auth style |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Clicksign | One `ClicksignDocumentInput` | Optional signer `routingOrder` | Yes — `cancelClicksignSignatureRequest` via `PATCH /documents/{key}/cancel` | Yes — `deleteClicksignSignatureRequest` | Yes — `downloadClicksignSignedDocument`, only when Clicksign exposes a signed-file URL | Yes — `listClicksignSignatureRequests` | Redacted `accessToken` query param, with a redacted diagnostic URL |
+| Assinafy | One `AssinafyDocumentUpload` | Optional signer `routingOrder` | No public cancel helper exported | Yes — `deleteAssinafySignatureRequest` | Yes — `downloadAssinafySignedDocument`, only after a completed download artifact is exposed | Yes — `listAssinafySignatureRequests` | Redacted `apiKey` or Redacted bearer `accessToken` |
+| ZapSign | One PDF document, enforced as `application/pdf` | Optional signer `routingOrder` | Yes — `cancelZapSignSignatureRequest` | Yes — `deleteZapSignSignatureRequest` | Yes — `downloadZapSignSignedDocument`, only when ZapSign exposes `signed_file` | Yes — `listZapSignSignatureRequests` | Redacted `apiToken`, optional auth mode (`tokenEmail`, `tokenSms`, `tokenWhatsApp`, `certificadoDigital`) |
+| DocuSeal | One or more `DocuSealSubmissionDocument` uploads | `submittersOrder: "preserved"` when the upstream order must be retained | No public cancel helper exported | Yes — `deleteDocuSealSignatureRequest` | Yes — `downloadDocuSealSignedDocument`, only for completed submissions with provider document URLs | Yes — `listDocuSealSignatureRequests` | Redacted API key in `X-Auth-Token` |
+| Documenso | One or more `DocumensoEnvelopeDocument` uploads | Recipient role and optional `routingOrder` map to envelope fields | Yes — `cancelDocumensoSignatureRequest` | Yes — `deleteDocumensoSignatureRequest` | Yes — `downloadDocumensoSignedDocument`, after the envelope is completed and an envelope item is available | Yes — `listDocumensoSignatureRequests` | Redacted API key with `raw` or `bearer` authorization scheme |
+
+## Local vs remote
 
 <Callout type="info" title="Local vs remote">
-  Use `@signature-kit/pdf` + `Signatures` when SignatureKit must sign bytes. Use provider request functions when an upstream platform owns the ceremony.
+  Use `@signature-kit/pdf` + `Signatures` when SignatureKit must sign bytes. Use provider request functions when an upstream platform owns the signing ceremony, notifications, signer UX, and audit trail.
 </Callout>
+
+Every provider page documents the exact lifecycle helpers exported by that package. If a provider has no cancel endpoint or no safe download URL, the docs do not invent one.

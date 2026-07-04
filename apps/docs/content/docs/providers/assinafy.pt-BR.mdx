@@ -1,9 +1,11 @@
 ---
 title: Assinafy
-description: "Crie requests da Assinafy com credenciais por conta e erros tipados do SignatureKit."
+description: "Crie requests de documento Assinafy com credenciais por conta e erros tipados do SignatureKit."
 ---
 
-Assinafy cria o documento, registra o signatário e cria o assignment na conta configurada. SignatureKit mantém o shape tipado e deixa a cerimônia com a Assinafy.
+**O que você vai fazer:** criar um request remoto de assinatura Assinafy, manter credenciais Redacted e usar apenas os helpers de lifecycle exportados por `@signature-kit/assinafy`.
+
+Assinafy cria o documento, registra o signatário e cria o assignment na conta configurada. O SignatureKit mantém o shape tipado e deixa a cerimônia com a Assinafy.
 
 ## Instalação
 
@@ -13,10 +15,10 @@ Assinafy cria o documento, registra o signatário e cria o assignment na conta c
 
 ## Quando usar
 
-Use Assinafy quando organização por conta e acompanhamento de assignment pertencem à Assinafy. Use assinatura local quando o app controla bytes assinados e posicionamento.
+Use Assinafy quando organização por conta e tracking de assignment pertencem à Assinafy. Use assinatura local quando sua app possui os bytes assinados e o posicionamento.
 
 <Callout type="error" title="Mantenha credenciais Redacted">
-  Tokens de provider entram como `Redacted.make(...)` e são abertos apenas dentro da fronteira HTTP do pacote. Nunca passe tokens remotos para componentes React ou logs.
+  Tokens de provedor entram como `Redacted.make(...)` e são abertos apenas dentro da fronteira HTTP do pacote. Nunca passe tokens remotos para componentes React ou logs.
 </Callout>
 
 ## Request mínimo
@@ -30,34 +32,43 @@ import { Effect, Layer, Redacted } from "effect"
 export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
-    providers: Layer.merge(
-      assinafyProviders({
-        apiKey: Redacted.make(process.env.ASSINAFY_API_KEY ?? ""),
+    providers: assinafyProviders({
         accountId: process.env.ASSINAFY_ACCOUNT_ID ?? "",
+        apiKey: Redacted.make(process.env.ASSINAFY_API_KEY ?? ""),
         environment: "sandbox",
-      }),
-      signatureHttpClientLive,
-    ),
+      }).pipe(
+        // effect-boundary: Alchemy StackProps.providers closes provider and transport layers. [allow-provide]
+        Layer.provide(signatureHttpClientLive),
+        Layer.orDie,
+      ),
     state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
-    return yield* AssinafySignatureRequest("contrato-de-servico", {
-      title: "Contrato de serviço",
-      message: "Revise e assine este documento.",
-      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Ana Silva", email: "ada@example.com", routingOrder: 1 }],
-      send: true,
+    return yield* AssinafySignatureRequest("contract", {
+      title: "Contrato de prestação de serviço",
+      message: "Assine este contrato.",
+      documents: [
+        { fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 },
+      ],
+      recipients: [{ name: "Maria Souza", email: "maria@example.com", routingOrder: 1 }],
+      send: false,
     })
   }),
 ) {}
 ```
 
+## Lifecycle
 
-## Fatos do provider
+| Função | Suportada | Notas |
+| --- | --- | --- |
+| `AssinafySignatureRequest(id, props)` | Sim | Recurso Alchemy retido. `reconcile` cria uma vez e devolve o output em cache nos planos seguintes. |
+| `getAssinafySignatureRequest(options, id)` | Sim | Lê o estado do request upstream. |
+| `listAssinafySignatureRequests(options)` | Sim | Endpoint upstream de listagem no pacote; o `list` do provider Alchemy devolve `[]` e `nuke` é pulado. |
+| Helper de cancelamento | Não exportado | Este pacote de provedor não expõe helper público de cancelamento. Use delete apenas quando o upstream suporta remover o request remoto. |
+| `deleteAssinafySignatureRequest(options, id)` | Sim | Deleta o request upstream quando o provedor suporta deleção. Remoto ausente é sucesso. |
+| `downloadAssinafySignedDocument(options, id)` | Sim | Só funciona depois que a Assinafy expõe um artefato de download concluído; antes disso falha como `signature-kit.UNSUPPORTED_OPERATION`. |
 
-- Credenciais incluem API key e account id. Alternativamente, passe `accessToken` no lugar de `apiKey` para autenticar com `Authorization: Bearer <token>` em vez de `X-Api-Key`.
-- O adapter cria documento, signatário e assignment no mesmo fluxo.
-- Falhas recuperáveis de HTTP e shape de resposta saem como `SignatureKitError`.
+Rollback de criação multi-etapa só deleta estado remoto depois de falhas 4xx inequívocas antes do efeito externo final, excluindo 408, 409, 429, 5xx, timeouts e falhas de shape de resposta.
 
 ## Erros
 
@@ -66,7 +77,6 @@ Input inválido, falhas HTTP remotas e shapes de resposta inválidos falham como
 ## Relacionados
 
 <Cards>
-  <Card title="Clicksign" href="/docs/providers/clicksign">Fluxo v1 de documento + signatário, um documento por request.</Card>
-  <Card title="ZapSign" href="/docs/providers/zapsign">Upload PDF com Bearer token e primeira URL de assinatura.</Card>
-  <Card title="Requests remotos" href="/docs/concepts/remote-signature-requests">Por que providers remotos não são backends locais de Signatures.</Card>
+  <Card title="Shapes de request de provedores" href="/docs/providers/request-shape">Compare todas as capacidades dos provedores.</Card>
+  <Card title="Requests remotos" href="/docs/concepts/remote-signature-requests">Por que provedores remotos não são backends locais de Signatures.</Card>
 </Cards>

@@ -53,7 +53,10 @@ const options: ClicksignProviderOptions = {
 export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
-    providers: Layer.merge(clicksignProviders(options), signatureHttpClientLive),
+    providers: clicksignProviders(options).pipe(
+      Layer.provide(signatureHttpClientLive),
+      Layer.orDie,
+    ),
     state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {

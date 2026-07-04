@@ -1,9 +1,11 @@
 ---
 title: Documenso
-description: "Crie envelopes Documenso v2 com upload de PDF multipart e erros tipados do SignatureKit."
+description: "Crie envelopes Documenso v2 com upload multipart de PDF e erros tipados do SignatureKit."
 ---
 
-Documenso cria um envelope v2, envia PDFs como multipart e pode distribuir o envelope quando `send` está ativo.
+**O que você vai fazer:** criar um request remoto de assinatura Documenso, manter credenciais Redacted e usar apenas os helpers de lifecycle exportados por `@signature-kit/documenso`.
+
+Documenso cria um envelope v2, envia PDFs como arquivos multipart e pode distribuir o envelope quando `send` está ativo.
 
 ## Instalação
 
@@ -13,10 +15,10 @@ Documenso cria um envelope v2, envia PDFs como multipart e pode distribuir o env
 
 ## Quando usar
 
-Use Documenso quando posse do envelope, roteamento e ações de destinatário ficam no Documenso. Use assinatura local para bytes PDF/PAdES no processo.
+Use Documenso quando posse do envelope, roteamento e ações do destinatário ficam no Documenso. Use assinatura local para bytes PDF/PAdES no processo.
 
 <Callout type="error" title="Mantenha credenciais Redacted">
-  Tokens de provider entram como `Redacted.make(...)` e são abertos apenas dentro da fronteira HTTP do pacote. Nunca passe tokens remotos para componentes React ou logs.
+  Tokens de provedor entram como `Redacted.make(...)` e são abertos apenas dentro da fronteira HTTP do pacote. Nunca passe tokens remotos para componentes React ou logs.
 </Callout>
 
 ## Request mínimo
@@ -30,33 +32,42 @@ import { Effect, Layer, Redacted } from "effect"
 export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
-    providers: Layer.merge(
-      documensoProviders({
+    providers: documensoProviders({
         apiKey: Redacted.make(process.env.DOCUMENSO_API_KEY ?? ""),
-        baseUrl: "https://app.documenso.com/api/v2",
-      }),
-      signatureHttpClientLive,
-    ),
+        authorizationScheme: "bearer",
+      }).pipe(
+        // effect-boundary: Alchemy StackProps.providers closes provider and transport layers. [allow-provide]
+        Layer.provide(signatureHttpClientLive),
+        Layer.orDie,
+      ),
     state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
-    return yield* DocumensoSignatureRequest("contrato-de-servico", {
-      title: "Contrato de serviço",
-      message: "Revise e assine este documento.",
-      documents: [{ fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 }],
-      recipients: [{ name: "Ana Silva", email: "ada@example.com", role: "signer" }],
-      send: true,
+    return yield* DocumensoSignatureRequest("contract", {
+      title: "Contrato de prestação de serviço",
+      message: "Assine este contrato.",
+      documents: [
+        { fileName: "contract.pdf", mimeType: "application/pdf", contentBase64: pdfBase64 },
+      ],
+      recipients: [{ name: "Maria Souza", email: "maria@example.com", role: "signer", routingOrder: 1 }],
+      send: false,
     })
   }),
 ) {}
 ```
 
+## Lifecycle
 
-## Fatos do provider
+| Função | Suportada | Notas |
+| --- | --- | --- |
+| `DocumensoSignatureRequest(id, props)` | Sim | Recurso Alchemy retido. `reconcile` cria uma vez e devolve o output em cache nos planos seguintes. |
+| `getDocumensoSignatureRequest(options, id)` | Sim | Lê o estado do request upstream. |
+| `listDocumensoSignatureRequests(options)` | Sim | Endpoint upstream de listagem no pacote; o `list` do provider Alchemy devolve `[]` e `nuke` é pulado. |
+| `cancelDocumensoSignatureRequest(options, id)` | Sim | Usa o endpoint de cancelamento do provedor para requests remotos canceláveis. |
+| `deleteDocumensoSignatureRequest(options, id)` | Sim | Deleta o request upstream quando o provedor suporta deleção. Remoto ausente é sucesso. |
+| `downloadDocumensoSignedDocument(options, id)` | Sim | Só funciona depois que o envelope está concluído e um item de envelope está disponível; caso contrário falha como `signature-kit.UNSUPPORTED_OPERATION`. |
 
-- Usa a API v2 de envelope com upload multipart.
-- `send: false` para após a criação e retorna um request em draft.
-- Roles e ordem de assinatura mapeiam para campos do envelope Documenso.
+Rollback de criação multi-etapa só deleta estado remoto depois de falhas 4xx inequívocas antes do efeito externo final, excluindo 408, 409, 429, 5xx, timeouts e falhas de shape de resposta.
 
 ## Erros
 
@@ -65,7 +76,6 @@ Input inválido, falhas HTTP remotas e shapes de resposta inválidos falham como
 ## Relacionados
 
 <Cards>
-  <Card title="Clicksign" href="/docs/providers/clicksign">Fluxo v1 de documento + signatário, um documento por request.</Card>
-  <Card title="Assinafy" href="/docs/providers/assinafy">Documento, signatário e assignment dentro de uma conta.</Card>
-  <Card title="Requests remotos" href="/docs/concepts/remote-signature-requests">Por que providers remotos não são backends locais de Signatures.</Card>
+  <Card title="Shapes de request de provedores" href="/docs/providers/request-shape">Compare todas as capacidades dos provedores.</Card>
+  <Card title="Requests remotos" href="/docs/concepts/remote-signature-requests">Por que provedores remotos não são backends locais de Signatures.</Card>
 </Cards>

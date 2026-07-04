@@ -80,8 +80,14 @@ const CAPABILITIES: Capability[] = [
   {
     title: m.cap7_title,
     description: m.cap7_desc,
-    docHref: "/docs/a1-signing/browser-pdf-flow",
+    docHref: "/docs/signing/browser-pdf-flow",
     code: `import { signPdfSignatureField } from "@signature-kit/pdf/workflow"`,
+  },
+  {
+    title: m.cap8_title,
+    description: m.cap8_desc,
+    docHref: "/docs/signing/iti",
+    code: `validatePdfWithIti({ source: { pdf: signedPdf } })`,
     wide: true,
   },
 ];
