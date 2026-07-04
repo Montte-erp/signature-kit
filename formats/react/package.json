@@ -1,0 +1,73 @@
+{
+  "name": "@signature-kit/react",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./a1": {
+      "types": "./dist/a1.d.ts",
+      "import": "./dist/a1.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
+    },
+    "./builder": {
+      "types": "./dist/builder.d.ts",
+      "import": "./dist/builder.js"
+    },
+    "./browser-pdf": {
+      "types": "./dist/browser-pdf.d.ts",
+      "import": "./dist/browser-pdf.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --root ../.. formats/react/__tests__/a1.test.ts",
+    "test:browser": "vitest run --root ../.. --config tooling/vitest/browser.config.ts formats/react/__tests__/browser-pdf.browser.test.tsx"
+  },
+  "dependencies": {
+    "@signature-kit/a1": "^0.3.0",
+    "@signature-kit/cms": "^0.2.1",
+    "@signature-kit/pdf": "^0.3.0",
+    "@signature-kit/signatures": "^0.1.0",
+    "effect": "4.0.0-beta.86"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.17",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "peerDependencies": {
+    "react": ">=18.3.0 || >=19.0.0"
+  },
+  "nx": {
+    "targets": {
+      "npm-pack": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "npm pack --dry-run --json",
+          "cwd": "{projectRoot}"
+        }
+      },
+      "npm-publish": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "npm publish --access public",
+          "cwd": "{projectRoot}"
+        }
+      }
+    }
+  }
+}

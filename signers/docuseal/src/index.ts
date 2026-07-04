@@ -4,12 +4,12 @@ import {
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
   redactedStringSchema,
-} from "@signature-kit/core/config";
-import { SignatureHttpClient, normalizedBaseUrl } from "@signature-kit/core/http";
-import type { SignatureHttpClientService } from "@signature-kit/core/http";
+} from "@signature-kit/signatures";
+import { SignatureHttpClient, normalizedBaseUrl } from "@signature-kit/http";
+import type { SignatureHttpClientService } from "@signature-kit/http";
 import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
-import { Context, Effect, Layer, Option, Redacted, Schema, Stream } from "effect";
+import { Context, Effect, Layer, Match, Option, Redacted, Schema, Stream } from "effect";
 
 const DocuSealSchemaName = {
   providerOptions: "DocuSealProviderOptions",
@@ -224,7 +224,6 @@ const DocuSealSubmissionsResultSchema = Schema.Struct({
 
 type DocuSealSubmissionResult = (typeof DocuSealSubmissionResultSchema)["Type"];
 type DocuSealSubmissionDocumentsResult = (typeof DocuSealSubmissionDocumentsResultSchema)["Type"];
-type DocuSealSubmissionsResult = (typeof DocuSealSubmissionsResultSchema)["Type"];
 
 export type DocuSealSignatureRequest = Resource<
   "SignatureKit.DocuSealSignatureRequest",
@@ -272,11 +271,8 @@ const authHeaders = (options: DocuSealProviderOptions): { readonly "X-Auth-Token
 const normalizeSubmissionId = (submissionId: string | number): string =>
   typeof submissionId === "string" ? submissionId : submissionId.toString();
 
-const normalizeSubmissionPathId = (submissionId: string): string =>
-  encodeURIComponent(submissionId);
-
 const docuSealSubmissionUrl = (baseUrl: string, submissionId: string): string =>
-  `${baseUrl}/submissions/${normalizeSubmissionPathId(submissionId)}`;
+  `${baseUrl}/submissions/${encodeURIComponent(submissionId)}`;
 
 const docuSealSubmissionListUrl = (baseUrl: string, after?: number): string => {
   const url = new URL(`${baseUrl}/submissions`);
@@ -293,28 +289,33 @@ const docuSealSubmissionsNextUrl = (
     ? Option.none()
     : Option.some(docuSealSubmissionListUrl(baseUrl, pagination.next));
 
+const DocuSealStatusSchema = Schema.Literals([
+  "draft",
+  "completed",
+  "declined",
+  "expired",
+  "deleted",
+  "archived",
+  "cancelled",
+  "canceled",
+]);
+const isDocuSealStatus = Schema.is(DocuSealStatusSchema);
+
 const docuSealSubmissionState = (
   status: string | undefined,
 ): DocuSealSubmissionAttributes["state"] => {
   if (status === undefined) return "sent";
-  switch (status.toLowerCase()) {
-    case "draft":
-      return "draft";
-    case "completed":
-      return "completed";
-    case "declined":
-      return "declined";
-    case "expired":
-      return "expired";
-    case "deleted":
-    case "archived":
-      return "deleted";
-    case "cancelled":
-    case "canceled":
-      return "cancelled";
-    default:
-      return "sent";
-  }
+  const normalized = status.toLowerCase();
+  if (!isDocuSealStatus(normalized)) return "sent";
+  return Match.value(normalized).pipe(
+    Match.when("draft", (): DocuSealSubmissionAttributes["state"] => "draft"),
+    Match.when("completed", (): DocuSealSubmissionAttributes["state"] => "completed"),
+    Match.when("declined", (): DocuSealSubmissionAttributes["state"] => "declined"),
+    Match.when("expired", (): DocuSealSubmissionAttributes["state"] => "expired"),
+    Match.whenOr("deleted", "archived", (): DocuSealSubmissionAttributes["state"] => "deleted"),
+    Match.whenOr("cancelled", "canceled", (): DocuSealSubmissionAttributes["state"] => "cancelled"),
+    Match.orElse((): DocuSealSubmissionAttributes["state"] => "sent"),
+  );
 };
 
 const resolveSubmitterRoles = (
@@ -396,6 +397,7 @@ const createSubmission = (
             file: bytesToBase64(document.content),
             position: index,
           })),
+          // DocuSeal accepts completed_redirect_url as both a submission default and a submitter override.
           submitters: input.recipients.map((recipient, index) => ({
             name: recipient.name,
             email: recipient.email,
@@ -442,10 +444,6 @@ const createSubmission = (
     );
 };
 
-const submissionsFromListResult = (
-  result: DocuSealSubmissionsResult,
-): readonly DocuSealSubmissionResult[] => result.data;
-
 const listSubmissions = (
   http: SignatureHttpClientService,
   options: DocuSealProviderOptions,
@@ -468,17 +466,12 @@ const listSubmissions = (
           (
             result,
           ): readonly [ReadonlyArray<DocuSealSubmissionAttributes>, Option.Option<string>] => [
-            submissionsFromListResult(result).map((submission) =>
-              toDocuSealSubmissionAttributes(baseUrl, submission),
-            ),
+            result.data.map((submission) => toDocuSealSubmissionAttributes(baseUrl, submission)),
             docuSealSubmissionsNextUrl(baseUrl, result.pagination),
           ],
         ),
       ),
-  ).pipe(
-    Stream.runCollect,
-    Effect.map((requests) => requests.flat()),
-  );
+  ).pipe(Stream.runCollect);
 
 const fetchSubmission = (
   http: SignatureHttpClientService,
@@ -585,8 +578,11 @@ export const DocuSealSignatureRequestProvider = () =>
       const baseUrl = docuSealBaseUrl(options);
 
       return DocuSealSignatureRequest.Provider.of({
+        nuke: { skip: true },
         diff: docusealSignatureRequestDiff,
-        list: () => listSubmissions(http, options, baseUrl),
+        list: () =>
+          // Retained resources must not feed account-wide nuke enumeration.
+          Effect.succeed([]),
         read: ({ output }) =>
           output === undefined
             ? Effect.succeed(undefined)

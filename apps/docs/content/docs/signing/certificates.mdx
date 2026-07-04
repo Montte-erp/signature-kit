@@ -13,7 +13,7 @@ description: "Read the holder identity of an A1 certificate (e-CPF / e-CNPJ), in
 
     ```ts title="read-identity.ts"
     import { a1SignaturesLayer } from "@signature-kit/a1/signer"
-    import { signatures } from "@signature-kit/core/signatures"
+    import { signatures } from "@signature-kit/signatures"
     import { Effect, Redacted } from "effect"
 
     const layer = a1SignaturesLayer({
@@ -75,7 +75,7 @@ description: "Read the holder identity of an A1 certificate (e-CPF / e-CNPJ), in
     </Callout>
 
     ```ts title="inspect.ts"
-    import { signatures } from "@signature-kit/core/signatures"
+    import { signatures } from "@signature-kit/signatures"
     import { Effect, Redacted } from "effect"
 
     // provide the same a1SignaturesLayer({ pfx, password }) as above
@@ -147,7 +147,7 @@ description: "Read the holder identity of an A1 certificate (e-CPF / e-CNPJ), in
 
     ```ts title="validity.ts"
     import { toSignerIdentity, isCertificateValid, daysUntilExpiry } from "@signature-kit/certificates"
-    import { signatures } from "@signature-kit/core/signatures"
+    import { signatures } from "@signature-kit/signatures"
     import { Effect } from "effect"
 
     // provide the same a1SignaturesLayer({ pfx, password }) as above

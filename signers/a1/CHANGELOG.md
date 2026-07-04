@@ -1,6 +1,9 @@
 # Changelog
 
-## 0.2.1
+## 0.3.0
+
+- Emit distinct `SignatureKitError` codes for expired, not-yet-valid, and
+  missing Brazilian CPF/CNPJ certificate profile failures.
 
 - Report A1 schema decode names as local strings after the core schema-name
   catalog removal; public A1 signing behavior is unchanged.

@@ -24,8 +24,8 @@ import {
   type PdfSignatureTemplate,
   type PdfSignatureTemplateInput,
 } from "@signature-kit/pdf/config";
-import { signaturesLayer } from "@signature-kit/core/signatures";
-import type { SignerAdapter } from "@signature-kit/core/config";
+import { signaturesLayer } from "@signature-kit/signatures";
+import type { SignerAdapter } from "@signature-kit/signatures";
 
 /**
  * A Signatures layer whose adapter methods all die — used to prove the batch
@@ -172,7 +172,6 @@ describe("PDF signature builder", () => {
         reason: "Licitei A1 browser signing",
         hashAlgorithm: "sha256",
         policy: "pades-icp-brasil",
-        policyTimeoutMillis: 10_000,
         timestamp: { tsaUrl: "https://tsa.example.test", timeoutMillis: 10_000 },
       });
 
@@ -239,45 +238,54 @@ describe("PDF signature builder", () => {
       const blobBuffer = new ArrayBuffer(pdf.byteLength);
       new Uint8Array(blobBuffer).set(pdf);
       const bytes = yield* readPdfBlobBytes(new Blob([blobBuffer], { type: "application/pdf" }));
-      const document = yield* loadPdfSignatureDocument({
-        id: "uploaded",
-        name: "uploaded.pdf",
-        pdf: bytes,
-      });
+      const document = yield* loadPdfSignatureDocument(
+        {
+          id: "uploaded",
+          name: "uploaded.pdf",
+          pdf: bytes,
+        },
+        { pageLabel: (page) => `Page ${page}` },
+      );
 
       expect(bytes.byteLength).toBe(pdf.byteLength);
       expect(document.source.type).toBe("uploaded");
       expect(document.source.bytes).toBeUndefined();
-      expect(document.pages).toEqual([{ index: 0, width: 320, height: 180, label: "Página 1" }]);
-      const template = yield* createPdfSignatureTemplateFromBytes({
-        id: "browser-template",
-        name: "PDF signature",
-        documentId: "uploaded",
-        documentName: "uploaded.pdf",
-        pdf,
-        role: { id: "signer-1", label: "Cliente", email: "ana@example.com", required: true },
-      });
+      expect(document.pages).toEqual([{ index: 0, width: 320, height: 180, label: "Page 1" }]);
+      const template = yield* createPdfSignatureTemplateFromBytes(
+        {
+          id: "browser-template",
+          name: "PDF signature",
+          documentId: "uploaded",
+          documentName: "uploaded.pdf",
+          pdf,
+          role: { id: "signer-1", label: "Cliente", email: "ana@example.com", required: true },
+        },
+        { pageLabel: (page) => `Page ${page}` },
+      );
 
       expect(template.documents[0]?.pages).toEqual([
-        { index: 0, width: 320, height: 180, label: "Página 1" },
+        { index: 0, width: 320, height: 180, label: "Page 1" },
       ]);
       expect(template.documents[0]?.source.bytes).toBeUndefined();
-      const state = yield* createPdfSignatureBuilderStateFromBytes({
-        id: "browser-builder-state",
-        name: "PDF builder state",
-        documentId: "uploaded",
-        documentName: "uploaded.pdf",
-        pdf,
-        role: { id: "signer-1", label: "Cliente", email: "ana@example.com", required: true },
-        draft: {
-          id: "signature-1",
-          type: "signature",
-          roleId: "signer-1",
-          width: 120,
-          height: 32,
+      const state = yield* createPdfSignatureBuilderStateFromBytes(
+        {
+          id: "browser-builder-state",
+          name: "PDF builder state",
+          documentId: "uploaded",
+          documentName: "uploaded.pdf",
+          pdf,
+          role: { id: "signer-1", label: "Cliente", email: "ana@example.com", required: true },
+          draft: {
+            id: "signature-1",
+            type: "signature",
+            roleId: "signer-1",
+            width: 120,
+            height: 32,
+          },
+          placement: { pageIndex: 0, x: 100, y: 110, anchor: "center" },
         },
-        placement: { pageIndex: 0, x: 100, y: 110, anchor: "center" },
-      });
+        { pageLabel: (page) => `Page ${page}` },
+      );
 
       expect(state.selectedFieldId).toBe("signature-1");
       expect(state.draft?.id).toBe("signature-1");

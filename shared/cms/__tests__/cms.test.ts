@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "@effect/vitest";
 import * as asn1js from "asn1js";
 import * as pkijs from "pkijs";
@@ -12,8 +13,13 @@ import {
   webCryptoHashName,
 } from "../src/config";
 import { toArrayBuffer } from "../src/engine";
+import { IcpBrasilPadesPolicy, parseIcpBrasilPadesPolicy } from "../src/icp-brasil";
 import { requestTimestamp } from "../src/timestamp";
 import { Effect, Result, Schema } from "effect";
+
+const ICP_BRASIL_AD_RB_V11_POLICY_HASH_BASE64 = "RPxYFustcF2MjwIqf5Oz+0nt+uGnuRSe9vq4M+m7Y/g=";
+
+const bytesToBase64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64");
 
 const containsBytes = (haystack: Uint8Array, needle: Uint8Array): boolean => {
   if (needle.length === 0) return true;
@@ -85,25 +91,24 @@ describe("CMS contracts", () => {
     expect(CmsOid.timeStampToken).toBe("1.2.840.113549.1.9.16.2.14");
   });
 
-  it("builds mandatory signed attributes including SigningCertificateV2", () => {
+  it("builds PAdES signed attributes without signingTime", () => {
     const messageDigest = new Uint8Array(32).fill(0x11);
     const certificateSha256 = new Uint8Array(32).fill(0x22);
     const attributes = buildSignedAttributes({
       messageDigest,
       certificateSha256,
-      signingTime: new Date("2026-01-02T03:04:05Z"),
     });
 
     // Emitted in DER SET OF order (X.690 §11.6, ascending octet comparison of
-    // each member's encoding), NOT construction order. signingTime (shorter
-    // SEQUENCE) sorts before messageDigest. Strict ICP-Brasil/BouncyCastle
-    // validators re-canonicalize to this order before checking the RSA cipher.
+    // each member's encoding), NOT construction order. Strict
+    // ICP-Brasil/BouncyCastle validators re-canonicalize to this order before
+    // checking the RSA cipher.
     expect(attributes.map((attribute) => attribute.type)).toEqual([
       CmsOid.contentType,
-      CmsOid.signingTime,
       CmsOid.messageDigest,
       CmsOid.signingCertificateV2,
     ]);
+    expect(attributes.map((attribute) => attribute.type)).not.toContain(CmsOid.signingTime);
     const signingCertificate = attributes.find(
       (attribute) => attribute.type === CmsOid.signingCertificateV2,
     );
@@ -115,28 +120,11 @@ describe("CMS contracts", () => {
     expect(containsBytes(encoded, certificateSha256)).toBe(true);
   });
 
-  it("uses GeneralizedTime for signingTime values from 2050 onward", () => {
-    const before2050 = buildSignedAttributes({
-      messageDigest: new Uint8Array(32).fill(0x11),
-      certificateSha256: new Uint8Array(32).fill(0x22),
-      signingTime: new Date("2049-12-31T23:59:59Z"),
-    }).find((attribute) => attribute.type === CmsOid.signingTime);
-    const from2050 = buildSignedAttributes({
-      messageDigest: new Uint8Array(32).fill(0x11),
-      certificateSha256: new Uint8Array(32).fill(0x22),
-      signingTime: new Date("2050-01-01T00:00:00Z"),
-    }).find((attribute) => attribute.type === CmsOid.signingTime);
-
-    expect(before2050?.values[0]?.idBlock.tagNumber).toBe(23);
-    expect(from2050?.values[0]?.idBlock.tagNumber).toBe(24);
-  });
-
   it("adds ICP-Brasil signature policy attribute when policy metadata is present", () => {
     const policyHash = new Uint8Array(32).fill(0x33);
     const attributes = buildSignedAttributes({
       messageDigest: new Uint8Array(32).fill(0x11),
       certificateSha256: new Uint8Array(32).fill(0x22),
-      signingTime: new Date("2026-01-02T03:04:05Z"),
       icpBrasil: {
         policyOid: "2.16.76.1.7.1.11.1.1",
         policyHash,
@@ -150,6 +138,26 @@ describe("CMS contracts", () => {
     const encoded = new Uint8Array(policy?.values[0]?.toBER(false) ?? new ArrayBuffer(0));
     expect(containsBytes(encoded, policyHash)).toBe(true);
   });
+
+  it.effect("parses the pinned ICP-Brasil AD-RB policy fixture", () =>
+    Effect.gen(function* () {
+      const fixture = yield* Effect.promise(
+        async () =>
+          new Uint8Array(
+            await readFile(new URL("./fixtures/PA_PAdES_AD_RB_v1_1.der", import.meta.url)),
+          ),
+      );
+      const policy = yield* parseIcpBrasilPadesPolicy(fixture);
+
+      expect(policy.policyOid).toBe(IcpBrasilPadesPolicy.adRbV11.policyOid);
+      expect(policy.policyUri).toBe(IcpBrasilPadesPolicy.adRbV11.policyUri);
+      expect(policy.policyHashAlgorithm).toBe("sha256");
+      expect(bytesToBase64(policy.policyHash)).toBe(ICP_BRASIL_AD_RB_V11_POLICY_HASH_BASE64);
+      expect(bytesToBase64(IcpBrasilPadesPolicy.adRbV11.policyHash)).toBe(
+        ICP_BRASIL_AD_RB_V11_POLICY_HASH_BASE64,
+      );
+    }),
+  );
 
   it.effect("validates RFC 3161 timestamp options with the Effect Schema", () =>
     Schema.decodeUnknownEffect(TimestampOptionsSchema)({

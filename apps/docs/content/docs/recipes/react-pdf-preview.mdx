@@ -1,0 +1,107 @@
+---
+title: react-pdf preview
+description: "Render unsigned and signed PDFs beside the signer, and feed page-click rectangles into the PDF workflow."
+---
+
+`react-pdf` belongs in your app, not in SignatureKit packages. Use it as a preview surface, keep object URLs owned by the action that creates them, and pass the selected rectangle to `prepareAndSignPdf`.
+
+```tsx title="PdfPreviewIsland.tsx"
+import dynamic from "next/dynamic"
+
+export const PdfPreviewIsland = dynamic(
+  () => import("./PdfPreview").then((mod) => mod.PdfPreview),
+  { ssr: false },
+)
+```
+
+```tsx title="PdfPreview.tsx"
+import { type PdfSignaturePage, type PdfSignatureRect } from "@signature-kit/pdf/config"
+import { Document, Page } from "react-pdf"
+import * as React from "react"
+
+const STAMP_SIZE = { width: 180, height: 54 }
+
+type PdfPreviewProps = {
+  readonly unsignedPdf: Uint8Array
+  readonly pages: Array<PdfSignaturePage>
+  readonly sign: (rect: PdfSignatureRect) => Promise<Uint8Array>
+}
+
+export function PdfPreview({ unsignedPdf, pages, sign }: PdfPreviewProps) {
+  const [previewUrl, setPreviewUrl] = React.useState<string>()
+  const [stampRect, setStampRect] = React.useState<PdfSignatureRect>()
+
+  const showBytes = React.useCallback((bytes: Uint8Array) => {
+    setPreviewUrl((current) => {
+      if (current !== undefined) URL.revokeObjectURL(current)
+      return URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }))
+    })
+  }, [])
+
+  const clearPreview = React.useCallback(() => {
+    setPreviewUrl((current) => {
+      if (current !== undefined) URL.revokeObjectURL(current)
+      return undefined
+    })
+  }, [])
+
+  const placeOnClick = React.useCallback(
+    (page: PdfSignaturePage, event: React.MouseEvent<HTMLDivElement>) => {
+      const bounds = event.currentTarget.getBoundingClientRect()
+      const x = ((event.clientX - bounds.left) / bounds.width) * page.width
+      const y = ((event.clientY - bounds.top) / bounds.height) * page.height
+      setStampRect({
+        pageIndex: page.index,
+        x: Math.min(Math.max(0, x), page.width - STAMP_SIZE.width),
+        y: Math.min(Math.max(0, y), page.height - STAMP_SIZE.height),
+        width: STAMP_SIZE.width,
+        height: STAMP_SIZE.height,
+      })
+    },
+    [],
+  )
+
+  const signPlaced = React.useCallback(async () => {
+    if (stampRect === undefined) return
+    const signedPdf = await sign(stampRect)
+    showBytes(signedPdf)
+  }, [showBytes, sign, stampRect])
+
+  return (
+    <section>
+      <button type="button" onClick={() => showBytes(unsignedPdf)}>Preview unsigned</button>
+      <button type="button" onClick={signPlaced}>Sign placed rectangle</button>
+      <button type="button" onClick={clearPreview}>Close preview</button>
+      {previewUrl === undefined ? null : (
+        <Document file={previewUrl}>
+          {pages.map((page) => (
+            <div key={page.index} onClick={(event) => placeOnClick(page, event)}>
+              <Page pageNumber={page.index + 1} width={720} />
+            </div>
+          ))}
+        </Document>
+      )}
+    </section>
+  )
+}
+```
+
+```ts title="sign-from-preview.ts"
+import { a1SignaturesLayer } from "@signature-kit/a1/signer"
+import { prepareAndSignPdf } from "@signature-kit/pdf/workflow"
+import { Effect, Redacted } from "effect"
+
+const sign = (rect: PdfSignatureRect): Promise<Uint8Array> =>
+  Effect.runPromise(
+    prepareAndSignPdf({
+      pdf: unsignedPdf,
+      pages,
+      stampRects: [rect],
+      lines: [\"Maria Souza\", \"ICP-Brasil\"],
+      rubric: { initials: \"MS\" },
+      signing: { policy: \"pades-icp-brasil\", name: \"Maria Souza\" },
+    }).pipe(Effect.provide(a1SignaturesLayer({ pfx, password: Redacted.make(password) }))),
+  )
+```
+
+The app owns preview state and `react-pdf`; SignatureKit still owns parsing, stamping, rubrics, and signing.

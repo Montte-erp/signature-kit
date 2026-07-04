@@ -1,0 +1,54 @@
+---
+title: Posicionamento por âncora
+description: "Encontre âncoras de texto como assinatura, CPF ou CNPJ e transforme-as em retângulos de assinatura PDF."
+---
+
+Use `findPdfTextAnchors` quando o documento de negócio já nomeia a área de assinatura. Ele substitui scans com `pdfjs-dist` e matemática manual de transform por um matcher do pacote sobre text boxes do SignatureKit.
+
+```ts title="anchor-placement.ts"
+import { findPdfTextAnchors } from "@signature-kit/pdf/anchors"
+import { type PdfSignaturePage, type PdfTextBox } from "@signature-kit/pdf/config"
+import { parsePdfTextBoxesBrowser } from "@signature-kit/pdf/liteparse-browser"
+import { prepareAndSignPdf } from "@signature-kit/pdf/workflow"
+import { Effect } from "effect"
+
+const pages: Array<PdfSignaturePage> = template.documents[0]?.pages ?? []
+const extractedTextBoxes = await Effect.runPromise(parsePdfTextBoxesBrowser(pdf, pages.length))
+const pageTextBoxes: Array<Array<PdfTextBox>> = extractedTextBoxes.map((page) =>
+  Array.from(page),
+)
+
+const stampRects = await Effect.runPromise(
+  findPdfTextAnchors({
+    pages,
+    textBoxes: pageTextBoxes,
+    matchers: [
+      { text: "assinatura:" },
+      { digits: "12345678901" },      // CPF/CNPJ: compara só números
+    ],
+    stampSize: { width: 180, height: 54 },
+    placement: "below",
+    offset: 6,
+  }),
+)
+
+const signedPdf = yield* prepareAndSignPdf({
+  pdf,
+  pages,
+  pageTextBoxes,
+  stampRects,
+  badge: {
+    header: { text: "ASSINADO DIGITALMENTE" },
+    rows: [[{ label: "Signatário", value: "Maria Souza" }]],
+    footer: [{ text: "ICP-Brasil" }],
+  },
+  rubric: { initials: "MS" },
+  signing: { policy: "pades-icp-brasil", name: "Maria Souza" },
+}).pipe(Effect.provide(layer))
+```
+
+`digits` normaliza o matcher e o texto do PDF para strings numéricas, então `123.456.789-01` e `12345678901` casam. Os retângulos retornados são limitados aos bounds da página.
+
+<Callout type="info">
+  A extração de texto no navegador vem de `parsePdfTextBoxesBrowser` e LiteParse WASM. Se seu runtime não carrega esse WASM, passe `pages` e `textBoxes` da sua própria extração e mantenha o posicionamento em `findPdfTextAnchors`.
+</Callout>

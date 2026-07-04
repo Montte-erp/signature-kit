@@ -15,6 +15,7 @@ import { resolveSignatureWidgetPlacement } from "./placement";
 import { hasPdfByteRange } from "./byte-range";
 
 export const DEFAULT_SIGNATURE_LENGTH = 16384;
+export const DEFAULT_ICP_BRASIL_SIGNATURE_LENGTH = 32768;
 const BYTE_RANGE_PLACEHOLDER = "**********";
 const SIGNATURES_EXIST = 0x01;
 const APPEND_ONLY = 0x02;
@@ -52,6 +53,11 @@ export const addSignaturePlaceholder = (
             );
           }
 
+          const signatureLength =
+            input.signatureLength ??
+            (input.policy === "pades-icp-brasil"
+              ? DEFAULT_ICP_BRASIL_SIGNATURE_LENGTH
+              : DEFAULT_SIGNATURE_LENGTH);
           return Effect.tryPromise({
             try: async () => {
               const byteRange = PDFArray.withContext(pdfDoc.context);
@@ -60,9 +66,7 @@ export const addSignaturePlaceholder = (
               byteRange.push(PDFName.of(BYTE_RANGE_PLACEHOLDER));
               byteRange.push(PDFName.of(BYTE_RANGE_PLACEHOLDER));
 
-              const placeholder = PDFHexString.of(
-                String.fromCharCode(0).repeat(input.signatureLength ?? DEFAULT_SIGNATURE_LENGTH),
-              );
+              const placeholder = PDFHexString.of(String.fromCharCode(0).repeat(signatureLength));
               const signatureDict = pdfDoc.context.obj({
                 Type: "Sig",
                 Filter: "Adobe.PPKLite",

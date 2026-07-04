@@ -19,9 +19,9 @@ flowchart TD
 
 ## O contrato do SignerAdapter
 
-O tipo abaixo é a definição literal exportada por `@signature-kit/core/config`. Seu doc-comment fixa a regra que esta página detalha: o `SignerAdapter` é dono de onde vem o poder de assinar e **nunca** da mutação de formato.
+O tipo abaixo é a definição literal exportada por `@signature-kit/signatures`. Seu doc-comment fixa a regra que esta página detalha: o `SignerAdapter` é dono de onde vem o poder de assinar e **nunca** da mutação de formato.
 
-```ts title="core/core/src/config.ts"
+```ts title="core/signatures/src/signatures.ts"
 /**
  * The capability seam. A signer owns "where the signing power comes from".
  * It never owns document-format mutation (XML/PDF live in format modules).
@@ -57,7 +57,7 @@ Toda implementação de `SignerAdapter` entrega exatamente estes seis membros:
 O pacote `@signature-kit/a1` implementa a costura a partir de um arquivo `.pfx`/`.p12`. `loadA1SignerAdapter(options)` faz o parsing assíncrono e retorna um `SignerAdapter` pronto, com `id` `"a1"`.
 
 ```package-install
-@signature-kit/core @signature-kit/a1
+@signature-kit/signatures @signature-kit/a1
 ```
 
 ```ts title="signer-a1.ts"
@@ -82,10 +82,10 @@ const artifact = yield* signer.sign({ content, algorithm: "rsa-sha256" })
 
 ## Disponibilizando como serviço
 
-O core define `Signatures` como um `Context.Service` com a tag `"@signature-kit/core/Signatures"`. Você nunca o implementa na mão: passe um `SignerAdapter` para `signaturesLayer(signer)` e receba de volta um `Layer<Signatures>` (via `Layer.succeed`). Os accessors `signatures.{inspect, certificate, importSigningKey, sign, verify}` declaram a dependência de `Signatures`; a layer a satisfaz.
+O pacote signatures define `Signatures` como um `Context.Service` com a tag `"@signature-kit/signatures/Signatures"`. Você nunca o implementa na mão: passe um `SignerAdapter` para `signaturesLayer(signer)` e receba de volta um `Layer<Signatures>` (via `Layer.succeed`). Os accessors `signatures.{inspect, certificate, importSigningKey, sign, verify}` declaram a dependência de `Signatures`; a layer a satisfaz.
 
 ```ts title="provide.ts"
-import { signaturesLayer, signatures } from "@signature-kit/core/signatures"
+import { signaturesLayer, signatures } from "@signature-kit/signatures"
 import { loadA1SignerAdapter } from "@signature-kit/a1/signer"
 import { Effect, Redacted } from "effect"
 
@@ -144,8 +144,8 @@ Como a costura é uma porta de formato fixo, trocar de onde vem o poder de assin
 
 ```ts title="swap-backend.ts"
 import { signPdf } from "@signature-kit/pdf/sign"
-import { signaturesLayer } from "@signature-kit/core/signatures"
-import type { SignerAdapter } from "@signature-kit/core/config"
+import { signaturesLayer } from "@signature-kit/signatures"
+import type { SignerAdapter } from "@signature-kit/signatures"
 import { Effect } from "effect"
 
 // The seam is just a port: any SignerAdapter works, as long as it has an id.

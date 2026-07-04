@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Export English and pt-BR `asn1ErrorMessages` catalogs for code-keyed display
+  copy.
+
 ## 0.2.0
 
 - Fix OID decoding of a multi-byte first subidentifier (arcs ≥ 80, e.g. `2.999`) by

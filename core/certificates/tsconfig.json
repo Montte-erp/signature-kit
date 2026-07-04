@@ -3,7 +3,7 @@
   "include": ["src/**/*.ts"],
   "references": [
     {
-      "path": "../core"
+      "path": "../signatures"
     },
     {
       "path": "../../shared/asn1"

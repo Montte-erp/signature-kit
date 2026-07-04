@@ -1,14 +1,14 @@
 import { describe, expect, it } from "@effect/vitest";
-import { type SignatureKitError } from "@signature-kit/core/config";
-import { signatureHttpClientLive, type SignatureHttpClient } from "@signature-kit/core/http";
+import { SignatureKitErrorCodeValue, type SignatureKitError } from "@signature-kit/signatures";
+import { signatureHttpClientLive, type SignatureHttpClient } from "@signature-kit/http";
+import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import {
-  closeLocalServer,
-  parseBodyAsJson,
-  startLocalServer,
+  expectProviderListResult,
+  jsonBody,
+  localHttpServer,
   type LocalRequest,
   type LocalResponse,
-} from "../../__tests__/local-http";
-import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
+} from "../../../tooling/testing/local-http";
 import { Effect, Redacted, Result } from "effect";
 import {
   DocuSealSignatureRequest,
@@ -81,16 +81,36 @@ const withLocalServer = <A, E = SignatureKitError>(
 ): Effect.Effect<A, E> =>
   Effect.gen(function* () {
     let baseUrl = "";
-    const local = yield* startLocalServer(async (request) => handler(request, baseUrl));
+    const local = yield* localHttpServer(async (request) => handler(request, baseUrl));
     baseUrl = local.baseUrl;
     const options = providerOptions(baseUrl);
-    return yield* run(options, local.requests).pipe(
-      Effect.provide(signatureHttpClientLive),
-      Effect.ensuring(closeLocalServer(local.server)),
-    );
-  });
+    return yield* run(options, local.requests).pipe(Effect.provide(signatureHttpClientLive));
+  }).pipe(Effect.scoped);
 
 describe("DocuSeal offline provider", () => {
+  it.effect("returns no entries and skips upstream list for retained provider list hook", () =>
+    withLocalServer(
+      async () =>
+        Promise.resolve({
+          status: 500,
+          body: "unexpected request",
+        }),
+      (options, requests) =>
+        Effect.gen(function* () {
+          const result = yield* Effect.gen(function* () {
+            const provider = yield* DocuSealSignatureRequest.Provider;
+            return yield* provider.list();
+          }).pipe(
+            Effect.provide(DocuSealSignatureRequestProvider()),
+            Effect.provide(docuSealCredentialsLayer(options)),
+          );
+
+          expect(requests).toHaveLength(0);
+          expectProviderListResult(result);
+        }),
+    ),
+  );
+
   it.effect("reconcile sends POST /submissions/pdf with expected auth and body", () =>
     withLocalServer(
       async (request, baseUrl) => {
@@ -145,44 +165,29 @@ describe("DocuSeal offline provider", () => {
             expect(firstDocument).toBeDefined();
             expect(firstRecipient).toBeDefined();
             if (firstDocument !== undefined && firstRecipient !== undefined) {
-              const body = parseBodyAsJson<{
-                name: string;
-                send_email: boolean;
-                order: "preserved" | "random";
-                send_sms?: boolean;
-                subject?: string;
-                message?: { body: string };
-                documents: Array<{ name: string; file: string; position: number }>;
-                submitters: Array<{ name: string; email: string; role: string; order: number }>;
-              }>(createRequest.body);
-
-              expect(body.name).toBe(submissionPayload.title);
-              expect(body.send_email).toBe(false);
-              expect(body.order).toBe("preserved");
-              expect(body.send_sms).toBe(false);
-              expect(body.subject).toBe(submissionPayload.subject);
-              expect(body.message?.body).toBe(submissionPayload.message);
-              expect(body.documents).toHaveLength(1);
-              const parsedDocument = body.documents[0];
-              expect(parsedDocument).toBeDefined();
-              if (parsedDocument !== undefined) {
-                expect(parsedDocument).toMatchObject({
-                  name: firstDocument.fileName,
-                  position: 0,
-                  file: sampleContentBase64,
-                });
-              }
-              expect(body.submitters).toHaveLength(1);
-              const parsedSubmitter = body.submitters[0];
-              expect(parsedSubmitter).toBeDefined();
-              if (parsedSubmitter !== undefined) {
-                expect(parsedSubmitter).toMatchObject({
-                  name: firstRecipient.name,
-                  email: firstRecipient.email,
-                  role: firstRecipient.role,
-                  order: firstRecipient.routingOrder,
-                });
-              }
+              expect(jsonBody(createRequest.body)).toMatchObject({
+                name: submissionPayload.title,
+                send_email: false,
+                order: "preserved",
+                send_sms: false,
+                subject: submissionPayload.subject,
+                message: { body: submissionPayload.message },
+                documents: [
+                  {
+                    name: firstDocument.fileName,
+                    position: 0,
+                    file: sampleContentBase64,
+                  },
+                ],
+                submitters: [
+                  {
+                    name: firstRecipient.name,
+                    email: firstRecipient.email,
+                    role: firstRecipient.role,
+                    order: firstRecipient.routingOrder,
+                  },
+                ],
+              });
             }
           }
         }),
@@ -276,6 +281,7 @@ describe("DocuSeal offline provider", () => {
               request.method === "GET",
           );
           expect(getRequests).toHaveLength(STATE_CASES.length);
+          expect(requests).toHaveLength(2 + STATE_CASES.length);
         }),
     ),
   );
@@ -379,6 +385,12 @@ describe("DocuSeal offline provider", () => {
           );
 
           expect(Result.isFailure(result)).toBe(true);
+          if (Result.isFailure(result)) {
+            expect(result.failure.code).toBe(SignatureKitErrorCodeValue.unsupportedOperation);
+            expect(result.failure.provider).toBe("docuseal");
+            expect(result.failure.reason).toContain("not completed");
+            expect(result.failure.reason).toContain("draft");
+          }
           expect(requests).toHaveLength(1);
           const getRequest = requests[0];
           expect(getRequest).toBeDefined();

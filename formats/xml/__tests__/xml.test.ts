@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { signatures } from "@signature-kit/core/signatures";
+import { signatures } from "@signature-kit/signatures";
 import { Effect, Redacted, Result } from "effect";
 import { readA1Fixture } from "../../../tooling/testing/fixtures";
 import { a1SignaturesLayer } from "@signature-kit/a1/signer";

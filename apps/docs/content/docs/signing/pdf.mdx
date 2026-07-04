@@ -128,43 +128,40 @@ Use `kind: "manual"` when your application already has reliable coordinates, and
 
 ## ICP-Brasil PAdES policy
 
-`PdfSignaturePolicy` has exactly two values: `"pades-ades"` (default) and `"pades-icp-brasil"`. When you choose `"pades-icp-brasil"` **without** the `icpBrasil` field, the module automatically fetches the AD-RB Signature Policy — control this remote fetch with `policyTimeoutMillis`. To avoid the network, pass the explicit `icpBrasil` object.
+`PdfSignaturePolicy` has exactly two values: `"pades-ades"` (default) and `"pades-icp-brasil"`. When you choose `"pades-icp-brasil"` without `icpBrasil`, the PDF package uses the pinned PA_PAdES_AD_RB_v1_1 metadata from `@signature-kit/cms`; no app-side policy assembly or runtime policy fetch is needed. ICP-Brasil signatures reserve 32768 `/Contents` bytes by default unless you set `signatureLength`.
 
 ```ts title="icp-brasil-policy.ts"
 // PdfSignaturePolicy = "pades-ades" | "pades-icp-brasil"
 // Signature default when policy is omitted: "pades-ades"
 
-// Automatic fetch of the AD-RB policy (without explicit icpBrasil)
-const auto = signPdf({
+const signed = signPdf({
   pdf,
   policy: "pades-icp-brasil",
-  policyTimeoutMillis: 10_000,   // limit for the remote SP fetch
 }).pipe(Effect.provide(layer))
 
-// Explicit ICP-Brasil policy — you provide the identifiers
+// Explicit policy input still wins when you need a different AD-RB/AD-RT policy.
 const explicit = signPdf({
   pdf,
   policy: "pades-icp-brasil",
-  hashAlgorithm: "sha256",       // only "sha256" or "sha512"
-  icpBrasil: {
-    policyOid: "2.16.76.1.7.1.11.1.1",
-    policyHash: new Uint8Array(32),
-    policyHashAlgorithm: "sha256",
-    policyUri: "http://politicas.icpbrasil.gov.br/PA_PAdES_AD_RB_v1_1.der",
-  },
+  hashAlgorithm: "sha256",
+  signatureLength: 49152,
+  icpBrasil: customPolicy,
 }).pipe(Effect.provide(layer))
 ```
 
-The explicit object carries `policyOid`, `policyHash`, `policyHashAlgorithm`, and `policyUri` — the same AD-RB SP identifiers the automatic fetch would bring, now pinned in your code.
+The bundled AD-RB object carries `policyOid`, `policyHash`, `policyHashAlgorithm`, and `policyUri` from PA_PAdES_AD_RB_v1_1.
 
-<Callout type="warn" title="Remote SP fetch">
-  Without the explicit `icpBrasil` object, `"pades-icp-brasil"` performs a remote fetch of the AD-RB Signature Policy — subject to the
-  network and to `policyTimeoutMillis`. In environments without outbound access, provide the `icpBrasil` object to avoid the call.
+<Callout type="info">
+  Keep `policyHashAlgorithm` consistent with the signature's `hashAlgorithm` when you provide a custom `icpBrasil` object — use `"sha256"` or `"sha512"` in both.
 </Callout>
 
 <Callout type="info">
   keep `policyHashAlgorithm` consistent with the signature's `hashAlgorithm` — use `"sha256"` or `"sha512"` in both.
 </Callout>
+
+## Merge PDFs
+
+`mergePdfs([first, second])` copies pages into a new PDF. It does **not** preserve source AcroForm fields, document metadata, or catalog-level form state; use it for flattened/page-content workflows, not for preserving interactive forms.
 
 ## Verify with verifyPdf
 

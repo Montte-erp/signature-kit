@@ -3,12 +3,12 @@ import {
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
   redactedStringSchema,
-} from "@signature-kit/core/config";
-import { SignatureHttpClient, normalizedBaseUrl } from "@signature-kit/core/http";
-import type { SignatureHttpClientService } from "@signature-kit/core/http";
+} from "@signature-kit/signatures";
+import { SignatureHttpClient, normalizedBaseUrl } from "@signature-kit/http";
+import type { SignatureHttpClientService } from "@signature-kit/http";
 import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
-import { Context, Effect, Layer, Option, Redacted, Schema, Stream } from "effect";
+import { Context, Effect, Layer, Match, Option, Redacted, Schema, Stream } from "effect";
 
 const DocumensoSchemaName = {
   providerOptions: "DocumensoProviderOptions",
@@ -384,31 +384,36 @@ const distributeEnvelope = (
           : { signingUrl: result.recipients[0].signingUrl }),
       })),
     );
+const DocumensoEnvelopeStatusSchema = Schema.Literals([
+  "DRAFT",
+  "PENDING",
+  "PROCESSING",
+  "SENT",
+  "SIGNED",
+  "COMPLETED",
+  "CLOSED",
+  "REJECTED",
+  "DECLINED",
+  "CANCELED",
+  "CANCELLED",
+  "DELETED",
+  "EXPIRED",
+]);
+const isDocumensoEnvelopeStatus = Schema.is(DocumensoEnvelopeStatusSchema);
+
 const mapEnvelopeStatus = (status: string): DocumensoEnvelope["state"] => {
-  switch (status.toUpperCase()) {
-    case "DRAFT":
-      return "draft";
-    case "PENDING":
-    case "PROCESSING":
-    case "SENT":
-      return "sent";
-    case "SIGNED":
-    case "COMPLETED":
-    case "CLOSED":
-      return "completed";
-    case "REJECTED":
-    case "DECLINED":
-      return "declined";
-    case "CANCELED":
-    case "CANCELLED":
-      return "cancelled";
-    case "DELETED":
-      return "deleted";
-    case "EXPIRED":
-      return "expired";
-    default:
-      return "sent";
-  }
+  const normalized = status.toUpperCase();
+  if (!isDocumensoEnvelopeStatus(normalized)) return "sent";
+  return Match.value(normalized).pipe(
+    Match.when("DRAFT", (): DocumensoEnvelope["state"] => "draft"),
+    Match.whenOr("PENDING", "PROCESSING", "SENT", (): DocumensoEnvelope["state"] => "sent"),
+    Match.whenOr("SIGNED", "COMPLETED", "CLOSED", (): DocumensoEnvelope["state"] => "completed"),
+    Match.whenOr("REJECTED", "DECLINED", (): DocumensoEnvelope["state"] => "declined"),
+    Match.whenOr("CANCELED", "CANCELLED", (): DocumensoEnvelope["state"] => "cancelled"),
+    Match.when("DELETED", (): DocumensoEnvelope["state"] => "deleted"),
+    Match.when("EXPIRED", (): DocumensoEnvelope["state"] => "expired"),
+    Match.orElse((): DocumensoEnvelope["state"] => "sent"),
+  );
 };
 
 const envelopeSignedDownloadUrl = (baseUrl: string, envelopeItemId: string): string => {
@@ -498,10 +503,7 @@ const listEnvelopes = (
           documensoNextPage(result.pagination, page),
         ]),
       );
-  }).pipe(
-    Stream.runCollect,
-    Effect.map((requests) => requests.flat()),
-  );
+  }).pipe(Stream.runCollect);
 };
 
 const cancelEnvelope = (
@@ -545,18 +547,6 @@ const deleteEnvelope = (
       ),
     );
 
-const downloadSignedEnvelopeItem = (
-  http: SignatureHttpClientService,
-  options: DocumensoProviderOptions,
-  baseUrl: string,
-  envelopeItemId: string,
-): Effect.Effect<Uint8Array, SignatureKitError> => {
-  const encodedItemId = documensoPathId(envelopeItemId);
-  const url = new URL(`${baseUrl}/envelope/item/${encodedItemId}/download`);
-  url.searchParams.set("version", "signed");
-  return requestEnvelopeSignedBytes(http, options, baseUrl, url.toString());
-};
-
 const downloadSignedEnvelopeDocument = (
   http: SignatureHttpClientService,
   options: DocumensoProviderOptions,
@@ -565,15 +555,23 @@ const downloadSignedEnvelopeDocument = (
 ): Effect.Effect<Uint8Array, SignatureKitError> =>
   fetchEnvelopeResult(http, options, baseUrl, envelopeId).pipe(
     Effect.flatMap((envelope) => {
-      const downloadUrl = envelopeSignedDownloadUrlFromEnvelope(baseUrl, envelope);
-      if (downloadUrl !== undefined) {
-        return requestEnvelopeSignedBytes(http, options, baseUrl, downloadUrl);
-      }
-
-      if (envelope.envelopeItems?.[0]?.id === undefined) {
+      if (mapEnvelopeStatus(envelope.status) !== "completed") {
         return Effect.fail(
           new SignatureKitError({
-            code: SignatureKitErrorCodeValue.responseShape,
+            code: SignatureKitErrorCodeValue.unsupportedOperation,
+            retryable: false,
+            provider: PROVIDER,
+            operation: DocumensoOperation.download,
+            reason: `Documenso envelope ${envelopeId} is not completed yet (status: ${envelope.status ?? "unknown"}); the signed document does not exist.`,
+          }),
+        );
+      }
+
+      const envelopeItemId = envelope.envelopeItems?.[0]?.id;
+      if (envelopeItemId === undefined) {
+        return Effect.fail(
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.unsupportedOperation,
             retryable: false,
             provider: PROVIDER,
             operation: DocumensoOperation.download,
@@ -582,7 +580,12 @@ const downloadSignedEnvelopeDocument = (
         );
       }
 
-      return downloadSignedEnvelopeItem(http, options, baseUrl, envelope.envelopeItems[0].id);
+      return requestEnvelopeSignedBytes(
+        http,
+        options,
+        baseUrl,
+        envelopeSignedDownloadUrl(baseUrl, envelopeItemId),
+      );
     }),
   );
 
@@ -592,6 +595,7 @@ const shouldRollbackDocumensoCreate = (error: SignatureKitError): boolean =>
   error.status >= 400 &&
   error.status < 500 &&
   error.status !== 408 &&
+  error.status !== 409 &&
   error.status !== 429;
 
 const createDocumensoEnvelopeRequest = (
@@ -633,8 +637,11 @@ export const DocumensoSignatureRequestProvider = () =>
       const baseUrl = documensoBaseUrl(options);
 
       return DocumensoSignatureRequest.Provider.of({
+        nuke: { skip: true },
         diff: documensoSignatureRequestDiff,
-        list: () => listEnvelopes(http, options, baseUrl),
+        list: () =>
+          // Retained resources must not feed account-wide nuke enumeration.
+          Effect.succeed([]),
         read: ({ output }) =>
           output === undefined
             ? Effect.succeed(undefined)

@@ -1,0 +1,85 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`stampPdfRubric > keeps the legacy lines stamp content snapshot-stable 1`] = `
+"q
+BT
+0 0 0 rg
+/Helvetica-7098480789 12 Tf
+24 TL
+1 0 0 1 32 150 Tm
+<506167652031> Tj
+T*
+ET
+Q
+
+q
+BT
+0 0 0 rg
+/Helvetica-9742682568 12 Tf
+24 TL
+1 0 0 1 32 150 Tm
+<506167652032> Tj
+T*
+ET
+Q
+
+q
+BT
+0 0 0 rg
+/Helvetica-2000805986 12 Tf
+24 TL
+1 0 0 1 32 150 Tm
+<506167652033> Tj
+T*
+ET
+Q
+
+q
+1 0 0 1 320 60 cm
+1 0 0 1 0 0 cm
+1 0 0 1 0 0 cm
+1 0 0 -1 0 0 cm
+0.45 0.45 0.45 RG
+0.6 w
+[] 0 d
+0 0 m
+168 0 l
+168 48 l
+0 48 l
+h
+S
+Q
+q
+BT
+0.1 0.1 0.1 rg
+/Helvetica-7098480789 7 Tf
+24 TL
+1 0 0 1 323 50 Tm
+<4D6172696120412E20436F737461> Tj
+T*
+ET
+Q
+q
+BT
+0.1 0.1 0.1 rg
+/Helvetica-9742682568 7 Tf
+24 TL
+1 0 0 1 323 41.5 Tm
+<4350462F434E504A3A203132332E3435362E3738392D3030> Tj
+T*
+ET
+Q
+q
+BT
+0.1 0.1 0.1 rg
+/Helvetica-9750469207 7 Tf
+24 TL
+1 0 0 1 323 33 Tm
+<30332F30372F323032362031303A3330> Tj
+T*
+ET
+Q
+
+q
+"
+`;

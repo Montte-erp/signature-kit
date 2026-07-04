@@ -45,7 +45,7 @@ const CAPABILITIES: Capability[] = [
     title: m.cap1_title,
     description: m.cap1_desc,
     docHref: "/docs/signing/signers",
-    code: `import { signatures } from "@signature-kit/core/signatures"`,
+    code: `import { signatures } from "@signature-kit/signatures"`,
   },
   {
     title: m.cap2_title,

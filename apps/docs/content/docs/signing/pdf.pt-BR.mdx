@@ -128,43 +128,36 @@ Use `kind: "manual"` quando sua aplicação já tiver coordenadas confiáveis, e
 
 ## Política PAdES ICP-Brasil
 
-`PdfSignaturePolicy` tem exatamente dois valores: `"pades-ades"` (padrão) e `"pades-icp-brasil"`. Quando você escolhe `"pades-icp-brasil"` **sem** o campo `icpBrasil`, o módulo busca automaticamente a Signature Policy AD-RB — controle essa busca remota com `policyTimeoutMillis`. Para evitar a rede, passe o objeto `icpBrasil` explícito.
+`PdfSignaturePolicy` tem exatamente dois valores: `"pades-ades"` (padrão) e `"pades-icp-brasil"`. Quando você escolhe `"pades-icp-brasil"` sem `icpBrasil`, o pacote PDF usa os metadados PA_PAdES_AD_RB_v1_1 fixados em `@signature-kit/cms`; não há montagem de política na app nem fetch de política em runtime. Assinaturas ICP-Brasil reservam 32768 bytes em `/Contents` por padrão, a menos que você defina `signatureLength`.
 
 ```ts title="icp-brasil-policy.ts"
 // PdfSignaturePolicy = "pades-ades" | "pades-icp-brasil"
-// Signature default when policy is omitted: "pades-ades"
+// Padrão quando policy é omitido: "pades-ades"
 
-// Automatic fetch of the AD-RB policy (without explicit icpBrasil)
-const auto = signPdf({
+const signed = signPdf({
   pdf,
   policy: "pades-icp-brasil",
-  policyTimeoutMillis: 10_000,   // limit for the remote SP fetch
 }).pipe(Effect.provide(layer))
 
-// Explicit ICP-Brasil policy — you provide the identifiers
+// O input explícito ainda vence quando você precisa de outra política AD-RB/AD-RT.
 const explicit = signPdf({
   pdf,
   policy: "pades-icp-brasil",
-  hashAlgorithm: "sha256",       // only "sha256" or "sha512"
-  icpBrasil: {
-    policyOid: "2.16.76.1.7.1.11.1.1",
-    policyHash: new Uint8Array(32),
-    policyHashAlgorithm: "sha256",
-    policyUri: "http://politicas.icpbrasil.gov.br/PA_PAdES_AD_RB_v1_1.der",
-  },
+  hashAlgorithm: "sha256",
+  signatureLength: 49152,
+  icpBrasil: customPolicy,
 }).pipe(Effect.provide(layer))
 ```
 
-O objeto explícito carrega `policyOid`, `policyHash`, `policyHashAlgorithm` e `policyUri` — os mesmos identificadores da SP AD-RB que a busca automática traria, agora fixos no seu código.
-
-<Callout type="warn" title="Busca remota da SP">
-  Sem o objeto `icpBrasil` explícito, `"pades-icp-brasil"` faz uma busca remota da Signature Policy AD-RB — sujeita à
-  rede e a `policyTimeoutMillis`. Em ambientes sem acesso de saída, forneça o objeto `icpBrasil` para evitar a chamada.
-</Callout>
+O objeto AD-RB embutido carrega `policyOid`, `policyHash`, `policyHashAlgorithm` e `policyUri` da PA_PAdES_AD_RB_v1_1.
 
 <Callout type="info">
-  mantenha `policyHashAlgorithm` consistente com o `hashAlgorithm` da assinatura — use `"sha256"` ou `"sha512"` em ambos.
+  Mantenha `policyHashAlgorithm` consistente com o `hashAlgorithm` da assinatura quando fornecer um `icpBrasil` customizado — use `"sha256"` ou `"sha512"` em ambos.
 </Callout>
+
+## Mesclar PDFs
+
+`mergePdfs([first, second])` copia as páginas para um novo PDF. Ele **não** preserva campos AcroForm, metadados do documento ou estado de formulário no catálogo dos arquivos de origem; use para fluxos de conteúdo de página já achatado, não para preservar formulários interativos.
 
 ## Verifique com verifyPdf
 

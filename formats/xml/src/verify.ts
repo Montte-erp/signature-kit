@@ -1,7 +1,8 @@
-import type { SignatureAlgorithm } from "@signature-kit/core/config";
+import type { SignatureAlgorithm } from "@signature-kit/signatures";
 import { Effect, Schema } from "effect";
 import type { SignedXml as XmlDsigSignedXml } from "xmldsigjs";
 import {
+  type XmlHashAlgorithm,
   type XmlVerificationRequest,
   type XmlVerificationResult,
   XmlError,
@@ -9,13 +10,13 @@ import {
   XmlOperationValue,
   XmlSchemaNameValue,
   XmlVerificationRequestSchema,
+  xmlHashAlgorithmFromSignatureAlgorithm,
 } from "./config";
 import { XmlRuntime, type XmlRuntimeService } from "./runtime";
 
 const XMLDSIG_NAMESPACE = "http://www.w3.org/2000/09/xmldsig#";
 const XML_RSA_ALGORITHM_NAME = "RSASSA-PKCS1-v1_5";
 
-type XmlHashAlgorithm = "SHA-1" | "SHA-256" | "SHA-512";
 const XML_CORE_CRYPTOGRAPHIC_ERROR_CODE = 13;
 const XmlCoreErrorSchema = Schema.Struct({
   prefix: Schema.Literal("XMLJS"),
@@ -40,19 +41,6 @@ const xmlHashAlgorithmFromString = (value: string): XmlHashAlgorithm | undefined
     return "SHA-256";
   }
   return undefined;
-};
-
-const xmlHashAlgorithmFromSignatureAlgorithm = (
-  algorithm: SignatureAlgorithm,
-): XmlHashAlgorithm => {
-  switch (algorithm) {
-    case "rsa-sha1":
-      return "SHA-1";
-    case "rsa-sha512":
-      return "SHA-512";
-    case "rsa-sha256":
-      return "SHA-256";
-  }
 };
 
 const importPublicVerificationKey = (
@@ -205,6 +193,7 @@ const verifySingleSignature = (
     }).pipe(
       Effect.catch((cause) =>
         Schema.decodeUnknownEffect(XmlCoreErrorSchema)(cause).pipe(
+          Effect.catch(() => Effect.die(cause)),
           Effect.flatMap((xmlCoreError) =>
             xmlCoreError.code === XML_CORE_CRYPTOGRAPHIC_ERROR_CODE
               ? Effect.succeed(false)
@@ -215,15 +204,6 @@ const verifySingleSignature = (
                     operation: XmlOperationValue.verify,
                   }),
                 ),
-          ),
-          Effect.catch(() =>
-            Effect.fail(
-              new XmlError({
-                code: XmlErrorCodeValue.verifyFailed,
-                retryable: false,
-                operation: XmlOperationValue.verify,
-              }),
-            ),
           ),
         ),
       ),

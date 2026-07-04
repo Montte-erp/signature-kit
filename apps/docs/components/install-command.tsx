@@ -10,7 +10,7 @@ import { m } from "@/paraglide/messages";
 import { captureDocsEvent } from "@/lib/posthog/client";
 import { cn } from "@/lib/utils";
 
-const DEFAULT_COMMAND = "bun add @signature-kit/core @signature-kit/a1";
+const DEFAULT_COMMAND = "bun add @signature-kit/signatures @signature-kit/a1";
 
 type InstallCommandProps = {
   readonly command?: string;

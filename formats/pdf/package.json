@@ -1,6 +1,6 @@
 {
   "name": "@signature-kit/pdf",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "license": "MIT",
   "files": [
     "dist",
@@ -35,6 +35,14 @@
       "types": "./dist/stamp.d.ts",
       "import": "./dist/stamp.js"
     },
+    "./anchors": {
+      "types": "./dist/anchors.d.ts",
+      "import": "./dist/anchors.js"
+    },
+    "./merge": {
+      "types": "./dist/merge.d.ts",
+      "import": "./dist/merge.js"
+    },
     "./liteparse-browser": {
       "types": "./dist/liteparse-browser.d.ts",
       "import": "./dist/liteparse-browser.js"
@@ -42,6 +50,10 @@
     "./verify": {
       "types": "./dist/verify.d.ts",
       "import": "./dist/verify.js"
+    },
+    "./byte-range": {
+      "types": "./dist/byte-range.d.ts",
+      "import": "./dist/byte-range.js"
     }
   },
   "publishConfig": {
@@ -56,11 +68,13 @@
     "@cantoo/pdf-lib": "2.7.1",
     "@llamaindex/liteparse-wasm": "^2.4.0",
     "@signature-kit/cms": "^0.2.1",
-    "@signature-kit/core": "^0.3.0",
-    "effect": "4.0.0-beta.86"
+    "@signature-kit/i18n": "^0.1.0",
+    "@signature-kit/signatures": "^0.1.0",
+    "effect": "4.0.0-beta.86",
+    "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {
-    "@signature-kit/a1": "^0.2.1"
+    "@signature-kit/a1": "^0.3.0"
   },
   "nx": {
     "targets": {

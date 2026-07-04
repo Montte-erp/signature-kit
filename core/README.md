@@ -2,12 +2,13 @@
 
 Workspace group for small publishable core packages.
 
-- `core/core` → `@signature-kit/core` — runtime schemas, typed errors, and the `Signatures` service.
+- `core/signatures` → `@signature-kit/signatures` — runtime schemas, typed errors, and the `Signatures` service.
+- `core/http` → `@signature-kit/http` — HTTP client service, transport schemas, and diagnostic URL helpers.
 - `core/certificates` → `@signature-kit/certificates` — Effect-safe PKCS#12/X.509 parsing and identity helpers.
 
 ```ts
 import { a1SignaturesLayer } from "@signature-kit/a1/signer";
-import { signatures } from "@signature-kit/core/signatures";
+import { signatures } from "@signature-kit/signatures";
 import { Effect, Redacted } from "effect";
 
 const program = Effect.gen(function* () {

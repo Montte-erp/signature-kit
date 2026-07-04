@@ -7,10 +7,10 @@ description: "Install the core and the A1 signer, provide the Signatures layer, 
 
 <Steps>
   <Step title="Install the packages">
-    Start with the `@signature-kit/core` runtime and the `@signature-kit/a1` signer.
+    Start with the `@signature-kit/signatures` runtime and the `@signature-kit/a1` signer.
 
     ```package-install
-    @signature-kit/core @signature-kit/a1
+    @signature-kit/signatures @signature-kit/a1
     ```
   </Step>
 
@@ -19,7 +19,7 @@ description: "Install the core and the A1 signer, provide the Signatures layer, 
 
     ```ts title="signature-kit.ts"
     import { a1SignaturesLayer } from "@signature-kit/a1/signer"
-    import { signatures } from "@signature-kit/core/signatures"
+    import { signatures } from "@signature-kit/signatures"
     import { Effect, Redacted } from "effect"
 
     export const layer = a1SignaturesLayer({

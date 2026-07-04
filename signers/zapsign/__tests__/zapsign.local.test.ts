@@ -1,14 +1,14 @@
 import { describe, expect, it } from "@effect/vitest";
-import { signatureHttpClientLive } from "@signature-kit/core/http";
+import { signatureHttpClientLive } from "@signature-kit/http";
+import { Effect, Redacted, Result } from "effect";
 import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import {
-  closeLocalServer,
-  parseBodyAsJson,
-  startLocalServer,
+  expectProviderListResult,
+  jsonBody,
+  localHttpServer,
   type LocalRequest,
   type LocalResponse,
-} from "../../__tests__/local-http";
-import { Effect, Redacted, Result } from "effect";
+} from "../../../tooling/testing/local-http";
 import {
   ZapSignSignatureRequest,
   type ZapSignDocumentProps,
@@ -61,9 +61,36 @@ const reconcileZapSignSignatureRequest = (
   );
 
 describe("ZapSign local API", () => {
+  it.effect("returns no entries and skips upstream list for retained provider list hook", () =>
+    localHttpServer(() => Promise.resolve({ status: 500, body: "unexpected request" })).pipe(
+      Effect.flatMap((server) =>
+        Effect.gen(function* () {
+          const options = {
+            apiToken: Redacted.make("zapsign-local-token"),
+            baseUrl: server.baseUrl,
+            locale: "en",
+          } satisfies ZapSignProviderOptions;
+
+          const result = yield* Effect.gen(function* () {
+            const provider = yield* ZapSignSignatureRequest.Provider;
+            return yield* provider.list();
+          }).pipe(
+            Effect.provide(ZapSignSignatureRequestProvider()),
+            Effect.provide(zapSignCredentialsLayer(options)),
+            Effect.provide(signatureHttpClientLive),
+          );
+
+          expect(server.requests).toHaveLength(0);
+          expectProviderListResult(result);
+        }),
+      ),
+      Effect.scoped,
+    ),
+  );
+
   it.effect("reconciles via POST /docs with the expected auth header and JSON body", () =>
     Effect.gen(function* () {
-      const local = yield* startLocalServer(
+      const local = yield* localHttpServer(
         async (request: LocalRequest): Promise<LocalResponse> => {
           if (request.method === "POST" && request.pathname === "/docs/") {
             return {
@@ -101,43 +128,25 @@ describe("ZapSign local API", () => {
       expect(createCall.headers.authorization).toBe("Bearer zapsign-local-token");
       expect(createCall.headers["content-type"]).toBe("application/json");
 
-      const createBody = parseBodyAsJson<{
-        name: string;
-        base64_pdf: string;
-        lang: string;
-        disable_signer_emails: boolean;
-        signature_order_active: boolean;
-        signers: Array<{
-          name: string;
-          email: string;
-          auth_mode: string;
-          send_automatic_email: boolean;
-          order_group: number;
-          custom_message?: string;
-          redirect_link?: string;
-        }>;
-        date_limit_to_sign?: string;
-      }>(createCall.body);
-
-      expect(createBody.name).toBe("ZapSign local reconciliation");
-      expect(createBody.base64_pdf).toBe(base64Pdf);
-      expect(createBody.lang).toBe("en");
-      expect(createBody.disable_signer_emails).toBe(true);
-      expect(createBody.signature_order_active).toBe(true);
-      expect(createBody.signers).toEqual([
-        {
-          name: "Local Signer",
-          email: "signer@example.test",
-          auth_mode: "assinaturaTela",
-          send_automatic_email: false,
-          order_group: 2,
-          custom_message: "Created by local offline test",
-          redirect_link: "https://example.test/local-callback",
-        },
-      ]);
-      expect(createBody.date_limit_to_sign).toBe("2024-01-01T00:00:00.000Z");
-
-      yield* closeLocalServer(local.server);
+      expect(jsonBody(createCall.body)).toMatchObject({
+        name: "ZapSign local reconciliation",
+        base64_pdf: base64Pdf,
+        lang: "en",
+        disable_signer_emails: true,
+        signature_order_active: true,
+        signers: [
+          {
+            name: "Local Signer",
+            email: "signer@example.test",
+            auth_mode: "assinaturaTela",
+            send_automatic_email: false,
+            order_group: 2,
+            custom_message: "Created by local offline test",
+            redirect_link: "https://example.test/local-callback",
+          },
+        ],
+        date_limit_to_sign: "2024-01-01T00:00:00.000Z",
+      });
     }),
   );
 
@@ -174,7 +183,7 @@ describe("ZapSign local API", () => {
         { id: "doc-expired", remoteStatus: "expired", expected: "expired" },
       ];
 
-      const local = yield* startLocalServer(
+      const local = yield* localHttpServer(
         async (request: LocalRequest): Promise<LocalResponse> => {
           if (
             request.method === "GET" &&
@@ -215,8 +224,6 @@ describe("ZapSign local API", () => {
         expect(request.pathname.startsWith("/docs/")).toBe(true);
         expect(request.pathname.endsWith("/")).toBe(true);
       }
-
-      yield* closeLocalServer(local.server);
     }),
   );
 
@@ -267,7 +274,7 @@ describe("ZapSign local API", () => {
       };
 
       let baseUrl = "";
-      const local = yield* startLocalServer(
+      const local = yield* localHttpServer(
         async (request: LocalRequest): Promise<LocalResponse> => {
           if (request.method === "GET" && request.pathname === "/docs/") {
             const page = request.query.get("page") ?? "1";
@@ -339,15 +346,13 @@ describe("ZapSign local API", () => {
       expect(firstListRequest.query.get("include_signers")).toBe("true");
       expect(secondListRequest.query.get("page")).toBe("2");
       expect(secondListRequest.query.get("include_signers")).toBe("true");
-
-      yield* closeLocalServer(local.server);
     }),
   );
 
   it.effect("downloads signed bytes via downloadUrl when available", () =>
     Effect.gen(function* () {
       const expected = new TextEncoder().encode("offline signed payload");
-      const local = yield* startLocalServer(
+      const local = yield* localHttpServer(
         async (request: LocalRequest): Promise<LocalResponse> => {
           if (request.method === "GET" && request.pathname === "/docs/download-doc/") {
             return {
@@ -398,14 +403,12 @@ describe("ZapSign local API", () => {
       expect(firstDownloadRequest.method).toBe("GET");
       expect(firstDownloadRequest.headers.authorization).toBe("Bearer zapsign-local-token");
       expect(secondDownloadRequest.method).toBe("GET");
-
-      yield* closeLocalServer(local.server);
     }),
   );
 
   it.effect("treats DELETE /docs/:id/ 404 as success", () =>
     Effect.gen(function* () {
-      const local = yield* startLocalServer(
+      const local = yield* localHttpServer(
         async (request: LocalRequest): Promise<LocalResponse> => {
           if (request.method === "DELETE" && request.pathname === "/docs/deleted-doc/") {
             return { status: 404, body: "gone" };
@@ -439,8 +442,6 @@ describe("ZapSign local API", () => {
       expect(deleteRequest.method).toBe("DELETE");
       expect(deleteRequest.pathname).toBe("/docs/deleted-doc/");
       expect(deleteRequest.headers.authorization).toBe("Bearer zapsign-local-token");
-
-      yield* closeLocalServer(local.server);
     }),
   );
 });

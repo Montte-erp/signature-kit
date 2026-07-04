@@ -22,6 +22,9 @@ const DEFAULT_AUTO_MARGIN = 36;
 const DEFAULT_AUTO_GAP = 8;
 const DEFAULT_AUTO_ANCHOR: PdfSignatureAnchor = "bottom-right";
 
+export const clampCoordinate = (value: number, min: number, max: number): number =>
+  Math.min(max, Math.max(min, value));
+
 type PdfRectangle = {
   readonly left: number;
   readonly bottom: number;

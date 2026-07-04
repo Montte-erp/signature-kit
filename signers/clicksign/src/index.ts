@@ -4,12 +4,12 @@ import {
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
   redactedStringSchema,
-} from "@signature-kit/core/config";
-import { SignatureHttpClient, normalizedBaseUrl } from "@signature-kit/core/http";
-import type { SignatureHttpClientService, SignatureHttpRequest } from "@signature-kit/core/http";
+} from "@signature-kit/signatures";
+import { SignatureHttpClient, normalizedBaseUrl } from "@signature-kit/http";
+import type { SignatureHttpClientService, SignatureHttpRequest } from "@signature-kit/http";
 import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
-import { Context, Effect, Layer, Redacted, Schema } from "effect";
+import { Context, Effect, Layer, Match, Option, Redacted, Schema, Stream } from "effect";
 
 const ClicksignSchemaName = {
   providerOptions: "ClicksignProviderOptions",
@@ -21,7 +21,6 @@ const ClicksignSchemaName = {
 } satisfies Record<string, string>;
 
 const ClicksignOperation = {
-  create: "clicksign.create",
   download: "clicksign.download",
 } satisfies Record<string, string>;
 
@@ -191,10 +190,6 @@ const ClicksignListResultSchema = Schema.Struct({
   list: Schema.Struct({ request_signature_key: Schema.NonEmptyString }),
 });
 
-const ClicksignGetDocumentResponseSchema = Schema.Struct({
-  document: ClicksignDocumentSchema,
-});
-
 const ClicksignPageInfosSchema = Schema.Struct({
   total_pages: Schema.optional(Schema.Union([Schema.Number, Schema.String])),
   current_page: Schema.optional(Schema.Union([Schema.Number, Schema.String])),
@@ -214,29 +209,43 @@ const clicksignPathId = (id: string): string => encodeURIComponent(id);
 
 const clicksignDocumentPath = (id: string): string => `/documents/${clicksignPathId(id)}`;
 
+const ClicksignStatusSchema = Schema.Literals([
+  "draft",
+  "completed",
+  "signed",
+  "closed",
+  "cancelled",
+  "canceled",
+  "deleted",
+  "declined",
+  "expired",
+]);
+const isClicksignStatus = Schema.is(ClicksignStatusSchema);
+
 const toClicksignSignatureRequestAttributesState = (
   status: string | undefined,
 ): ClicksignSignatureRequestAttributes["state"] => {
   if (status === undefined) return "sent";
-  switch (status.toLowerCase()) {
-    case "draft":
-      return "draft";
-    case "completed":
-    case "signed":
-    case "closed":
-      return "completed";
-    case "cancelled":
-    case "canceled":
-      return "cancelled";
-    case "deleted":
-      return "deleted";
-    case "declined":
-      return "declined";
-    case "expired":
-      return "expired";
-    default:
-      return "sent";
-  }
+  const normalized = status.toLowerCase();
+  if (!isClicksignStatus(normalized)) return "sent";
+  return Match.value(normalized).pipe(
+    Match.when("draft", (): ClicksignSignatureRequestAttributes["state"] => "draft"),
+    Match.whenOr(
+      "completed",
+      "signed",
+      "closed",
+      (): ClicksignSignatureRequestAttributes["state"] => "completed",
+    ),
+    Match.whenOr(
+      "cancelled",
+      "canceled",
+      (): ClicksignSignatureRequestAttributes["state"] => "cancelled",
+    ),
+    Match.when("deleted", (): ClicksignSignatureRequestAttributes["state"] => "deleted"),
+    Match.when("declined", (): ClicksignSignatureRequestAttributes["state"] => "declined"),
+    Match.when("expired", (): ClicksignSignatureRequestAttributes["state"] => "expired"),
+    Match.orElse((): ClicksignSignatureRequestAttributes["state"] => "sent"),
+  );
 };
 
 const resolveClicksignSignedDocumentUrl = (document: ClicksignDocumentInfo): string | undefined => {
@@ -279,7 +288,7 @@ const toClicksignSignatureRequestAttributes = (
     provider: PROVIDER,
     id: document.key,
     state: toClicksignSignatureRequestAttributesState(document.status),
-    providerStatus: document.status,
+    ...(document.status === undefined ? {} : { providerStatus: document.status }),
     detailsUrl: `${baseUrl}${clicksignDocumentPath(document.key)}`,
     // Clicksign v1 has no /documents/{key}/download endpoint — signed files are
     // only exposed through document.downloads.*_url, so absent means absent.
@@ -301,7 +310,7 @@ const getClicksignSignatureRequestInternal = (
         ...withAccessToken(baseUrl, clicksignDocumentPath(id), options.accessToken),
         headers: { "Content-Type": "application/json" },
       },
-      ClicksignGetDocumentResponseSchema,
+      ClicksignDocumentResultSchema,
       ClicksignSchemaName.documentResult,
     )
     .pipe(Effect.map((result) => toClicksignSignatureRequestAttributes(baseUrl, result.document)));
@@ -310,10 +319,8 @@ const listClicksignSignatureRequestsInternal = (
   http: SignatureHttpClientService,
   options: ClicksignProviderOptions,
   baseUrl: string,
-): Effect.Effect<ClicksignSignatureRequestAttributes[], SignatureKitError> => {
-  const fetchPage = (
-    page: number,
-  ): Effect.Effect<ClicksignSignatureRequestAttributes[], SignatureKitError> => {
+): Effect.Effect<ClicksignSignatureRequestAttributes[], SignatureKitError> =>
+  Stream.paginate(1, (page) => {
     const pagePath = `/documents?page=${String(page)}`;
     return http
       .requestJson(
@@ -326,21 +333,24 @@ const listClicksignSignatureRequestsInternal = (
         ClicksignSchemaName.documentsResult,
       )
       .pipe(
-        Effect.flatMap((result) => {
-          const documents = result.documents.map((document) =>
-            toClicksignSignatureRequestAttributes(baseUrl, document),
-          );
-          const nextPage = clicksignListNextPage(result.page_infos, page);
-          if (nextPage === undefined) return Effect.succeed(documents);
-          return fetchPage(nextPage).pipe(
-            Effect.map((nextDocuments) => [...documents, ...nextDocuments]),
-          );
-        }),
+        Effect.map(
+          (
+            result,
+          ): readonly [
+            ReadonlyArray<ClicksignSignatureRequestAttributes>,
+            Option.Option<number>,
+          ] => {
+            const nextPage = clicksignListNextPage(result.page_infos, page);
+            return [
+              result.documents.map((document) =>
+                toClicksignSignatureRequestAttributes(baseUrl, document),
+              ),
+              nextPage === undefined ? Option.none() : Option.some(nextPage),
+            ];
+          },
+        ),
       );
-  };
-
-  return fetchPage(1);
-};
+  }).pipe(Stream.runCollect);
 
 const cancelClicksignSignatureRequestInternal = (
   http: SignatureHttpClientService,
@@ -380,6 +390,7 @@ const shouldRollbackClicksignCreate = (error: SignatureKitError): boolean =>
   error.status >= 400 &&
   error.status < 500 &&
   error.status !== 408 &&
+  error.status !== 409 &&
   error.status !== 429;
 
 const isAbsoluteHttpUrl = (value: string): boolean =>
@@ -646,18 +657,8 @@ const createClicksignSignatureRequest = (
               ),
             ),
           ),
-        { concurrency: "unbounded" },
+        { concurrency: 4 },
       ).pipe(
-        Effect.flatMap((requestSignatureKeys) =>
-          input.send === false
-            ? Effect.succeed({ documentKey })
-            : Effect.forEach(
-                requestSignatureKeys,
-                (requestSignatureKey) =>
-                  notifyRecipient(http, options, baseUrl, requestSignatureKey, input),
-                { concurrency: "unbounded", discard: true },
-              ).pipe(Effect.as({ documentKey })),
-        ),
         Effect.catch((error) =>
           shouldRollbackClicksignCreate(error)
             ? deleteClicksignSignatureRequestInternal(http, options, baseUrl, documentKey).pipe(
@@ -665,6 +666,16 @@ const createClicksignSignatureRequest = (
                 Effect.flatMap(() => Effect.fail(error)),
               )
             : Effect.fail(error),
+        ),
+        Effect.flatMap((requestSignatureKeys) =>
+          input.send === false
+            ? Effect.succeed({ documentKey })
+            : Effect.forEach(
+                requestSignatureKeys,
+                (requestSignatureKey) =>
+                  notifyRecipient(http, options, baseUrl, requestSignatureKey, input),
+                { concurrency: 4, discard: true },
+              ).pipe(Effect.as({ documentKey })),
         ),
       ),
     ),
@@ -685,8 +696,11 @@ export const ClicksignSignatureRequestProvider = () =>
       const baseUrl = clicksignBaseUrl(options);
 
       return ClicksignSignatureRequest.Provider.of({
+        nuke: { skip: true },
         diff: clicksignSignatureRequestDiff,
-        list: () => listClicksignSignatureRequestsInternal(http, options, baseUrl),
+        list: () =>
+          // Retained resources must not feed account-wide nuke enumeration.
+          Effect.succeed([]),
         read: ({ output }) =>
           output === undefined
             ? Effect.succeed(undefined)

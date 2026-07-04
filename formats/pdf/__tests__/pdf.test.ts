@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFString } from "@cantoo/pdf-lib";
-import { Effect, Redacted, Result } from "effect";
+import { Effect, Redacted, Result, Schema } from "effect";
 import { readA1Fixture } from "../../../tooling/testing/fixtures";
 import { a1SignaturesLayer } from "@signature-kit/a1/signer";
 import { signPdf } from "@signature-kit/pdf/sign";
@@ -8,9 +8,56 @@ import { verifyPdf } from "@signature-kit/pdf/verify";
 import { extractPdfSignatures, extractPdfSignature, preparePdfByteRange } from "../src/byte-range";
 import { encodeAscii, indexOfByte, indexOfBytes, replaceRange } from "../src/bytes";
 import { stampPdfRubric } from "../src/stamp";
-import { type PdfCoordinateTuple, type PdfSignatureAnchor } from "../src/config";
+import {
+  PdfSigningRequestSchema,
+  type PdfCoordinateTuple,
+  type PdfSignatureAnchor,
+} from "../src/config";
 
 const PASSWORD = Redacted.make("changeit");
+const SIGNATURE_POLICY_OID_DER = Uint8Array.of(
+  0x06,
+  0x0b,
+  0x2a,
+  0x86,
+  0x48,
+  0x86,
+  0xf7,
+  0x0d,
+  0x01,
+  0x09,
+  0x10,
+  0x02,
+  0x0f,
+);
+const SIGNING_CERTIFICATE_V2_OID_DER = Uint8Array.of(
+  0x06,
+  0x0b,
+  0x2a,
+  0x86,
+  0x48,
+  0x86,
+  0xf7,
+  0x0d,
+  0x01,
+  0x09,
+  0x10,
+  0x02,
+  0x2f,
+);
+const SIGNING_TIME_OID_DER = Uint8Array.of(
+  0x06,
+  0x09,
+  0x2a,
+  0x86,
+  0x48,
+  0x86,
+  0xf7,
+  0x0d,
+  0x01,
+  0x09,
+  0x05,
+);
 type ByteRangeWhitespaceStyle = "none" | "space";
 const BYTE_RANGE_WIDTH = 10;
 
@@ -387,6 +434,30 @@ ${"x".repeat(1000)}
     }),
   );
 
+  it.effect("accepts /Contents hex containing a newline", () =>
+    Effect.gen(function* () {
+      const shortFormSignature = `${encodeHex([0x30, 0x03, 0x02, 0x01, 0x00])}00`;
+      const signatureWithNewline = `${shortFormSignature.slice(0, 4)}\n${shortFormSignature.slice(4)}`;
+      const extracted = yield* extractPdfSignature(
+        createPdfWithByteRangeSignature(signatureWithNewline, "none"),
+      );
+
+      expect(extracted.signature).toEqual(Uint8Array.of(0x30, 0x03, 0x02, 0x01, 0x00));
+    }),
+  );
+
+  it.effect("accepts odd-length /Contents hex and trims the final padding nibble", () =>
+    Effect.gen(function* () {
+      const shortFormSignature = `${encodeHex([0x30, 0x03, 0x02, 0x01, 0x00])}00`;
+      const oddLengthSignature = shortFormSignature.slice(0, -1);
+      const extracted = yield* extractPdfSignature(
+        createPdfWithByteRangeSignature(oddLengthSignature, "none"),
+      );
+
+      expect(extracted.signature).toEqual(Uint8Array.of(0x30, 0x03, 0x02, 0x01, 0x00));
+    }),
+  );
+
   it.effect("preserves short-form DER signatures followed by zero-byte padding", () =>
     Effect.gen(function* () {
       const shortFormSignature = `${encodeHex([0x30, 0x03, 0x02, 0x01, 0x00])}00`;
@@ -412,7 +483,7 @@ ${"x".repeat(1000)}
 
   it.effect("rejects /Contents placeholders with non-zero padding bytes", () =>
     Effect.gen(function* () {
-      const shortFormSignature = `${encodeHex([0x30, 0x03, 0x02, 0x01, 0x00])}ff`;
+      const shortFormSignature = `${encodeHex([0x30, 0x03, 0x02, 0x01, 0x00])}00\nff`;
       const extracted = yield* Effect.result(
         extractPdfSignature(createPdfWithByteRangeSignature(shortFormSignature, "none")),
       );
@@ -421,6 +492,126 @@ ${"x".repeat(1000)}
       if (Result.isFailure(extracted)) {
         expect(extracted.failure.code).toBe("pdf.PLACEHOLDER_NOT_FOUND");
       }
+    }),
+  );
+
+  it.effect("omits prohibited CMS signingTime for PAdES ADES and keeps PDF M", () =>
+    Effect.gen(function* () {
+      const pfx = yield* readA1Fixture("ecnpj");
+      const pdf = yield* createPdf;
+      const signedAt = new Date("2026-01-02T03:04:05Z");
+
+      const signed = yield* signPdf({
+        pdf,
+        policy: "pades-ades",
+        signingTime: signedAt,
+      }).pipe(Effect.provide(a1SignaturesLayer({ pfx, password: PASSWORD })));
+      const extracted = yield* extractPdfSignature(signed);
+      const verification = yield* verifyPdf({ pdf: signed });
+      const text = latin1.decode(signed);
+
+      expect(verification.valid).toBe(true);
+      expect(indexOfBytes(extracted.signature, SIGNING_TIME_OID_DER)).toBe(-1);
+      expect(text).toContain("/M (D:20260102030405Z)");
+    }),
+  );
+
+  it.effect("embeds ICP-Brasil policy attributes when requested", () =>
+    Effect.gen(function* () {
+      const pfx = yield* readA1Fixture("ecnpj");
+      const pdf = yield* createPdf;
+
+      const signedAt = new Date("2026-01-02T03:04:05Z");
+      const signed = yield* signPdf({
+        pdf,
+        policy: "pades-icp-brasil",
+        signingTime: signedAt,
+        icpBrasil: {
+          policyOid: "2.16.76.1.7.1.11.1.1",
+          policyHash: new Uint8Array(32),
+          policyHashAlgorithm: "sha256",
+          policyUri: "http://politicas.icpbrasil.gov.br/PA_PAdES_AD_RB_v1_1.der",
+        },
+      }).pipe(Effect.provide(a1SignaturesLayer({ pfx, password: PASSWORD })));
+      const extracted = yield* extractPdfSignature(signed);
+      const verification = yield* verifyPdf({ pdf: signed });
+      const text = latin1.decode(signed);
+
+      expect(verification.valid).toBe(true);
+      expect(indexOfBytes(extracted.signature, SIGNING_TIME_OID_DER)).toBe(-1);
+      expect(
+        indexOfBytes(extracted.signature, SIGNING_CERTIFICATE_V2_OID_DER),
+      ).toBeGreaterThanOrEqual(0);
+      expect(indexOfBytes(extracted.signature, SIGNATURE_POLICY_OID_DER)).toBeGreaterThanOrEqual(0);
+      expect(text).toContain("/M (D:20260102030405Z)");
+    }),
+  );
+
+  it.effect("validates PDF signing request schemas and rejects invalid catalogs", () =>
+    Effect.gen(function* () {
+      const pdf = yield* createPdf;
+      const valid = yield* Schema.decodeUnknownEffect(PdfSigningRequestSchema)({
+        pdf,
+        reason: "Approval",
+        location: "Office",
+        policy: "pades-icp-brasil",
+        hashAlgorithm: "sha512",
+        timestamp: {
+          tsaUrl: "https://timestamp.valid.com.br",
+          hashAlgorithm: "sha256",
+          timeoutMillis: 5000,
+        },
+        appearance: { pageIndex: 0, widgetRect: [10, 20, 110, 60] },
+      });
+      const legacyTimeoutConfig = yield* Schema.decodeUnknownEffect(PdfSigningRequestSchema)({
+        pdf,
+        policyTimeoutMillis: 5000,
+      });
+      const validAutoPlacement = yield* Schema.decodeUnknownEffect(PdfSigningRequestSchema)({
+        pdf,
+        appearance: {
+          placement: {
+            kind: "auto",
+            page: "last",
+            anchor: "bottom-right",
+            width: 120,
+            height: 40,
+            margin: 20,
+            gap: 10,
+          },
+        },
+      });
+      const invalidPolicy = yield* Effect.result(
+        Schema.decodeUnknownEffect(PdfSigningRequestSchema)({
+          pdf,
+          policy: "invalid-policy",
+        }),
+      );
+      const invalidHash = yield* Effect.result(
+        Schema.decodeUnknownEffect(PdfSigningRequestSchema)({
+          pdf,
+          hashAlgorithm: "md5",
+        }),
+      );
+
+      const invalidPlacement = yield* Effect.result(
+        Schema.decodeUnknownEffect(PdfSigningRequestSchema)({
+          pdf,
+          appearance: { placement: { kind: "guess" } },
+        }),
+      );
+
+      expect(valid.policy).toBe("pades-icp-brasil");
+      expect(valid.hashAlgorithm).toBe("sha512");
+      expect("policyTimeoutMillis" in legacyTimeoutConfig).toBe(false);
+      expect(Result.isFailure(invalidPolicy)).toBe(true);
+      expect(Result.isFailure(invalidHash)).toBe(true);
+      const decodedPlacement = validAutoPlacement.appearance?.placement;
+      expect(decodedPlacement?.kind).toBe("auto");
+      if (decodedPlacement?.kind === "auto") {
+        expect(decodedPlacement.anchor).toBe("bottom-right");
+      }
+      expect(Result.isFailure(invalidPlacement)).toBe(true);
     }),
   );
 

@@ -7,6 +7,8 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { m } from "@/paraglide/messages";
 
+// The signer imports pdf.js/pdf-lib browser-only code, so keep the island out of
+// SSG prerender and show a static skeleton until the client chunk loads.
 const PdfSignerIsland = dynamic(() => import("./pdf-signer").then((mod) => mod.PdfSigner), {
   ssr: false,
   loading: () => <PdfSignerSkeleton />,

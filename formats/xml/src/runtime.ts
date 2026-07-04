@@ -6,8 +6,7 @@ import { Cache, Context, Effect, Layer } from "effect";
 import { Application, Parse, SignedXml } from "xmldsigjs";
 import { setNodeDependencies } from "xml-core";
 import { XmlError, XmlErrorCodeValue, XmlOperationValue } from "./config";
-
-type XmlVerificationKeySource = "certificate" | "spki";
+import type { XmlVerificationKeySource } from "./config";
 
 type XmlVerificationKeyCacheKey = {
   readonly source: XmlVerificationKeySource;
@@ -129,8 +128,7 @@ const exportCertificateVerificationKey = (
 export const xmlRuntimeLayer: Layer.Layer<XmlRuntime, XmlError> = Layer.effect(
   XmlRuntime,
   Effect.gen(function* () {
-    const configureRuntime = yield* Effect.cached(configureXmlRuntime);
-    yield* configureRuntime;
+    yield* configureXmlRuntime;
     const verificationKeys = yield* Cache.make({
       capacity: 32,
       timeToLive: "Infinity",

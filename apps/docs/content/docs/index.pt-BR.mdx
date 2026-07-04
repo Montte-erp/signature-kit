@@ -35,7 +35,7 @@ flowchart TD
 
 ```ts title="signature-kit.ts"
 import { a1SignaturesLayer } from "@signature-kit/a1/signer"
-import { signatures } from "@signature-kit/core/signatures"
+import { signatures } from "@signature-kit/signatures"
 import { Effect, Redacted } from "effect"
 
 export const program = Effect.gen(function* () {
@@ -72,7 +72,7 @@ Esse programa não sabe onde a chave vive. A1 no navegador, A1 no servidor e mó
 </Cards>
 
 ```package-install
-@signature-kit/core @signature-kit/a1
+@signature-kit/signatures @signature-kit/a1
 ```
 
 <Callout type="warn" title="Verificações locais não são validade jurídica">

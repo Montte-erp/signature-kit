@@ -7,7 +7,6 @@ import {
   indexOfByte,
   indexOfBytes,
   replaceRange,
-  trimTrailingZeroHex,
 } from "./bytes";
 import { PdfError, PdfErrorCodeValue, PdfOperationValue } from "./config";
 
@@ -111,7 +110,7 @@ const parseByteRangeAt = (
       }),
     );
   }
-  const byteRangeText = asciiSlice(pdf, byteRangeStart, byteRangeEnd + 1);
+  const byteRangeText = asciiSlice(pdf, byteRangeStart, byteRangeEnd + 1).replaceAll("\u0000", " ");
   const matches = /\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/.exec(byteRangeText);
   const first = matches?.[1];
   const second = matches?.[2];
@@ -248,18 +247,12 @@ const isHexCharacterCode = (code: number): boolean =>
   (code >= 0x61 && code <= 0x66);
 
 const decodeSignatureHex = (hex: string): Effect.Effect<Uint8Array, PdfError> => {
-  if (hex.length % 2 !== 0) {
-    return Effect.fail(
-      new PdfError({
-        code: PdfErrorCodeValue.placeholderNotFound,
-        retryable: false,
-        reason: "Malformed signature /Contents hex.",
-        operation: PdfOperationValue.verify,
-      }),
-    );
-  }
+  let normalizedHex = "";
   for (let index = 0; index < hex.length; index += 1) {
-    if (!isHexCharacterCode(hex.charCodeAt(index))) {
+    const code = hex.charCodeAt(index);
+    if (isHexCharacterCode(code)) {
+      normalizedHex += hex[index] ?? "";
+    } else if (!isPdfWhitespaceByte(code)) {
       return Effect.fail(
         new PdfError({
           code: PdfErrorCodeValue.placeholderNotFound,
@@ -270,7 +263,8 @@ const decodeSignatureHex = (hex: string): Effect.Effect<Uint8Array, PdfError> =>
       );
     }
   }
-  return Effect.succeed(hexToBytes(hex));
+  if (normalizedHex.length % 2 !== 0) normalizedHex += "0";
+  return Effect.succeed(hexToBytes(normalizedHex));
 };
 
 const hasOnlyZeroBytesFrom = (bytes: Uint8Array, offset: number): boolean => {
@@ -278,6 +272,12 @@ const hasOnlyZeroBytesFrom = (bytes: Uint8Array, offset: number): boolean => {
     if (bytes[index] !== 0) return false;
   }
   return true;
+};
+
+const trimTrailingZeroBytes = (bytes: Uint8Array): Uint8Array => {
+  let end = bytes.byteLength;
+  while (end > 0 && bytes[end - 1] === 0) end -= 1;
+  return bytes.subarray(0, end);
 };
 
 export const extractPdfSignatureAtOffset = (
@@ -307,8 +307,11 @@ export const extractPdfSignatureAtOffset = (
       pdf.subarray(byteRange[0], byteRange[0] + byteRange[1]),
       pdf.subarray(byteRange[2], byteRange[2] + byteRange[3]),
     ]);
-    const contentsStart = byteRange[0] + byteRange[1];
-    const contentsEnd = byteRange[2] - 1;
+    const contentsBoundaryStart = byteRange[0] + byteRange[1];
+    const contentsBoundaryEnd = byteRange[2] - 1;
+    const contentsStart = skipPdfWhitespace(pdf, contentsBoundaryStart);
+    let contentsEnd = contentsBoundaryEnd;
+    while (contentsEnd > contentsStart && isPdfWhitespaceByte(pdf[contentsEnd])) contentsEnd -= 1;
     if (
       contentsStart >= contentsEnd ||
       pdf[contentsStart] !== LEFT_ANGLE ||
@@ -340,7 +343,7 @@ export const extractPdfSignatureAtOffset = (
     }
     const signature =
       derLength === undefined
-        ? yield* decodeSignatureHex(trimTrailingZeroHex(signatureHex))
+        ? trimTrailingZeroBytes(paddedSignature)
         : paddedSignature.subarray(0, derLength);
     return {
       byteRange,

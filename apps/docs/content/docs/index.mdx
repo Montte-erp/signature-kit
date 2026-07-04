@@ -35,7 +35,7 @@ flowchart TD
 
 ```ts title="signature-kit.ts"
 import { a1SignaturesLayer } from "@signature-kit/a1/signer"
-import { signatures } from "@signature-kit/core/signatures"
+import { signatures } from "@signature-kit/signatures"
 import { Effect, Redacted } from "effect"
 
 export const signWithA1 = (content: Uint8Array, pfx: Uint8Array, password: string) =>
@@ -74,7 +74,7 @@ The program knows the contract, not the key location. Browser A1, server A1, XML
 </Cards>
 
 ```package-install
-@signature-kit/core @signature-kit/a1
+@signature-kit/signatures @signature-kit/a1
 ```
 
 <Callout type="warn" title="Local checks are not legal validity">

@@ -1,7 +1,7 @@
 /**
  * CMS signed-attribute builders.
  *
- * Always present: contentType, messageDigest, signingTime, signing-certificate-v2
+ * Always present: contentType, messageDigest, and signing-certificate-v2
  * (ESSCertIDv2, RFC 5035). When an ICP-Brasil policy is supplied, the
  * signature-policy-identifier (RFC 5126) is added so the signature is AD-RB/AD-RT
  * shaped. These are pure constructors; the caller lifts them into Effect.try.
@@ -25,16 +25,6 @@ const messageDigestAttribute = (messageDigest: Uint8Array): pkijs.Attribute =>
   new pkijs.Attribute({
     type: CmsOid.messageDigest,
     values: [new asn1js.OctetString({ valueHex: toArrayBuffer(messageDigest) })],
-  });
-
-const signingTimeAttribute = (signingTime: Date): pkijs.Attribute =>
-  new pkijs.Attribute({
-    type: CmsOid.signingTime,
-    values: [
-      signingTime.getUTCFullYear() >= 2050
-        ? new asn1js.GeneralizedTime({ valueDate: signingTime })
-        : new asn1js.UTCTime({ valueDate: signingTime }),
-    ],
   });
 
 /**
@@ -124,7 +114,6 @@ const sortAttributesDer = (attributes: readonly pkijs.Attribute[]): readonly pki
     .map((entry) => entry.attribute);
 const BuildSignedAttributesParamsSchema = Schema.Struct({
   messageDigest: Schema.Uint8Array,
-  signingTime: Schema.Date,
   certificateSha256: Schema.Uint8Array,
   icpBrasil: Schema.optional(IcpBrasilPolicySchema),
 });
@@ -136,7 +125,6 @@ export const buildSignedAttributes = (
   const attributes = [
     contentTypeAttribute(),
     messageDigestAttribute(params.messageDigest),
-    signingTimeAttribute(params.signingTime),
     signingCertificateV2Attribute(params.certificateSha256),
   ];
   if (params.icpBrasil !== undefined) {

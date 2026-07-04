@@ -3,7 +3,10 @@
   "include": ["src/**/*.ts"],
   "references": [
     {
-      "path": "../../core/core"
+      "path": "../../core/i18n"
+    },
+    {
+      "path": "../../core/signatures"
     },
     {
       "path": "../../shared/cms"

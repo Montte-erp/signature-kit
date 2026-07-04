@@ -10,7 +10,7 @@ description: "Load an A1 certificate, inspect the identity, and sign your first 
     Add the core boundary and the A1 signer. Pull in `effect` for the `Effect` runtime and `Redacted`.
 
     ```bash
-    bun add @signature-kit/core @signature-kit/a1 effect
+    bun add @signature-kit/signatures @signature-kit/a1 effect
     ```
   </Step>
 
@@ -23,7 +23,7 @@ description: "Load an A1 certificate, inspect the identity, and sign your first 
 
     ```ts title="quickstart.ts"
     import { a1SignaturesLayer } from "@signature-kit/a1/signer"
-    import { signatures } from "@signature-kit/core/signatures"
+    import { signatures } from "@signature-kit/signatures"
     import { Effect, Redacted } from "effect"
 
     const layer = a1SignaturesLayer({

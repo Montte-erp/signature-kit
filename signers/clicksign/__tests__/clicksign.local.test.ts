@@ -1,21 +1,20 @@
 import { describe, expect, it } from "@effect/vitest";
-import { SignatureKitErrorCodeValue, type SignatureKitError } from "@signature-kit/core/config";
-import { signatureHttpClientLive } from "@signature-kit/core/http";
+import { SignatureKitErrorCodeValue, type SignatureKitError } from "@signature-kit/signatures";
+import { signatureHttpClientLive } from "@signature-kit/http";
 import {
-  closeLocalServer,
-  parseBodyAsJson,
-  startLocalServer,
+  expectProviderListResult,
+  jsonBody,
+  localHttpServer,
   type LocalRequest,
   type LocalResponse,
   type LocalServer,
-} from "../../__tests__/local-http";
+} from "../../../tooling/testing/local-http";
 import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import { Effect, Redacted, Result } from "effect";
 import {
   type ClicksignProviderOptions,
   ClicksignSignatureRequest,
   ClicksignSignatureRequestProvider,
-  ClicksignSignatureRequestStateSchema,
   clicksignCredentialsLayer,
   deleteClicksignSignatureRequest,
   downloadClicksignSignedDocument,
@@ -73,34 +72,56 @@ const withLocalServer = <A, E, R>(
   handler: (request: LocalRequest) => Promise<LocalResponse>,
   run: (server: LocalServer) => Effect.Effect<A, E, R>,
 ): Effect.Effect<A, E, R> =>
-  Effect.gen(function* () {
-    const server = yield* startLocalServer(handler);
-    try {
-      return yield* run(server);
-    } finally {
-      yield* closeLocalServer(server.server);
-    }
-  });
+  localHttpServer(handler).pipe(
+    Effect.flatMap((server) => run(server)),
+    Effect.scoped,
+  );
+
+const clicksignStatusCases: ReadonlyArray<{
+  readonly label: string;
+  readonly remoteStatus: string | undefined;
+  readonly expectedState: ClicksignSignatureRequestAttributes["state"];
+}> = [
+  { label: "missing", remoteStatus: undefined, expectedState: "sent" },
+  { label: "draft", remoteStatus: "draft", expectedState: "draft" },
+  { label: "running", remoteStatus: "running", expectedState: "sent" },
+  { label: "signed", remoteStatus: "signed", expectedState: "completed" },
+  { label: "closed", remoteStatus: "closed", expectedState: "completed" },
+  { label: "canceled", remoteStatus: "canceled", expectedState: "cancelled" },
+  { label: "cancelled", remoteStatus: "cancelled", expectedState: "cancelled" },
+  { label: "deleted", remoteStatus: "deleted", expectedState: "deleted" },
+  { label: "declined", remoteStatus: "declined", expectedState: "declined" },
+  { label: "expired", remoteStatus: "expired", expectedState: "expired" },
+  { label: "unknown", remoteStatus: "waiting_for_pixie_dust", expectedState: "sent" },
+];
 
 describe("Clicksign local HTTP provider tests", () => {
+  it.effect("returns no entries and skips upstream list for retained provider list hook", () =>
+    localHttpServer(() => Promise.resolve({ status: 500, body: "unexpected request" })).pipe(
+      Effect.flatMap((server) =>
+        Effect.gen(function* () {
+          const options = clicksignOptions(server.baseUrl);
+          const result = yield* Effect.gen(function* () {
+            const provider = yield* ClicksignSignatureRequest.Provider;
+            return yield* provider.list();
+          }).pipe(
+            Effect.provide(ClicksignSignatureRequestProvider()),
+            Effect.provide(clicksignCredentialsLayer(options)),
+            Effect.provide(signatureHttpClientLive),
+          );
+
+          expect(server.requests).toHaveLength(0);
+          expectProviderListResult(result);
+        }),
+      ),
+      Effect.scoped,
+    ),
+  );
+
   it.effect("reconciles create requests with expected path/method/query token/body", () =>
     withLocalServer(
       (request) => {
         if (request.method === "POST" && request.pathname === "/documents") {
-          const body = parseBodyAsJson<{
-            document: {
-              path: string;
-              content_base64: string;
-              locale: string;
-              auto_close: boolean;
-            };
-          }>(request.body);
-          expect(body.document.path).toBe("/signature-kit-offline.pdf");
-          expect(body.document.content_base64).toBe(
-            `data:application/pdf;base64,${LOCAL_DOCUMENT_BASE64}`,
-          );
-          expect(body.document.locale).toBe("en-US");
-          expect(body.document.auto_close).toBe(true);
           return Promise.resolve({
             status: 200,
             body: JSON.stringify({ document: { key: "doc-create-1", status: "draft" } }),
@@ -136,6 +157,15 @@ describe("Clicksign local HTTP provider tests", () => {
           expect(createRequest?.query.get("access_token")).toBe(ACCESS_TOKEN);
           expect(createRequest?.method).toBe("POST");
           expect(createRequest?.pathname).toBe("/documents");
+          expect(jsonBody(createRequest?.body ?? "{}")).toMatchObject({
+            document: {
+              path: "/signature-kit-offline.pdf",
+              content_base64: `data:application/pdf;base64,${LOCAL_DOCUMENT_BASE64}`,
+              locale: "en-US",
+              auto_close: true,
+              sequence_enabled: false,
+            },
+          });
 
           const signerRequest = server.requests.find(
             (value) => value.method === "POST" && value.pathname === "/signers",
@@ -144,9 +174,7 @@ describe("Clicksign local HTTP provider tests", () => {
           expect(signerRequest?.query.get("access_token")).toBe(ACCESS_TOKEN);
           expect(signerRequest?.method).toBe("POST");
           expect(signerRequest?.pathname).toBe("/signers");
-          const signerBody = parseBodyAsJson<{
-            signer: { name: string; email: string; auths: string[]; has_documentation: boolean };
-          }>(signerRequest?.body ?? "{}");
+          const signerBody = jsonBody(signerRequest?.body ?? "{}");
           expect(signerBody).toEqual({
             signer: {
               name: "Offline Recipient",
@@ -163,15 +191,7 @@ describe("Clicksign local HTTP provider tests", () => {
           expect(listRequest?.query.get("access_token")).toBe(ACCESS_TOKEN);
           expect(listRequest?.method).toBe("POST");
           expect(listRequest?.pathname).toBe("/lists");
-          const listBody = parseBodyAsJson<{
-            list: {
-              document_key: string;
-              signer_key: string;
-              sign_as: string;
-              group: number;
-              message: string;
-            };
-          }>(listRequest?.body ?? "{}");
+          const listBody = jsonBody(listRequest?.body ?? "{}");
           expect(listBody).toEqual({
             list: {
               document_key: "doc-create-1",
@@ -190,15 +210,19 @@ describe("Clicksign local HTTP provider tests", () => {
     ),
   );
 
-  for (const state of ClicksignSignatureRequestStateSchema.literals) {
-    it.effect(`maps status ${state} to resource state via get and list`, () =>
+  for (const statusCase of clicksignStatusCases) {
+    it.effect(`maps remote status ${statusCase.label} to resource state via get and list`, () =>
       withLocalServer(
         (request) => {
           if (request.pathname === "/documents" && request.query.has("page")) {
             return Promise.resolve({
               status: 200,
               body: JSON.stringify({
-                documents: [{ key: `list-${state}`, status: state }],
+                documents: [
+                  statusCase.remoteStatus === undefined
+                    ? { key: `list-${statusCase.label}` }
+                    : { key: `list-${statusCase.label}`, status: statusCase.remoteStatus },
+                ],
                 page_infos: { current_page: 1 },
               }),
             });
@@ -209,10 +233,10 @@ describe("Clicksign local HTTP provider tests", () => {
             return Promise.resolve({
               status: 200,
               body: JSON.stringify({
-                document: {
-                  key: id,
-                  status: state,
-                },
+                document:
+                  statusCase.remoteStatus === undefined
+                    ? { key: id }
+                    : { key: id, status: statusCase.remoteStatus },
               }),
             });
           }
@@ -223,10 +247,11 @@ describe("Clicksign local HTTP provider tests", () => {
           Effect.gen(function* () {
             const options = clicksignOptions(server.baseUrl);
 
-            const read = yield* getClicksignSignatureRequest(options, `request-${state}`).pipe(
-              Effect.provide(signatureHttpClientLive),
-            );
-            expect(read.state).toBe(state);
+            const read = yield* getClicksignSignatureRequest(
+              options,
+              `request-${statusCase.label}`,
+            ).pipe(Effect.provide(signatureHttpClientLive));
+            expect(read.state).toBe(statusCase.expectedState);
 
             const listed = yield* listClicksignSignatureRequests(options).pipe(
               Effect.provide(signatureHttpClientLive),
@@ -237,8 +262,8 @@ describe("Clicksign local HTTP provider tests", () => {
             if (first === undefined) {
               return;
             }
-            expect(first.id).toBe(`list-${state}`);
-            expect(first.state).toBe(state);
+            expect(first.id).toBe(`list-${statusCase.label}`);
+            expect(first.state).toBe(statusCase.expectedState);
           }),
       ),
     );
@@ -346,7 +371,6 @@ describe("Clicksign local HTTP provider tests", () => {
         }
 
         if (request.method === "GET" && request.pathname === "/files/signed-content") {
-          expect(request.query.get("access_token")).toBe(ACCESS_TOKEN);
           return Promise.resolve({
             status: 200,
             body: new TextEncoder().encode("signed document payload bytes"),
@@ -362,6 +386,11 @@ describe("Clicksign local HTTP provider tests", () => {
             "signed",
           ).pipe(Effect.provide(signatureHttpClientLive));
           expect(Buffer.from(bytes).toString("utf8")).toBe("signed document payload bytes");
+          const downloadRequest = server.requests.find(
+            (request) => request.pathname === "/files/signed-content" && request.method === "GET",
+          );
+          expect(downloadRequest).toBeDefined();
+          expect(downloadRequest?.query.get("access_token")).toBe(ACCESS_TOKEN);
         }),
     ),
   );
@@ -451,7 +480,65 @@ describe("Clicksign local HTTP provider tests", () => {
     );
   });
 
-  const followUpStatuses: ReadonlyArray<number> = [500, 422];
+  it.effect("masks appended access token inside failed same-host download URLs", () => {
+    let fullDownloadUrl = "";
+
+    return withLocalServer(
+      (request) => {
+        if (request.method === "GET" && request.pathname === "/documents/appended-token") {
+          return Promise.resolve({
+            status: 200,
+            body: JSON.stringify({
+              document: {
+                key: "appended-token",
+                status: "completed",
+                download_url: fullDownloadUrl,
+              },
+            }),
+          });
+        }
+
+        if (request.method === "GET" && request.pathname === "/files/appended-token-download") {
+          return Promise.resolve({
+            status: 403,
+            body: JSON.stringify({ error: "forbidden" }),
+          });
+        }
+
+        return Promise.resolve({ status: 404, body: "not found" });
+      },
+      (server) =>
+        Effect.gen(function* () {
+          fullDownloadUrl = `${server.baseUrl}/files/appended-token-download`;
+
+          const result = yield* Effect.result(
+            downloadClicksignSignedDocument(
+              clicksignOptions(server.baseUrl),
+              "appended-token",
+            ).pipe(Effect.provide(signatureHttpClientLive)),
+          );
+          expect(Result.isFailure(result)).toBe(true);
+          if (Result.isFailure(result)) {
+            expect(result.failure.code).toBe(SignatureKitErrorCodeValue.http);
+            expect(result.failure.reason).toBeDefined();
+            if (result.failure.reason === undefined) {
+              return;
+            }
+            const reason = decodeURIComponent(result.failure.reason);
+            expect(reason).toContain("<redacted>");
+            expect(result.failure.reason).not.toContain(ACCESS_TOKEN);
+            expect(reason).not.toContain(ACCESS_TOKEN);
+          }
+
+          const downloadRequest = server.requests.find(
+            (request) => request.pathname === "/files/appended-token-download",
+          );
+          expect(downloadRequest?.query.get("access_token")).toBe(ACCESS_TOKEN);
+        }),
+    );
+  });
+
+  const followUpStatuses: ReadonlyArray<number> = [408, 409, 422, 429, 500];
 
   for (const followUpStatus of followUpStatuses) {
     const shouldRollback = followUpStatus === 422;
@@ -486,6 +573,7 @@ describe("Clicksign local HTTP provider tests", () => {
               expect(Result.isFailure(result)).toBe(true);
               if (Result.isFailure(result)) {
                 expect(result.failure.status).toBe(followUpStatus);
+                expect(result.failure.code).toBe(SignatureKitErrorCodeValue.http);
               }
 
               const deleteCalls = server.requests.filter(
@@ -497,4 +585,61 @@ describe("Clicksign local HTTP provider tests", () => {
         ),
     );
   }
+
+  it.effect("does not roll back when Clicksign notification fails", () =>
+    withLocalServer(
+      (request) => {
+        if (request.method === "POST" && request.pathname === "/documents") {
+          return Promise.resolve({
+            status: 200,
+            body: JSON.stringify({ document: { key: "notify-doc", status: "draft" } }),
+          });
+        }
+
+        if (request.method === "POST" && request.pathname === "/signers") {
+          return Promise.resolve({
+            status: 200,
+            body: JSON.stringify({ signer: { key: "notify-signer" } }),
+          });
+        }
+
+        if (request.method === "POST" && request.pathname === "/lists") {
+          return Promise.resolve({
+            status: 200,
+            body: JSON.stringify({ list: { request_signature_key: "notify-request" } }),
+          });
+        }
+
+        if (request.method === "POST" && request.pathname === "/notifications") {
+          return Promise.resolve({
+            status: 422,
+            body: JSON.stringify({ error: "notification failed" }),
+          });
+        }
+
+        if (request.method === "DELETE" && request.pathname === "/documents/notify-doc") {
+          return Promise.resolve({ status: 200, body: JSON.stringify({}) });
+        }
+
+        return Promise.resolve({ status: 404, body: "not found" });
+      },
+      (server) =>
+        Effect.gen(function* () {
+          const result = yield* Effect.result(
+            reconcileClicksign({ ...defaultInput(), send: true }, server),
+          );
+          expect(Result.isFailure(result)).toBe(true);
+          if (Result.isFailure(result)) {
+            expect(result.failure.code).toBe(SignatureKitErrorCodeValue.http);
+            expect(result.failure.status).toBe(422);
+          }
+
+          const deleteCalls = server.requests.filter(
+            (request) =>
+              request.pathname === "/documents/notify-doc" && request.method === "DELETE",
+          );
+          expect(deleteCalls).toHaveLength(0);
+        }),
+    ),
+  );
 });

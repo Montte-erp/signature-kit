@@ -7,7 +7,7 @@
  * `CryptoKey` that was already imported (the Redacted unwrap is upstream).
  */
 
-import { Schema } from "effect";
+import { Match, Schema } from "effect";
 
 // =============================================================================
 // Error code catalog
@@ -38,6 +38,54 @@ export const CmsErrorCodeValue = {
   policyError: "cms.POLICY_ERROR",
   unknown: "cms.UNKNOWN",
 } satisfies Record<string, CmsErrorCode>;
+
+export const CmsErrorMessageLocaleSchema = Schema.Literals(["en-US", "pt-BR"]);
+export type CmsErrorMessageLocale = (typeof CmsErrorMessageLocaleSchema)["Type"];
+export const CmsErrorMessagesSchema = Schema.Record(
+  CmsErrorMessageLocaleSchema,
+  Schema.Record(CmsErrorCodeSchema, Schema.String),
+);
+export type CmsErrorMessages = (typeof CmsErrorMessagesSchema)["Type"];
+
+export const cmsErrorMessages = {
+  "en-US": {
+    "cms.ENCODE_ERROR": "Failed to encode CMS SignedData.",
+    "cms.DECODE_ERROR": "Failed to decode CMS/DER input.",
+    "cms.SIGN_ERROR": "Failed to produce the CMS signature.",
+    "cms.VERIFY_ERROR": "Failed to verify the CMS SignedData.",
+    "cms.DIGEST_MISMATCH": "CMS message digest does not match the content.",
+    "cms.CHAIN_ERROR": "Certificate chain validation failed.",
+    "cms.UNSUPPORTED_ALGORITHM": "Unsupported CMS algorithm.",
+    "cms.TIMESTAMP_ERROR": "RFC 3161 timestamp request failed.",
+    "cms.POLICY_ERROR": "ICP-Brasil policy resolution failed.",
+    "cms.UNKNOWN": "Unknown CMS failure.",
+  },
+  "pt-BR": {
+    "cms.ENCODE_ERROR": "Não foi possível codificar o CMS SignedData.",
+    "cms.DECODE_ERROR": "Não foi possível decodificar a entrada CMS/DER.",
+    "cms.SIGN_ERROR": "Não foi possível produzir a assinatura CMS.",
+    "cms.VERIFY_ERROR": "Não foi possível verificar o CMS SignedData.",
+    "cms.DIGEST_MISMATCH": "O digest da mensagem CMS não corresponde ao conteúdo.",
+    "cms.CHAIN_ERROR": "A validação da cadeia de certificados falhou.",
+    "cms.UNSUPPORTED_ALGORITHM": "Algoritmo CMS não suportado.",
+    "cms.TIMESTAMP_ERROR": "A requisição de carimbo do tempo RFC 3161 falhou.",
+    "cms.POLICY_ERROR": "Não foi possível resolver a política ICP-Brasil.",
+    "cms.UNKNOWN": "Falha desconhecida de CMS.",
+  },
+} satisfies Record<CmsErrorMessageLocale, Record<CmsErrorCode, string>>;
+
+const cmsErrorReasonOverridableByCode = {
+  "cms.ENCODE_ERROR": true,
+  "cms.DECODE_ERROR": true,
+  "cms.SIGN_ERROR": true,
+  "cms.VERIFY_ERROR": true,
+  "cms.DIGEST_MISMATCH": false,
+  "cms.CHAIN_ERROR": true,
+  "cms.UNSUPPORTED_ALGORITHM": true,
+  "cms.TIMESTAMP_ERROR": true,
+  "cms.POLICY_ERROR": true,
+  "cms.UNKNOWN": true,
+} satisfies Record<CmsErrorCode, boolean>;
 
 export const CmsOperationSchema = Schema.Literals([
   "cms.parse",
@@ -73,32 +121,24 @@ export const CmsHashAlgorithmValue = {
 } satisfies Record<string, CmsHashAlgorithm>;
 
 /** Web Crypto / pkijs digest name for a catalog algorithm. */
-export const webCryptoHashName = (algorithm: CmsHashAlgorithm): string => {
-  switch (algorithm) {
-    case "sha256":
-      return "SHA-256";
-    case "sha1":
-      return "SHA-1";
-    case "sha384":
-      return "SHA-384";
-    case "sha512":
-      return "SHA-512";
-  }
-};
+export const webCryptoHashName = (algorithm: CmsHashAlgorithm): string =>
+  Match.value(algorithm).pipe(
+    Match.when("sha256", () => "SHA-256"),
+    Match.when("sha1", () => "SHA-1"),
+    Match.when("sha384", () => "SHA-384"),
+    Match.when("sha512", () => "SHA-512"),
+    Match.exhaustive,
+  );
 
 /** X.690 OID of the digest algorithm (for AlgorithmIdentifier in attrs/TSP). */
-export const hashAlgorithmOid = (algorithm: CmsHashAlgorithm): string => {
-  switch (algorithm) {
-    case "sha256":
-      return "2.16.840.1.101.3.4.2.1";
-    case "sha1":
-      return "1.3.14.3.2.26";
-    case "sha384":
-      return "2.16.840.1.101.3.4.2.2";
-    case "sha512":
-      return "2.16.840.1.101.3.4.2.3";
-  }
-};
+export const hashAlgorithmOid = (algorithm: CmsHashAlgorithm): string =>
+  Match.value(algorithm).pipe(
+    Match.when("sha256", () => "2.16.840.1.101.3.4.2.1"),
+    Match.when("sha1", () => "1.3.14.3.2.26"),
+    Match.when("sha384", () => "2.16.840.1.101.3.4.2.2"),
+    Match.when("sha512", () => "2.16.840.1.101.3.4.2.3"),
+    Match.exhaustive,
+  );
 
 // =============================================================================
 // Well-known OIDs (RFC 5652 / 5035 / 5126 / 3161)
@@ -156,7 +196,6 @@ export const CreateDetachedSignedDataInputSchema = Schema.Struct({
   certificateDer: Schema.Uint8Array,
   chainDer: Schema.optional(Schema.Array(Schema.Uint8Array)),
   hashAlgorithm: Schema.optional(CmsHashAlgorithmSchema),
-  signingTime: Schema.optional(Schema.Date),
   icpBrasil: Schema.optional(IcpBrasilPolicySchema),
   timestamp: Schema.optional(TimestampOptionsSchema),
 });
@@ -190,27 +229,9 @@ export class CmsError extends Schema.TaggedErrorClass<CmsError>()("CmsError", {
   operation: Schema.optional(CmsOperationSchema),
 }) {
   get message(): string {
-    switch (this.code) {
-      case "cms.ENCODE_ERROR":
-        return this.reason ?? "Failed to encode CMS SignedData.";
-      case "cms.DECODE_ERROR":
-        return this.reason ?? "Failed to decode CMS/DER input.";
-      case "cms.SIGN_ERROR":
-        return this.reason ?? "Failed to produce the CMS signature.";
-      case "cms.VERIFY_ERROR":
-        return this.reason ?? "Failed to verify the CMS SignedData.";
-      case "cms.DIGEST_MISMATCH":
-        return "CMS message digest does not match the content.";
-      case "cms.CHAIN_ERROR":
-        return this.reason ?? "Certificate chain validation failed.";
-      case "cms.UNSUPPORTED_ALGORITHM":
-        return this.reason ?? "Unsupported CMS algorithm.";
-      case "cms.TIMESTAMP_ERROR":
-        return this.reason ?? "RFC 3161 timestamp request failed.";
-      case "cms.POLICY_ERROR":
-        return this.reason ?? "ICP-Brasil policy resolution failed.";
-      case "cms.UNKNOWN":
-        return this.reason ?? "Unknown CMS failure.";
-    }
+    const defaultMessage = cmsErrorMessages["en-US"][this.code];
+    return cmsErrorReasonOverridableByCode[this.code]
+      ? (this.reason ?? defaultMessage)
+      : defaultMessage;
   }
 }

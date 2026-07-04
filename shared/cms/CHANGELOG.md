@@ -2,9 +2,18 @@
 
 ## 0.2.1
 
+- Export English and pt-BR `cmsErrorMessages` catalogs for code-keyed display
+  copy.
+- Ship complete ICP-Brasil PA_PAdES_AD_RB_v1_1 policy metadata, including the
+  pinned SHA-256 policy hash, so consumers no longer assemble AD-RB policy
+  constants by hand.
+
 - Validate ICP-Brasil PAdES policy fetch options before applying the timeout, and
   compute the content digest and certificate digest concurrently during CMS
   signing.
+- PAdES CMS no longer emits the prohibited signing-time signed attribute
+  (OID 1.2.840.113549.1.9.5); ITI Validar (PA_PAdES_AD_RB_v1_1) now approves
+  generated signatures. Signing time remains in the PDF dictionary M entry.
 
 ## 0.2.0
 

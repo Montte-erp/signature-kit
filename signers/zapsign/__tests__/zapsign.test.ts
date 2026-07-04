@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
-import { SignatureKitErrorCodeValue } from "@signature-kit/core/config";
-import { signatureHttpClientLive } from "@signature-kit/core/http";
+import { SignatureKitErrorCodeValue } from "@signature-kit/signatures";
+import { signatureHttpClientLive } from "@signature-kit/http";
 import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import { loadFlaggedConfig, optionalEnv, requiredEnv } from "../../../tooling/testing/env";
 import { Config, Effect, Redacted, Result, Schema } from "effect";

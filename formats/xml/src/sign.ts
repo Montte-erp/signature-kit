@@ -1,7 +1,7 @@
 import { bytesToBase64 } from "@signature-kit/crypto/base64";
-import { signatures } from "@signature-kit/core/signatures";
-import type { Signatures } from "@signature-kit/core/signatures";
-import type { SignatureAlgorithm, SignatureKitError } from "@signature-kit/core/config";
+import { signatures } from "@signature-kit/signatures";
+import type { Signatures } from "@signature-kit/signatures";
+import type { SignatureAlgorithm, SignatureKitError } from "@signature-kit/signatures";
 import { Effect, Schema } from "effect";
 import type { OptionsSignReference } from "xmldsigjs";
 import {
@@ -10,6 +10,7 @@ import {
   XmlOperationValue,
   XmlSchemaNameValue,
   XmlSigningRequestSchema,
+  xmlHashAlgorithmFromSignatureAlgorithm,
 } from "./config";
 import type { XmlCanonicalization, XmlSigningRequest } from "./config";
 import { XmlRuntime } from "./runtime";
@@ -27,11 +28,8 @@ const xmlCanonicalizationTransform = (
 
 const xmlSignatureAlgorithm = (algorithm: SignatureAlgorithm): RsaHashedImportParams => ({
   name: XML_RSA_ALGORITHM_NAME,
-  hash: algorithm === "rsa-sha1" ? "SHA-1" : algorithm === "rsa-sha512" ? "SHA-512" : "SHA-256",
+  hash: xmlHashAlgorithmFromSignatureAlgorithm(algorithm),
 });
-
-const xmlDigestAlgorithm = (algorithm: SignatureAlgorithm): "SHA-1" | "SHA-256" | "SHA-512" =>
-  algorithm === "rsa-sha1" ? "SHA-1" : algorithm === "rsa-sha512" ? "SHA-512" : "SHA-256";
 
 export const signXml = (
   request: XmlSigningRequest,
@@ -61,11 +59,11 @@ export const signXml = (
     const reference: OptionsSignReference =
       input.referenceId === undefined
         ? {
-            hash: xmlDigestAlgorithm(algorithm),
+            hash: xmlHashAlgorithmFromSignatureAlgorithm(algorithm),
             transforms: ["enveloped", canonicalizationTransform],
           }
         : {
-            hash: xmlDigestAlgorithm(algorithm),
+            hash: xmlHashAlgorithmFromSignatureAlgorithm(algorithm),
             transforms: ["enveloped", canonicalizationTransform],
             uri: `#${input.referenceId}`,
           };

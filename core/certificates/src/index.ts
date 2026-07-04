@@ -18,7 +18,7 @@ import {
   type BrazilianFields,
   type Certificate,
   type SignerIdentity,
-} from "@signature-kit/core/config";
+} from "@signature-kit/signatures";
 import { Effect, Redacted, Schema } from "effect";
 
 const OID_COMMON_NAME = "2.5.4.3";

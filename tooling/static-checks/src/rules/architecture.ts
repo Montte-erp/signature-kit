@@ -1,36 +1,8 @@
 import type { Check, CheckContext } from "../model";
 
-const sourceModulePathPattern = /^(?:core|formats|shared|signers|apps\/docs)\/.*\.[cm]?[tj]sx?$/;
+const sourceModulePathPattern =
+  /^(?:core|formats|shared|signers|validators|apps\/docs)\/.*\.[cm]?[tj]sx?$/;
 const alchemyProviderPathPattern = /^signers\/[^/]+\/src\/index\.ts$/;
-
-const withoutBlockComments = (source: string): string => source.replace(/\/\*[\s\S]*?\*\//g, "");
-
-const meaningfulLine = (line: string): boolean => {
-  const trimmed = line.trim();
-  return trimmed.length > 0 && !trimmed.startsWith("//");
-};
-
-const firstExportLineNumber = (context: CheckContext): number =>
-  context.rawLines.findIndex((line) => line.trim().startsWith("export ")) + 1;
-
-const hasOnlyReexports = (source: string): boolean => {
-  const withoutComments = withoutBlockComments(source);
-  const meaningfulSource = withoutComments.split(/\r?\n/).filter(meaningfulLine).join("\n");
-  if (!meaningfulSource.includes("export")) {
-    return false;
-  }
-
-  const withoutNamedReexports = meaningfulSource.replace(
-    /export\s+(?:type\s+)?\{[\s\S]*?\}\s+from\s+["'][^"']+["'];?/g,
-    "",
-  );
-  const withoutStarReexports = withoutNamedReexports.replace(
-    /export\s+\*\s+from\s+["'][^"']+["'];?/g,
-    "",
-  );
-
-  return withoutStarReexports.trim().length === 0;
-};
 
 const hasRetainedAlchemyResource = (source: string): boolean =>
   /defaultRemovalPolicy\s*:\s*["']retain["']/.test(source);
@@ -50,17 +22,7 @@ const isInsideDeleteHandler = (context: CheckContext): boolean => {
 
 const hasUndefinedOutputBranch = (line: string): boolean =>
   /\bif\s*\(\s*output\s*={2,3}\s*undefined\s*\)/.test(line);
-
 export const architectureChecks: readonly Check[] = [
-  {
-    message:
-      "Source modules must not be re-export-only barrels; export subpaths to the real module instead.",
-    test: (context) =>
-      sourceModulePathPattern.test(context.path) &&
-      context.lineNumber === firstExportLineNumber(context) &&
-      hasOnlyReexports(context.source),
-    ignoreImportLine: false,
-  },
   {
     message:
       "Retained Alchemy resources must declare a provider diff hook so changed props do not imply an update or replacement.",

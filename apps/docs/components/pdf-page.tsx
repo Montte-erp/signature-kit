@@ -1,4 +1,5 @@
 import { PenLine } from "lucide-react";
+import { pdfjs } from "react-pdf";
 import * as React from "react";
 import { Effect } from "effect";
 
@@ -12,6 +13,7 @@ import { m } from "@/paraglide/messages";
 export interface PdfViewport {
   readonly width: number;
   readonly height: number;
+  readonly scale?: number;
 }
 
 export interface PdfRenderTask {
@@ -38,10 +40,17 @@ export interface PdfLoadingTask {
   destroy?(): Promise<void>;
 }
 
+type PdfJsApi = {
+  getDocument(options: { readonly data: Uint8Array }): PdfLoadingTask;
+};
+
 type PdfCanvasRenderLifecycle = {
   active: boolean;
   task?: PdfRenderTask;
 };
+
+const QR_PREVIEW_CELLS = Array.from({ length: 25 }, (_item, index) => index);
+const QR_PREVIEW_DARK_CELLS = [0, 1, 2, 4, 5, 7, 9, 10, 12, 14, 15, 17, 19, 20, 22, 23, 24];
 
 const renderPdfPageCanvas = (
   canvas: HTMLCanvasElement,
@@ -68,11 +77,41 @@ const renderPdfPageCanvas = (
     }).pipe(Effect.ignore);
   });
 
-export const loadPdfjs = async () => {
-  const pdfjs = await import("pdfjs-dist");
-  // CDN worker pinned to the installed version — no bundler worker config.
-  pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
-  return pdfjs;
+export const loadPdfjs = async (): Promise<PdfJsApi> => {
+  if (typeof window !== "undefined") {
+    // CDN worker pinned to the installed version — no bundler worker config.
+    pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+  }
+
+  return {
+    getDocument: (options) => {
+      const task = pdfjs.getDocument({ data: options.data });
+      return {
+        promise: task.promise.then((doc) => ({
+          numPages: doc.numPages,
+          getPage: (pageNumber) =>
+            doc.getPage(pageNumber).then((page) => ({
+              getViewport: (viewportOptions) => {
+                const viewport = page.getViewport(viewportOptions);
+                return {
+                  width: viewport.width,
+                  height: viewport.height,
+                  scale: viewportOptions.scale,
+                };
+              },
+              render: (renderOptions) =>
+                page.render({
+                  canvas: null,
+                  canvasContext: renderOptions.canvasContext,
+                  viewport: page.getViewport({ scale: renderOptions.viewport.scale ?? 1 }),
+                }),
+            })),
+          destroy: () => doc.destroy(),
+        })),
+        destroy: () => task.destroy(),
+      };
+    },
+  };
 };
 
 export interface PageRect {
@@ -91,7 +130,7 @@ export interface PdfPageProps {
   // Faint repeat of the placed rect on pages that don't own the signature, shown
   // when "Rubric on every page" is on so the toggle has a visible consequence.
   ghost?: { rect: PageRect; label: string };
-  stampPreview?: { inkDataUrl?: string; rubricaDataUrl?: string; lines: string[] };
+  stampPreview?: { inkDataUrl?: string; rubricaDataUrl?: string; lines: string[]; qr?: boolean };
   onPlace: (fracX: number, fracY: number) => void;
 }
 
@@ -217,22 +256,47 @@ export function PdfPage({
             height: `${(marker.height / heightPt) * 100}%`,
           }}
         >
-          {stampPreview?.inkDataUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={stampPreview.inkDataUrl}
-              alt=""
-              className="max-h-[55%] w-auto object-contain"
-            />
-          ) : null}
-          {previewLines?.map((line) => (
-            <span
-              key={line.key}
-              className="max-w-full truncate px-0.5 text-[6px] leading-tight text-neutral-600"
-            >
-              {line.text}
-            </span>
-          ))}
+          {stampPreview?.qr ? (
+            <div className="flex h-full w-full items-center gap-1 px-0.5 py-0.5">
+              <div className="grid aspect-square h-[85%] shrink-0 grid-cols-5 overflow-hidden bg-white">
+                {QR_PREVIEW_CELLS.map((cell) => (
+                  <span
+                    key={cell}
+                    className={QR_PREVIEW_DARK_CELLS.includes(cell) ? "bg-neutral-900" : "bg-white"}
+                  />
+                ))}
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col justify-center">
+                {previewLines?.map((line) => (
+                  <span
+                    key={line.key}
+                    className="max-w-full truncate px-0.5 text-[5px] leading-none text-neutral-700"
+                  >
+                    {line.text}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <>
+              {stampPreview?.inkDataUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={stampPreview.inkDataUrl}
+                  alt=""
+                  className="max-h-[55%] w-auto object-contain"
+                />
+              ) : null}
+              {previewLines?.map((line) => (
+                <span
+                  key={line.key}
+                  className="max-w-full truncate px-0.5 text-[6px] leading-tight text-neutral-600"
+                >
+                  {line.text}
+                </span>
+              ))}
+            </>
+          )}
           <span className="absolute -top-5 left-0 flex items-center gap-1 whitespace-nowrap rounded bg-foreground px-1.5 py-0.5 font-mono text-[10px] text-background">
             <PenLine className="size-2.5" />
             signature

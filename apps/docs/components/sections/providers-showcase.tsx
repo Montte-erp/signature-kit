@@ -49,21 +49,22 @@ const PROVIDERS_SHOWCASE: readonly ProviderShowcase[] = [
     filename: "clicksign.ts",
     code: `import * as Alchemy from "alchemy"
 import { ClicksignSignatureRequest, providers as clicksignProviders } from "@signature-kit/clicksign"
-import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { signatureHttpClientLive } from "@signature-kit/http"
 import { Effect, Layer, Redacted } from "effect"
 
-export default Alchemy.Stack(
+export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
     providers: Layer.merge(
       clicksignProviders({
-      accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
-      environment: "sandbox",
-      locale: "pt-BR",
-      autoClose: true,
+        accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
+        environment: "sandbox",
+        locale: "pt-BR",
+        autoClose: true,
       }),
       signatureHttpClientLive,
     ),
+    state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
     return yield* ClicksignSignatureRequest("membership-agreement", {
@@ -72,7 +73,7 @@ export default Alchemy.Stack(
       recipients: [{ name: "Bruno Lima", email: "bruno@example.com", role: "signer" }],
     })
   }),
-)`,
+) {}`,
   },
   {
     name: "Assinafy",
@@ -80,20 +81,21 @@ export default Alchemy.Stack(
     filename: "assinafy.ts",
     code: `import * as Alchemy from "alchemy"
 import { AssinafySignatureRequest, providers as assinafyProviders } from "@signature-kit/assinafy"
-import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { signatureHttpClientLive } from "@signature-kit/http"
 import { Effect, Layer, Redacted } from "effect"
 
-export default Alchemy.Stack(
+export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
     providers: Layer.merge(
       assinafyProviders({
-      accountId: process.env.ASSINAFY_ACCOUNT_ID ?? "",
-      apiKey: Redacted.make(process.env.ASSINAFY_API_KEY ?? ""),
-      environment: "sandbox",
+        accountId: process.env.ASSINAFY_ACCOUNT_ID ?? "",
+        apiKey: Redacted.make(process.env.ASSINAFY_API_KEY ?? ""),
+        environment: "sandbox",
       }),
       signatureHttpClientLive,
     ),
+    state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
     return yield* AssinafySignatureRequest("contract", {
@@ -102,7 +104,7 @@ export default Alchemy.Stack(
       recipients: [{ name: "Carla Nunes", email: "carla@example.com" }],
     })
   }),
-)`,
+) {}`,
   },
   {
     name: "ZapSign",
@@ -110,20 +112,21 @@ export default Alchemy.Stack(
     filename: "zapsign.ts",
     code: `import * as Alchemy from "alchemy"
 import { ZapSignSignatureRequest, providers as zapSignProviders } from "@signature-kit/zapsign"
-import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { signatureHttpClientLive } from "@signature-kit/http"
 import { Effect, Layer, Redacted } from "effect"
 
-export default Alchemy.Stack(
+export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
     providers: Layer.merge(
       zapSignProviders({
-      apiToken: Redacted.make(process.env.ZAPSIGN_API_TOKEN ?? ""),
-      environment: "sandbox",
-      locale: "pt-br",
+        apiToken: Redacted.make(process.env.ZAPSIGN_API_TOKEN ?? ""),
+        environment: "sandbox",
+        locale: "pt-br",
       }),
       signatureHttpClientLive,
     ),
+    state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
     return yield* ZapSignSignatureRequest("contract", {
@@ -132,7 +135,7 @@ export default Alchemy.Stack(
       recipients: [{ name: "Davi Rocha", email: "davi@example.com" }],
     })
   }),
-)`,
+) {}`,
   },
   {
     name: "DocuSeal",
@@ -140,20 +143,21 @@ export default Alchemy.Stack(
     filename: "docuseal.ts",
     code: `import * as Alchemy from "alchemy"
 import { DocuSealSignatureRequest, providers as docuSealProviders } from "@signature-kit/docuseal"
-import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { signatureHttpClientLive } from "@signature-kit/http"
 import { Effect, Layer, Redacted } from "effect"
 
-export default Alchemy.Stack(
+export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
     providers: Layer.merge(
       docuSealProviders({
-      apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
-      baseUrl: "https://api.docuseal.com",
-      submittersOrder: "preserved",
+        apiKey: Redacted.make(process.env.DOCUSEAL_API_KEY ?? ""),
+        baseUrl: "https://api.docuseal.com",
+        submittersOrder: "preserved",
       }),
       signatureHttpClientLive,
     ),
+    state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
     return yield* DocuSealSignatureRequest("service-agreement", {
@@ -162,7 +166,7 @@ export default Alchemy.Stack(
       recipients: [{ name: "Ana Silva", email: "ana@example.com", role: "signer" }],
     })
   }),
-)`,
+) {}`,
   },
   {
     name: "Documenso",
@@ -170,19 +174,20 @@ export default Alchemy.Stack(
     filename: "documenso.ts",
     code: `import * as Alchemy from "alchemy"
 import { DocumensoSignatureRequest, providers as documensoProviders } from "@signature-kit/documenso"
-import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { signatureHttpClientLive } from "@signature-kit/http"
 import { Effect, Layer, Redacted } from "effect"
 
-export default Alchemy.Stack(
+export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
     providers: Layer.merge(
       documensoProviders({
-      apiKey: Redacted.make(process.env.DOCUMENSO_API_KEY ?? ""),
-      baseUrl: "https://app.documenso.com/api/v2",
+        apiKey: Redacted.make(process.env.DOCUMENSO_API_KEY ?? ""),
+        baseUrl: "https://app.documenso.com/api/v2",
       }),
       signatureHttpClientLive,
     ),
+    state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
     return yield* DocumensoSignatureRequest("service-agreement", {
@@ -191,7 +196,7 @@ export default Alchemy.Stack(
       recipients: [{ name: "Ana Silva", email: "ana@example.com", role: "approver", routingOrder: 1 }],
     })
   }),
-)`,
+) {}`,
   },
 ];
 

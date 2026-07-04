@@ -1,4 +1,4 @@
-import { signatureKitErrorCatalog } from "@signature-kit/core/config";
+import { signatureKitErrorCatalog } from "@signature-kit/signatures";
 
 /**
  * Renders the full `SignatureKitError` catalog. Each row carries a stable

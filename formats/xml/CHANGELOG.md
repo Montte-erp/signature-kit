@@ -2,6 +2,9 @@
 
 ## 0.2.1
 
+- Export English and pt-BR `xmlErrorMessages` catalogs for code-keyed display
+  copy.
+
 - Move `SignedXml` construction into `XmlRuntime` and cache verification-key
   imports, avoiding repeated XML-DSig module loads and repeated key imports
   during signing and verification.

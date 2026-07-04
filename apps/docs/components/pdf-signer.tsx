@@ -34,6 +34,7 @@ import {
 } from "@signature-kit/pdf/builder-store";
 import { parsePdfTextBoxesBrowser } from "@signature-kit/pdf/liteparse-browser";
 import type {
+  PdfSignatureBadge,
   PdfSignatureBuilderState,
   PdfSignatureFieldDraft,
   PdfSignaturePage,
@@ -85,6 +86,8 @@ import { getLocale } from "@/paraglide/runtime";
  */
 
 const SIGNATURE_FIELD_ID = "a1-signature";
+const VALIDAR_ITI_URL = "https://validar.iti.gov.br";
+
 
 // "Has a best-guess run happened?" — one bit of module-level state. React only
 // subscribes through `useSyncExternalStore`; async work stays in Effect handlers.
@@ -111,8 +114,8 @@ const SIGNATURE_DRAFT: PdfSignatureFieldDraft = {
   id: SIGNATURE_FIELD_ID,
   type: "signature",
   roleId: SIGNER_ROLE.id,
-  width: 168,
-  height: 48,
+  width: 240,
+  height: 72,
   label: "A1 signature",
   required: true,
 };
@@ -269,6 +272,56 @@ const stampPreviewText = (
   }
   return profile?.subject;
 };
+
+const stampDocumentLabel = (document: string | undefined): string =>
+  document?.length === 14 ? m.signer_stamp_cnpj_label() : m.signer_stamp_cpf_label();
+
+const visibleStampBadge = (
+  profile: A1CertificateProfile | undefined,
+  dateText: string | undefined,
+  includeIdentity: boolean,
+  includeDate: boolean,
+): PdfSignatureBadge => {
+  const signer = profile?.subject ?? m.signer_preview_name();
+  const company = profile?.organization ?? profile?.subject ?? m.signer_preview_company();
+  const document = profile?.document ?? m.signer_preview_document();
+  const rows: Array<Array<{ label: string; value: string }>> = [];
+  if (includeIdentity) {
+    rows.push([{ label: m.signer_stamp_signer_label(), value: signer }]);
+    rows.push([{ label: m.signer_stamp_company_label(), value: company }]);
+    const documentRow = [{ label: stampDocumentLabel(profile?.document), value: document }];
+    if (includeDate) {
+      documentRow.push({
+        label: m.signer_stamp_date_label(),
+        value: dateText ?? m.signer_preview_date(),
+      });
+    }
+    rows.push(documentRow);
+    rows.push([
+      { label: m.signer_stamp_certificate_label(), value: m.signer_stamp_certificate_value() },
+    ]);
+  } else if (includeDate) {
+    rows.push([{ label: m.signer_stamp_date_label(), value: dateText ?? m.signer_preview_date() }]);
+  }
+  return {
+    header: { text: m.signer_stamp_title() },
+    rows,
+    footer: [
+      { text: m.signer_stamp_footer_mp() },
+      { text: m.signer_stamp_footer_law_14063() },
+      { text: m.signer_stamp_footer_iti_ordinance() },
+      { text: "validar.iti.gov.br", link: VALIDAR_ITI_URL },
+      { text: "SignatureKit" },
+    ],
+    qr: { text: VALIDAR_ITI_URL },
+  };
+};
+
+const visibleStampPreviewLines = (badge: PdfSignatureBadge): string[] => [
+  badge.header.text,
+  ...badge.rows.map((row) => row.map((pair) => `${pair.label}: ${pair.value}`).join(" | ")),
+  badge.footer.map((segment) => segment.text).join(" | "),
+];
 
 const renderStampPreviewImages = (
   source: RubricSource,
@@ -871,20 +924,15 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
   const nextUnplacedId = docs.find((d) => !d.rect && d.id !== activeDocId)?.id;
 
   // Live preview lines for the placed marker (the real name fills in from the
-  // certificate at sign time; before that we show a placeholder).
-  const previewLines: string[] = [];
-  if (stampName) {
-    previewLines.push(profile?.subject ?? m.signer_preview_name());
-    previewLines.push(profile?.document ? `CPF/CNPJ: ${profile.document}` : "CPF / CNPJ");
-  }
-  if (stampDate) {
-    previewLines.push(new Date().toLocaleDateString(getLocale()));
-  }
-  // The placed marker shows the full mark; the every-page ghost shows the initials.
+  // certificate at sign time; before that we show placeholders).
+  const previewBadge = visibleStampBadge(profile, undefined, stampName, stampDate);
+  const previewLines = visibleStampPreviewLines(previewBadge);
+  // The placed marker shows the full stamp; the every-page ghost shows the initials.
   const stampPreview = {
     inkDataUrl: signatureDataUrl,
     rubricaDataUrl,
     lines: previewLines,
+    qr: true,
   };
 
   // Best-guess status, DERIVED (no finalize effect): while placing show progress;
@@ -998,15 +1046,18 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       const id = `doc-${crypto.randomUUID()}`;
       const state = await Effect.runPromise(
         Effect.result(
-          createPdfSignatureBuilderStateFromBytes({
-            id: "browser-a1-signer",
-            name: file.name,
-            documentId: id,
-            documentName: file.name,
-            pdf: bytes.success,
-            role: SIGNER_ROLE,
-            draft: SIGNATURE_DRAFT,
-          }),
+          createPdfSignatureBuilderStateFromBytes(
+            {
+              id: "browser-a1-signer",
+              name: file.name,
+              documentId: id,
+              documentName: file.name,
+              pdf: bytes.success,
+              role: SIGNER_ROLE,
+              draft: SIGNATURE_DRAFT,
+            },
+            { pageLabel: (page) => m.signer_doc_page({ page }) },
+          ),
         ),
       );
       if (Result.isFailure(state)) {
@@ -1210,12 +1261,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
 
     // Shared stamp content for every document.
     const now = new Date();
-    const lines: string[] = [];
-    if (stampName) {
-      lines.push(certValue.subject);
-      if (certValue.document) lines.push(`CPF/CNPJ: ${certValue.document}`);
-    }
-    if (stampDate) lines.push(now.toLocaleString(getLocale()));
+    const badge = visibleStampBadge(certValue, now.toLocaleString(getLocale()), stampName, stampDate);
     // Two marks: the full handwriting MAIN signature (placed page) and the small
     // bracketed INITIALS rubrica (every other page). Rendered SYNCHRONOUSLY here
     // rather than read from the async-derived preview state, so a Sign click that
@@ -1287,7 +1333,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                   ],
             ),
             stamp: {
-              lines,
+              badge,
               border: false,
               rubricEveryPage,
               ...(mainPng === undefined ? {} : { inkPng: mainPng }),
@@ -1520,6 +1566,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     ...(signatureDataUrl ? [m.signer_bit_mark()] : []),
     ...(stampName ? [m.signer_bit_name()] : []),
     ...(stampDate ? [m.signer_bit_date()] : []),
+    m.signer_bit_qr(),
     ...(rubricEveryPage ? [m.signer_bit_everypage()] : []),
   ];
 

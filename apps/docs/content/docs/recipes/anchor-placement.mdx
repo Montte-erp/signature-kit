@@ -1,0 +1,54 @@
+---
+title: Anchor-based placement
+description: "Find text anchors like assinatura, CPF, or CNPJ and turn them into clamped PDF signature rectangles."
+---
+
+Use `findPdfTextAnchors` when the business document already names the signing area. It replaces app-side `pdfjs-dist` scans and transform math with a package-owned matcher over SignatureKit text boxes.
+
+```ts title="anchor-placement.ts"
+import { findPdfTextAnchors } from "@signature-kit/pdf/anchors"
+import { type PdfSignaturePage, type PdfTextBox } from "@signature-kit/pdf/config"
+import { parsePdfTextBoxesBrowser } from "@signature-kit/pdf/liteparse-browser"
+import { prepareAndSignPdf } from "@signature-kit/pdf/workflow"
+import { Effect } from "effect"
+
+const pages: Array<PdfSignaturePage> = template.documents[0]?.pages ?? []
+const extractedTextBoxes = await Effect.runPromise(parsePdfTextBoxesBrowser(pdf, pages.length))
+const pageTextBoxes: Array<Array<PdfTextBox>> = extractedTextBoxes.map((page) =>
+  Array.from(page),
+)
+
+const stampRects = await Effect.runPromise(
+  findPdfTextAnchors({
+    pages,
+    textBoxes: pageTextBoxes,
+    matchers: [
+      { text: "assinatura:" },
+      { digits: "12345678901" },      // CPF/CNPJ-style numeric-only match
+    ],
+    stampSize: { width: 180, height: 54 },
+    placement: "below",
+    offset: 6,
+  }),
+)
+
+const signedPdf = yield* prepareAndSignPdf({
+  pdf,
+  pages,
+  pageTextBoxes,
+  stampRects,
+  badge: {
+    header: { text: "ASSINADO DIGITALMENTE" },
+    rows: [[{ label: "Signatário", value: "Maria Souza" }]],
+    footer: [{ text: "ICP-Brasil" }],
+  },
+  rubric: { initials: "MS" },
+  signing: { policy: "pades-icp-brasil", name: "Maria Souza" },
+}).pipe(Effect.provide(layer))
+```
+
+`digits` normalizes both the matcher and the PDF text to numeric-only strings, so `123.456.789-01` and `12345678901` match. Returned rectangles are clamped to the page bounds.
+
+<Callout type="info">
+  Browser text extraction comes from `parsePdfTextBoxesBrowser` and LiteParse WASM. If your runtime cannot load that WASM module, pass `pages` and `textBoxes` from your own extraction seam and keep placement in `findPdfTextAnchors`.
+</Callout>

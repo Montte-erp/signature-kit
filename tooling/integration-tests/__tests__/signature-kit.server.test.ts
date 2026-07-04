@@ -5,8 +5,9 @@ import { verifyPdf } from "@signature-kit/pdf/verify";
 import { signXml } from "@signature-kit/xml/sign";
 import { verifyXml } from "@signature-kit/xml/verify";
 import { xmlRuntimeLayer } from "@signature-kit/xml/runtime";
-import { signatures } from "@signature-kit/core/signatures";
+import { signatures } from "@signature-kit/signatures";
 import { Effect, Redacted } from "effect";
+import { TestClock } from "effect/testing";
 import { readA1Fixture } from "../../testing/fixtures";
 
 const PASSWORD = Redacted.make("changeit");
@@ -23,6 +24,7 @@ describe("SignatureKit server integration", () => {
       expect(typeof document).toBe("undefined");
 
       const pfx = yield* readA1Fixture("ecpf");
+      yield* TestClock.setTime(Date.now());
       const profile = yield* parseA1CertificateProfile({ pfx, password: PASSWORD });
       expect(profile.document).toBe("12345678901");
       expect(profile.subject.length).toBeGreaterThan(0);

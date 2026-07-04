@@ -67,25 +67,51 @@ describe("workspace layer checks", () => {
     const root = await createTempWorkspace();
     await writePackage(
       root,
-      "core/core",
-      "@signature-kit/core",
+      "core/signatures",
+      "@signature-kit/signatures",
       {},
       [],
-      "export const core = true;\n",
+      "export const signatures = true;\n",
     );
     await writePackage(
       root,
       "shared/asn1",
       "@signature-kit/asn1",
-      { "@signature-kit/core": "workspace:*" },
-      ["../../core/core"],
-      "import { core } from '@signature-kit/core';\nexport const value = core;\n",
+      { "@signature-kit/signatures": "workspace:*" },
+      ["../../core/signatures"],
+      "import { signatures } from '@signature-kit/signatures';\nexport const value = signatures;\n",
     );
 
     expect(collectWorkspaceLayerDiagnostics(root)).toContainEqual({
       path: "shared/asn1/package.json",
       message:
-        "@signature-kit/asn1 is a shared package and cannot depend on @signature-kit/core (core).",
+        "@signature-kit/asn1 is a shared package and cannot depend on @signature-kit/signatures (core).",
+    });
+  });
+
+  it("rejects validators depending on signer packages", async () => {
+    const root = await createTempWorkspace();
+    await writePackage(
+      root,
+      "signers/a1",
+      "@signature-kit/a1",
+      {},
+      [],
+      "export const signer = true;\n",
+    );
+    await writePackage(
+      root,
+      "validators/iti",
+      "@signature-kit/iti",
+      { "@signature-kit/a1": "workspace:*" },
+      ["../../signers/a1"],
+      "import { signer } from '@signature-kit/a1';\nexport const value = signer;\n",
+    );
+
+    expect(collectWorkspaceLayerDiagnostics(root)).toContainEqual({
+      path: "validators/iti/package.json",
+      message:
+        "@signature-kit/iti is a validators package and cannot depend on @signature-kit/a1 (signers).",
     });
   });
 

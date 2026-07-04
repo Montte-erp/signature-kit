@@ -1,0 +1,104 @@
+---
+title: React signing hook
+description: "Use @signature-kit/react hooks for certificate loading, sequential PDF signing, progress rows, and raw typed errors."
+---
+
+`@signature-kit/react` is now the app boundary for browser A1 signing. It stays headless: no storage, no fetch/tRPC, no toasts, no modals, no `react-pdf`, and no npm-published UI components.
+
+Fast path: install the registry UI into your app and edit the generated files.
+
+```bash title="Install the direct signing dialog"
+npx shadcn@latest add https://signature-kit.dev/r/signature-dialog.json
+```
+
+Need custom UI? Use the hooks directly.
+
+## Certificate state
+
+```tsx title="certificate-form.tsx"
+import { useA1Certificate } from "@signature-kit/react/a1"
+
+export function CertificateForm() {
+  const certificate = useA1Certificate()
+
+  return (
+    <form
+      onSubmit={async (event) => {
+        event.preventDefault()
+        const form = new FormData(event.currentTarget)
+        const file = form.get("certificate")
+        const password = form.get("password")
+        if (!(file instanceof File) || typeof password !== "string") return
+        await certificate.load(new Uint8Array(await file.arrayBuffer()), password)
+      }}
+    >
+      <input name="certificate" type="file" accept=".pfx,.p12" />
+      <input name="password" type="password" />
+      <button type="submit" disabled={certificate.status === "loading"}>Load</button>
+      {certificate.profile ? <p>{certificate.profile.subject}</p> : null}
+      {certificate.error ? <p>{certificate.error.code}</p> : null}
+    </form>
+  )
+}
+```
+
+`load(pfx, password)` wraps the password with `Redacted.make` inside the action and stores the last valid certificate credentials only in the hook store. Persistence is intentionally absent; apps own encrypted storage and password retention policy.
+
+## Sequential signing
+
+```tsx title="sign-documents.tsx"
+import { useA1Signer } from "@signature-kit/react/a1"
+
+export function SignDocuments({ pfx, pdf }: { pfx: Uint8Array; pdf: Uint8Array }) {
+  const signer = useA1Signer()
+
+  return (
+    <button
+      type="button"
+      disabled={signer.busy}
+      onClick={async () => {
+        await signer.sign({
+          documents: [
+            {
+              id: "contract",
+              name: "contract.pdf",
+              pdf,
+              anchors: {
+                matchers: [{ text: "{{signature}}" }],
+                stampSize: { width: 180, height: 54 },
+              },
+            },
+          ],
+          credentials: { pfx, password: "changeit" },
+          signing: { policy: "pades-icp-brasil", reason: "Signed with SignatureKit" },
+          stamp: {
+            badge: {
+              header: { text: "DIGITALLY SIGNED" },
+              rows: [[{ label: "Signer", value: "Current user" }]],
+              footer: [{ text: "ICP-Brasil" }, { text: "SignatureKit" }],
+            },
+            rubric: { initials: "CU" },
+          },
+        })
+      }}
+    >
+      Sign {signer.rows.length} document(s)
+    </button>
+  )
+}
+```
+
+Rows update in order: `pending → signing → signed | failed`. Signing runs at concurrency 1, and row failures keep the raw typed error (`PdfError`, `CmsError`, or `SignatureKitError`) so apps can call `@signature-kit/i18n` `errorMessage(...)` with their locale and catalogs.
+
+## PDF object URLs
+
+```tsx title="signed-preview.tsx"
+import { usePdfObjectUrl } from "@signature-kit/react/browser-pdf"
+
+export function SignedPreview({ bytes }: { bytes: Uint8Array | null }) {
+  const url = usePdfObjectUrl(bytes)
+  return url ? <a href={url} download="signed.pdf">Download signed PDF</a> : null
+}
+```
+
+The hook creates and revokes object URLs with a minimal cleanup effect because the browser resource itself requires cleanup.

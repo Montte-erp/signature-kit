@@ -52,7 +52,8 @@ certificate.
 shared/asn1        @signature-kit/asn1                ASN.1 DER decode/encode
 shared/crypto      @signature-kit/crypto              PKCS#12, PEM, hashes, cipher primitives
 shared/cms         @signature-kit/cms                 CMS/PKCS#7, ICP attrs, RFC 3161 timestamping
-core/core          @signature-kit/core                runtime schemas, typed errors, Signatures service
+core/signatures   @signature-kit/signatures          runtime schemas, typed errors, Signatures service
+core/http         @signature-kit/http                HTTP client service and transport schemas
 core/certificates  @signature-kit/certificates        Effect-safe PKCS#12/X.509 certificate API
 signers/a1         @signature-kit/a1                  A1 / PKCS#12 signer adapter
 signers/clicksign  @signature-kit/clicksign           Clicksign remote signer
@@ -70,7 +71,7 @@ formats/pdf        @signature-kit/pdf                 PDF detached CMS sign/veri
 
 ```ts
 import { a1SignaturesLayer } from "@signature-kit/a1/signer";
-import { signatures } from "@signature-kit/core/signatures";
+import { signatures } from "@signature-kit/signatures";
 import { Effect, Redacted } from "effect";
 
 const program = Effect.gen(function* () {
@@ -94,7 +95,7 @@ const program = Effect.gen(function* () {
 ### XML/PDF formats over the same signer
 
 ```ts
-import { signaturesLayer } from "@signature-kit/core/signatures";
+import { signaturesLayer } from "@signature-kit/signatures";
 import { signPdf } from "@signature-kit/pdf/sign";
 import { verifyPdf } from "@signature-kit/pdf/verify";
 import { signXml } from "@signature-kit/xml/sign";
@@ -126,7 +127,7 @@ const documentProgram = Effect.gen(function* () {
 ```ts
 import * as Alchemy from "alchemy";
 import { ClicksignSignatureRequest, providers as clicksignProviders } from "@signature-kit/clicksign";
-import { signatureHttpClientLive } from "@signature-kit/core/http";
+import { signatureHttpClientLive } from "@signature-kit/http";
 import { Effect, Layer, Redacted } from "effect";
 
 export default Alchemy.Stack(

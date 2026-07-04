@@ -8,7 +8,7 @@ Clicksign cria o documento e o signatário no upstream, opcionalmente notifica o
 ## Instalação
 
 ```package-install
-@signature-kit/core @signature-kit/clicksign
+@signature-kit/http @signature-kit/clicksign
 ```
 
 ## Quando usar
@@ -24,21 +24,22 @@ Use Clicksign quando a cerimônia, lembretes e trilha de auditoria vivem na Clic
 ```ts title="clicksign.ts"
 import * as Alchemy from "alchemy"
 import { ClicksignSignatureRequest, providers as clicksignProviders } from "@signature-kit/clicksign"
-import { signatureHttpClientLive } from "@signature-kit/core/http"
+import { signatureHttpClientLive } from "@signature-kit/http"
 import { Effect, Layer, Redacted } from "effect"
 
-export default Alchemy.Stack(
+export default class Contracts extends Alchemy.Stack<Contracts>()(
   "Contracts",
   {
     providers: Layer.merge(
       clicksignProviders({
-      accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
-      environment: "sandbox",
-      locale: "pt-BR",
-      autoClose: true,
+        accessToken: Redacted.make(process.env.CLICKSIGN_TOKEN ?? ""),
+        environment: "sandbox",
+        locale: "pt-BR",
+        autoClose: true,
       }),
       signatureHttpClientLive,
     ),
+    state: Alchemy.inMemoryState(),
   },
   Effect.gen(function* () {
     return yield* ClicksignSignatureRequest("contrato-de-servico", {
@@ -49,7 +50,7 @@ export default Alchemy.Stack(
       send: true,
     })
   }),
-)
+) {}
 ```
 
 

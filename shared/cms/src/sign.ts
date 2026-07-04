@@ -40,7 +40,6 @@ export const createDetachedSignedData = (
       ),
     );
     const hashAlgorithm = valid.hashAlgorithm ?? "sha256";
-    const signingTime = valid.signingTime ?? new Date();
 
     const certificate = yield* Effect.try({
       try: () => pkijs.Certificate.fromBER(toArrayBuffer(valid.certificateDer)),
@@ -84,7 +83,6 @@ export const createDetachedSignedData = (
                 attributes: [
                   ...buildSignedAttributes({
                     messageDigest,
-                    signingTime,
                     certificateSha256,
                     icpBrasil: valid.icpBrasil,
                   }),

@@ -4,16 +4,12 @@ import {
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
   redactedStringSchema,
-} from "@signature-kit/core/config";
-import {
-  SignatureHttpClient,
-  bearerAuthorization,
-  normalizedBaseUrl,
-} from "@signature-kit/core/http";
-import type { SignatureHttpClientService } from "@signature-kit/core/http";
+} from "@signature-kit/signatures";
+import { SignatureHttpClient, bearerAuthorization, normalizedBaseUrl } from "@signature-kit/http";
+import type { SignatureHttpClientService } from "@signature-kit/http";
 import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
-import { Context, Effect, Layer, Option, Schema, Stream } from "effect";
+import { Context, Effect, Layer, Match, Option, Schema, Stream } from "effect";
 
 const ZapSignSchemaName = {
   providerOptions: "ZapSignProviderOptions",
@@ -265,28 +261,33 @@ const signerPayload = (
 });
 const zapsignPathParam = (id: string): string => encodeURIComponent(id);
 
+const ZapSignStatusSchema = Schema.Literals([
+  "draft",
+  "signed",
+  "completed",
+  "declined",
+  "refused",
+  "rejected",
+  "cancelled",
+  "canceled",
+  "deleted",
+  "expired",
+]);
+const isZapSignStatus = Schema.is(ZapSignStatusSchema);
+
 const zapSignDocumentState = (status: string | undefined): ZapSignDocument["state"] => {
   if (status === undefined) return "sent";
-  switch (status.toLowerCase()) {
-    case "draft":
-      return "draft";
-    case "signed":
-    case "completed":
-      return "completed";
-    case "declined":
-    case "refused":
-    case "rejected":
-      return "declined";
-    case "cancelled":
-    case "canceled":
-      return "cancelled";
-    case "deleted":
-      return "deleted";
-    case "expired":
-      return "expired";
-    default:
-      return "sent";
-  }
+  const normalized = status.toLowerCase();
+  if (!isZapSignStatus(normalized)) return "sent";
+  return Match.value(normalized).pipe(
+    Match.when("draft", (): ZapSignDocument["state"] => "draft"),
+    Match.whenOr("signed", "completed", (): ZapSignDocument["state"] => "completed"),
+    Match.whenOr("declined", "refused", "rejected", (): ZapSignDocument["state"] => "declined"),
+    Match.whenOr("cancelled", "canceled", (): ZapSignDocument["state"] => "cancelled"),
+    Match.when("deleted", (): ZapSignDocument["state"] => "deleted"),
+    Match.when("expired", (): ZapSignDocument["state"] => "expired"),
+    Match.orElse((): ZapSignDocument["state"] => "sent"),
+  );
 };
 
 const toZapSignDocument = (
@@ -525,8 +526,11 @@ export const ZapSignSignatureRequestProvider = () =>
       const baseUrl = zapSignBaseUrl(options);
 
       return ZapSignSignatureRequest.Provider.of({
+        nuke: { skip: true },
         diff: zapsignSignatureRequestDiff,
-        list: () => listZapSignSignatureRequestsInternal(http, options, baseUrl),
+        list: () =>
+          // Retained resources must not feed account-wide nuke enumeration.
+          Effect.succeed([]),
         read: ({ output }) =>
           output === undefined
             ? Effect.succeed(undefined)
