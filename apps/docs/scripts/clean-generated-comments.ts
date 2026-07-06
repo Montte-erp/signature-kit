@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 
 const targets = [
@@ -15,6 +16,7 @@ const targets = [
 
 await Promise.all(
   targets.map(async (target) => {
+    if (!existsSync(target.path)) return;
     const original = await readFile(target.path, "utf8");
     const cleaned = target.generatedComments.reduce(
       (content, generatedComment) => content.replaceAll(generatedComment, ""),
