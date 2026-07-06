@@ -11,7 +11,6 @@ import { Container, Eyebrow, Section } from "./_shared";
 import { ProviderCarousel, type ProviderCarouselItem } from "./provider-carousel";
 import { brandLogoUrl } from "./provider-marks";
 
-
 interface ProviderShowcase {
   readonly name: string;
   readonly domain: string;
@@ -206,7 +205,6 @@ export function ProvidersShowcase() {
       <Container>
         <FadeIn delay={0.05}>
           <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:gap-12">
-            {/* LEFT — the pitch */}
             <div className="lg:py-2">
               <Eyebrow>{m.showcase_eyebrow()}</Eyebrow>
               <h2 className="mt-3 text-3xl font-medium tracking-tight text-balance text-foreground sm:text-4xl">
@@ -236,9 +234,7 @@ export function ProvidersShowcase() {
                     key={feature.label()}
                     className="grid grid-cols-[7rem_1fr] gap-4 border-b border-border py-3.5"
                   >
-                    <dt className="text-sm font-medium text-foreground">
-                      {feature.label()}
-                    </dt>
+                    <dt className="text-sm font-medium text-foreground">{feature.label()}</dt>
                     <dd className="text-sm leading-relaxed text-pretty text-muted-foreground">
                       {feature.desc()}
                     </dd>
@@ -247,7 +243,6 @@ export function ProvidersShowcase() {
               </dl>
             </div>
 
-            {/* RIGHT — interactive carousel (client), fed server-highlighted panels */}
             <div className="min-w-0">
               <ProviderCarousel items={items} panels={panels} />
             </div>

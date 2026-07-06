@@ -2,12 +2,7 @@ import { FileUp, Lock, MousePointerClick, PenLine, ShieldCheck } from "lucide-re
 
 import { PdfSignerDialog } from "@/components/pdf-signer-islands";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-} from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { FadeIn } from "@/components/fade-in";
 import { m } from "@/paraglide/messages";
 
@@ -37,7 +32,6 @@ export function Signer() {
 
         <FadeIn delay={0.05}>
           <Card className="mt-8 gap-0 overflow-hidden rounded-2xl p-0 shadow-none">
-            {/* window chrome — a real "local only" indicator, not decorative dots */}
             <CardHeader className="flex flex-row items-center gap-2 border-b border-border px-4 py-3">
               <Lock className="size-3.5 text-muted-foreground" />
               <span className="font-mono text-xs text-muted-foreground">
@@ -52,9 +46,7 @@ export function Signer() {
                     <span className="flex size-8 items-center justify-center rounded-lg border border-border bg-input/30">
                       <step.icon className="size-4 text-foreground" />
                     </span>
-                    <span className="font-mono text-xs text-muted-foreground">
-                      0{i + 1}
-                    </span>
+                    <span className="font-mono text-xs text-muted-foreground">0{i + 1}</span>
                   </div>
                   <h3 className="text-base font-medium text-foreground">{step.title()}</h3>
                   <p className="text-sm leading-relaxed text-muted-foreground">{step.body()}</p>

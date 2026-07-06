@@ -95,7 +95,6 @@ export function ProviderCarousel({ items, panels }: ProviderCarouselProps) {
 
   return (
     <Card className="gap-0 overflow-hidden p-0">
-      {/* Header strip: provider micro-label · current provider badge · hint */}
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-border px-4 py-3">
         <span className="font-mono text-[10px] tracking-[0.11em] text-muted-foreground/70 uppercase">
           {m.showcase_card_provider()}
@@ -108,7 +107,6 @@ export function ProviderCarousel({ items, panels }: ProviderCarouselProps) {
         </span>
       </div>
 
-      {/* Carousel row: prev · logo rail (arrow-keyable) · next */}
       <div className="flex items-center gap-3 border-b border-border px-4 py-4">
         <Button
           type="button"
@@ -161,7 +159,6 @@ export function ProviderCarousel({ items, panels }: ProviderCarouselProps) {
         </Button>
       </div>
 
-      {/* Code panel header: filename · copy */}
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
         <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
           {active.filename}
@@ -179,7 +176,6 @@ export function ProviderCarousel({ items, panels }: ProviderCarouselProps) {
         </Button>
       </div>
 
-      {/* Code body: render ONLY the selected pre-highlighted panel. */}
       <div className="max-h-[22rem] min-w-0 overflow-auto px-1 py-1 text-[13px]">
         {panels[index]}
       </div>

@@ -405,11 +405,12 @@ const withHugeMacIterations = (pfxDer: Uint8Array): Effect.Effect<Uint8Array, un
     if (macData === undefined || macData.kind !== "constructed") {
       return yield* Effect.fail("no-mac-data");
     }
+    const maximumSigned32BitIterationsBytes = Uint8Array.of(0x7f, 0xff, 0xff, 0xff);
     const hugeIterations: Asn1Node = {
       kind: "primitive",
       class: "universal",
       tag: 0x02,
-      bytes: Uint8Array.of(0x7f, 0xff, 0xff, 0xff), // 2^31 - 1
+      bytes: maximumSigned32BitIterationsBytes,
     };
     const patchedMac: Asn1Node = {
       ...macData,

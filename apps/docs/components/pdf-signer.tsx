@@ -1,5 +1,7 @@
 "use client";
 
+import Image from "next/image";
+
 import { Duration, Effect, Redacted, Result } from "effect";
 import {
   BadgeCheck,
@@ -70,10 +72,8 @@ import { captureDocsEvent } from "@/lib/posthog/client";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
 
-
 const SIGNATURE_FIELD_ID = "a1-signature";
 const VALIDAR_ITI_URL = "https://validar.iti.gov.br";
-
 
 const placeRunStore = createSyncStore<{ ran: boolean }>({ ran: false });
 
@@ -332,7 +332,6 @@ const renderStampPreviewImages = (
 const dataUrlToBytes = (dataUrl: string): Uint8Array =>
   Uint8Array.from(atob(dataUrl.split(",")[1] ?? ""), (char) => char.charCodeAt(0));
 
-
 const CONNECTORS = new Set(["de", "da", "do", "dos", "das", "e"]);
 
 const deriveInitials = (name: string): string => {
@@ -429,7 +428,6 @@ async function renderRubricaInitialsPng(initials: string): Promise<string | unde
   ctx.fillText(t, W / 2, H / 2 + 2);
   return c.toDataURL("image/png");
 }
-
 
 function DocumentCanvas({
   activeDoc,
@@ -553,7 +551,6 @@ function DocumentCanvas({
   );
 }
 
-
 type StepStatus = "locked" | "active" | "done" | "todo";
 
 function Step({
@@ -667,7 +664,6 @@ function Step({
     </Card>
   );
 }
-
 
 function DocList({
   docs,
@@ -824,7 +820,6 @@ function BatchResults({
   );
 }
 
-
 export function PdfSigner({ className, inDialog }: { className?: string; inDialog?: boolean }) {
   const form = useForm<SignerFormValues>({ defaultValues: signerFormDefaults });
 
@@ -855,7 +850,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
   const pfxInputRef = React.useRef<HTMLInputElement>(null);
 
   const placeRan = useSyncStore(placeRunStore, (s) => s.ran);
-
 
   const activeDoc = docs.find((d) => d.id === activeDocId);
   const placedCount = docs.filter((d) => d.rect).length;
@@ -1175,7 +1169,12 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     }
 
     const now = new Date();
-    const badge = visibleStampBadge(certValue, now.toLocaleString(getLocale()), stampName, stampDate);
+    const badge = visibleStampBadge(
+      certValue,
+      now.toLocaleString(getLocale()),
+      stampName,
+      stampDate,
+    );
     const marks = await Effect.runPromise(
       Effect.result(
         rubricSource === "type" && typedText.trim()
@@ -1480,9 +1479,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
               "min-h-0 flex-1 overflow-y-auto p-6 @4xl:grid-rows-[minmax(0,1fr)] @4xl:overflow-hidden",
           )}
         >
-          {/* LEFT / TOP — persistent document canvas. In the dialog it owns its own
-            scroll (the steps pane scrolls separately, so the modal never has one
-            scroll that moves everything); standalone it stays sticky. */}
           <div
             className={cn(
               "min-w-0 bg-background pb-1",
@@ -1531,9 +1527,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                 {shownStatus}
               </p>
             ) : null}
-            {/* Canvas-local "one obvious next action" for a multi-PDF batch: jump to
-              the next document that still needs a signature without scrolling back
-              up to the document list. */}
             {nextUnplacedId ? (
               <Button
                 type="button"
@@ -1548,14 +1541,12 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
             ) : null}
           </div>
 
-          {/* RIGHT / BELOW — the guided accordion */}
           <div
             className={cn(
               "flex flex-col gap-2.5",
               inDialog && "@4xl:min-h-0 @4xl:self-stretch @4xl:overflow-y-auto",
             )}
           >
-            {/* STEP 1 — Documents */}
             <Step
               n={1}
               title={m.signer_step_documents()}
@@ -1580,9 +1571,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                   queuedIds={queuedIds}
                 />
               ) : null}
-              {/* Best guess — auto-place a signature rect on every loaded document at
-                once (bottom-right of the last page, pure geometry), so a multi-PDF
-                batch needs zero per-document clicking. */}
               {docs.length > 0 ? (
                 <Button
                   type="button"
@@ -1633,7 +1621,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
               </p>
             </Step>
 
-            {/* STEP 2 — A1 certificate */}
             <Step
               n={2}
               title={m.signer_step_a1()}
@@ -1728,7 +1715,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
               </Button>
             </Step>
 
-            {/* STEP 3 — Stamp */}
             <Step
               n={3}
               title={m.signer_step_stamp()}
@@ -1745,7 +1731,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                 {m.signer_step3_intro()}
               </p>
 
-              {/* Visible mark — source picker */}
               <div className="mt-1 flex flex-col gap-2">
                 <p id="rubric-source-label" className="text-[11px] text-muted-foreground">
                   {m.signer_signature_mark()}
@@ -1803,10 +1788,12 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                       </form.Field>
                       {signatureDataUrl ? (
                         <div className="flex h-16 items-center justify-center rounded-md border border-border bg-white">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
+                          <Image
                             src={signatureDataUrl}
                             alt=""
+                            width={160}
+                            height={48}
+                            unoptimized
                             className="max-h-12 w-auto object-contain"
                           />
                         </div>
@@ -1828,9 +1815,12 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                     <div className="flex flex-col gap-2">
                       <div className="flex h-16 items-center justify-center rounded-md border border-border bg-white">
                         {signatureDataUrl ? (
-                          <img
+                          <Image
                             src={signatureDataUrl}
                             alt=""
+                            width={160}
+                            height={48}
+                            unoptimized
                             className="max-h-12 w-auto object-contain"
                           />
                         ) : null}
@@ -1905,7 +1895,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
               </Button>
             </Step>
 
-            {/* STEP 4 — Sign */}
             <Step
               n={4}
               title={m.signer_step_sign()}
@@ -1990,7 +1979,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     </form.Provider>
   );
 }
-
 
 export function PdfSignerDialog({ children }: { children: React.ReactNode }) {
   return (

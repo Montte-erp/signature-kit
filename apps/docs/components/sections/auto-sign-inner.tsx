@@ -33,8 +33,6 @@ import { createSyncStore, useSyncStore } from "@/lib/sync-store";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
 
-
-
 const LOREM = [
   "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
   "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.",
@@ -85,7 +83,6 @@ const SIGNER: Omit<SignedMark, "date"> = {
   document: "CPF/CNPJ: 000.000.000-00",
 };
 
-
 type DocPhase = "queued" | "generating" | "ready" | "signing" | "signed";
 
 type AutoDoc = {
@@ -101,9 +98,7 @@ type PdfDocumentLoadLifecycle = {
   task?: PdfLoadingTask;
 };
 
-const destroyPdfLoadingTask = (
-  task: PdfLoadingTask | undefined,
-): Effect.Effect<void> =>
+const destroyPdfLoadingTask = (task: PdfLoadingTask | undefined): Effect.Effect<void> =>
   task?.destroy === undefined
     ? Effect.void
     : Effect.tryPromise({
@@ -157,7 +152,6 @@ const initialState = (): AutoState => ({
   activeIndex: 0,
   busy: false,
 });
-
 
 const store = createSyncStore<AutoState>(initialState());
 
@@ -269,7 +263,6 @@ function downloadDoc(doc: AutoDoc): void {
   URL.revokeObjectURL(url);
 }
 
-
 function DocBadge({ phase }: { phase: DocPhase | undefined }) {
   if (phase === "signed")
     return (
@@ -304,7 +297,6 @@ function DocBadge({ phase }: { phase: DocPhase | undefined }) {
   return null;
 }
 
-
 function AutoDocCanvas({ doc }: { doc: AutoDoc }) {
   const [pdfDoc, setPdfDoc] = React.useState<PdfDocumentProxy | null>(null);
   const bytes = doc.pdfBytes;
@@ -328,7 +320,13 @@ function AutoDocCanvas({ doc }: { doc: AutoDoc }) {
   if (bytes && pdfDoc) {
     return (
       <div ref={mountPdf}>
-        <PdfPage doc={pdfDoc} pageNumber={1} widthPt={595.28} heightPt={841.89} onPlace={() => {}} />
+        <PdfPage
+          doc={pdfDoc}
+          pageNumber={1}
+          widthPt={595.28}
+          heightPt={841.89}
+          onPlace={() => {}}
+        />
       </div>
     );
   }
@@ -344,7 +342,6 @@ function AutoDocCanvas({ doc }: { doc: AutoDoc }) {
   );
 }
 
-
 export function AutoSignInner() {
   const docs = useSyncStore(store, (s) => s.docs);
   const status = useSyncStore(store, (s) => s.status);
@@ -357,8 +354,6 @@ export function AutoSignInner() {
 
   return (
     <div className="mt-10 grid gap-6 lg:grid-cols-[1fr_22rem]">
-      {/* CAROUSEL — one real react-pdf page at a time; the worker snaps it to the
-          document it is signing so you watch each field fill in live. */}
       <Card className="overflow-hidden p-0 shadow-none">
         <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
           <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
@@ -413,7 +408,6 @@ export function AutoSignInner() {
         </div>
       </Card>
 
-      {/* Controls + per-document Effect queue status. */}
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" onClick={autoSign} disabled={busy}>

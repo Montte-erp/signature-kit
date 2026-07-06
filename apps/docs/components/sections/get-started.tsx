@@ -8,8 +8,11 @@ import { m } from "@/paraglide/messages";
 
 import { Container, Section, SectionHeading } from "./_shared";
 
-
-const INSTALL: ReadonlyArray<{ readonly value: string; readonly label: string; readonly code: string }> = [
+const INSTALL: ReadonlyArray<{
+  readonly value: string;
+  readonly label: string;
+  readonly code: string;
+}> = [
   { value: "bun", label: "bun", code: "bun add @signature-kit/signatures @signature-kit/a1" },
   { value: "npm", label: "npm", code: "npm install @signature-kit/signatures @signature-kit/a1" },
   { value: "pnpm", label: "pnpm", code: "pnpm add @signature-kit/signatures @signature-kit/a1" },
@@ -20,13 +23,11 @@ const FIRST_CALL = `import { a1SignaturesLayer } from "@signature-kit/a1/signer"
 import { signatures } from "@signature-kit/signatures"
 import { Effect, Redacted } from "effect"
 
-// Load the A1 / PKCS#12 container once — pfx is the .pfx/.p12 *bytes*.
 const layer = a1SignaturesLayer({
   pfx,
   password: Redacted.make(process.env.A1_PASSWORD ?? ""),
 })
 
-// Inspect the certificate, then sign — typed errors, no thrown exceptions.
 const program = Effect.gen(function* () {
   const identity = yield* signatures.inspect()
 
@@ -49,22 +50,15 @@ export function GetStarted() {
     <Section>
       <Container>
         <FadeIn>
-          <SectionHeading
-            eyebrow={m.gs_eyebrow()}
-            title={m.gs_title()}
-            lead={m.gs_lead()}
-          />
+          <SectionHeading eyebrow={m.gs_eyebrow()} title={m.gs_title()} lead={m.gs_lead()} />
         </FadeIn>
 
         <FadeIn delay={0.05}>
           <Card className="mt-10 grid gap-0 overflow-hidden rounded-2xl p-0 shadow-none lg:grid-cols-2">
-              {/* 01 — Install */}
-              <div className="flex flex-col border-b border-border lg:border-r lg:border-b-0">
+            <div className="flex flex-col border-b border-border lg:border-r lg:border-b-0">
               <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
                 <span className={INDEX_CHIP}>01</span>
-                <span className="font-mono text-xs text-foreground">
-                  {m.gs_step1_heading()}
-                </span>
+                <span className="font-mono text-xs text-foreground">{m.gs_step1_heading()}</span>
               </div>
 
               <div className="flex flex-1 flex-col p-4">
@@ -79,9 +73,7 @@ export function GetStarted() {
 
               <div className="mt-auto border-t border-border bg-muted/30 px-4 py-3">
                 <p className="text-sm leading-relaxed text-pretty text-muted-foreground">
-                  <code className="font-mono text-foreground">
-                    @signature-kit/signatures
-                  </code>{" "}
+                  <code className="font-mono text-foreground">@signature-kit/signatures</code>{" "}
                   {m.gs_note1()}{" "}
                   <span className="inline-flex flex-wrap items-center gap-1.5 align-middle">
                     <Badge variant="outline" className="font-mono">
@@ -98,13 +90,10 @@ export function GetStarted() {
               </div>
             </div>
 
-            {/* 02 — Make your first call */}
             <div className="flex flex-col">
               <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
                 <span className={INDEX_CHIP}>02</span>
-                <span className="font-mono text-xs text-foreground">
-                  {m.gs_step2_heading()}
-                </span>
+                <span className="font-mono text-xs text-foreground">{m.gs_step2_heading()}</span>
                 <span className="ml-auto font-mono text-[11px] text-muted-foreground/50">
                   first-signature.ts
                 </span>
@@ -129,7 +118,7 @@ export function GetStarted() {
                 </p>
               </div>
             </div>
-            </Card>
+          </Card>
         </FadeIn>
       </Container>
     </Section>
