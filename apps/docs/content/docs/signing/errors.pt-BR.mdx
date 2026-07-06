@@ -118,9 +118,8 @@ direto para um code.
 Não localize inspecionando classes, campos `.code` soltos ou substrings de `reason`. Esse caminho quebra quando o texto diagnóstico muda:
 
 ```ts title="nao-inspecione-reason.ts"
-export function getCertificateErrorMessage(error: unknown) {
-  const reason = error instanceof Error ? error.message : ""
-
+export function getCertificateErrorMessage(error: { reason?: string }) {
+  const reason = error.reason ?? ""
   if (reason.includes("not valid on the current date")) return "Certificado expirado"
   if (reason.includes("Brazilian CPF or CNPJ")) {
     return "Certificado não contém CPF ou CNPJ brasileiro"

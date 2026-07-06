@@ -213,25 +213,27 @@ export const ZapSignSignatureRequest = Resource<ZapSignSignatureRequest>(
 
 export class ZapSignCredentials extends Context.Service<
   ZapSignCredentials,
-  ZapSignProviderOptions
+  Effect.Effect<ZapSignProviderOptions, SignatureKitError>
 >()("@signature-kit/zapsign/Credentials") {}
 
 export const zapSignCredentialsLayer = (
   options: ZapSignProviderOptions,
-): Layer.Layer<ZapSignCredentials, SignatureKitError> =>
+): Layer.Layer<ZapSignCredentials> =>
   Layer.effect(
     ZapSignCredentials,
-    Schema.decodeUnknownEffect(ZapSignProviderOptionsSchema)(options).pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: ZapSignSchemaName.providerOptions,
-            issueMessage: String(issue),
-          }),
+    Effect.cached(
+      Schema.decodeUnknownEffect(ZapSignProviderOptionsSchema)(options).pipe(
+        Effect.mapError(
+          (issue) =>
+            new SignatureKitError({
+              code: SignatureKitErrorCodeValue.invalidInput,
+              retryable: false,
+              provider: PROVIDER,
+              operation: SignatureKitOperationValue.schemaDecode,
+              schemaName: ZapSignSchemaName.providerOptions,
+              issueMessage: String(issue),
+            }),
+        ),
       ),
     ),
   );
@@ -521,9 +523,8 @@ export const ZapSignSignatureRequestProvider = () =>
   Provider.effect(
     ZapSignSignatureRequest,
     Effect.gen(function* () {
-      const options = yield* ZapSignCredentials;
+      const credentials = yield* ZapSignCredentials;
       const http = yield* SignatureHttpClient;
-      const baseUrl = zapSignBaseUrl(options);
 
       return ZapSignSignatureRequest.Provider.of({
         nuke: { skip: true },
@@ -531,22 +532,29 @@ export const ZapSignSignatureRequestProvider = () =>
         list: () =>
           // Retained resources must not feed account-wide nuke enumeration.
           Effect.succeed([]),
-        read: ({ output }) =>
-          output === undefined
-            ? Effect.succeed(undefined)
-            : getZapSignSignatureRequestInternal(http, options, baseUrl, output.id).pipe(
-                Effect.catchIf(
-                  (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
-                  () => Effect.succeed(undefined),
-                ),
-              ),
+        read: Effect.fn(function* ({ output }) {
+          if (output === undefined) return undefined;
+          const options = yield* credentials;
+          const baseUrl = zapSignBaseUrl(options);
+          return yield* getZapSignSignatureRequestInternal(http, options, baseUrl, output.id).pipe(
+            Effect.catchIf(
+              (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
+              () => Effect.succeed(undefined),
+            ),
+          );
+        }),
         reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
+          const options = yield* credentials;
+          const baseUrl = zapSignBaseUrl(options);
           const input = yield* zapsignSignatureRequestInputFromResourceProps(news);
           return yield* createZapSignDocument(http, options, baseUrl, input);
         }),
-        delete: ({ output }) =>
-          deleteZapSignSignatureRequestInternal(http, options, baseUrl, output.id),
+        delete: Effect.fn(function* ({ output }) {
+          const options = yield* credentials;
+          const baseUrl = zapSignBaseUrl(options);
+          return yield* deleteZapSignSignatureRequestInternal(http, options, baseUrl, output.id);
+        }),
       });
     }),
   );

@@ -176,7 +176,7 @@ describe("CMS contracts", () => {
     Effect.gen(function* () {
       vi.stubGlobal("fetch", (_request: RequestInfo | URL, init?: RequestInit) => {
         const body = init?.body;
-        if (body instanceof Uint8Array) {
+        if (Schema.is(Schema.Uint8Array)(body)) {
           return Promise.resolve(
             new Response(toArrayBuffer(timestampResponse(body, null)), {
               status: 200,
@@ -201,7 +201,7 @@ describe("CMS contracts", () => {
     Effect.gen(function* () {
       vi.stubGlobal("fetch", (_request: RequestInfo | URL, init?: RequestInit) => {
         const body = init?.body;
-        if (body instanceof Uint8Array) {
+        if (Schema.is(Schema.Uint8Array)(body)) {
           return Promise.resolve(
             new Response(toArrayBuffer(timestampResponse(body, new Uint8Array(32).fill(0xff))), {
               status: 200,

@@ -218,25 +218,27 @@ export const AssinafySignatureRequest = Resource<AssinafySignatureRequest>(
 
 export class AssinafyCredentials extends Context.Service<
   AssinafyCredentials,
-  AssinafyProviderOptions
+  Effect.Effect<AssinafyProviderOptions, SignatureKitError>
 >()("@signature-kit/assinafy/Credentials") {}
 
 export const assinafyCredentialsLayer = (
   options: AssinafyProviderOptions,
-): Layer.Layer<AssinafyCredentials, SignatureKitError> =>
+): Layer.Layer<AssinafyCredentials> =>
   Layer.effect(
     AssinafyCredentials,
-    Schema.decodeUnknownEffect(AssinafyProviderOptionsSchema)(options).pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: AssinafySchemaName.providerOptions,
-            issueMessage: String(issue),
-          }),
+    Effect.cached(
+      Schema.decodeUnknownEffect(AssinafyProviderOptionsSchema)(options).pipe(
+        Effect.mapError(
+          (issue) =>
+            new SignatureKitError({
+              code: SignatureKitErrorCodeValue.invalidInput,
+              retryable: false,
+              provider: PROVIDER,
+              operation: SignatureKitOperationValue.schemaDecode,
+              schemaName: AssinafySchemaName.providerOptions,
+              issueMessage: String(issue),
+            }),
+        ),
       ),
     ),
   );
@@ -650,9 +652,8 @@ export const AssinafySignatureRequestProvider = () =>
   Provider.effect(
     AssinafySignatureRequest,
     Effect.gen(function* () {
-      const options = yield* AssinafyCredentials;
+      const credentials = yield* AssinafyCredentials;
       const http = yield* SignatureHttpClient;
-      const baseUrl = assinafyBaseUrl(options);
 
       return AssinafySignatureRequest.Provider.of({
         nuke: { skip: true },
@@ -660,22 +661,29 @@ export const AssinafySignatureRequestProvider = () =>
         list: () =>
           // Retained resources must not feed account-wide nuke enumeration.
           Effect.succeed([]),
-        read: ({ output }) =>
-          output === undefined
-            ? Effect.succeed(undefined)
-            : getAssinafySignatureRequestInternal(http, options, baseUrl, output.id).pipe(
-                Effect.catchIf(
-                  (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
-                  () => Effect.succeed(undefined),
-                ),
-              ),
+        read: Effect.fn(function* ({ output }) {
+          if (output === undefined) return undefined;
+          const options = yield* credentials;
+          const baseUrl = assinafyBaseUrl(options);
+          return yield* getAssinafySignatureRequestInternal(http, options, baseUrl, output.id).pipe(
+            Effect.catchIf(
+              (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
+              () => Effect.succeed(undefined),
+            ),
+          );
+        }),
         reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
+          const options = yield* credentials;
+          const baseUrl = assinafyBaseUrl(options);
           const input = yield* assinafySignatureRequestInputFromResourceProps(news);
           return yield* createAssinafySignatureRequest(http, options, baseUrl, input);
         }),
-        delete: ({ output }) =>
-          deleteAssinafySignatureRequestInternal(http, options, baseUrl, output.id),
+        delete: Effect.fn(function* ({ output }) {
+          const options = yield* credentials;
+          const baseUrl = assinafyBaseUrl(options);
+          return yield* deleteAssinafySignatureRequestInternal(http, options, baseUrl, output.id);
+        }),
       });
     }),
   );

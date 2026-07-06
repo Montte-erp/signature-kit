@@ -2,15 +2,18 @@ import * as ts from "typescript";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
-type RegistryCatalogItem = {
-  dependencies?: ReadonlyArray<string>;
-};
+const RegistryCatalogItemSchema = Schema.Struct({
+  dependencies: Schema.optional(Schema.Array(Schema.String)),
+});
+type RegistryCatalogItem = (typeof RegistryCatalogItemSchema)["Type"];
 
-type PackageJson = {
-  dependencies?: Record<string, string>;
-};
+const PackageJsonSchema = Schema.Struct({
+  dependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+});
+type PackageJson = (typeof PackageJsonSchema)["Type"];
 
 type ImportDeclarationSummary = {
   specifier: string;
@@ -141,7 +144,7 @@ const extractBuildRegistryDependencies = (source: string): ReadonlyArray<string>
       for (const item of items.elements) {
         if (!ts.isObjectLiteralExpression(item)) continue;
 
-        const name = normalizeText(extractObjectProperty(item, "name") as ts.Expression | undefined);
+        const name = normalizeText(extractObjectProperty(item, "name"));
         if (name !== "signature-pdf-viewer") continue;
 
         const dependenciesExpression = extractObjectProperty(item, "dependencies");
@@ -186,8 +189,12 @@ describe("registry dependency assertions for signature-pdf-viewer", () => {
       readFile(componentPath, "utf8"),
     ]);
 
-    const item = JSON.parse(itemRaw) as RegistryCatalogItem;
-    const packageJson = JSON.parse(packageRaw) as PackageJson;
+    const item = await Effect.runPromise(
+      Schema.decodeUnknownEffect(RegistryCatalogItemSchema)(JSON.parse(itemRaw)),
+    );
+    const packageJson = await Effect.runPromise(
+      Schema.decodeUnknownEffect(PackageJsonSchema)(JSON.parse(packageRaw)),
+    );
     const imports = extractImports(sourceRaw);
 
     const importedPackages = normalizeSorted(
@@ -220,7 +227,9 @@ describe("registry dependency assertions for signature-pdf-viewer", () => {
 
   it("build-registry script keeps signature-pdf-viewer effect pinned", async () => {
     const [scriptRaw, packageRaw] = await Promise.all([readFile(buildRegistryPath, "utf8"), readFile(packagePath, "utf8")]);
-    const packageJson = JSON.parse(packageRaw) as PackageJson;
+    const packageJson = await Effect.runPromise(
+      Schema.decodeUnknownEffect(PackageJsonSchema)(JSON.parse(packageRaw)),
+    );
     const scriptDependencies = extractBuildRegistryDependencies(scriptRaw);
     const effectVersion = packageJson.dependencies?.effect;
 

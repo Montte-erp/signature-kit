@@ -117,9 +117,8 @@ straight to a code.
 Do not localize by sniffing classes, loose `.code` fields, or substrings from `reason`. That path breaks when the diagnostic text changes:
 
 ```ts title="do-not-sniff-reason.ts"
-export function getCertificateErrorMessage(error: unknown) {
-  const reason = error instanceof Error ? error.message : ""
-
+export function getCertificateErrorMessage(error: { reason?: string }) {
+  const reason = error.reason ?? ""
   if (reason.includes("not valid on the current date")) return "Certificado expirado"
   if (reason.includes("Brazilian CPF or CNPJ")) {
     return "Certificado não contém CPF ou CNPJ brasileiro"

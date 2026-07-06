@@ -28,7 +28,7 @@ export function CertificateForm() {
         const form = new FormData(event.currentTarget)
         const file = form.get("certificate")
         const password = form.get("password")
-        if (!(file instanceof File) || typeof password !== "string") return
+        if (file === null || typeof file === "string" || typeof password !== "string") return
         await certificate.load(new Uint8Array(await file.arrayBuffer()), password)
       }}
     >

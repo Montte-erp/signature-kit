@@ -146,8 +146,9 @@ be declared, reconciled, or stored, it takes Alchemy's shape — never a bespoke
 wrapper. The signer adapters are already modeled this way (each is a `Resource`
 with a `Provider.effect` and a collection layer); follow that shape.
 
-- Read the upstream v2 guides before changing provider or state-store shape:
+- Read the upstream v2 guides before changing provider, auth, or state-store shape:
   `https://v2.alchemy.run/guides/custom-provider/#declare-the-resource-constructor-the-tag`,
+  `https://v2.alchemy.run/environments/custom-auth-provider/`,
   `https://v2.alchemy.run/guides/infrastructure-layers/`, and
   `https://v2.alchemy.run/guides/custom-state-store/`.
 
@@ -172,6 +173,15 @@ with a `Provider.effect` and a collection layer); follow that shape.
   A signer `providers(options)` layer may provide private credentials, but it must
   not bake in `signatureHttpClientLive`; transport remains a caller-provided
   `SignatureHttpClient` requirement.
+- **Credentials are lazy Effects.** Provider credential services store the
+  deferred credential/options effect, not an eagerly-decoded struct:
+  `Context.Service<XCredentials, Effect.Effect<XProviderOptions, SignatureKitError>>`.
+  Build `xCredentialsLayer(options)` with `Layer.effect(XCredentials,
+  Effect.cached(Schema.decodeUnknownEffect(...)))` so provider Layers can be
+  constructed without touching secrets or config. In `Provider.effect`, `yield*`
+  the credential service once, then `yield*` the cached Effect inside lifecycle
+  hooks that actually need credentials; retained `list` hooks and `read` calls
+  without cached output must not demand credentials.
 - **Retained remote-signature requests are immutable.** If the upstream workflow
   cannot be safely updated or deleted after creation, say so in the provider:
   `reconcile` returns cached `output` after creation, `delete` only acts on a

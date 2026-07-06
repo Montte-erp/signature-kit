@@ -238,25 +238,27 @@ export const DocuSealSignatureRequest = Resource<DocuSealSignatureRequest>(
 
 export class DocuSealCredentials extends Context.Service<
   DocuSealCredentials,
-  DocuSealProviderOptions
+  Effect.Effect<DocuSealProviderOptions, SignatureKitError>
 >()("@signature-kit/docuseal/Credentials") {}
 
 export const docuSealCredentialsLayer = (
   options: DocuSealProviderOptions,
-): Layer.Layer<DocuSealCredentials, SignatureKitError> =>
+): Layer.Layer<DocuSealCredentials> =>
   Layer.effect(
     DocuSealCredentials,
-    Schema.decodeUnknownEffect(DocuSealProviderOptionsSchema)(options).pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: DocuSealSchemaName.providerOptions,
-            issueMessage: String(issue),
-          }),
+    Effect.cached(
+      Schema.decodeUnknownEffect(DocuSealProviderOptionsSchema)(options).pipe(
+        Effect.mapError(
+          (issue) =>
+            new SignatureKitError({
+              code: SignatureKitErrorCodeValue.invalidInput,
+              retryable: false,
+              provider: PROVIDER,
+              operation: SignatureKitOperationValue.schemaDecode,
+              schemaName: DocuSealSchemaName.providerOptions,
+              issueMessage: String(issue),
+            }),
+        ),
       ),
     ),
   );
@@ -573,9 +575,8 @@ export const DocuSealSignatureRequestProvider = () =>
   Provider.effect(
     DocuSealSignatureRequest,
     Effect.gen(function* () {
-      const options = yield* DocuSealCredentials;
+      const credentials = yield* DocuSealCredentials;
       const http = yield* SignatureHttpClient;
-      const baseUrl = docuSealBaseUrl(options);
 
       return DocuSealSignatureRequest.Provider.of({
         nuke: { skip: true },
@@ -583,22 +584,30 @@ export const DocuSealSignatureRequestProvider = () =>
         list: () =>
           // Retained resources must not feed account-wide nuke enumeration.
           Effect.succeed([]),
-        read: ({ output }) =>
-          output === undefined
-            ? Effect.succeed(undefined)
-            : fetchSubmission(http, options, baseUrl, output.id).pipe(
-                Effect.map((result) => toDocuSealSubmissionAttributes(baseUrl, result)),
-                Effect.catchIf(
-                  (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
-                  () => Effect.succeed(undefined),
-                ),
-              ),
+        read: Effect.fn(function* ({ output }) {
+          if (output === undefined) return undefined;
+          const options = yield* credentials;
+          const baseUrl = docuSealBaseUrl(options);
+          return yield* fetchSubmission(http, options, baseUrl, output.id).pipe(
+            Effect.map((result) => toDocuSealSubmissionAttributes(baseUrl, result)),
+            Effect.catchIf(
+              (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
+              () => Effect.succeed(undefined),
+            ),
+          );
+        }),
         reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
+          const options = yield* credentials;
+          const baseUrl = docuSealBaseUrl(options);
           const input = yield* docusealSignatureRequestInputFromResourceProps(news);
           return yield* createSubmission(http, options, baseUrl, input);
         }),
-        delete: ({ output }) => deleteSubmission(http, options, baseUrl, output.id),
+        delete: Effect.fn(function* ({ output }) {
+          const options = yield* credentials;
+          const baseUrl = docuSealBaseUrl(options);
+          return yield* deleteSubmission(http, options, baseUrl, output.id);
+        }),
       });
     }),
   );
