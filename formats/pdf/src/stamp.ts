@@ -1,16 +1,3 @@
-/**
- * Visible rubric stamping. A PAdES signature is a single CMS over the whole
- * document and its widget carries no /AP appearance, so a *visible* mark — the
- * Brazilian "rubrica em todas as páginas" — is drawn as ordinary page content
- * BEFORE signing. Run `stampPdfRubric` first, then `signPdf` the result: the
- * signature's byte range covers the rubric, so one signature backs the same
- * rubric repeated on every page (not N signatures).
- *
- * Coordinates follow the rest of formats/pdf: `rect` is [left, bottom, right,
- * top] in PDF points (bottom-left origin), applied at the same geometry on each
- * target page.
- */
-
 import {
   PDFArray,
   PDFDocument,

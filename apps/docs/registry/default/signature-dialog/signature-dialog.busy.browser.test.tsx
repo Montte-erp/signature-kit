@@ -57,11 +57,11 @@ const mountDialog = (): MountedDialog => {
   );
 
   const getButton = (label: string): HTMLButtonElement | null => {
-    const button = Array.from(container.querySelectorAll("button")).find(
+    const button = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
       (candidate) => candidate.textContent !== null && candidate.textContent.trim() === label,
     );
 
-    return button instanceof HTMLButtonElement ? button : null;
+    return button ?? null;
   };
 
   const cleanup = () => {

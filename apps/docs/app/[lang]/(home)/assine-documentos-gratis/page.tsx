@@ -94,12 +94,6 @@ const faqs = [
   },
 ];
 
-/**
- * Structured data so Google can surface this page as rich results: the FAQ as an
- * expandable accordion, the four steps as a HowTo, and the tool itself as a free
- * SoftwareApplication. Next's Script component avoids React's client-side
- * "script tag" warning in dev while keeping the JSON-LD payload static.
- */
 function buildJsonLd() {
   const url = absoluteUrl(PATH);
   return {

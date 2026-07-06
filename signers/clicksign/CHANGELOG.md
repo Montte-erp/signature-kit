@@ -5,6 +5,8 @@
 - Clicksign now owns its document/signature-request props, attributes, state
   schema, schema names, and retained no-op diff instead of using core
   remote-signature contracts.
+- Decode provider options through a cached credential Effect, so retained-resource
+  `list` hooks and `read` calls without cached output do not touch credentials.
 - Cancel Clicksign documents with `PATCH /api/v1/documents/{key}/cancel`, matching
   the provider API that rejected the previous `POST`.
 - Stop fabricating signed-document download URLs; absent signed-file URLs now stay

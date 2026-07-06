@@ -655,12 +655,6 @@ export type PdfSigningBatchPreparationCallbacks = {
   ) => Effect.Effect<void> | void;
 };
 
-/**
- * Prepare a browser signing batch entirely inside the PDF package: optional
- * visible signature, optional repeated rubric on every non-signature page, then
- * conversion into {@link PdfSigningBatchItem}. Failures are per-document results;
- * the queue always drains in input order.
- */
 export const preparePdfSigningBatch = (
   input: PdfSigningBatchPreparationInput,
   callbacks: PdfSigningBatchPreparationCallbacks = {},
@@ -696,14 +690,6 @@ export type PdfSignatureBatchCallbacks = {
   readonly onItemSettled?: (result: PdfBatchResult, index: number, total: number) => void;
 };
 
-/**
- * Sign many PDFs one-by-one with one provided `Signatures` layer. Each item runs
- * through {@link signPdfSignatureField}; a failure on one item is captured as
- * `{ ok: false, error }` and never aborts the rest, so callers always receive
- * one ordered result per input. Strict sequencing keeps runtime-specific
- * signer adapters free of signing races. Provide the signer layer once at the
- * app boundary: `.pipe(Effect.provide(a1SignaturesLayer({ pfx, password })))`.
- */
 export const signPdfSignatureBatch = (
   items: ReadonlyArray<PdfSigningBatchItem>,
   callbacks: PdfSignatureBatchCallbacks = {},

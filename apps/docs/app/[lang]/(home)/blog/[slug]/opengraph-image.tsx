@@ -2,9 +2,6 @@ import { ImageResponse } from "next/og";
 
 import { blogSource } from "@/lib/blog-source";
 
-// Dynamic OG image per post, drawn with next/og in the shadcn "stone" dark
-// palette (no shadcn OG component exists, so we theme it by hand). Colocated with
-// the post route, so Next wires it as the og:image / twitter:image automatically.
 
 export const alt = "SignatureKit blog";
 export const size = { width: 1200, height: 630 };

@@ -99,10 +99,6 @@ describe("CMS contracts", () => {
       certificateSha256,
     });
 
-    // Emitted in DER SET OF order (X.690 §11.6, ascending octet comparison of
-    // each member's encoding), NOT construction order. Strict
-    // ICP-Brasil/BouncyCastle validators re-canonicalize to this order before
-    // checking the RSA cipher.
     expect(attributes.map((attribute) => attribute.type)).toEqual([
       CmsOid.contentType,
       CmsOid.messageDigest,
@@ -176,7 +172,7 @@ describe("CMS contracts", () => {
     Effect.gen(function* () {
       vi.stubGlobal("fetch", (_request: RequestInfo | URL, init?: RequestInit) => {
         const body = init?.body;
-        if (body instanceof Uint8Array) {
+        if (Schema.is(Schema.Uint8Array)(body)) {
           return Promise.resolve(
             new Response(toArrayBuffer(timestampResponse(body, null)), {
               status: 200,
@@ -201,7 +197,7 @@ describe("CMS contracts", () => {
     Effect.gen(function* () {
       vi.stubGlobal("fetch", (_request: RequestInfo | URL, init?: RequestInit) => {
         const body = init?.body;
-        if (body instanceof Uint8Array) {
+        if (Schema.is(Schema.Uint8Array)(body)) {
           return Promise.resolve(
             new Response(toArrayBuffer(timestampResponse(body, new Uint8Array(32).fill(0xff))), {
               status: 200,

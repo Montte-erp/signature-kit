@@ -102,7 +102,6 @@ if (config === undefined) {
       "runs the full draft lifecycle against the sandbox",
       () =>
         Effect.gen(function* () {
-          // 1. Create a draft (send:false) via the Alchemy reconcile entry point.
           const created = yield* reconcileZapSignSignatureRequest(options, input);
 
           expect(created.provider).toBe("zapsign");
@@ -111,29 +110,16 @@ if (config === undefined) {
 
           const documentToken = created.id;
 
-          // The rest of the lifecycle must always delete the created draft so
-          // re-runs stay idempotent and the sandbox never accumulates junk.
           yield* Effect.gen(function* () {
-            // 2. Get the created request by id and assert real response fields.
             const fetched = yield* getZapSignSignatureRequest(options, documentToken).pipe(
               Effect.provide(signatureHttpClientLive),
             );
 
             expect(fetched.provider).toBe("zapsign");
             expect(fetched.id).toBe(documentToken);
-            // `state` is derived from the real ZapSign status; assert it is a
-            // valid ZapSignDocument state rather than pinning a literal
-            // (a freshly created, unsent doc reports a "pending"-style status).
             yield* Schema.decodeUnknownEffect(ZapSignDocumentStateSchema)(fetched.state);
             expect(fetched.providerStatus).toBeDefined();
 
-            // 3. List requests, exercising the provider's Stream.paginate path
-            // and full response decode. NOTE (real sandbox contract surprise):
-            // the ZapSign sandbox `/docs/` list is a fixed, canned dataset that
-            // does NOT reflect freshly created documents (its `count` never
-            // changes and the just-created token never appears), so we cannot
-            // assert the created id is present here. Instead assert the list
-            // decodes into typed, provider-tagged, valid-state requests.
             const listed = yield* listZapSignSignatureRequests(options).pipe(
               Effect.provide(signatureHttpClientLive),
             );
@@ -145,12 +131,6 @@ if (config === undefined) {
               }),
             );
 
-            // 4. Downloading a *signed* document is impossible without a human
-            // signer, so instead assert the typed error for a not-yet-signed
-            // draft: no signed-file URL is available yet. This must run BEFORE
-            // cancel, because refusing the doc finalizes it and produces a
-            // signed_file URL (real ZapSign behavior), which would let download
-            // succeed.
             const downloadResult = yield* Effect.result(
               downloadZapSignSignedDocument(options, documentToken).pipe(
                 Effect.provide(signatureHttpClientLive),
@@ -164,11 +144,6 @@ if (config === undefined) {
               expect(downloadResult.failure.provider).toBe("zapsign");
             }
 
-            // 5. Cancel the draft via ZapSign's /refuse/ endpoint. It models a
-            // signer refusal, which may or may not be accepted for an unsigned
-            // draft, so tolerate a typed failure here without throwing — the
-            // point is to exercise the real cancel path and its typed error
-            // channel, and cleanup (delete) still runs via Effect.ensuring below.
             const cancelResult = yield* Effect.result(
               cancelZapSignSignatureRequest(options, documentToken).pipe(
                 Effect.provide(signatureHttpClientLive),
@@ -178,13 +153,6 @@ if (config === undefined) {
               expect(typeof cancelResult.failure.code).toBe("string");
             }
           }).pipe(
-            // 6. Clean up: delete the created draft no matter what happened above.
-            // `orDie` turns a failed delete into a defect, so the test proves the
-            // real DELETE endpoint accepted the request. NOTE (real sandbox
-            // contract surprise): ZapSign soft-deletes — DELETE returns HTTP 200
-            // and sets a `deleted: true` flag, but the doc stays GETtable with an
-            // unchanged `status`, so a get-after-delete does NOT 404 and cannot be
-            // used to confirm removal.
             Effect.ensuring(
               deleteZapSignSignatureRequest(options, documentToken).pipe(
                 Effect.provide(signatureHttpClientLive),

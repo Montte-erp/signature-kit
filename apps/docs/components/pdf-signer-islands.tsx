@@ -7,8 +7,6 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { m } from "@/paraglide/messages";
 
-// The signer imports pdf.js/pdf-lib browser-only code, so keep the island out of
-// SSG prerender and show a static skeleton until the client chunk loads.
 const PdfSignerIsland = dynamic(() => import("./pdf-signer").then((mod) => mod.PdfSigner), {
   ssr: false,
   loading: () => <PdfSignerSkeleton />,
@@ -19,8 +17,6 @@ const PdfSignerDialogIsland = dynamic(
   () => import("./pdf-signer").then((mod) => mod.PdfSignerDialog),
   {
     ssr: false,
-    // Static stand-in so the CTA exists in the prerendered HTML (no CLS, crawlable)
-    // while the heavy pdf-signer chunk loads.
     loading: () => (
       <PdfSignerDialogFallback>
         {m.signer_open()}

@@ -1,8 +1,14 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vitest";
 
 const skippedDirectories = new Set([".git", ".cache", "dist", "node_modules"]);
+
+const PackageJsonSchema = Schema.Struct({
+  scripts: Schema.Record(Schema.String, Schema.String),
+});
 
 const collectFiles = (directory: string): readonly string[] =>
   existsSync(directory)
@@ -48,11 +54,13 @@ describe("browser integration test placement", () => {
     expect(webTests).toEqual([]);
   });
 
-  it("includes browser runtime suites in the browser integration command", () => {
+  it("includes browser runtime suites in the browser integration command", async () => {
     const packageJsonPath = resolve(process.cwd(), "package.json");
-    const rootPackage = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
-      scripts: Record<string, string>;
-    };
+    const rootPackage = await Effect.runPromise(
+      Schema.decodeUnknownEffect(PackageJsonSchema)(
+        JSON.parse(readFileSync(packageJsonPath, "utf8")),
+      ),
+    );
     const command = rootPackage.scripts["test:integration:browser"] ?? "";
 
     expect(command).toContain("formats/react/__tests__/a1.browser.test.tsx");

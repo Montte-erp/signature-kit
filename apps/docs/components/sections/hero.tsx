@@ -13,12 +13,6 @@ import { m } from "@/paraglide/messages";
 type CubicBezier = readonly [number, number, number, number];
 const EASE: CubicBezier = [0.23, 1, 0.32, 1];
 
-/**
- * Landing hero. Centered column, monochrome rhythm: a generic open-source pill,
- * a tight medium headline, a muted subhead, the install pill + ghost docs link.
- *
- * "use client" for the staggered motion entrance only — the copy is plain markup.
- */
 export function Hero() {
   const reduce = useReducedMotion();
   const offset = reduce ? 0 : 12;

@@ -4,11 +4,6 @@ import { m } from "@/paraglide/messages";
 import { Container, Section } from "./_shared";
 import { Marquee } from "@/components/ui/marquee";
 
-/**
- * Backers band. SignatureKit runs in production at Licitei; this strip marquees
- * the real Licitei wordmark, linked out. Server component — pure-monochrome
- * shadcn tokens (the Licitei "L" keeps its brand orange).
- */
 export function Sponsors() {
   const items = Array.from({ length: 4 }, (_, i) => ({
     key: `licitei-${i}`,

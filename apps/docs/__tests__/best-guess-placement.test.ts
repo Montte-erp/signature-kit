@@ -15,16 +15,6 @@ import type {
 } from "@signature-kit/pdf/config";
 import { makeDummyDocs } from "./helpers/dummy-pdf";
 
-/**
- * Best-guess auto-placement (pdf-signer `autoPlaceAll`).
- *
- * The bug this guards: docs must not own a second placement algorithm or spin up
- * pdf.js per document. The app hands parsed page dimensions to the PDF package's
- * `placePdfSignatureFieldsBatch`, then only reflects callbacks in UI state. This
- * test places signatures on 25 dummy PDFs of VARIED page counts/sizes, asserts
- * every one gets a rect on its LAST page, that focus moves doc-by-doc, and that
- * the library-owned queue terminates in well under a few seconds.
- */
 
 const DOC_COUNT = 25;
 
@@ -57,7 +47,6 @@ describe("best-guess auto-placement", () => {
   let parsed: ReadonlyArray<ParsedDoc>;
 
   beforeAll(async () => {
-    // Parsing happens when docs are ADDED (before autoPlaceAll). Done once here.
     const built = await makeDummyDocs(DOC_COUNT);
     parsed = await Promise.all(
       built.map(async (doc) => {
@@ -121,7 +110,6 @@ describe("best-guess auto-placement", () => {
     );
     const elapsed = performance.now() - start;
 
-    // Termination + correctness.
     expect(results).toHaveLength(DOC_COUNT);
     expect(results.every((result) => result.ok)).toBe(true);
     expect(Object.keys(placedState.rects)).toHaveLength(DOC_COUNT);
@@ -130,11 +118,9 @@ describe("best-guess auto-placement", () => {
       const rect = placedState.rects[doc.id];
       expect(rect, `doc ${doc.id} must have a rect`).toBeTruthy();
       if (rect === undefined) expect.fail(`doc ${doc.id} missing rect`);
-      // Always placed on the LAST page.
       expect(rect.pageIndex).toBe(doc.pageDims.length - 1);
       expect(rect.width).toBeCloseTo(SIGNATURE_DRAFT.width, 1);
       expect(rect.height).toBeCloseTo(SIGNATURE_DRAFT.height, 1);
-      // Sits inside its own (last) page.
       const last = doc.pageDims[doc.pageDims.length - 1];
       if (last === undefined) expect.fail(`doc ${doc.id} missing last page`);
       expect(rect.x).toBeGreaterThanOrEqual(0);
@@ -143,11 +129,9 @@ describe("best-guess auto-placement", () => {
       expect(rect.y + rect.height).toBeLessThanOrEqual(last.height + 0.01);
     }
 
-    // Real-time focus visited every doc, in order.
     expect(focusOrder).toEqual(parsed.map((d) => d.id));
     expect(placedState.activeDocId).toBe(parsed[parsed.length - 1]?.id);
 
-    // The whole placement run is fast — "well under a few seconds".
     expect(elapsed).toBeLessThan(4000);
   }, 20000);
 });

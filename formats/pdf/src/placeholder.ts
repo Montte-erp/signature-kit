@@ -27,8 +27,6 @@ export const addSignaturePlaceholder = (
   input: PdfSigningRequest,
 ): Effect.Effect<Uint8Array, PdfError> =>
   Effect.tryPromise({
-    // An already-signed PDF must be extended with an incremental update — a full
-    // reserialize would rewrite the bytes earlier signatures cover and break them.
     try: () =>
       PDFDocument.load(input.pdf, { forIncrementalUpdate: hasExistingSignature(input.pdf) }),
     catch: () =>

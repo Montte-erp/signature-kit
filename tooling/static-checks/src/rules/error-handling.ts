@@ -33,8 +33,6 @@ const hasRuntimeErrorHelpers = (line: string): boolean => {
     }
   }
 
-  // Throwing a non-`new` expression (re-throw a caught value, throw a pre-built
-  // error or a factory call) is never Effect-native; use Effect.fail instead.
   for (const match of line.matchAll(/\bthrow\b\s+([^;]+)/g)) {
     const expr = (match[1] ?? "").trim();
     if (expr !== "" && !/^new\s/.test(expr)) {

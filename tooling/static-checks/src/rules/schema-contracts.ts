@@ -66,8 +66,6 @@ const hasAllowedSchemaLiteralSource = (line: string): boolean =>
 const literalCodeArrayDeclarationPattern =
   /^\s*(?:const|let|var)\s+([A-Z][A-Z0-9_]*|[A-Za-z_$][\w$]*(?:Code|Codes|Status|Statuses|Reason|Reasons|Event|Events))\b/;
 
-// Domain code/status/event catalogs are STRING literals. Numeric-only arrays are
-// math/data tables (e.g. crypto S-boxes) and are intentionally excluded.
 const literalItemPattern = /^(?:"[^"]*"|'[^']*'|`[^`]*`)$/;
 
 const hasLiteralCodeArray = (line: string): boolean => {

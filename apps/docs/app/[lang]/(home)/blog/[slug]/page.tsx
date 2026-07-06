@@ -13,14 +13,6 @@ import { OG_LOCALE, SITE_NAME, absoluteUrl } from "@/lib/site";
 import { blogPostPath, readingMinutes } from "@/lib/blog";
 import { parseLocale, type Lang } from "@/lib/locale";
 
-/**
- * Single blog post — in the `(home)` route group for the landing nav + footer.
- * The body is the Fumadocs MDX page (shared `MDXComponents`, wrapped in `DocsBody`)
- * in a readable `max-w-3xl` column. Frontmatter drives the header AND the full SEO
- * surface: canonical + hreflang alternates, OpenGraph `article`, Twitter card,
- * and BlogPosting JSON-LD. The dynamic OG image is wired by the colocated
- * `opengraph-image.tsx`.
- */
 
 const COPY = {
   "en-US": { back: "Back to blog", by: "By", min: "min read" },
@@ -44,7 +36,6 @@ export default async function BlogPost(
   const { lang, slug } = await props.params;
   const locale = parseLocale(lang);
   if (locale === undefined) notFound();
-  // Prime the request locale for this segment before rendering server chrome.
   setServerLocale(locale);
 
   const page = blogSource.getPage([slug], locale);
@@ -70,7 +61,6 @@ export default async function BlogPost(
     <main className="mx-auto w-full max-w-3xl px-6 pt-28 pb-24 sm:pt-32">
       <script
         type="application/ld+json"
-        // eslint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
 

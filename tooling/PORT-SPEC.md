@@ -27,9 +27,7 @@ pass `bun run check:static`. Read `AGENTS.md` for the full discipline.
 `shared/crypto/src/config.ts` exports:
 
 ```ts
-export class CryptoError {
-  /* TaggedErrorClass; construct: new CryptoError({ code, reason?, operation? }) */
-}
+export class CryptoError {}
 export const CryptoErrorCodeValue: {
   cipherError;
   unsupportedAlgorithm;

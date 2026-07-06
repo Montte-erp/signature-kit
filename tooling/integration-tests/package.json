@@ -2,6 +2,7 @@
   "name": "@tooling/integration-tests",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "test:server": "vitest run __tests__/signature-kit.server.test.ts __tests__/remote-signers.test.ts"
@@ -17,6 +18,5 @@
     "@signature-kit/zapsign": "^0.3.0",
     "effect": "4.0.0-beta.86",
     "vitest": "^4.0.0"
-  },
-  "license": "MIT"
+  }
 }

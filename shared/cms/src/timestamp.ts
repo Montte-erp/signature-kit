@@ -1,12 +1,3 @@
-/**
- * RFC 3161 timestamp client for PAdES-T / CAdES-T (ICP-Brasil AD-RT).
- *
- * `requestTimestamp` hashes the bytes to be timestamped (the SignerInfo signature
- * value for CAdES-T), asks the TSA for a token over that imprint, and returns the
- * timeStampToken ContentInfo DER. The caller embeds it as the unsigned attribute
- * id-aa-timeStampToken (…16.2.14) on the SignerInfo.
- */
-
 import * as asn1js from "asn1js";
 import { Duration, Effect, Schema } from "effect";
 import * as pkijs from "pkijs";

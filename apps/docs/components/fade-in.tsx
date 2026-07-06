@@ -10,9 +10,6 @@ interface FadeInProps {
   y?: number;
 }
 
-/**
- * Scroll-triggered fade-up. Reveals once when it enters the viewport.
- */
 export const FadeIn = ({
   children,
   className,

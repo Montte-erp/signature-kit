@@ -13,10 +13,6 @@ import { parseLocale } from "@/lib/locale";
 
 export default async function HomePage({ params }: PageProps<"/[lang]">) {
   const { lang } = await params;
-  // Prime the request locale for this page segment: Next renders layout/page
-  // segments independently, so the layout's prime doesn't reach the server
-  // sections rendered here (hero is client + primed via LocaleProvider; the rest
-  // are server components reading the cache()d store).
   const locale = parseLocale(lang);
   if (locale === undefined) notFound();
   setServerLocale(locale);

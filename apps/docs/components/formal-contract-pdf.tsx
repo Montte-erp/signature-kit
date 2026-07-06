@@ -9,32 +9,12 @@ import {
   pdf,
 } from "@react-pdf/renderer";
 
-/*
- * Formal-contract generator — React-PDF ("pdfx") for the public landing-page demo.
- * (no Font.register → no fontkit hang) and we AWAIT pdf(...).toBlob() (the browser
- * path; never Node renderToStream/Buffer) — exactly the fixes for the "Generating…"
- * hang.
- *
- * Each document is a real A4 contract (title + justified lorem body) closed by a
- * FORMAL signature component. Several VARIANTS ship so the demo showcases the
- * range, the way real documents differ — each rests the signature ON a signature
- * LINE (or in a field that carries one):
- *
- *   "line"      classic centered signature line + name / CPF / role
- *   "field"     an e-sign field box (label tab) above the identification
- *   "witnessed" two lines side by side — signatário + testemunha
- *   "initials"  a rubrica box next to the signature line (Brazilian rubrica)
- *
- * While unsigned the line stands empty (a faint "Assinatura" hint); `signed` rests
- * the applied mark on it.
- */
 
-const PAGE_W = 595.28; // A4 in PDF points
+const PAGE_W = 595.28;
 const PAGE_H = 841.89;
 const MARGIN = 56;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 
-// Where the signature components sit (TOP-LEFT origin, top-down like react-pdf/CSS).
 const BLOCK_TOP = PAGE_H - 196;
 const SIG_W = 260;
 const SIG_LEFT = (PAGE_W - SIG_W) / 2;
@@ -56,7 +36,6 @@ export interface FormalSignatureRect {
   readonly height: number;
 }
 
-/** Representative signature mark area (the centered "line" variant), for tests. */
 export const formalSignatureRect: FormalSignatureRect = {
   pageIndex: 0,
   x: SIG_LEFT,
@@ -109,7 +88,6 @@ const styles = StyleSheet.create({
     marginBottom: 11,
   },
 
-  // shared signature pieces
   markBand: {
     height: 32,
     width: "100%",
@@ -138,7 +116,6 @@ const styles = StyleSheet.create({
   },
   stamp: { fontSize: 7, color: "#6b21a8", marginTop: 4, textAlign: "center" },
 
-  // variant: line (centered)
   centerBlock: {
     position: "absolute",
     left: SIG_LEFT,
@@ -147,7 +124,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  // variant: field (e-sign box, right)
   fieldBlock: {
     position: "absolute",
     left: PAGE_W - MARGIN - 224,
@@ -173,7 +149,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  // variant: witnessed (two columns)
   wideBlock: {
     position: "absolute",
     left: MARGIN,
@@ -184,7 +159,6 @@ const styles = StyleSheet.create({
   },
   col: { width: CONTENT_W * 0.42, alignItems: "center" },
 
-  // variant: initials (rubrica + signature)
   initialsBlock: {
     position: "absolute",
     left: PAGE_W - MARGIN - 300,
@@ -368,11 +342,6 @@ function FormalContract({ title, paragraphs, variant, signed }: FormalContractOp
   );
 }
 
-/**
- * Render a formal contract to PDF bytes with react-pdf, in the browser, with the
- * chosen signature-component `variant`. Pass `signed` to rest the applied mark on
- * the line. Helvetica-only + awaited `.toBlob()`, so it never hangs.
- */
 export async function generateFormalContractPdf(
   options: FormalContractOptions,
 ): Promise<Uint8Array> {

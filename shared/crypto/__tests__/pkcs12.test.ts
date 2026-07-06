@@ -396,7 +396,6 @@ const withHugePbeIterations = (pfxDer: Uint8Array): Effect.Effect<Uint8Array, un
     return yield* withPbeIterationsInEncryptedData(withoutMac, LIMIT + 1);
   });
 
-/** Rebuild the fixture PFX with an absurd MacData iteration count. */
 const withHugeMacIterations = (pfxDer: Uint8Array): Effect.Effect<Uint8Array, unknown> =>
   Effect.gen(function* () {
     const pfx = yield* decode(pfxDer);
@@ -406,11 +405,12 @@ const withHugeMacIterations = (pfxDer: Uint8Array): Effect.Effect<Uint8Array, un
     if (macData === undefined || macData.kind !== "constructed") {
       return yield* Effect.fail("no-mac-data");
     }
+    const maximumSigned32BitIterationsBytes = Uint8Array.of(0x7f, 0xff, 0xff, 0xff);
     const hugeIterations: Asn1Node = {
       kind: "primitive",
       class: "universal",
       tag: 0x02,
-      bytes: Uint8Array.of(0x7f, 0xff, 0xff, 0xff), // 2^31 - 1
+      bytes: maximumSigned32BitIterationsBytes,
     };
     const patchedMac: Asn1Node = {
       ...macData,
@@ -447,7 +447,6 @@ describe("parsePkcs12 hardening", () => {
         expect(outcome.failure.code).toBe("crypto.CORRUPTED_FILE");
         expect(outcome.failure.reason).toContain("iteration count");
       }
-      // The whole point: fail fast, never run the 2^31-iteration KDF.
       expect(elapsedMs).toBeLessThan(1000);
     }),
   );

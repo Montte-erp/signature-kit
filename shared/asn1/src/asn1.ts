@@ -1,16 +1,4 @@
-/**
- * @signature-kit/asn1 — node model, typed error catalog, and Effect-native accessors.
- *
- * The node is a discriminated union (`kind: "primitive" | "constructed"`) so every
- * read narrows without an `as` cast. Structural expectations return typed Effects
- * in the `Asn1Error` channel; nothing throws across the boundary.
- */
-
 import { Effect, Schema } from "effect";
-
-// =============================================================================
-// Node model
-// =============================================================================
 
 export const Asn1ClassSchema = Schema.Literals(["universal", "context", "application", "private"]);
 export type Asn1Class = (typeof Asn1ClassSchema)["Type"];
@@ -44,10 +32,6 @@ export const Asn1ConstructedSchema: Schema.Schema<Asn1Constructed> = Schema.Stru
   class: Asn1ClassSchema,
   children: Schema.Array(Schema.suspend(() => Asn1NodeSchema)),
 });
-
-// =============================================================================
-// Error catalog
-// =============================================================================
 
 export const Asn1ErrorCodeSchema = Schema.Literals([
   "asn1.DECODE_ERROR",
@@ -90,10 +74,6 @@ export class Asn1Error extends Schema.TaggedErrorClass<Asn1Error>()("Asn1Error",
     return this.reason ?? asn1ErrorMessages["en-US"][this.code];
   }
 }
-
-// =============================================================================
-// DER codec internals
-// =============================================================================
 
 const CLASS_MAP: readonly Asn1Class[] = ["universal", "application", "context", "private"];
 
@@ -204,8 +184,6 @@ const decodeTlv = (data: Uint8Array, start: number): Effect.Effect<Tlv, Asn1Erro
           }),
         );
       }
-      // Arithmetic, not `<<`: a 4-byte length with the high bit set would overflow a
-      // signed 32-bit shift to a negative value and slip past the truncation guard.
       for (let i = 0; i < numLengthBytes; i++) {
         length = length * 256 + data[offset]!;
         offset++;
@@ -346,7 +324,6 @@ const encodeValue = (node: Asn1Node): Uint8Array => {
   if (node.kind === "primitive") return node.bytes;
 
   let childBuffers = node.children.map((child) => encodeNode(child));
-  // DER: SET OF elements must be sorted by encoded value (X.690 §11.6)
   if (node.class === "universal" && node.tag === 0x11) {
     childBuffers = childBuffers.slice().sort(compareDerBytes);
   }
@@ -434,19 +411,9 @@ const decodeOidBytes = (data: Uint8Array): Effect.Effect<string, Asn1Error> =>
     return components.join(".");
   });
 
-// =============================================================================
-// Public boundary
-// =============================================================================
-
-/** Decode the first complete TLV from DER bytes. */
 export const decode = (data: Uint8Array): Effect.Effect<Asn1Node, Asn1Error> => decodeRoot(data);
 
-/** Re-encode a node to DER. Total for nodes produced by `decode`. */
 export const encode = (node: Asn1Node): Uint8Array => encodeNode(node);
-
-// =============================================================================
-// Typed accessors
-// =============================================================================
 
 export const childrenOf = (node: Asn1Node): Effect.Effect<readonly Asn1Node[], Asn1Error> =>
   node.kind === "constructed"
@@ -471,7 +438,6 @@ export const bytesOf = (node: Asn1Node): Effect.Effect<Uint8Array, Asn1Error> =>
 export const oidString = (node: Asn1Node): Effect.Effect<string, Asn1Error> =>
   Effect.flatMap(bytesOf(node), decodeOidBytes);
 
-/** Read a DER INTEGER (two's complement) as a bigint. */
 export const integerBigInt = (node: Asn1Node): Effect.Effect<bigint, Asn1Error> =>
   Effect.map(bytesOf(node), (bytes) => {
     if (bytes.length === 0) return 0n;

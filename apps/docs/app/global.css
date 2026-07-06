@@ -6,17 +6,6 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/*
- * SignatureKit docs — shadcn "stone" palette with a warm primary, light + dark.
- * The tokens map onto Fumadocs' --color-fd-* via fumadocs-ui/css/shadcn.css, so
- * a single token set drives shadcn primitives AND the Fumadocs chrome (sidebar,
- * search, TOC). The theme toggle is enabled in the provider; both :root (light)
- * and .dark (dark) are defined so next-themes can flip between them.
- */
-
-/* Geist Mono ships ligatures/contextual alternates that shape across shiki's
-   per-token <span> boundaries and bleed inline <code> backgrounds. Kill them
-   wherever we render mono — code blocks, inline code, and .font-mono. */
 figure.shiki,
 figure.shiki code,
 figure.shiki pre,
@@ -33,14 +22,11 @@ figure.shiki {
   box-shadow: none;
 }
 
-/* Docs sidebar footer: Fumadocs stacks the language selector above the theme
-   toggle. Lay them on one tidy line instead (scoped to the desktop sidebar). */
 #nd-sidebar .flex.flex-col.p-4.pt-2 {
   flex-direction: row;
   align-items: center;
   gap: 0.5rem;
 }
-/* language selector fills the row; its label stays on a single line */
 #nd-sidebar .flex.flex-col.p-4.pt-2 > :first-child {
   flex: 1;
   min-width: 0;
@@ -52,17 +38,10 @@ figure.shiki {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* theme toggle keeps its compact box pinned at the end */
 #nd-sidebar .flex.flex-col.p-4.pt-2 > :nth-child(2) {
   flex: none;
 }
 
-
-/*
- * Fumadocs renders the top tab strip in the same grid area as the page body.
- * Keep it at intrinsic height; otherwise its background stretches over the
- * article row and visually hides the docs content.
- */
 #nd-docs-layout > [class~="[grid-area:main]"][class~="z-10"] {
   align-self: start;
 }
@@ -206,11 +185,6 @@ html > body[data-scroll-locked] {
   --removed-body-scroll-bar-size: 0px !important;
 }
 
-/*
- * Refined sidebar (borrowed from the email-sdk treatment): section separators
- * render as tiny uppercase tracked labels with a trailing hairline rule, and
- * leading icons sit slightly dimmed. Gives the docs nav a crisp, editorial feel.
- */
 :is(#nd-sidebar, #nd-sidebar-mobile) p.inline-flex {
   position: relative;
   margin-block: 1.25rem 0.2rem;
@@ -246,12 +220,6 @@ html > body[data-scroll-locked] {
   opacity: 0.82;
 }
 
-/*
- * Landing nav width. Fumadocs' HomeLayout container defaults --fd-layout-width
- * to 1400px (the nav's inner row reads it via *:max-w-(--fd-layout-width)).
- * Scope a 7xl (80rem) cap to the home layout only so the navbar lines up with
- * the footer (also max-w-7xl); the docs layout keeps its own wider width.
- */
 #nd-home-layout {
   --fd-layout-width: 80rem;
 }

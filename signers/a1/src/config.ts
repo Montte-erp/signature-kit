@@ -1,7 +1,3 @@
-/**
- * A1 signer adapter options.
- */
-
 import { redactedStringSchema } from "@signature-kit/signatures";
 import { SignatureHttpHeadersSchema } from "@signature-kit/http";
 import { Schema } from "effect";
@@ -13,9 +9,7 @@ export const A1SignerOptionsSchema = Schema.Struct({
 export type A1SignerOptions = (typeof A1SignerOptionsSchema)["Type"];
 
 const A1RemoteLocationFields = {
-  /** The (presigned) URL the PKCS#12 bytes are fetched from with a GET. */
   url: Schema.NonEmptyString,
-  /** Extra request headers (for auth not already baked into the URL). */
   headers: Schema.optional(SignatureHttpHeadersSchema),
 };
 

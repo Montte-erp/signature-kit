@@ -25,12 +25,15 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
 - Timeout/retry policy uses `Duration` and `Schedule`. Retry must be classified.
 - Secrets stay `Redacted` until the explicit serialization/import boundary.
 - No `runSync` / `runPromise` / `runFork` / `Schema.decodeUnknownSync` in library internals.
-- Effect-boundary escape comments use `[allow-run: <reason>]` or
-  `[allow-string-secret: <reason>]`; the reason is required, and these comments
-  are allowed only under `formats/react/src/` and `apps/docs/`.
+- Effect-boundary escape comments use `[allow-run: <reason>]`,
+  `[allow-provide: <reason>]`, or `[allow-string-secret: <reason>]`; the reason
+  is required, and these directive comments are allowed only under
+  `formats/react/src/` and `apps/docs/`.
+- Do not add explanatory comments to code. Keep only machine-required directive
+  comments (`[allow-*]`, TypeScript references, generated-file pragmas).
 - Use static imports for modules known at author time. Dynamic import is only for
   runtime-selected plugins, platform-specific modules, or test cases that
-  explicitly exercise module loading; add a short comment naming the exception.
+  explicitly exercise module loading.
 - Stateful/global setup is a service dependency. XML-DSig is exposed through
   `XmlRuntime`/`xmlRuntimeLayer`, whose real capabilities include parsing,
   `SignedXml` construction, and cached verification-key import.
@@ -74,9 +77,8 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
   no decoded contract is a defect, not metadata to launder.
 - Schema decode failures are mapped where the schema is decoded. Do not add
   shared `decodeRemoteShape` / `decodeRemoteOptions`-style wrappers that hide the
-  decision point; use `Schema.decodeUnknownEffect(...).pipe(Effect.mapError((issue) =>
-new TaggedError({ ..., reason: String(issue) })))` inline at the provider,
-  resource, or public API boundary.
+  decision point; use inline `Schema.decodeUnknownEffect(...).pipe(Effect.mapError(...))`
+  at the provider, resource, or public API boundary.
 - Default error-message catalogs are source-of-truth data next to the
   `TaggedErrorClass`, backed by Schema-derived entry types. Apps resolve
   localized display copy by code through `@signature-kit/i18n`, never by
@@ -146,8 +148,9 @@ be declared, reconciled, or stored, it takes Alchemy's shape — never a bespoke
 wrapper. The signer adapters are already modeled this way (each is a `Resource`
 with a `Provider.effect` and a collection layer); follow that shape.
 
-- Read the upstream v2 guides before changing provider or state-store shape:
+- Read the upstream v2 guides before changing provider, auth, or state-store shape:
   `https://v2.alchemy.run/guides/custom-provider/#declare-the-resource-constructor-the-tag`,
+  `https://v2.alchemy.run/environments/custom-auth-provider/`,
   `https://v2.alchemy.run/guides/infrastructure-layers/`, and
   `https://v2.alchemy.run/guides/custom-state-store/`.
 
@@ -172,6 +175,15 @@ with a `Provider.effect` and a collection layer); follow that shape.
   A signer `providers(options)` layer may provide private credentials, but it must
   not bake in `signatureHttpClientLive`; transport remains a caller-provided
   `SignatureHttpClient` requirement.
+- **Credentials are lazy Effects.** Provider credential services store the
+  deferred credential/options effect, not an eagerly-decoded struct:
+  `Context.Service<XCredentials, Effect.Effect<XProviderOptions, SignatureKitError>>`.
+  Build `xCredentialsLayer(options)` by wrapping `Schema.decodeUnknownEffect(...)`
+  in `Effect.cached(...)` inside `Layer.effect(...)`, so provider layers can be
+  constructed without touching secrets or config. In `Provider.effect`, `yield*`
+  the credential service once, then `yield*` the cached Effect inside lifecycle
+  hooks that actually need credentials; retained `list` hooks and `read` calls
+  without cached output must not demand credentials.
 - **Retained remote-signature requests are immutable.** If the upstream workflow
   cannot be safely updated or deleted after creation, say so in the provider:
   `reconcile` returns cached `output` after creation, `delete` only acts on a
@@ -189,8 +201,8 @@ with a `Provider.effect` and a collection layer); follow that shape.
   package's local state model without lossy string helpers, and test
   path/method/auth redaction/binary downloads against a local HTTP server. Never
   fake list/delete behavior through Alchemy when the provider cannot perform it.
-  JSON response decoding belongs in `SignatureHttpClient.requestJson(request,
-  schema, schemaName)`, not repeated after each remote call. The HTTP seam owns
+  JSON response decoding belongs in the HTTP client's `requestJson(...)` method,
+  not repeated after each remote call. The HTTP seam owns
   parse failures, schema decode failures, provider/status metadata, and redacted
   diagnostic URLs.
   Decode Alchemy resource `news` inside the signer package with that provider

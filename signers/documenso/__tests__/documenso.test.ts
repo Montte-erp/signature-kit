@@ -104,17 +104,12 @@ if (config === undefined) {
                 routingOrder: 1,
               },
             ],
-            // Keep the envelope a draft so the lifecycle never emails a real recipient.
             send: false,
           } satisfies DocumensoEnvelopeProps;
 
           const createResult = yield* Effect.result(
             reconcileDocumensoSignatureRequest(options, input),
           );
-          // The shared sandbox account enforces a fair-use quota. A 429 (or a 400
-          // LIMIT_EXCEEDED) is an environmental cap, not a code fault — so instead of
-          // failing, assert the client models the rate limit correctly: a rejected
-          // request is retryable and carries the reset window for backoff.
           if (Result.isFailure(createResult)) {
             const failure = createResult.failure;
             const rateLimited =
@@ -134,22 +129,18 @@ if (config === undefined) {
           expect(created.id.length).toBeGreaterThan(0);
 
           yield* Effect.gen(function* () {
-            // get: the freshly created envelope resolves by its own id.
             const fetched = yield* getDocumensoSignatureRequest(options, created.id).pipe(
               Effect.provide(signatureHttpClientLive),
             );
             expect(fetched.provider).toBe("documenso");
             expect(fetched.id).toBe(created.id);
 
-            // list: exercises pagination (Stream.paginate) and must surface the created id.
             const listed = yield* listDocumensoSignatureRequests(options).pipe(
               Effect.provide(signatureHttpClientLive),
             );
             expect(listed.every((request) => request.provider === "documenso")).toBe(true);
             expect(listed.some((request) => request.id === created.id)).toBe(true);
 
-            // cancel: best-effort — a draft envelope may not be cancellable, so accept a typed
-            // failure without turning it into an unexpected defect.
             const cancelled = yield* Effect.result(
               cancelDocumensoSignatureRequest(options, created.id).pipe(
                 Effect.provide(signatureHttpClientLive),
@@ -159,7 +150,6 @@ if (config === undefined) {
               expect(cancelled.failure.provider).toBe("documenso");
             }
           }).pipe(
-            // delete: idempotent cleanup (a 404 is treated as success by the provider).
             Effect.ensuring(
               deleteDocumensoSignatureRequest(options, created.id).pipe(
                 Effect.provide(signatureHttpClientLive),

@@ -8,7 +8,7 @@ import { CmsOid } from "@signature-kit/cms/config";
 import { SignatureKitErrorCodeValue } from "@signature-kit/signatures";
 import { signatureHttpClientLive } from "@signature-kit/http";
 import { extractPdfSignature } from "@signature-kit/pdf/byte-range";
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { localHttpServer } from "../../../tooling/testing/local-http";
 import { validatePdfConformance } from "../src/conformance";
 import { validatePdfWithIti } from "../src/remote";
@@ -16,6 +16,33 @@ import { validatePdfWithIti } from "../src/remote";
 const ITI_ENDPOINT = "https://validar.iti.gov.br/arquivo";
 const POLICY_OID = "2.16.76.1.7.1.11.1.1";
 const NON_AD_RB_POLICY_OID = "2.16.76.1.7.1.11.1.2";
+
+const Asn1SequenceShapeSchema = Schema.Struct({
+  idBlock: Schema.Struct({
+    tagClass: Schema.Number,
+    tagNumber: Schema.Number,
+  }),
+  valueBlock: Schema.Struct({
+    value: Schema.Array(Schema.Any),
+  }),
+});
+
+const Asn1ObjectIdentifierShapeSchema = Schema.Struct({
+  idBlock: Schema.Struct({
+    tagClass: Schema.Number,
+    tagNumber: Schema.Number,
+  }),
+});
+
+const isAsn1Sequence = (value: unknown): value is asn1js.Sequence =>
+  Schema.is(Asn1SequenceShapeSchema)(value) &&
+  value.idBlock.tagClass === 1 &&
+  value.idBlock.tagNumber === 16;
+
+const isAsn1ObjectIdentifier = (value: unknown): value is asn1js.ObjectIdentifier =>
+  Schema.is(Asn1ObjectIdentifierShapeSchema)(value) &&
+  value.idBlock.tagClass === 1 &&
+  value.idBlock.tagNumber === 6;
 
 const readItiFixture = (name: string): Effect.Effect<Uint8Array> =>
   Effect.promise(
@@ -44,17 +71,17 @@ const mutatePolicyToNonAdRbWithAdRbQualifierOnly = (pdf: Uint8Array) =>
 
     const signaturePolicyValue = asn1js.fromBER(signaturePolicySource.toBER(false));
     const signaturePolicySequence = signaturePolicyValue.result;
-    if (!(signaturePolicySequence instanceof asn1js.Sequence)) {
+    if (!isAsn1Sequence(signaturePolicySequence)) {
       return yield* Effect.die("Malformed signaturePolicy attribute.");
     }
 
     const policyFields = signaturePolicySequence.valueBlock.value;
     const sigPolicyId = policyFields[0];
-    if (sigPolicyId instanceof asn1js.ObjectIdentifier) {
+    if (isAsn1ObjectIdentifier(sigPolicyId)) {
       sigPolicyId.valueBlock.fromString(NON_AD_RB_POLICY_OID);
     }
     const qualifiers = policyFields[2];
-    if (qualifiers instanceof asn1js.Sequence) {
+    if (isAsn1Sequence(qualifiers)) {
       qualifiers.valueBlock.value.push(
         new asn1js.Sequence({
           value: [

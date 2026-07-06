@@ -4,6 +4,8 @@
 
 - Assinafy now owns its signature-request props, attributes, state schema, schema
   names, and retained no-op diff instead of using core remote-signature contracts.
+- Decode provider options through a cached credential Effect, so retained-resource
+  `list` hooks and `read` calls without cached output do not touch credentials.
 - Honor each signer `routingOrder` when creating Assinafy assignments, falling
   back to listed order when none is provided.
 - Refuse signed-document downloads until the request is completed and a

@@ -1,6 +1,3 @@
-/**
- * The first e-signature adapter: A1 / PKCS#12.
- */
 import { Signatures } from "@signature-kit/signatures";
 import { SignatureHttpClient } from "@signature-kit/http";
 import type { Certificate, SignatureAlgorithm, SignerAdapter } from "@signature-kit/signatures";
@@ -47,7 +44,6 @@ const rsaAlgorithm = (algorithm: SignatureAlgorithm): RsaAlgorithm => ({
   hash: rsaAlgorithmHash(algorithm),
 });
 
-/** Copy into a fresh ArrayBuffer-backed view so it satisfies `BufferSource`. */
 const toBufferSource = (data: Uint8Array): Uint8Array<ArrayBuffer> => {
   const copy = new Uint8Array(data.byteLength);
   copy.set(data);
@@ -147,7 +143,6 @@ export class A1Signer extends Context.Service<A1Signer, A1SignerMaterial>()(
   "@signature-kit/a1/Signer",
 ) {}
 
-/** Cache WebCrypto imports per adapter and algorithm. */
 const cachedKey = (
   cache: Map<SignatureAlgorithm, CryptoKey>,
   algorithm: SignatureAlgorithm,
@@ -224,7 +219,6 @@ const certificateProfile = (
     };
   });
 
-/** Build an A1 signer adapter from an already-parsed core {@link Certificate}. */
 export const createA1SignerAdapter = (certificate: Certificate): SignerAdapter => {
   const privateKeys = new Map<SignatureAlgorithm, CryptoKey>();
   const publicKeys = new Map<SignatureAlgorithm, CryptoKey>();
@@ -302,39 +296,23 @@ const loadA1SignerMaterial = (
     ),
   );
 
-/** Load an A1 container and expose its parsed certificate, profile, and signer. */
 export const a1SignerLayer = (options: A1SignerOptions): Layer.Layer<A1Signer, SignatureKitError> =>
   Layer.effect(A1Signer, loadA1SignerMaterial(options));
 
-/** Load an A1 container and build the adapter in one Effect. */
 export const loadA1SignerAdapter = (
   options: A1SignerOptions,
 ): Effect.Effect<SignerAdapter, SignatureKitError> =>
   loadA1Certificate(options).pipe(Effect.map(createA1SignerAdapter));
 
-/** Parse and validate the certificate metadata most app integrations store. */
 export const parseA1CertificateProfile = (
   options: A1SignerOptions,
 ): Effect.Effect<A1CertificateProfile, SignatureKitError> =>
   loadA1Certificate(options).pipe(Effect.flatMap(certificateProfile));
 
-/** Load an A1 container and provide the agnostic core Signatures service. */
 export const a1SignaturesLayer = (
   options: A1SignerOptions,
 ): Layer.Layer<Signatures, SignatureKitError> =>
   Layer.effect(Signatures, loadA1Certificate(options).pipe(Effect.map(createA1SignerAdapter)));
-
-// ---------------------------------------------------------------------------
-// Remote A1 material — fetch the PKCS#12 (.pfx) from a (presigned) URL.
-//
-// The A1 container usually lives in object storage (e.g. S3) and is handed to
-// the signer as a short-lived presigned URL. Fetching is the ONLY thing that
-// changes versus the local-bytes path: the fetched bytes flow into exactly the
-// same loadA1Certificate -> createA1SignerAdapter pipeline, so the signer, the
-// profile, and the Signatures layer behave identically. The private key never
-// leaves this process — only the encrypted PKCS#12 is fetched, then decrypted
-// locally with the Redacted password.
-// ---------------------------------------------------------------------------
 
 const redactPresignedUrl = (url: string): string => {
   if (!URL.canParse(url)) return "<redacted>";
@@ -345,7 +323,6 @@ const redactPresignedUrl = (url: string): string => {
   return sanitized.toString();
 };
 
-/** Fetch the A1 PKCS#12 (.pfx) bytes from a (presigned) URL via a GET. */
 export const fetchA1Pkcs12 = (
   source: A1RemoteFetch,
 ): Effect.Effect<Uint8Array, SignatureKitError, SignatureHttpClient> =>
@@ -386,7 +363,6 @@ export const fetchA1Pkcs12 = (
     ),
   );
 
-/** Provide the agnostic core Signatures service from a remote (URL) A1 container. */
 export const a1SignaturesLayerFromUrl = (
   source: A1RemoteSource,
 ): Layer.Layer<Signatures, SignatureKitError, SignatureHttpClient> =>
@@ -412,7 +388,6 @@ export const a1SignaturesLayerFromUrl = (
     ),
   );
 
-/** Parse and validate the A1 certificate metadata from a remote (URL) container. */
 export const parseA1CertificateProfileFromUrl = (
   source: A1RemoteSource,
 ): Effect.Effect<A1CertificateProfile, SignatureKitError, SignatureHttpClient> =>

@@ -1,5 +1,7 @@
 "use client";
 
+import Image from "next/image";
+
 import { Duration, Effect, Redacted, Result } from "effect";
 import {
   BadgeCheck,
@@ -70,27 +72,9 @@ import { captureDocsEvent } from "@/lib/posthog/client";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
 
-/*
- * In-browser A1 PDF signer — the real product, not a mock.
- *
- * Flow: upload your own PDFs (rendered with pdf.js so you see them) → click each
- * page to drop the PAdES signature rectangle → load your A1 (.pfx/.p12) +
- * password → sign every document locally with WebCrypto (one `signPdfSignatureBatch`
- * under a single `a1SignaturesLayer`) → download each signed PDF. Nothing leaves
- * the browser.
- *
- * The certificate and stamp config are shared across the whole batch. Each
- * document keeps its own placed-signature rectangle: the live builder store moves
- * into a keyed child (`DocumentCanvas`) so switching documents re-hydrates the
- * right placement instead of corrupting it.
- */
-
 const SIGNATURE_FIELD_ID = "a1-signature";
 const VALIDAR_ITI_URL = "https://validar.iti.gov.br";
 
-
-// "Has a best-guess run happened?" — one bit of module-level state. React only
-// subscribes through `useSyncExternalStore`; async work stays in Effect handlers.
 const placeRunStore = createSyncStore<{ ran: boolean }>({ ran: false });
 
 const usePdfSignatureBuilderSelector = <Selected,>(
@@ -345,20 +329,11 @@ const renderStampPreviewImages = (
   );
 };
 
-// Raw PNG bytes from a data URL; the PDF package stamps images from bytes, not
-// browser-only data URLs.
 const dataUrlToBytes = (dataUrl: string): Uint8Array =>
   Uint8Array.from(atob(dataUrl.split(",")[1] ?? ""), (char) => char.charCodeAt(0));
 
-// ---------------------------------------------------------------------------
-// Handwriting marks. The visible appearance is either typed by the user or
-// pulled from the A1 name. Both paths render the text in the Caveat handwriting
-// font to a transparent dark-ink PNG that feeds the PDF stamp path.
-// ---------------------------------------------------------------------------
-
 const CONNECTORS = new Set(["de", "da", "do", "dos", "das", "e"]);
 
-// "MANOEL FRANCISCO DE CARVALHO NETO" -> "MFCN" (skip pt-BR connectors).
 const deriveInitials = (name: string): string => {
   const out = name
     .trim()
@@ -372,10 +347,6 @@ const deriveInitials = (name: string): string => {
 const inkScale = (min: number): number =>
   Math.max(min, Math.min(3, (typeof window !== "undefined" && window.devicePixelRatio) || 2));
 
-// Load a specific font for canvas drawing, but NEVER block on it. `document.fonts.ready`
-// waits for EVERY page font, so a single perpetually-pending face hangs it forever
-// (which froze signing at "Reading the A1 identity…"). We only request THIS face and
-// cap the wait with Effect scheduling — a fallback-font render beats a frozen signer.
 const ensureFontLoaded = (spec: string): Promise<void> => {
   if (typeof document === "undefined" || !document.fonts?.load) return Promise.resolve();
   return Effect.runPromise(
@@ -393,8 +364,6 @@ const ensureFontLoaded = (spec: string): Promise<void> => {
   );
 };
 
-// Full handwriting mark -> transparent dark-ink PNG data URL (the MAIN signature
-// on the placed page). Awaits the font before drawing or Caveat falls back/blank.
 async function renderHandwritingPng(text: string): Promise<string | undefined> {
   const t = text.trim();
   if (!t) return undefined;
@@ -416,7 +385,7 @@ async function renderHandwritingPng(text: string): Promise<string | undefined> {
   c.width = w * scale;
   c.height = h * scale;
   const ctx = c.getContext("2d")!;
-  ctx.scale(scale, scale); // transparent bg: never fillRect
+  ctx.scale(scale, scale);
   ctx.font = spec;
   ctx.fillStyle = "#111111";
   ctx.textBaseline = "alphabetic";
@@ -424,8 +393,6 @@ async function renderHandwritingPng(text: string): Promise<string | undefined> {
   return c.toDataURL("image/png");
 }
 
-// Small initials mark: thin corner brackets + centered initials. Used
-// as the per-page rubrica when "Rubric on every page" is on.
 async function renderRubricaInitialsPng(initials: string): Promise<string | undefined> {
   const t = initials.trim();
   if (!t) return undefined;
@@ -448,11 +415,11 @@ async function renderRubricaInitialsPng(initials: string): Promise<string | unde
   ctx.moveTo(mg + tick, mg);
   ctx.lineTo(mg, mg);
   ctx.lineTo(mg, H - mg);
-  ctx.lineTo(mg + tick, H - mg); // left bracket
+  ctx.lineTo(mg + tick, H - mg);
   ctx.moveTo(W - mg - tick, mg);
   ctx.lineTo(W - mg, mg);
   ctx.lineTo(W - mg, H - mg);
-  ctx.lineTo(W - mg - tick, H - mg); // right bracket
+  ctx.lineTo(W - mg - tick, H - mg);
   ctx.stroke();
   ctx.font = `600 34px ${family}`;
   ctx.fillStyle = "#111111";
@@ -461,12 +428,6 @@ async function renderRubricaInitialsPng(initials: string): Promise<string | unde
   ctx.fillText(t, W / 2, H / 2 + 2);
   return c.toDataURL("image/png");
 }
-
-// ---------------------------------------------------------------------------
-// Keyed document canvas. The parent owns one long-lived builder store per
-// document; the canvas only subscribes to that store and reports committed
-// placements from user actions.
-// ---------------------------------------------------------------------------
 
 function DocumentCanvas({
   activeDoc,
@@ -524,8 +485,6 @@ function DocumentCanvas({
   const place = async (pageIndex: number, fracX: number, fracY: number) => {
     const page = pages[pageIndex];
     if (!page) return;
-    // Convert the click fraction to page points (top-left origin); placeField
-    // centers the rect on the click via anchor "center".
     const x = fracX * page.width;
     const y = fracY * page.height;
     const placed = await Effect.runPromise(
@@ -566,10 +525,6 @@ function DocumentCanvas({
       ) : (
         pages.map((page, index) => {
           const isPlacedPage = placedField !== undefined && placedField.rect.pageIndex === index;
-          // With "every page" on, every page that doesn't own the signature shows a
-          // faint compact rubric in the right-side middle. This ignores the placed
-          // signature x/y so repeated rubrics do not collide with text/signature
-          // content on the page body.
           const ghost =
             !isPlacedPage && rubricEveryPage && placedField
               ? {
@@ -595,10 +550,6 @@ function DocumentCanvas({
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Step chrome
-// ---------------------------------------------------------------------------
 
 type StepStatus = "locked" | "active" | "done" | "todo";
 
@@ -713,10 +664,6 @@ function Step({
     </Card>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Document list (Step 1) + batch results (Step 4)
-// ---------------------------------------------------------------------------
 
 function DocList({
   docs,
@@ -873,10 +820,6 @@ function BatchResults({
   );
 }
 
-// ---------------------------------------------------------------------------
-// The signer
-// ---------------------------------------------------------------------------
-
 export function PdfSigner({ className, inDialog }: { className?: string; inDialog?: boolean }) {
   const form = useForm<SignerFormValues>({ defaultValues: signerFormDefaults });
 
@@ -906,28 +849,15 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
   const pdfInputRef = React.useRef<HTMLInputElement>(null);
   const pfxInputRef = React.useRef<HTMLInputElement>(null);
 
-  // "Has a best-guess run happened?" — read from the module-level `placeRunStore`.
-  // Never mirrored into component-local state; the final status is DERIVED below
-  // from this plus the live queue counts.
   const placeRan = useSyncStore(placeRunStore, (s) => s.ran);
-
-  // Best-guess auto-placement is owned by @signature-kit/pdf/builder-store:
-  // pure geometry computes one placement per document, and the PDF batch queue
-  // streams per-document progress back into this React shell.
 
   const activeDoc = docs.find((d) => d.id === activeDocId);
   const placedCount = docs.filter((d) => d.rect).length;
   const unplacedCount = docs.length - placedCount;
-  // The next document (other than the active one) still needing a signature. Undefined
-  // when the only unplaced document is already on the canvas, so the button never
-  // becomes a no-op that points at the current document.
   const nextUnplacedId = docs.find((d) => !d.rect && d.id !== activeDocId)?.id;
 
-  // Live preview lines for the placed marker (the real name fills in from the
-  // certificate at sign time; before that we show placeholders).
   const previewBadge = visibleStampBadge(profile, undefined, stampName, stampDate);
   const previewLines = visibleStampPreviewLines(previewBadge);
-  // The placed marker shows the full stamp; the every-page ghost shows the initials.
   const stampPreview = {
     inkDataUrl: signatureDataUrl,
     rubricaDataUrl,
@@ -935,9 +865,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     qr: true,
   };
 
-  // Best-guess status, DERIVED (no finalize effect): while placing show progress;
-  // once the queue has drained, report the outcome from the live placed count. Any
-  // imperative `status` (reading PDFs, signing, manual placement) takes precedence.
   const placeStatus = placing
     ? m.signer_place_running()
     : placeRan
@@ -950,27 +877,15 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       : "";
   const shownStatus = status || placeStatus;
 
-  // Clear any finished/in-flight run + banners so the derived step state can't be
-  // contradicted by a stale "Signed" result after an edit. Used when the inputs
-  // themselves change (new documents, new certificate) — there the prior signed
-  // bytes are genuinely meaningless.
   const reset = React.useCallback(() => {
     patchSignerRuntime({ run: { kind: "idle" }, rows: {}, error: "", status: "" });
-    placeRunStore.setState(() => ({ ran: false })); // drop any stale best-guess status
+    placeRunStore.setState(() => ({ ran: false }));
   }, []);
 
-  // Lighter clear for stamp/password tweaks: drop the error banner but KEEP any
-  // already-signed rows and their per-document downloads. A config nudge after a
-  // finished batch shouldn't destroy results the user is still downloading — the
-  // next run rebuilds the rows from scratch anyway.
   const clearBanners = React.useCallback(() => {
     patchSignerRuntime({ error: "" });
   }, []);
 
-  // A placement (or keyboard nudge) invalidates any prior signed run, but unlike a
-  // full reset it keeps a guiding status so the user is still pointed at the next
-  // document. It must NOT switch documents: Enter/arrow nudges re-fire this, and
-  // jumping away mid-nudge would break the keyboard placement flow.
   const handlePlaced = React.useCallback(() => {
     captureDocsEvent("pdf_signer_signature_placed", {
       document_count: docs.length,
@@ -1003,8 +918,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     [clearBanners, profile, rubricSource, typedText],
   );
 
-  // Strict: every uploaded document must be placed before the summary goes green,
-  // so it never claims more than it signs.
   const step1Done = docs.length > 0 && docs.every((d) => d.rect);
   const step2Done = Boolean(pfxBytes && password.length > 0);
 
@@ -1026,7 +939,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
 
   const onPdfFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.currentTarget.files ?? []);
-    event.currentTarget.value = ""; // allow re-adding the same file later
+    event.currentTarget.value = "";
     captureDocsEvent("pdf_signer_pdfs_selected", {
       document_count: files.length,
       total_bytes: files.reduce((total, file) => total + file.size, 0),
@@ -1106,7 +1019,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     captureDocsEvent("pdf_signer_document_removed", {
       remaining_count: docs.length - 1,
     });
-    clearBanners(); // keep any already-signed rows/downloads; only drop this doc
+    clearBanners();
     updateSignerRuntime((state) => {
       const remaining = state.docs.filter((d) => d.id !== docId);
       const rows = { ...state.rows };
@@ -1120,8 +1033,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     });
   };
 
-  // Best guess: ask the PDF adapter to place a sensible signature rect on EVERY
-  // loaded document through the same long-lived store path manual clicks use.
   const autoPlaceAll = async () => {
     if (docs.length === 0 || placing) return;
     captureDocsEvent("pdf_signer_auto_place_started", {
@@ -1133,7 +1044,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       run: { kind: "idle" },
       rows: {},
       status: "",
-    }); // hand the status line to the DERIVED best-guess status
+    });
     placeRunStore.setState(() => ({ ran: true }));
 
     const queue = docs.map((doc) => ({
@@ -1237,8 +1148,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
 
     patchSignerRuntime({ error: "", busy: true, status: m.signer_status_reading_identity() });
 
-    // Reuse the eagerly-parsed profile from Step 2 when present; only re-parse if
-    // it was never loaded (or was invalidated by a password edit).
     let certValue = profile;
     if (!certValue) {
       const certificate = await Effect.runPromise(
@@ -1259,14 +1168,13 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       certValue = certificate.success;
     }
 
-    // Shared stamp content for every document.
     const now = new Date();
-    const badge = visibleStampBadge(certValue, now.toLocaleString(getLocale()), stampName, stampDate);
-    // Two marks: the full handwriting MAIN signature (placed page) and the small
-    // bracketed INITIALS rubrica (every other page). Rendered SYNCHRONOUSLY here
-    // rather than read from the async-derived preview state, so a Sign click that
-    // lands before the derive effect settles (just typed a name, or "From
-    // certificate" right after the profile resolved) still bakes the real mark.
+    const badge = visibleStampBadge(
+      certValue,
+      now.toLocaleString(getLocale()),
+      stampName,
+      stampDate,
+    );
     const marks = await Effect.runPromise(
       Effect.result(
         rubricSource === "type" && typedText.trim()
@@ -1345,8 +1253,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
               location: "Browser",
               signingTime: now,
               signatureLength: 16384,
-              // Plain PAdES (AdES-BES). The ICP-Brasil policy would require a network
-              // fetch, breaking the "nothing leaves the page" guarantee this demo makes.
               policy: "pades-ades",
             },
           },
@@ -1399,7 +1305,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       return;
     }
 
-    // The run total now reflects only the documents that actually go to the signer.
     updateSignerRuntime((state) => ({
       ...state,
       run: { kind: "signing", current: 0, total: items.length },
@@ -1493,18 +1398,12 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
 
   const canSign = Boolean(placedCount > 0 && pfxBytes && password.length > 0 && !busy);
 
-  // Keyboard focus management for the collapses. A panel that closes becomes
-  // `inert`; on user-driven advances we move focus to the newly opened step's
-  // header. Auto-advance after placement keeps focus on the canvas (never inert),
-  // so it must NOT trigger this.
   const headerRefs = React.useRef<Partial<Record<1 | 2 | 3 | 4, HTMLButtonElement | null>>>({});
   const goToStep = (n: 1 | 2 | 3 | 4) => {
     patchSignerRuntime({ activeStep: n });
     queueMicrotask(() => headerRefs.current[n]?.focus());
   };
 
-  // Eager-parse the A1 on Step 2 "Continue" so `profile.subject` exists when Step 3
-  // opens (the "From certificate" mark needs it) and wrong passwords surface early.
   const loadProfileThenAdvance = async () => {
     if (!pfxBytes || password.length === 0) return;
     captureDocsEvent("pdf_signer_certificate_profile_started");
@@ -1520,7 +1419,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     patchSignerRuntime({ busy: false });
     if (Result.isFailure(c)) {
       captureDocsEvent("pdf_signer_certificate_profile_failed");
-      patchSignerRuntime({ error: c.failure.message }); // stay on Step 2, surface the message verbatim
+      patchSignerRuntime({ error: c.failure.message });
       return;
     }
     captureDocsEvent("pdf_signer_certificate_profile_loaded");
@@ -1580,9 +1479,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
               "min-h-0 flex-1 overflow-y-auto p-6 @4xl:grid-rows-[minmax(0,1fr)] @4xl:overflow-hidden",
           )}
         >
-          {/* LEFT / TOP — persistent document canvas. In the dialog it owns its own
-            scroll (the steps pane scrolls separately, so the modal never has one
-            scroll that moves everything); standalone it stays sticky. */}
           <div
             className={cn(
               "min-w-0 bg-background pb-1",
@@ -1631,9 +1527,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                 {shownStatus}
               </p>
             ) : null}
-            {/* Canvas-local "one obvious next action" for a multi-PDF batch: jump to
-              the next document that still needs a signature without scrolling back
-              up to the document list. */}
             {nextUnplacedId ? (
               <Button
                 type="button"
@@ -1648,14 +1541,12 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
             ) : null}
           </div>
 
-          {/* RIGHT / BELOW — the guided accordion */}
           <div
             className={cn(
               "flex flex-col gap-2.5",
               inDialog && "@4xl:min-h-0 @4xl:self-stretch @4xl:overflow-y-auto",
             )}
           >
-            {/* STEP 1 — Documents */}
             <Step
               n={1}
               title={m.signer_step_documents()}
@@ -1680,9 +1571,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                   queuedIds={queuedIds}
                 />
               ) : null}
-              {/* Best guess — auto-place a signature rect on every loaded document at
-                once (bottom-right of the last page, pure geometry), so a multi-PDF
-                batch needs zero per-document clicking. */}
               {docs.length > 0 ? (
                 <Button
                   type="button"
@@ -1733,7 +1621,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
               </p>
             </Step>
 
-            {/* STEP 2 — A1 certificate */}
             <Step
               n={2}
               title={m.signer_step_a1()}
@@ -1828,7 +1715,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
               </Button>
             </Step>
 
-            {/* STEP 3 — Stamp */}
             <Step
               n={3}
               title={m.signer_step_stamp()}
@@ -1845,7 +1731,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                 {m.signer_step3_intro()}
               </p>
 
-              {/* Visible mark — source picker */}
               <div className="mt-1 flex flex-col gap-2">
                 <p id="rubric-source-label" className="text-[11px] text-muted-foreground">
                   {m.signer_signature_mark()}
@@ -1903,10 +1788,12 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                       </form.Field>
                       {signatureDataUrl ? (
                         <div className="flex h-16 items-center justify-center rounded-md border border-border bg-white">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
+                          <Image
                             src={signatureDataUrl}
                             alt=""
+                            width={160}
+                            height={48}
+                            unoptimized
                             className="max-h-12 w-auto object-contain"
                           />
                         </div>
@@ -1928,10 +1815,12 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                     <div className="flex flex-col gap-2">
                       <div className="flex h-16 items-center justify-center rounded-md border border-border bg-white">
                         {signatureDataUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
+                          <Image
                             src={signatureDataUrl}
                             alt=""
+                            width={160}
+                            height={48}
+                            unoptimized
                             className="max-h-12 w-auto object-contain"
                           />
                         ) : null}
@@ -2006,7 +1895,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
               </Button>
             </Step>
 
-            {/* STEP 4 — Sign */}
             <Step
               n={4}
               title={m.signer_step_sign()}
@@ -2091,10 +1979,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     </form.Provider>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Modal wrapper
-// ---------------------------------------------------------------------------
 
 export function PdfSignerDialog({ children }: { children: React.ReactNode }) {
   return (

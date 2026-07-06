@@ -6,12 +6,6 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-/**
- * Reusable marquee. The sequence is rendered twice into one `w-max` track whose
- * `x` is a Motion value advanced by `useAnimationFrame` and wrapped at -50%, so
- * it loops seamlessly. Motion owns the animation; hover/focus pause and reduced
- * motion freeze the frame loop. React only renders data.
- */
 
 export interface MarqueeItem {
   readonly key: string;
@@ -20,13 +14,10 @@ export interface MarqueeItem {
 
 interface MarqueeProps {
   readonly items: readonly MarqueeItem[];
-  /** Seconds for one full loop. Lower = faster. */
   readonly durationSeconds?: number;
   readonly reverse?: boolean;
   readonly className?: string;
-  /** Tailwind gap utility for the track spacing. */
   readonly gapClassName?: string;
-  /** Edge fade mask. On by default; turn off to bleed to the edges. */
   readonly fade?: boolean;
 }
 
@@ -89,8 +80,6 @@ export function Marquee({
           <li
             key={item.uid}
             aria-hidden={item.dup}
-            // inert keeps the duplicated half out of the tab order (links inside
-            // an aria-hidden clone must not receive focus).
             inert={item.dup || undefined}
             className="shrink-0"
           >

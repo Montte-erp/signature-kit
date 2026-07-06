@@ -18,10 +18,6 @@ type InstallCommandProps = {
   readonly className?: string;
 };
 
-/**
- * Click-to-copy install command, styled as a mono pill. The `$` prompt is
- * decorative; the copied text is the command only.
- */
 export const InstallCommand = ({
   command = DEFAULT_COMMAND,
   className,

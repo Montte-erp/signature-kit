@@ -1,10 +1,3 @@
-/**
- * @signature-kit/crypto — typed error catalog and the PKCS#12 result contract.
- *
- * The cipher primitives and the PKCS#12 parser construct `CryptoError` at the
- * exact decision point (bad padding, unsupported algorithm, missing material).
- */
-
 import { Schema } from "effect";
 
 export const CryptoErrorCodeSchema = Schema.Literals([

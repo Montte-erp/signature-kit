@@ -1,20 +1,7 @@
-/**
- * RC2-CBC pure TypeScript implementation (RFC 2268).
- *
- * Supports 40-bit (effectiveBits=40) and 128-bit (effectiveBits=128) effective
- * key lengths, both in CBC mode with PKCS#7 unpadding.
- *
- * RC2 is a legacy cipher. It is used here exclusively for PKCS#12
- * compatibility (pbeWithSHAAnd40BitRC2-CBC / pbeWithSHAAnd128BitRC2-CBC).
- *
- * Zero runtime dependencies. Works in any JS environment.
- */
-
 import { Effect } from "effect";
 import { CryptoError, CryptoErrorCodeValue, CryptoOperationValue } from "../config";
 import { removePkcs7Padding } from "./padding";
 
-// RC2 permutation table (RFC 2268, Section 2)
 const PITABLE = new Uint8Array([
   0xd9, 0x78, 0xf9, 0xc4, 0x19, 0xdd, 0xb5, 0xed, 0x28, 0xe9, 0xfd, 0x79, 0x4a, 0xa0, 0xd8, 0x9d,
   0xc6, 0x7e, 0x37, 0x83, 0x2b, 0x76, 0x53, 0x8e, 0x62, 0x4c, 0x64, 0x88, 0x44, 0x8b, 0xfb, 0xa2,
@@ -34,13 +21,6 @@ const PITABLE = new Uint8Array([
   0xc5, 0xf3, 0xdb, 0x47, 0xe5, 0xa5, 0x9c, 0x77, 0x0a, 0xa6, 0x20, 0x68, 0xfe, 0x7f, 0xc1, 0xad,
 ]);
 
-/**
- * RC2 key expansion.
- *
- * @param key      - Raw key bytes (1..128 bytes)
- * @param pkeySz   - Effective key length in bits (e.g. 40 or 128)
- * @returns 64 16-bit words as a plain number[]
- */
 function rc2ExpandKey(key: Uint8Array, pkeySz: number): number[] {
   const L = new Uint8Array(128);
   L.set(key);
@@ -49,20 +29,16 @@ function rc2ExpandKey(key: Uint8Array, pkeySz: number): number[] {
   const t8 = Math.ceil(pkeySz / 8);
   const tm = 0xff >> (8 * t8 - pkeySz);
 
-  // Step 2: expand
   for (let i = t; i < 128; i++) {
     L[i] = PITABLE[(L[i - 1]! + L[i - t]!) & 0xff]!;
   }
 
-  // Step 3: limit effective bits
   L[128 - t8] = PITABLE[L[128 - t8]! & tm]!;
 
-  // Step 4: reduce
   for (let i = 127 - t8; i >= 0; i--) {
     L[i] = PITABLE[L[i + 1]! ^ L[i + t8]!]!;
   }
 
-  // Convert to 64 16-bit words (little-endian)
   const K: number[] = new Array(64);
   for (let i = 0; i < 64; i++) {
     K[i] = L[i * 2]! | (L[i * 2 + 1]! << 8);
@@ -71,43 +47,22 @@ function rc2ExpandKey(key: Uint8Array, pkeySz: number): number[] {
   return K;
 }
 
-/**
- * Decrypt a single 8-byte RC2 block in place.
- * Implements the inverse of the 16-round RC2 encryption described in RFC 2268.
- *
- * Forward mix at key index j (each round processes R0..R3):
- *   R0 += K[j]   + (R3 & R2) + (~R3 & R1); R0 = R0 <<< 1
- *   R1 += K[j+1] + (R0 & R3) + (~R0 & R2); R1 = R1 <<< 2
- *   R2 += K[j+2] + (R1 & R0) + (~R1 & R3); R2 = R2 <<< 3
- *   R3 += K[j+3] + (R2 & R1) + (~R2 & R0); R3 = R3 <<< 5
- *
- * Inverse mix at key index j (reverse order, unrotate THEN subtract):
- *   R3 = R3 >>> 5; R3 -= K[j+3] + (R2 & R1) + (~R2 & R0)
- *   R2 = R2 >>> 3; R2 -= K[j+2] + (R1 & R0) + (~R1 & R3)
- *   R1 = R1 >>> 2; R1 -= K[j+1] + (R0 & R3) + (~R0 & R2)
- *   R0 = R0 >>> 1; R0 -= K[j]   + (R3 & R2) + (~R3 & R1)
- */
 function rc2DecryptBlock(block: Uint8Array, K: number[]): void {
-  // Load 4 16-bit words (little-endian)
   let r0 = (block[0]! | (block[1]! << 8)) & 0xffff;
   let r1 = (block[2]! | (block[3]! << 8)) & 0xffff;
   let r2 = (block[4]! | (block[5]! << 8)) & 0xffff;
   let r3 = (block[6]! | (block[7]! << 8)) & 0xffff;
 
   function invMix(j: number): void {
-    // Right rotate R3 by 5, then subtract
     r3 = ((r3 >>> 5) | (r3 << 11)) & 0xffff;
     r3 = (r3 - (K[j + 3]! + (r2 & r1) + (~r2 & r0))) & 0xffff;
 
-    // Right rotate R2 by 3, then subtract
     r2 = ((r2 >>> 3) | (r2 << 13)) & 0xffff;
     r2 = (r2 - (K[j + 2]! + (r1 & r0) + (~r1 & r3))) & 0xffff;
 
-    // Right rotate R1 by 2, then subtract
     r1 = ((r1 >>> 2) | (r1 << 14)) & 0xffff;
     r1 = (r1 - (K[j + 1]! + (r0 & r3) + (~r0 & r2))) & 0xffff;
 
-    // Right rotate R0 by 1, then subtract
     r0 = ((r0 >>> 1) | (r0 << 15)) & 0xffff;
     r0 = (r0 - (K[j]! + (r3 & r2) + (~r3 & r1))) & 0xffff;
   }
@@ -118,10 +73,6 @@ function rc2DecryptBlock(block: Uint8Array, K: number[]): void {
     r1 = (r1 - K[r0 & 63]!) & 0xffff;
     r0 = (r0 - K[r3 & 63]!) & 0xffff;
   }
-
-  // Reverse of forward: inv-mix×5, inv-mash, inv-mix×6, inv-mash, inv-mix×5
-  // Forward key index sequence: 0,4,8,12,16 | (mash) | 20,24,28,32,36,40 | (mash) | 44,48,52,56,60
-  // Inverse: 60,56,52,48,44 | (invMash) | 40,36,32,28,24,20 | (invMash) | 16,12,8,4,0
 
   invMix(60);
   invMix(56);
@@ -146,7 +97,6 @@ function rc2DecryptBlock(block: Uint8Array, K: number[]): void {
   invMix(4);
   invMix(0);
 
-  // Store back (little-endian)
   block[0] = r0 & 0xff;
   block[1] = (r0 >>> 8) & 0xff;
   block[2] = r1 & 0xff;
@@ -157,14 +107,6 @@ function rc2DecryptBlock(block: Uint8Array, K: number[]): void {
   block[7] = (r3 >>> 8) & 0xff;
 }
 
-/**
- * Pure RC2-CBC decryption. Returns the still-padded plaintext. Never throws.
- *
- * @param key          - Raw key bytes (1..128 bytes)
- * @param effectiveBits - Effective key length in bits (40 or 128)
- * @param iv           - 8 bytes
- * @param ciphertext   - Must be a multiple of 8 bytes
- */
 function rc2CbcDecryptRaw(
   key: Uint8Array,
   effectiveBits: number,
@@ -177,11 +119,10 @@ function rc2CbcDecryptRaw(
 
   for (let i = 0; i < ciphertext.length; i += 8) {
     const block = new Uint8Array(ciphertext.subarray(i, i + 8));
-    const ctBlock = new Uint8Array(block); // save for CBC chain
+    const ctBlock = new Uint8Array(block);
 
     rc2DecryptBlock(block, K);
 
-    // CBC: XOR with previous ciphertext block
     for (let j = 0; j < 8; j++) {
       plaintext[i + j] = block[j]! ^ prev[j]!;
     }
@@ -191,14 +132,6 @@ function rc2CbcDecryptRaw(
   return plaintext;
 }
 
-/**
- * Decrypt data encrypted with RC2-CBC + PKCS#7 unpadding.
- *
- * @param key          - Raw key bytes
- * @param effectiveBits - Effective key length in bits (40 or 128)
- * @param iv           - 8 bytes
- * @param ciphertext   - Must be a multiple of 8 bytes
- */
 export const rc2CbcDecrypt = (
   key: Uint8Array,
   effectiveBits: number,

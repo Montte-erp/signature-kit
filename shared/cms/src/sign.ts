@@ -1,12 +1,3 @@
-/**
- * createDetachedSignedData — build a detached CMS/PKCS#7 SignedData (ContentInfo)
- * over arbitrary bytes, signed with a WebCrypto `CryptoKey`. The cryptographic
- * core that PAdES embeds and CAdES reuses.
- *
- * Detached: EncapsulatedContentInfo carries the id-data OID with no eContent; the
- * content bytes are passed to `sign(...)` and again to `verify(...)`.
- */
-
 import * as asn1js from "asn1js";
 import { Effect, Schema } from "effect";
 import * as pkijs from "pkijs";

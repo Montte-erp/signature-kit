@@ -10,8 +10,6 @@ const hasLocalPlainSecretBoundary = (context: CheckContext): boolean => {
   return boundaryPattern.test(current) || boundaryPattern.test(previous);
 };
 
-// Match secret words as substrings (catches camelCase like apiToken / privateKeyPem);
-// `certificate` stays word-bounded so the public certificate PEM is not flagged.
 const hasSecretStringInInternalConfig = (context: CheckContext): boolean =>
   !hasLocalPlainSecretBoundary(context) &&
   /(?:password|secret|token|privatekey|apikey|\bcertificate\b)/i.test(context.line) &&

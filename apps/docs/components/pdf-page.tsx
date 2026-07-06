@@ -5,10 +5,6 @@ import { Effect } from "effect";
 
 import { m } from "@/paraglide/messages";
 
-// ---------------------------------------------------------------------------
-// pdf.js page rendering. The library renders nothing on its own; we draw each
-// page to a canvas and overlay a click-capture layer + the signature marker.
-// ---------------------------------------------------------------------------
 
 export interface PdfViewport {
   readonly width: number;
@@ -79,7 +75,6 @@ const renderPdfPageCanvas = (
 
 export const loadPdfjs = async (): Promise<PdfJsApi> => {
   if (typeof window !== "undefined") {
-    // CDN worker pinned to the installed version — no bundler worker config.
     pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
   }
 
@@ -123,18 +118,15 @@ export interface PageRect {
 
 export interface PdfPageProps {
   doc: PdfDocumentProxy;
-  pageNumber: number; // 1-based for pdf.js
+  pageNumber: number;
   widthPt: number;
   heightPt: number;
-  marker?: PageRect; // signature rect in PDF points, top-left origin
-  // Faint repeat of the placed rect on pages that don't own the signature, shown
-  // when "Rubric on every page" is on so the toggle has a visible consequence.
+  marker?: PageRect;
   ghost?: { rect: PageRect; label: string };
   stampPreview?: { inkDataUrl?: string; rubricaDataUrl?: string; lines: string[]; qr?: boolean };
   onPlace: (fracX: number, fracY: number) => void;
 }
 
-/** One rendered PDF page with a transparent click layer and the signature marker. */
 export function PdfPage({
   doc,
   pageNumber,
@@ -165,11 +157,8 @@ export function PdfPage({
     onPlace(fracX, fracY);
   };
 
-  // Keyboard path: Enter/Space places (or recenters) the signature at the
-  // center of the page; arrow keys nudge it once placed, so the flow never
-  // requires a pointer.
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    const STEP = 0.02; // 2% of the page per arrow press
+    const STEP = 0.02;
     const clamp = (n: number) => Math.min(1, Math.max(0, n));
     const current = marker
       ? {
@@ -205,8 +194,6 @@ export function PdfPage({
     }
   };
 
-  // Stable per-line identity (ordinal + text) for the preview fragments, so the
-  // JSX key is data-derived rather than a bare array index.
   const previewLines = stampPreview?.lines.map((line, i) => ({ key: `${i}:${line}`, text: line }));
 
   return (
@@ -232,7 +219,6 @@ export function PdfPage({
           }}
         >
           {stampPreview?.rubricaDataUrl ?? stampPreview?.inkDataUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={stampPreview?.rubricaDataUrl ?? stampPreview?.inkDataUrl}
               alt=""
@@ -280,7 +266,6 @@ export function PdfPage({
           ) : (
             <>
               {stampPreview?.inkDataUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={stampPreview.inkDataUrl}
                   alt=""

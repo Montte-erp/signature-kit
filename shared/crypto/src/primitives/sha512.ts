@@ -1,17 +1,3 @@
-/**
- * SHA-512 and SHA-384 pure TypeScript implementation (FIPS 180-4).
- *
- * SHA-384 uses the same core as SHA-512 with different initial values and
- * truncates the output to 48 bytes.
- *
- * Zero runtime dependencies. Works in any JS environment.
- *
- * Note: 64-bit arithmetic is emulated with two 32-bit halves (hi/lo) since
- * JavaScript integers are 53-bit. No BigInt used here to keep it fast.
- */
-
-// SHA-512 round constants K (first 64 bits of cbrt of first 80 primes)
-// Stored as pairs [hi, lo] of 32-bit values (index = t*2 for hi, t*2+1 for lo)
 const K512 = new Uint32Array([
   0x428a2f98, 0xd728ae22, 0x71374491, 0x23ef65cd, 0xb5c0fbcf, 0xec4d3b2f, 0xe9b5dba5, 0x8189dbbc,
   0x3956c25b, 0xf348b538, 0x59f111f1, 0xb605d019, 0x923f82a4, 0xaf194f9b, 0xab1c5ed5, 0xda6d8118,
@@ -35,13 +21,11 @@ const K512 = new Uint32Array([
   0x4cc5d4be, 0xcb3e42b6, 0x597f299c, 0xfc657e2a, 0x5fcb6fab, 0x3ad6faec, 0x6c44198c, 0x4a475817,
 ]);
 
-// SHA-512 initial hash values
 const INIT_512 = new Uint32Array([
   0x6a09e667, 0xf3bcc908, 0xbb67ae85, 0x84caa73b, 0x3c6ef372, 0xfe94f82b, 0xa54ff53a, 0x5f1d36f1,
   0x510e527f, 0xade682d1, 0x9b05688c, 0x2b3e6c1f, 0x1f83d9ab, 0xfb41bd6b, 0x5be0cd19, 0x137e2179,
 ]);
 
-// SHA-384 initial hash values
 const INIT_384 = new Uint32Array([
   0xcbbb9d5d, 0xc1059ed8, 0x629a292a, 0x367cd507, 0x9159015a, 0x3070dd17, 0x152fecd8, 0xf70e5939,
   0x67332667, 0xffc00b31, 0x8eb44a87, 0x68581511, 0xdb0c2e0d, 0x64f98fa7, 0x47b5481d, 0xbefa4fa4,
@@ -95,7 +79,7 @@ function sha512Core(data: Uint8Array, initH: Uint32Array): Uint8Array {
   const h = new Uint32Array(16);
   h.set(initH);
 
-  const W = new Uint32Array(160); // 80 × 64-bit
+  const W = new Uint32Array(160);
 
   for (let i = 0; i < totalLen; i += 128) {
     for (let t = 0; t < 16; t++) {
@@ -104,13 +88,11 @@ function sha512Core(data: Uint8Array, initH: Uint32Array): Uint8Array {
     }
 
     for (let t = 16; t < 80; t++) {
-      // σ1(W[t-2]) = ROTR19 ^ ROTR61 ^ SHR6
       const [r19h, r19l] = rotr64(W[(t - 2) * 2]!, W[(t - 2) * 2 + 1]!, 19);
       const [r61h, r61l] = rotr64(W[(t - 2) * 2]!, W[(t - 2) * 2 + 1]!, 61);
       const [s6h, s6l] = shr64(W[(t - 2) * 2]!, W[(t - 2) * 2 + 1]!, 6);
       const [s1h, s1l] = xor3_64(r19h, r19l, r61h, r61l, s6h, s6l);
 
-      // σ0(W[t-15]) = ROTR1 ^ ROTR8 ^ SHR7
       const [r1h, r1l] = rotr64(W[(t - 15) * 2]!, W[(t - 15) * 2 + 1]!, 1);
       const [r8h, r8l] = rotr64(W[(t - 15) * 2]!, W[(t - 15) * 2 + 1]!, 8);
       const [s7h, s7l] = shr64(W[(t - 15) * 2]!, W[(t - 15) * 2 + 1]!, 7);
@@ -141,33 +123,27 @@ function sha512Core(data: Uint8Array, initH: Uint32Array): Uint8Array {
       hl = h[15]!;
 
     for (let t = 0; t < 80; t++) {
-      // Σ1(e) = ROTR14 ^ ROTR18 ^ ROTR41
       const [r14h, r14l] = rotr64(eh, el, 14);
       const [r18h, r18l] = rotr64(eh, el, 18);
       const [r41h, r41l] = rotr64(eh, el, 41);
       const [S1h, S1l] = xor3_64(r14h, r14l, r18h, r18l, r41h, r41l);
 
-      // Ch(e, f, g) = (e & f) ^ (~e & g)
       const chH = ((eh & fh) ^ ((~eh >>> 0) & gh)) >>> 0;
       const chL = ((el & fl) ^ ((~el >>> 0) & gl)) >>> 0;
 
-      // T1 = h + Σ1(e) + Ch(e,f,g) + K[t] + W[t]
       let [T1h, T1l] = add64(hh, hl, S1h, S1l);
       [T1h, T1l] = add64(T1h, T1l, chH, chL);
       [T1h, T1l] = add64(T1h, T1l, K512[t * 2]!, K512[t * 2 + 1]!);
       [T1h, T1l] = add64(T1h, T1l, W[t * 2]!, W[t * 2 + 1]!);
 
-      // Σ0(a) = ROTR28 ^ ROTR34 ^ ROTR39
       const [r28h, r28l] = rotr64(ah, al, 28);
       const [r34h, r34l] = rotr64(ah, al, 34);
       const [r39h, r39l] = rotr64(ah, al, 39);
       const [S0h, S0l] = xor3_64(r28h, r28l, r34h, r34l, r39h, r39l);
 
-      // Maj(a, b, c) = (a & b) ^ (a & c) ^ (b & c)
       const majH = ((ah & bh) ^ (ah & ch_v) ^ (bh & ch_v)) >>> 0;
       const majL = ((al & bl) ^ (al & cl) ^ (bl & cl)) >>> 0;
 
-      // T2 = Σ0(a) + Maj(a,b,c)
       const [T2h, T2l] = add64(S0h, S0l, majH, majL);
 
       hh = gh;
@@ -220,18 +196,10 @@ function sha512Core(data: Uint8Array, initH: Uint32Array): Uint8Array {
   return digest;
 }
 
-/**
- * Compute SHA-512 digest of `data`.
- * Returns a 64-byte Uint8Array.
- */
 export function sha512(data: Uint8Array): Uint8Array {
   return sha512Core(data, INIT_512);
 }
 
-/**
- * Compute SHA-384 digest of `data`.
- * Returns a 48-byte Uint8Array.
- */
 export function sha384(data: Uint8Array): Uint8Array {
   return sha512Core(data, INIT_384).subarray(0, 48);
 }

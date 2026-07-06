@@ -18,11 +18,6 @@ function ScrollArea({
     >
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
-        // `max-h-[inherit]` + `w-full` (NOT `h-full`) is what makes a `max-h-*` on
-        // the Root actually scroll internally: `h-full` is `height:100%`, which is
-        // indefinite against a max-height parent and collapses to `auto`, so the
-        // content just expands. Inheriting the max-height bounds the viewport and
-        // its `overflow:scroll` kicks in.
         className="focus-visible:ring-ring/50 w-full max-h-[inherit] rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:outline-1"
       >
         {children}

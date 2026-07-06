@@ -290,8 +290,6 @@ const toClicksignSignatureRequestAttributes = (
     state: toClicksignSignatureRequestAttributesState(document.status),
     ...(document.status === undefined ? {} : { providerStatus: document.status }),
     detailsUrl: `${baseUrl}${clicksignDocumentPath(document.key)}`,
-    // Clicksign v1 has no /documents/{key}/download endpoint — signed files are
-    // only exposed through document.downloads.*_url, so absent means absent.
     ...(downloadUrl === undefined ? {} : { downloadUrl }),
   };
 };
@@ -360,7 +358,6 @@ const cancelClicksignSignatureRequestInternal = (
 ): Effect.Effect<void, SignatureKitError> =>
   http.requestVoid({
     provider: PROVIDER,
-    // Clicksign v1 cancels via PATCH /api/v1/documents/{key}/cancel.
     method: "PATCH",
     ...withAccessToken(baseUrl, `${clicksignDocumentPath(id)}/cancel`, options.accessToken),
   });
@@ -442,8 +439,6 @@ const downloadClicksignSignedDocumentInternal = (
           ...clicksignDownloadTarget(baseUrl, signedDocumentUrl, options.accessToken),
         });
       }
-      // No downloads.*_url on the document yet — Clicksign only exposes the
-      // signed file once signing finishes; there is no generic download route.
       return Effect.fail(
         new SignatureKitError({
           code: SignatureKitErrorCodeValue.unsupportedOperation,
@@ -468,25 +463,27 @@ export const ClicksignSignatureRequest = Resource<ClicksignSignatureRequest>(
 
 export class ClicksignCredentials extends Context.Service<
   ClicksignCredentials,
-  ClicksignProviderOptions
+  Effect.Effect<ClicksignProviderOptions, SignatureKitError>
 >()("@signature-kit/clicksign/Credentials") {}
 
 export const clicksignCredentialsLayer = (
   options: ClicksignProviderOptions,
-): Layer.Layer<ClicksignCredentials, SignatureKitError> =>
+): Layer.Layer<ClicksignCredentials> =>
   Layer.effect(
     ClicksignCredentials,
-    Schema.decodeUnknownEffect(ClicksignProviderOptionsSchema)(options).pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            provider: PROVIDER,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: ClicksignSchemaName.providerOptions,
-            issueMessage: String(issue),
-          }),
+    Effect.cached(
+      Schema.decodeUnknownEffect(ClicksignProviderOptionsSchema)(options).pipe(
+        Effect.mapError(
+          (issue) =>
+            new SignatureKitError({
+              code: SignatureKitErrorCodeValue.invalidInput,
+              retryable: false,
+              provider: PROVIDER,
+              operation: SignatureKitOperationValue.schemaDecode,
+              schemaName: ClicksignSchemaName.providerOptions,
+              issueMessage: String(issue),
+            }),
+        ),
       ),
     ),
   );
@@ -538,9 +535,6 @@ const createDocument = (
             deadline_at: input.expiresAt?.toISOString(),
             auto_close: options.autoClose ?? true,
             locale: options.locale ?? "pt-BR",
-            // Only serialize signing when the caller asked for an order —
-            // multiple recipients without routingOrder sign in parallel, like
-            // every other provider.
             sequence_enabled: input.recipients.some(
               (recipient) => recipient.routingOrder !== undefined,
             ),
@@ -691,32 +685,41 @@ export const ClicksignSignatureRequestProvider = () =>
   Provider.effect(
     ClicksignSignatureRequest,
     Effect.gen(function* () {
-      const options = yield* ClicksignCredentials;
+      const credentials = yield* ClicksignCredentials;
       const http = yield* SignatureHttpClient;
-      const baseUrl = clicksignBaseUrl(options);
 
       return ClicksignSignatureRequest.Provider.of({
         nuke: { skip: true },
         diff: clicksignSignatureRequestDiff,
-        list: () =>
-          // Retained resources must not feed account-wide nuke enumeration.
-          Effect.succeed([]),
-        read: ({ output }) =>
-          output === undefined
-            ? Effect.succeed(undefined)
-            : getClicksignSignatureRequestInternal(http, options, baseUrl, output.id).pipe(
-                Effect.catchIf(
-                  (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
-                  () => Effect.succeed(undefined),
-                ),
-              ),
+        list: () => Effect.succeed([]),
+        read: Effect.fn(function* ({ output }) {
+          if (output === undefined) return undefined;
+          const options = yield* credentials;
+          const baseUrl = clicksignBaseUrl(options);
+          return yield* getClicksignSignatureRequestInternal(
+            http,
+            options,
+            baseUrl,
+            output.id,
+          ).pipe(
+            Effect.catchIf(
+              (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
+              () => Effect.succeed(undefined),
+            ),
+          );
+        }),
         reconcile: Effect.fn(function* ({ news, output }) {
           if (output !== undefined) return output;
+          const options = yield* credentials;
+          const baseUrl = clicksignBaseUrl(options);
           const input = yield* clicksignSignatureRequestInputFromResourceProps(news);
           return yield* createClicksignSignatureRequest(http, options, baseUrl, input);
         }),
-        delete: ({ output }) =>
-          deleteClicksignSignatureRequestInternal(http, options, baseUrl, output.id),
+        delete: Effect.fn(function* ({ output }) {
+          const options = yield* credentials;
+          const baseUrl = clicksignBaseUrl(options);
+          return yield* deleteClicksignSignatureRequestInternal(http, options, baseUrl, output.id);
+        }),
       });
     }),
   );

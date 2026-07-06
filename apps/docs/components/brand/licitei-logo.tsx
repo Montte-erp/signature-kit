@@ -1,11 +1,5 @@
 import type { SVGProps } from "react";
 
-/**
- * The real Licitei wordmark (sourced from app-licitei-next/public/logo.svg).
- * The wordmark glyphs map to `currentColor` so the mark adapts to light/dark,
- * while the "L" keeps the Licitei brand orange (#F66013). Pass `className` to
- * size it (it scales by its 102×22 viewBox).
- */
 export function LiciteiLogo(props: SVGProps<SVGSVGElement>) {
   return (
     <svg

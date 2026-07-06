@@ -243,8 +243,6 @@ describe("A1 signatures", () => {
     Effect.gen(function* () {
       const pfx = yield* readA1Fixture("ecnpj");
       yield* setTestClockForCertificate(pfx);
-      // A data: URL stands in for a presigned URL so the test stays offline; the
-      // fetch path is identical (GET -> arrayBuffer).
       const url = `data:application/x-pkcs12;base64,${Buffer.from(pfx).toString("base64")}`;
 
       const fetched = yield* fetchA1Pkcs12({ url }).pipe(Effect.provide(signatureHttpClientLive));

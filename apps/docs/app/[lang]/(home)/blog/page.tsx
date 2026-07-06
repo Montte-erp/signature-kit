@@ -16,12 +16,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-/**
- * Blog index — in the `(home)` route group for the landing nav + footer. Lists
- * every post for the active locale (newest first) as a shadcn Card with a reading
- * estimate, plus an RSS link. Copy is branched on `lang`; hrefs carry the `[lang]`
- * prefix so navigation never bounces through the proxy's Accept-Language redirect.
- */
 
 const COPY = {
   "en-US": {
@@ -61,8 +55,6 @@ export default async function BlogIndex({ params }: PageProps<"/[lang]/blog">) {
   const { lang } = await params;
   const locale = parseLocale(lang);
   if (locale === undefined) notFound();
-  // Prime the request locale for this segment (Next renders segments
-  // independently from the `(home)` layout).
   setServerLocale(locale);
 
   const copy = COPY[locale];
