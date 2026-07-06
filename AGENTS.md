@@ -77,9 +77,8 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
   no decoded contract is a defect, not metadata to launder.
 - Schema decode failures are mapped where the schema is decoded. Do not add
   shared `decodeRemoteShape` / `decodeRemoteOptions`-style wrappers that hide the
-  decision point; use `Schema.decodeUnknownEffect(...).pipe(Effect.mapError((issue) =>
-new TaggedError({ ..., reason: String(issue) })))` inline at the provider,
-  resource, or public API boundary.
+  decision point; use inline `Schema.decodeUnknownEffect(...).pipe(Effect.mapError(...))`
+  at the provider, resource, or public API boundary.
 - Default error-message catalogs are source-of-truth data next to the
   `TaggedErrorClass`, backed by Schema-derived entry types. Apps resolve
   localized display copy by code through `@signature-kit/i18n`, never by
@@ -179,8 +178,8 @@ with a `Provider.effect` and a collection layer); follow that shape.
 - **Credentials are lazy Effects.** Provider credential services store the
   deferred credential/options effect, not an eagerly-decoded struct:
   `Context.Service<XCredentials, Effect.Effect<XProviderOptions, SignatureKitError>>`.
-  Build `xCredentialsLayer(options)` with `Layer.effect(XCredentials,
-  Effect.cached(Schema.decodeUnknownEffect(...)))` so provider Layers can be
+  Build `xCredentialsLayer(options)` by wrapping `Schema.decodeUnknownEffect(...)`
+  in `Effect.cached(...)` inside `Layer.effect(...)`, so provider layers can be
   constructed without touching secrets or config. In `Provider.effect`, `yield*`
   the credential service once, then `yield*` the cached Effect inside lifecycle
   hooks that actually need credentials; retained `list` hooks and `read` calls
@@ -202,8 +201,8 @@ with a `Provider.effect` and a collection layer); follow that shape.
   package's local state model without lossy string helpers, and test
   path/method/auth redaction/binary downloads against a local HTTP server. Never
   fake list/delete behavior through Alchemy when the provider cannot perform it.
-  JSON response decoding belongs in `SignatureHttpClient.requestJson(request,
-  schema, schemaName)`, not repeated after each remote call. The HTTP seam owns
+  JSON response decoding belongs in the HTTP client's `requestJson(...)` method,
+  not repeated after each remote call. The HTTP seam owns
   parse failures, schema decode failures, provider/status metadata, and redacted
   diagnostic URLs.
   Decode Alchemy resource `news` inside the signer package with that provider
