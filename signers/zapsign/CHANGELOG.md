@@ -4,6 +4,8 @@
 
 - ZapSign now owns its single-PDF document props, attributes, state schema, schema
   names, and retained no-op diff instead of using core remote-signature contracts.
+- Decode provider options through a cached credential Effect, so retained-resource
+  `list` hooks and `read` calls without cached output do not touch credentials.
 - Keep `detailsUrl` pointed at the ZapSign request-details endpoint instead of
   the raw unsigned PDF.
 - Expose `downloadUrl` only from ZapSign's `signed_file` value, so callers no

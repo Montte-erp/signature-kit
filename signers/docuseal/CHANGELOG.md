@@ -4,6 +4,8 @@
 
 - DocuSeal now owns its submission props, attributes, state schema, schema names,
   and retained no-op diff instead of using core remote-signature contracts.
+- Decode provider options through a cached credential Effect, so retained-resource
+  `list` hooks and `read` calls without cached output do not touch credentials.
 - Refuse signed-document downloads before a submission is completed, returning a
   typed `unsupportedOperation` instead of silently returning the unsigned source
   document.

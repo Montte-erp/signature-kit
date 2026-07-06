@@ -4,6 +4,8 @@
 
 - Documenso now owns its envelope props, attributes, state schema, schema names,
   and retained no-op diff instead of using core remote-signature contracts.
+- Decode provider options through a cached credential Effect, so retained-resource
+  `list` hooks and `read` calls without cached output do not touch credentials.
 - Treat failed envelope distribution as still `draft` with `not_distributed`
   provider status instead of reporting it as sent.
 - Limit distribute rollback deletion to unambiguous pre-effect 4xx failures

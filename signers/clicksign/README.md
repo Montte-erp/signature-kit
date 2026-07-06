@@ -8,7 +8,11 @@ Alchemy v2 remote-signature provider for Clicksign document creation, lookup, li
 bun add @signature-kit/clicksign @signature-kit/http effect alchemy
 ```
 
-`effect` and `alchemy` are direct runtime dependencies. Provide `signatureHttpClientLive` at the stack boundary; `providers(options)` supplies only Clicksign credentials and resource providers.
+`effect` and `alchemy` are direct runtime dependencies. Provide
+`signatureHttpClientLive` at the stack boundary; `providers(options)` supplies
+only Clicksign credentials and resource providers. Provider options are stored as
+a cached credential Effect, so retained `list` hooks and `read` calls without
+cached output do not decode credentials.
 
 ## Public surface
 

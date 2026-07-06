@@ -8,7 +8,11 @@ Alchemy v2 remote-signature provider for Assinafy request creation, lookup, list
 bun add @signature-kit/assinafy @signature-kit/http effect alchemy
 ```
 
-`effect` and `alchemy` are direct runtime dependencies. Provide `signatureHttpClientLive` at the stack boundary; `providers(options)` supplies only Assinafy credentials and resource providers.
+`effect` and `alchemy` are direct runtime dependencies. Provide
+`signatureHttpClientLive` at the stack boundary; `providers(options)` supplies
+only Assinafy credentials and resource providers. Provider options are stored as
+a cached credential Effect, so retained `list` hooks and `read` calls without
+cached output do not decode credentials.
 
 ## Public surface
 
