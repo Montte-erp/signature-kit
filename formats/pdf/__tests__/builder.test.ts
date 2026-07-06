@@ -27,12 +27,6 @@ import {
 import { signaturesLayer } from "@signature-kit/signatures";
 import type { SignerAdapter } from "@signature-kit/signatures";
 
-/**
- * A Signatures layer whose adapter methods all die — used to prove the batch
- * signer's ORCHESTRATION (order, per-item failure capture, progress) without
- * real crypto. The batch items below fail at appearance lookup (unknown field)
- * before any adapter method is reached, so `die` is never triggered.
- */
 const stubSigner: SignerAdapter = {
   id: "stub",
   inspect: () => Effect.die("stub signer should not be called"),
@@ -375,8 +369,6 @@ describe("PDF signature builder", () => {
         role: { id: "signer-1", label: "Cliente", email: "ana@example.com", required: true },
       });
       const settled: Array<{ id: string; index: number; total: number; ok: boolean }> = [];
-      // Unknown field -> each item fails at appearance lookup (before the signer),
-      // so the batch must still return one ordered result per input and never abort.
       const input = { pdf, template, fieldId: "missing-field", reason: "Batch test" };
       const results = yield* signPdfSignatureBatch(
         [

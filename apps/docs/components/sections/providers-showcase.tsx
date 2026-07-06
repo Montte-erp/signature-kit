@@ -11,37 +11,14 @@ import { Container, Eyebrow, Section } from "./_shared";
 import { ProviderCarousel, type ProviderCarouselItem } from "./provider-carousel";
 import { brandLogoUrl } from "./provider-marks";
 
-/**
- * Providers showcase — "one SDK for every signer".
- *
- * SERVER component (no "use client"): the <CodeBlock> is an async, shiki-server
- * highlighter, so every provider snippet is highlighted HERE, on the server, and
- * the resolved nodes are handed to the client <ProviderCarousel> as the parallel
- * `panels` prop (index-matched to `items`). The carousel never calls highlight()
- * itself — it only swaps which pre-rendered panel is visible. `brandLogoUrl` is
- * likewise resolved server-side so the client never reads NEXT_PUBLIC_LOGO_DEV_TOKEN.
- *
- * Left column = the pitch: eyebrow, the section title (rendered inline, NOT via
- * SectionHeading, to avoid a duplicate top-level heading), lead, two CTAs, and
- * four hairline label/desc feature rows. Right column = the interactive carousel.
- *
- * Pure-monochrome stone tokens only — no coral, no fd-* tokens.
- */
 
 interface ProviderShowcase {
   readonly name: string;
-  /** Domain used to resolve the real (greyscaled) brand logo. */
   readonly domain: string;
-  /** CodeBlock label for this provider's snippet. */
   readonly filename: string;
-  /** Verbatim, valid @signature-kit/* usage — lang="ts". */
   readonly code: string;
 }
 
-/**
- * The five remote providers, in display order. The snippets share the Alchemy
- * resource pattern, but each package owns the request props its provider accepts.
- */
 const PROVIDERS_SHOWCASE: readonly ProviderShowcase[] = [
   {
     name: "Clicksign",
@@ -200,7 +177,6 @@ export default class Contracts extends Alchemy.Stack<Contracts>()(
   },
 ];
 
-/** The four hairline label/desc rows under the CTAs. */
 const FEATURES: ReadonlyArray<{ readonly label: () => string; readonly desc: () => string }> = [
   { label: m.showcase_feature_adapters_label, desc: m.showcase_feature_adapters_desc },
   { label: m.showcase_feature_errors_label, desc: m.showcase_feature_errors_desc },
@@ -209,8 +185,6 @@ const FEATURES: ReadonlyArray<{ readonly label: () => string; readonly desc: () 
 ];
 
 export function ProvidersShowcase() {
-  // Build the plain-data items for the client carousel and the server-highlighted
-  // panels in lock-step so panels[i] always belongs to items[i].
   const items: ProviderCarouselItem[] = PROVIDERS_SHOWCASE.map((provider) => ({
     name: provider.name,
     filename: provider.filename,

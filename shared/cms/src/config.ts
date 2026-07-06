@@ -1,17 +1,4 @@
-/**
- * @signature-kit/cms — typed error catalog and the CMS/PKCS#7 input contracts.
- *
- * The detached SignedData builder, verifier, and RFC 3161 timestamp client all
- * construct `CmsError` at the exact decision point (bad DER, digest mismatch,
- * TSA failure). Secrets never reach this layer: signing happens with a WebCrypto
- * `CryptoKey` that was already imported (the Redacted unwrap is upstream).
- */
-
 import { Match, Schema } from "effect";
-
-// =============================================================================
-// Error code catalog
-// =============================================================================
 
 export const CmsErrorCodeSchema = Schema.Literals([
   "cms.ENCODE_ERROR",
@@ -107,10 +94,6 @@ export const CmsOperationValue = {
   policy: "cms.policy",
 } satisfies Record<string, CmsOperation>;
 
-// =============================================================================
-// Hash algorithm catalog
-// =============================================================================
-
 export const CmsHashAlgorithmSchema = Schema.Literals(["sha256", "sha1", "sha384", "sha512"]);
 export type CmsHashAlgorithm = (typeof CmsHashAlgorithmSchema)["Type"];
 export const CmsHashAlgorithmValue = {
@@ -120,7 +103,6 @@ export const CmsHashAlgorithmValue = {
   sha512: "sha512",
 } satisfies Record<string, CmsHashAlgorithm>;
 
-/** Web Crypto / pkijs digest name for a catalog algorithm. */
 export const webCryptoHashName = (algorithm: CmsHashAlgorithm): string =>
   Match.value(algorithm).pipe(
     Match.when("sha256", () => "SHA-256"),
@@ -130,7 +112,6 @@ export const webCryptoHashName = (algorithm: CmsHashAlgorithm): string =>
     Match.exhaustive,
   );
 
-/** X.690 OID of the digest algorithm (for AlgorithmIdentifier in attrs/TSP). */
 export const hashAlgorithmOid = (algorithm: CmsHashAlgorithm): string =>
   Match.value(algorithm).pipe(
     Match.when("sha256", () => "2.16.840.1.101.3.4.2.1"),
@@ -139,10 +120,6 @@ export const hashAlgorithmOid = (algorithm: CmsHashAlgorithm): string =>
     Match.when("sha512", () => "2.16.840.1.101.3.4.2.3"),
     Match.exhaustive,
   );
-
-// =============================================================================
-// Well-known OIDs (RFC 5652 / 5035 / 5126 / 3161)
-// =============================================================================
 
 export const CmsOid = {
   data: "1.2.840.113549.1.7.1",
@@ -155,10 +132,6 @@ export const CmsOid = {
   timeStampToken: "1.2.840.113549.1.9.16.2.14",
 };
 
-// =============================================================================
-// Input / output contracts
-// =============================================================================
-
 const isCryptoKey = (value: unknown): value is CryptoKey =>
   value !== null &&
   typeof value === "object" &&
@@ -170,10 +143,6 @@ const CryptoKeySchema = Schema.declare<CryptoKey>(isCryptoKey, {
   identifier: "CryptoKey",
 });
 
-/**
- * ICP-Brasil signature-policy-identifier inputs. The policy hash and OID come
- * from the relevant Política de Assinatura (e.g. AD-RB / AD-RT) document.
- */
 export const IcpBrasilPolicySchema = Schema.Struct({
   policyOid: Schema.NonEmptyString,
   policyHash: Schema.Uint8Array,
@@ -182,7 +151,6 @@ export const IcpBrasilPolicySchema = Schema.Struct({
 });
 export type IcpBrasilPolicy = (typeof IcpBrasilPolicySchema)["Type"];
 
-/** RFC 3161 timestamp request inputs for PAdES-T / CAdES-T (ICP-Brasil AD-RT). */
 export const TimestampOptionsSchema = Schema.Struct({
   tsaUrl: Schema.NonEmptyString,
   hashAlgorithm: Schema.optional(CmsHashAlgorithmSchema),
@@ -218,10 +186,6 @@ export const CmsVerifyResultSchema = Schema.Struct({
   signerSerialNumber: Schema.NullOr(Schema.String),
 });
 export type CmsVerifyResult = (typeof CmsVerifyResultSchema)["Type"];
-
-// =============================================================================
-// Tagged error
-// =============================================================================
 
 export class CmsError extends Schema.TaggedErrorClass<CmsError>()("CmsError", {
   code: CmsErrorCodeSchema,

@@ -11,11 +11,6 @@ export const verifyPdf = (
   Effect.gen(function* () {
     const offsets = yield* findPdfByteRangeOffsets(input.pdf);
 
-    // Every signed range must start at byte 0, and the newest signature must
-    // reach the end of the file — bytes appended after the signed range would
-    // otherwise change what renders without invalidating the signature
-    // (signature-exclusion forgery). Earlier signatures legitimately cover a
-    // prefix: each one signed the file as it existed at that revision.
     let coverageValid = true;
     let cryptoValid = true;
     let chainValid = true;

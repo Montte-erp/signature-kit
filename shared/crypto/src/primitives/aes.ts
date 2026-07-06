@@ -1,15 +1,7 @@
-/**
- * AES-CBC pure TypeScript implementation (FIPS 197).
- *
- * Supports AES-128, AES-192, and AES-256 in CBC mode with PKCS#7 padding.
- * Zero runtime dependencies. Works in any JS environment.
- */
-
 import { Effect } from "effect";
 import { CryptoError, CryptoErrorCodeValue, CryptoOperationValue } from "../config";
 import { removePkcs7Padding } from "./padding";
 
-// AES S-box
 const SBOX = new Uint8Array([
   0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
   0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -29,7 +21,6 @@ const SBOX = new Uint8Array([
   0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16,
 ]);
 
-// AES inverse S-box
 const SBOX_INV = new Uint8Array([
   0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
   0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
@@ -49,7 +40,6 @@ const SBOX_INV = new Uint8Array([
   0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d,
 ]);
 
-// Galois field multiplication in GF(2^8) with irreducible polynomial 0x11b
 function gmul(a: number, b: number): number {
   let p = 0;
   for (let i = 0; i < 8; i++) {
@@ -62,17 +52,11 @@ function gmul(a: number, b: number): number {
   return p;
 }
 
-// Round constant
 const RCON = new Uint8Array([0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36]);
 
-/**
- * Expand AES key into round keys.
- * key: 16, 24, or 32 bytes
- * Returns Uint8Array of (Nk+6+1)*16 bytes (all round keys concatenated)
- */
 function expandKey(key: Uint8Array): Uint8Array {
-  const nk = key.length / 4; // 4, 6, or 8
-  const nr = nk + 6; // 10, 12, or 14 rounds
+  const nk = key.length / 4;
+  const nr = nk + 6;
   const nWords = (nr + 1) * 4;
 
   const w = new Uint8Array(nWords * 4);
@@ -84,14 +68,12 @@ function expandKey(key: Uint8Array): Uint8Array {
     temp.set(t);
 
     if (i % nk === 0) {
-      // RotWord + SubWord + Rcon
       const t0 = temp[0]!;
       temp[0] = SBOX[temp[1]!]! ^ RCON[i / nk - 1]!;
       temp[1] = SBOX[temp[2]!]!;
       temp[2] = SBOX[temp[3]!]!;
       temp[3] = SBOX[t0]!;
     } else if (nk > 6 && i % nk === 4) {
-      // SubWord only for AES-256
       temp[0] = SBOX[temp[0]!]!;
       temp[1] = SBOX[temp[1]!]!;
       temp[2] = SBOX[temp[2]!]!;
@@ -108,7 +90,6 @@ function expandKey(key: Uint8Array): Uint8Array {
   return w;
 }
 
-/** XOR state with round key (in-place) */
 function addRoundKey(state: Uint8Array, rk: Uint8Array, round: number): void {
   const offset = round * 16;
   for (let i = 0; i < 16; i++) {
@@ -116,30 +97,25 @@ function addRoundKey(state: Uint8Array, rk: Uint8Array, round: number): void {
   }
 }
 
-/** Apply inverse S-box to each byte */
 function invSubBytes(state: Uint8Array): void {
   for (let i = 0; i < 16; i++) {
     state[i] = SBOX_INV[state[i]!]!;
   }
 }
 
-/** Inverse shift rows (right) */
 function invShiftRows(state: Uint8Array): void {
   let t: number;
-  // Row 1: shift 1 right
   t = state[13]!;
   state[13] = state[9]!;
   state[9] = state[5]!;
   state[5] = state[1]!;
   state[1] = t;
-  // Row 2: shift 2 right
   t = state[2]!;
   state[2] = state[10]!;
   state[10] = t;
   t = state[6]!;
   state[6] = state[14]!;
   state[14] = t;
-  // Row 3: shift 3 right (= 1 left)
   t = state[3]!;
   state[3] = state[7]!;
   state[7] = state[11]!;
@@ -147,7 +123,6 @@ function invShiftRows(state: Uint8Array): void {
   state[15] = t;
 }
 
-/** Inverse mix columns */
 function invMixColumns(state: Uint8Array): void {
   for (let col = 0; col < 4; col++) {
     const s0 = state[col * 4]!;
@@ -161,7 +136,6 @@ function invMixColumns(state: Uint8Array): void {
   }
 }
 
-/** Decrypt a single 16-byte block in place using the expanded round key */
 function aesDecryptBlock(block: Uint8Array, rk: Uint8Array, nr: number): void {
   const state = new Uint8Array(block);
   addRoundKey(state, rk, nr);
@@ -177,14 +151,8 @@ function aesDecryptBlock(block: Uint8Array, rk: Uint8Array, nr: number): void {
   block.set(state);
 }
 
-/**
- * Pure AES-CBC block decryption. Returns the still-padded plaintext.
- *
- * Preconditions (guaranteed by the only caller `aesCbcDecrypt`): `key.length`
- * is 16/24/32, `iv.length === 16`, `ciphertext.length % 16 === 0`. Never throws.
- */
 function aesCbcDecryptRaw(key: Uint8Array, iv: Uint8Array, ciphertext: Uint8Array): Uint8Array {
-  const nr = key.length / 4 + 6; // 10, 12, or 14
+  const nr = key.length / 4 + 6;
   const rk = expandKey(key);
 
   const plaintext = new Uint8Array(ciphertext.length);
@@ -192,9 +160,8 @@ function aesCbcDecryptRaw(key: Uint8Array, iv: Uint8Array, ciphertext: Uint8Arra
 
   for (let i = 0; i < ciphertext.length; i += 16) {
     const block = new Uint8Array(ciphertext.subarray(i, i + 16));
-    const ct = new Uint8Array(block); // save ciphertext block for next IV
+    const ct = new Uint8Array(block);
     aesDecryptBlock(block, rk, nr);
-    // XOR with previous ciphertext block
     for (let j = 0; j < 16; j++) {
       plaintext[i + j] = block[j]! ^ prev[j]!;
     }
@@ -204,13 +171,6 @@ function aesCbcDecryptRaw(key: Uint8Array, iv: Uint8Array, ciphertext: Uint8Arra
   return plaintext;
 }
 
-/**
- * Decrypt data encrypted with AES-CBC + PKCS#7 padding.
- *
- * @param key - 16, 24, or 32 bytes
- * @param iv  - 16 bytes
- * @param ciphertext - Must be a multiple of 16 bytes
- */
 export const aesCbcDecrypt = (
   key: Uint8Array,
   iv: Uint8Array,

@@ -1,11 +1,5 @@
 import type { SVGProps } from "react";
 
-/**
- * The real Montte mark (sourced from montte-nx favicon.svg). The three brand
- * facets map to `currentColor` at descending opacities, so the geometric depth
- * survives while staying monochrome with the rest of the site. Scales by its
- * 1987×1278 viewBox; pass `className` to size it.
- */
 export function MontteLogo(props: SVGProps<SVGSVGElement>) {
   return (
     <svg

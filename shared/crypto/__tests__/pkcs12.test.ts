@@ -396,7 +396,6 @@ const withHugePbeIterations = (pfxDer: Uint8Array): Effect.Effect<Uint8Array, un
     return yield* withPbeIterationsInEncryptedData(withoutMac, LIMIT + 1);
   });
 
-/** Rebuild the fixture PFX with an absurd MacData iteration count. */
 const withHugeMacIterations = (pfxDer: Uint8Array): Effect.Effect<Uint8Array, unknown> =>
   Effect.gen(function* () {
     const pfx = yield* decode(pfxDer);
@@ -447,7 +446,6 @@ describe("parsePkcs12 hardening", () => {
         expect(outcome.failure.code).toBe("crypto.CORRUPTED_FILE");
         expect(outcome.failure.reason).toContain("iteration count");
       }
-      // The whole point: fail fast, never run the 2^31-iteration KDF.
       expect(elapsedMs).toBeLessThan(1000);
     }),
   );

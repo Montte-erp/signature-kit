@@ -35,12 +35,6 @@ export function generateStaticParams() {
   return i18n.languages.map((lang) => ({ lang }));
 }
 
-/**
- * Root layout (the `[lang]` segment owns `<html>` — there is no `app/layout.tsx`;
- * every route lives under a locale prefix). Primes the request locale from the
- * route param for both Paraglide runtimes, applies Inter (sans) + Geist Mono
- * (mono), and enables the light/dark toggle via the default next-themes provider.
- */
 export default async function Layout({ params, children }: LayoutProps<"/[lang]">) {
   const { lang } = await params;
   const parsed = parseLocale(lang);

@@ -2,12 +2,6 @@ import { Marquee } from "@/components/ui/marquee";
 
 import { LogoPill, PROVIDERS } from "./provider-marks";
 
-/**
- * Remote-signers trust strip: a single edge-masked marquee of the real provider
- * logos SignatureKit ships an adapter for. Sits just under the hero as a quiet
- * "one SDK, every signer" signal; the full per-provider snippets live later in
- * <ProvidersShowcase>. Server component — pure-CSS motion, real greyscaled logos.
- */
 export function Integrations() {
   const items = PROVIDERS.map((brand) => ({
     key: brand.domain,

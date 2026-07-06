@@ -85,9 +85,6 @@ if (config === undefined) {
       "runs the create -> get -> list -> delete lifecycle against the sandbox",
       () =>
         Effect.gen(function* () {
-          // Two recipients sharing the same role exercise the submitter-role
-          // dedup fix: DocuSeal rejects duplicate roles inside one submission, so
-          // a successful create proves the provider disambiguated them.
           const input = {
             title: "SignatureKit live DocuSeal lifecycle",
             subject: "SignatureKit live DocuSeal lifecycle",
@@ -122,30 +119,18 @@ if (config === undefined) {
           expect(created.state).toBe("draft");
           expect(created.id.length).toBeGreaterThan(0);
 
-          // Everything after the create must clean up the sandbox submission,
-          // even if an assertion fails mid-way.
           yield* Effect.gen(function* () {
             const fetched = yield* getById(created.id);
             expect(fetched.provider).toBe("docuseal");
             expect(fetched.id).toBe(created.id);
             expect(fetched.detailsUrl).toContain(created.id);
 
-            // Paginates internally (limit=100 + after cursor); assert our
-            // freshly created submission is present in the listing.
             const listed = yield* listAll();
             expect(listed.map((request) => request.id)).toContain(created.id);
 
-            // downloadDocuSealSignedDocument is intentionally not exercised: a
-            // completed/signed artifact requires a human signer, and the sandbox
-            // returns the unsigned source document for a draft, so there is no
-            // meaningful "signed document" assertion to make here.
-
-            // Explicit delete is the asserted cleanup step; it returns void and
-            // treats a missing remote as success.
             const deleted = yield* deleteById(created.id);
             expect(deleted).toBeUndefined();
 
-            // Idempotent: deleting again still succeeds.
             const deletedAgain = yield* deleteById(created.id);
             expect(deletedAgain).toBeUndefined();
           }).pipe(Effect.ensuring(deleteById(created.id).pipe(Effect.ignore)));

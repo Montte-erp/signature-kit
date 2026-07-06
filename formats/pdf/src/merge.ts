@@ -8,12 +8,6 @@ import {
   PdfSchemaNameValue,
 } from "./config";
 
-/**
- * Merge page content from multiple PDFs into one document.
- *
- * pdf-lib `copyPages` copies pages only; AcroForm fields, document metadata, and
- * catalog-level form state from the source documents are intentionally dropped.
- */
 export const mergePdfs = (
   documents: ReadonlyArray<Uint8Array>,
 ): Effect.Effect<Uint8Array, PdfError> =>

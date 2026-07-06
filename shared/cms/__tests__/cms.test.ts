@@ -99,10 +99,6 @@ describe("CMS contracts", () => {
       certificateSha256,
     });
 
-    // Emitted in DER SET OF order (X.690 §11.6, ascending octet comparison of
-    // each member's encoding), NOT construction order. Strict
-    // ICP-Brasil/BouncyCastle validators re-canonicalize to this order before
-    // checking the RSA cipher.
     expect(attributes.map((attribute) => attribute.type)).toEqual([
       CmsOid.contentType,
       CmsOid.messageDigest,

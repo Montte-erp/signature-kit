@@ -6,14 +6,6 @@ import {
 } from "../components/formal-contract-pdf";
 import { isPdf } from "./helpers/dummy-pdf";
 
-/**
- * REAL-BROWSER proof that react-pdf ("pdfx") actually resolves in the browser —
- * the environment a node test can't speak for (yoga wasm, fontkit, Blob). This is
- * the exact path behind the demo's "Generating…": if react-pdf ever hangs in
- * Chromium, these fail on the per-test timeout instead of spinning forever.
- *
- * Runs only via apps/docs/vitest.browser.config.ts; self-skips in the node pass.
- */
 
 const PARAGRAPHS = [
   "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",

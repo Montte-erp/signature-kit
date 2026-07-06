@@ -216,14 +216,6 @@ export const PdfCoordinateTupleSchema = Schema.Tuple([
 ]);
 export type PdfCoordinateTuple = (typeof PdfCoordinateTupleSchema)["Type"];
 
-/**
- * A visible rubric stamp drawn onto one or more pages BEFORE signing. The PAdES
- * signature is a single CMS over the whole document; the rubric is page content
- * the byte range then covers — so "sign every page" means one signature plus the
- * same rubric repeated on each page, not N signatures. `rect` is
- * [left, bottom, right, top] in PDF points (bottom-left origin) and is applied
- * at the same geometry on every target page. `pages` defaults to "all".
- */
 export const PdfRubricPagesSchema = Schema.Union([
   Schema.Literals(["all"]),
   Schema.Array(Schema.Number),
@@ -910,17 +902,11 @@ export const PdfVerificationRequestSchema = Schema.Struct({
 export type PdfVerificationRequest = (typeof PdfVerificationRequestSchema)["Type"];
 
 export const PdfVerificationResultSchema = Schema.Struct({
-  /**
-   * Cryptographic and byte-range coverage integrity. Without `trustedRoots`,
-   * this does not bind the signer to a trusted chain; supply `trustedRoots` to
-   * make `valid` require `chainValid`.
-   */
   valid: Schema.Boolean,
   chainValid: Schema.Boolean,
   revocationStatus: CmsRevocationStatusSchema,
   signatureCount: Schema.Number,
   byteRange: PdfCoordinateTupleSchema,
-  /** Newest signature's signer serial number. */
   signerSerialNumber: Schema.NullOr(Schema.String),
 });
 export type PdfVerificationResult = (typeof PdfVerificationResultSchema)["Type"];

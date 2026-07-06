@@ -7,19 +7,12 @@ import { Button } from "@/components/ui/button";
 import { localePath } from "@/lib/links";
 import { m } from "@/paraglide/messages";
 
-/** GitHub mark — lucide-react dropped its brand icons, so inline the octocat. */
 const GithubMark = (props: SVGProps<SVGSVGElement>) => (
   <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden {...props}>
     <path d="M12 .5C5.37.5 0 5.78 0 12.29c0 5.2 3.44 9.6 8.21 11.16.6.11.82-.25.82-.56 0-.28-.01-1.02-.02-2-3.34.71-4.04-1.58-4.04-1.58-.55-1.37-1.33-1.74-1.33-1.74-1.09-.73.08-.71.08-.71 1.2.08 1.84 1.21 1.84 1.21 1.07 1.8 2.81 1.28 3.5.98.11-.76.42-1.28.76-1.57-2.67-.3-5.47-1.31-5.47-5.83 0-1.29.47-2.34 1.24-3.17-.12-.3-.54-1.52.12-3.17 0 0 1.01-.32 3.3 1.21a11.5 11.5 0 0 1 6 0c2.29-1.53 3.3-1.21 3.3-1.21.66 1.65.24 2.87.12 3.17.77.83 1.24 1.88 1.24 3.17 0 4.53-2.8 5.53-5.48 5.82.43.37.81 1.1.81 2.22 0 1.6-.01 2.9-.01 3.29 0 .31.21.68.83.56A12.01 12.01 0 0 0 24 12.29C24 5.78 18.63.5 12 .5z" />
   </svg>
 );
 
-/**
- * Landing footer — restrained: the brand cell (logo + short blurb + GitHub),
- * two tight link groups, and a bottom bar with the Montte attribution. No
- * provider link farm; the docs sidebar owns per-provider nav. Pure-monochrome
- * shadcn tokens, server component, every href a real route or honest URL.
- */
 
 const GITHUB_URL = "https://github.com/Montte-erp/signature-kit";
 

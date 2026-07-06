@@ -298,8 +298,6 @@ describe("PDF signatures", () => {
 
       expect(signed.byteLength).toBeGreaterThan(pdf.byteLength);
       expect(verification.valid).toBe(true);
-      // No trustedRoots supplied, so the ICP-Brasil chain is intentionally not
-      // validated; chainValid is honestly false rather than a blanket true.
       expect(verification.chainValid).toBe(false);
       expect(verification.signatureCount).toBe(1);
       expect(verification.byteRange[0]).toBe(0);
@@ -339,7 +337,6 @@ describe("PDF signatures", () => {
 
       expect(personSigned.byteLength).toBeGreaterThan(companySigned.byteLength);
       expect(verification.valid).toBe(true);
-      // No trustedRoots supplied: chain intentionally unverified (see above).
       expect(verification.chainValid).toBe(false);
       expect(verification.signatureCount).toBe(2);
     }),
@@ -355,8 +352,6 @@ describe("PDF signatures", () => {
         signatureLength: 16384,
       }).pipe(Effect.provide(a1SignaturesLayer({ pfx, password: PASSWORD })));
 
-      // Appending bytes leaves the CMS cryptographically intact but the
-      // signature no longer covers the end of the file — must be invalid.
       const appended = encodeAscii("\n% forged incremental content\n%%EOF\n");
       const forged = new Uint8Array(signed.byteLength + appended.byteLength);
       forged.set(signed);
@@ -380,7 +375,6 @@ describe("PDF signatures", () => {
         return new Uint8Array(await doc.save({ useObjectStreams: false }));
       });
 
-      // Rubric on EVERY page, then ONE PAdES signature over the stamped bytes.
       const stamped = yield* stampPdfRubric(base, {
         rect: [20, 20, 150, 64],
         pages: "all",
@@ -396,7 +390,6 @@ describe("PDF signatures", () => {
       expect(stamped.byteLength).toBeGreaterThan(base.byteLength);
       expect(verification.valid).toBe(true);
       expect(verification.signatureCount).toBe(1);
-      // ByteRange starts at 0 — the one signature covers the rubric on every page.
       expect(verification.byteRange[0]).toBe(0);
     }),
   );

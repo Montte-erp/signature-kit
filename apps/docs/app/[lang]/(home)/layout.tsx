@@ -11,7 +11,6 @@ import { SITE_NAME } from "@/lib/site";
 
 export default async function Layout({ params, children }: LayoutProps<"/[lang]">) {
   const { lang } = await params;
-  // Prime the request locale before rendering the brand nav and footer.
   const parsed = parseLocale(lang);
   if (parsed === undefined) notFound();
   const locale = setServerLocale(parsed);

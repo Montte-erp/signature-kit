@@ -9,22 +9,12 @@ import { m } from "@/paraglide/messages";
 
 import { Container, Section, SectionHeading } from "./_shared";
 
-/**
- * Auto-signature showcase — SSR-safe shell.
- *
- * The heavy interactive body (`@react-pdf/renderer` + `pdfjs-dist`, ~1MB) lives
- * in `./auto-sign-inner` and is code-split out via `next/dynamic({ ssr: false })`
- * so it never runs during the home page's static prerender. While the chunk
- * loads (and during SSR) a static, monochrome skeleton stands in. The demo owns
- * its state in a module-level store, so "Reset" lives there — no remount needed.
- */
 
 const AutoSignInner = dynamic(
   () => import("./auto-sign-inner").then((mod) => mod.AutoSignInner),
   { ssr: false, loading: () => <AutoSignSkeleton /> },
 );
 
-/** Static stand-in mirroring the inner two-column layout (SSR + chunk load). */
 function AutoSignSkeleton() {
   return (
     <div
@@ -46,9 +36,6 @@ function AutoSignSkeleton() {
 }
 
 export function AutoSign() {
-  // The inner demo weighs ~1MB (@react-pdf/renderer + pdfjs-dist) and starts
-  // generating PDFs on import, so only mount it once the section approaches
-  // the viewport.
   const bodyRef = useRef<HTMLDivElement>(null);
   const inView = useInView(bodyRef, { once: true, margin: "400px 0px" });
 

@@ -1,10 +1,5 @@
 import { signatureKitErrorCatalog } from "@signature-kit/signatures";
 
-/**
- * Renders the full `SignatureKitError` catalog. Each row carries a stable
- * `id="err-<CODE>"` anchor (e.g. `#err-WRONG_PASSWORD`) so other pages can deep
- * link to a specific code.
- */
 export function ErrorCatalog() {
   return (
     <div className="not-prose my-6 overflow-hidden rounded-lg border border-fd-border text-fd-foreground">

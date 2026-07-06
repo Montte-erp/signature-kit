@@ -29,7 +29,6 @@ import {
   type PdfSignaturePage,
 } from "../src/config";
 
-// A three-page PDF so "all" vs a page list is observable.
 const createThreePagePdf: Effect.Effect<Uint8Array> = Effect.promise(async () => {
   const pdf = await PDFDocument.create();
   for (let index = 0; index < 3; index += 1) {
@@ -40,7 +39,6 @@ const createThreePagePdf: Effect.Effect<Uint8Array> = Effect.promise(async () =>
   return new Uint8Array(bytes);
 });
 
-// 1×1 PNG (opaque black) — exercises the embedPng path without a fixture file.
 const ONE_BY_ONE_PNG = Uint8Array.from(
   atob(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -237,7 +235,6 @@ describe("stampPdfRubric", () => {
         lines: ["TELEMACO CERIOLLI JUNIOR", "CPF/CNPJ: 767.081.102-10", "25/06/2026 19:00"],
       });
       expect(yield* pageCount(stamped)).toBe(3);
-      // Drawing real content onto all three pages grows the document.
       expect(stamped.byteLength).toBeGreaterThan(pdf.byteLength);
     }),
   );

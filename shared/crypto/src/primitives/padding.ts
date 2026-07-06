@@ -1,11 +1,3 @@
-/**
- * PKCS#7 unpadding helper.
- *
- * Validates the trailing PKCS#7 padding of a decrypted block stream and returns
- * the plaintext with the padding removed. Invalid padding fails with a tagged
- * `CryptoError` at the decision point rather than throwing.
- */
-
 import { Effect } from "effect";
 import { CryptoError, CryptoErrorCodeValue } from "../config";
 

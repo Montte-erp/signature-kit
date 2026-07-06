@@ -2,17 +2,6 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-/**
- * Landing section primitives — dark, pure-monochrome.
- *
- * Server components. They carry ONLY the shadcn tokens mapped in app/global.css
- * (bg-background, text-foreground, text-muted-foreground, border-border, …) —
- * no coral, no fd-* tokens (those belong to the MDX docs surface only).
- *
- * Every landing section is:
- *   <Section><Container>…</Container></Section>
- * and opens with <SectionHeading eyebrow=… title=… lead=… />.
- */
 
 interface SectionProps {
   children: ReactNode;
@@ -20,10 +9,6 @@ interface SectionProps {
   id?: string;
 }
 
-/**
- * Full-bleed section band. The `py-12 sm:py-16` vertical rhythm lives on the inner
- * <Container>, so a Section can host its own full-width backdrop if needed.
- */
 export function Section({ children, className, id }: SectionProps) {
   return (
     <section id={id} className={cn("relative", className)}>
@@ -37,10 +22,6 @@ interface ContainerProps {
   className?: string;
 }
 
-/**
- * Centered content column with the standard `max-w-6xl px-6 py-12 sm:py-16` rhythm.
- * Pass a className to override the padding (e.g. the hero's asymmetric pt/pb).
- */
 export function Container({ children, className }: ContainerProps) {
   return (
     <div className={cn("mx-auto max-w-6xl px-6 py-12 sm:py-16", className)}>
@@ -54,7 +35,6 @@ interface EyebrowProps {
   className?: string;
 }
 
-/** Mono micro-label that sits above every heading. */
 export function Eyebrow({ children, className }: EyebrowProps) {
   return (
     <p className={cn("font-mono text-xs text-muted-foreground", className)}>
@@ -70,10 +50,6 @@ interface SectionHeadingProps {
   className?: string;
 }
 
-/**
- * Section header: mono eyebrow + tight medium-weight h2 + optional muted lead.
- * Every section opens identically: mono eyebrow, tight medium h2, muted lead.
- */
 export function SectionHeading({
   eyebrow,
   title,

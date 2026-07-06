@@ -290,8 +290,6 @@ const toClicksignSignatureRequestAttributes = (
     state: toClicksignSignatureRequestAttributesState(document.status),
     ...(document.status === undefined ? {} : { providerStatus: document.status }),
     detailsUrl: `${baseUrl}${clicksignDocumentPath(document.key)}`,
-    // Clicksign v1 has no /documents/{key}/download endpoint — signed files are
-    // only exposed through document.downloads.*_url, so absent means absent.
     ...(downloadUrl === undefined ? {} : { downloadUrl }),
   };
 };
@@ -360,7 +358,6 @@ const cancelClicksignSignatureRequestInternal = (
 ): Effect.Effect<void, SignatureKitError> =>
   http.requestVoid({
     provider: PROVIDER,
-    // Clicksign v1 cancels via PATCH /api/v1/documents/{key}/cancel.
     method: "PATCH",
     ...withAccessToken(baseUrl, `${clicksignDocumentPath(id)}/cancel`, options.accessToken),
   });
@@ -442,8 +439,6 @@ const downloadClicksignSignedDocumentInternal = (
           ...clicksignDownloadTarget(baseUrl, signedDocumentUrl, options.accessToken),
         });
       }
-      // No downloads.*_url on the document yet — Clicksign only exposes the
-      // signed file once signing finishes; there is no generic download route.
       return Effect.fail(
         new SignatureKitError({
           code: SignatureKitErrorCodeValue.unsupportedOperation,
@@ -540,9 +535,6 @@ const createDocument = (
             deadline_at: input.expiresAt?.toISOString(),
             auto_close: options.autoClose ?? true,
             locale: options.locale ?? "pt-BR",
-            // Only serialize signing when the caller asked for an order —
-            // multiple recipients without routingOrder sign in parallel, like
-            // every other provider.
             sequence_enabled: input.recipients.some(
               (recipient) => recipient.routingOrder !== undefined,
             ),
@@ -699,9 +691,7 @@ export const ClicksignSignatureRequestProvider = () =>
       return ClicksignSignatureRequest.Provider.of({
         nuke: { skip: true },
         diff: clicksignSignatureRequestDiff,
-        list: () =>
-          // Retained resources must not feed account-wide nuke enumeration.
-          Effect.succeed([]),
+        list: () => Effect.succeed([]),
         read: Effect.fn(function* ({ output }) {
           if (output === undefined) return undefined;
           const options = yield* credentials;

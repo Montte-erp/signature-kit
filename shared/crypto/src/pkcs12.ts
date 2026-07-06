@@ -1,12 +1,3 @@
-/**
- * PKCS#12 (.pfx/.p12) parser — fully Effect-native.
- *
- * Navigates the ASN.1 structure with the typed `@signature-kit/asn1` accessors, so
- * every read narrows without a cast. The MAC check is the password gate; once it
- * passes, a later cipher failure is treated as a corrupt file. All failures are
- * `CryptoError` constructed at the decision point — nothing throws.
- */
-
 import {
   type Asn1Node,
   Asn1Error,
@@ -57,15 +48,8 @@ const OID_SHA256 = "2.16.840.1.101.3.4.2.1";
 const OID_SHA384 = "2.16.840.1.101.3.4.2.2";
 const OID_SHA512 = "2.16.840.1.101.3.4.2.3";
 
-// =============================================================================
-// Boundary helpers
-// =============================================================================
-
 type Pkcs12Error = CryptoError | Asn1Error;
 
-// Iteration counts come from the (attacker-controlled) file; the KDFs run in
-// pure JS, so an unbounded count pins the event loop before the password is
-// even checked. OpenSSL defaults to 2048; 10M gives generous headroom.
 const MAX_KDF_ITERATIONS = 10_000_000;
 
 const boundedIterations = (iterations: number, label: string): Effect.Effect<number, CryptoError> =>
@@ -107,7 +91,6 @@ const concatBytes = (parts: readonly Uint8Array[]): Uint8Array => {
   return result;
 };
 
-/** Read an OCTET STRING, concatenating BER constructed fragments. */
 const readOctetString = (node: Asn1Node): Effect.Effect<Uint8Array, CryptoError> => {
   if (node.tag !== 0x04) {
     return Effect.fail(
@@ -122,7 +105,6 @@ const readOctetString = (node: Asn1Node): Effect.Effect<Uint8Array, CryptoError>
   return Effect.map(Effect.forEach(node.children, readOctetString), concatBytes);
 };
 
-/** Unwrap an EXPLICIT/IMPLICIT context tag. */
 const unwrapContextTag = (
   node: Asn1Node,
   expectedTag: number,
@@ -144,10 +126,6 @@ const unwrapContextTag = (
   }
   return decode(node.bytes);
 };
-
-// =============================================================================
-// PKCS#12 KDF (RFC 7292 Appendix B) — pure, total
-// =============================================================================
 
 const hashBytes = (algorithm: HmacHashAlgorithm, data: Uint8Array): Uint8Array => {
   switch (algorithm) {
@@ -238,10 +216,6 @@ const pkcs12Kdf = (
   return result;
 };
 
-// =============================================================================
-// MAC verification
-// =============================================================================
-
 const macHashAlgorithm = (oid: string): HmacHashAlgorithm =>
   oid === OID_SHA256
     ? "sha256"
@@ -300,10 +274,6 @@ const verifyMac = (
       );
     }
   });
-
-// =============================================================================
-// PBE decryption
-// =============================================================================
 
 const pbkdf2HashAlgorithm = (oid: string): Effect.Effect<HmacHashAlgorithm, CryptoError> => {
   if (oid === OID_HMAC_SHA1) return Effect.succeed("sha1");
@@ -408,7 +378,6 @@ const decryptPbe = (
       return yield* tripleDesCbcDecrypt(derive(24, 1), derive(8, 2), encryptedData);
     }
     if (algorithmOid === OID_PBE_SHA_2DES) {
-      // 2-key 3DES: derive 16 bytes (K1||K2) and expand to the EDE key K1||K2||K1.
       const k16 = derive(16, 1);
       const key24 = concatBytes([k16, k16.subarray(0, 8)]);
       return yield* tripleDesCbcDecrypt(key24, derive(8, 2), encryptedData);
@@ -472,10 +441,6 @@ const decryptEncryptedData = (
     );
   });
 
-// =============================================================================
-// SafeBag parsing
-// =============================================================================
-
 type SafeBag =
   | { readonly kind: "cert"; readonly data: Uint8Array; readonly localKeyId: string | null }
   | { readonly kind: "key"; readonly data: Uint8Array; readonly localKeyId: string | null };
@@ -486,7 +451,6 @@ const bytesToHex = (bytes: Uint8Array): string => {
   return output;
 };
 
-/** Read the localKeyId (OID 1.2.840.113549.1.9.21) from a SafeBag's bagAttributes. */
 const readLocalKeyId = (
   bagFields: readonly Asn1Node[],
 ): Effect.Effect<string | null, Pkcs12Error> =>
@@ -579,11 +543,6 @@ const decryptShroudedKeyBag = (
     return pkcs8;
   });
 
-// =============================================================================
-// Public API
-// =============================================================================
-
-/** Parse a `.pfx`/`.p12` container, returning DER certificate + private key. */
 export const parsePkcs12 = (
   data: Uint8Array,
   password: Redacted.Redacted<string>,
@@ -684,8 +643,6 @@ export const parsePkcs12 = (
 
     const privateKey = yield* decryptShroudedKeyBag(keyBag.data, bmpPassword, passwordBytes);
 
-    // Pair the end-entity to the key by localKeyId (RFC 7292); the chain is the rest.
-    // Fall back to the first cert when no localKeyId is present (the common leaf-first case).
     const matched =
       keyBag.localKeyId === null
         ? undefined

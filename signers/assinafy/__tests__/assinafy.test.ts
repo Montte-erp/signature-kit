@@ -15,11 +15,6 @@ import {
   type AssinafySignatureRequestProps,
 } from "../src/index";
 
-// Real end-to-end coverage against the Assinafy sandbox. There are no mocks:
-// every call in the "live" branch hits https://sandbox.assinafy.com.br with the
-// account credentials loaded by tooling/vitest/load-env.ts. Run with
-//   SIGNATURE_KIT_LIVE_REMOTE_SIGNERS=1 bunx vitest run signers/assinafy/__tests__/assinafy.test.ts
-// Without the flag the suite reports a clean skip; with the flag, Config requires credentials.
 const config = loadFlaggedConfig(
   "SIGNATURE_KIT_LIVE_REMOTE_SIGNERS",
   Config.all({
@@ -53,8 +48,6 @@ const livePdf = (): Uint8Array => {
   );
 };
 
-// Assinafy's real resource is the uploaded document; the account-scoped list is
-// a flat array with page/per_page query support but no pagination metadata.
 const AssinafyDocumentResourceSchema = Schema.Struct({
   id: Schema.NonEmptyString,
   status: Schema.optional(Schema.String),
@@ -111,8 +104,6 @@ const deleteAssinafyDocument = (
       if (response.ok || response.status === 404) return Effect.void;
       return Effect.promise(() => response.text()).pipe(
         Effect.flatMap((body) => {
-          // A freshly uploaded document is briefly locked while Assinafy
-          // extracts metadata; retry the delete until it releases.
           if (
             response.status === 400 &&
             body.includes("metadata_processing") &&
@@ -136,9 +127,6 @@ const liveRecipientEmail = (email: string): string => {
   return `${email.slice(0, at)}+signature-kit-${Date.now()}${email.slice(at)}`;
 };
 
-// Cleanup deletes exactly what this run created. Idempotent: provider delete and
-// direct document delete both accept already-deleted documents, and re-runs create
-// fresh unique signer emails so signer cleanup only targets this run's recipient.
 const deleteAssinafyArtifacts = (
   request: AssinafySignatureRequestAttributes,
   options: { readonly accountId: string; readonly apiKey: string; readonly recipientEmail: string },
@@ -175,10 +163,6 @@ const deleteAssinafyArtifacts = (
   });
 };
 
-// Pages the account-scoped documents list (page/per_page) until it locates the
-// created document or exhausts the pages. This exercises real pagination: the
-// account accumulates documents across runs, so the created id may not sit on
-// page 1.
 const findCreatedDocumentAcrossPages = (
   baseUrl: string,
   accountId: string,
@@ -256,7 +240,6 @@ if (config === undefined) {
             expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           } satisfies AssinafySignatureRequestProps;
 
-          // 1. create (draft): real multi-step upload -> signer -> assignment.
           const request = yield* reconcileAssinafySignatureRequest(providerOptions, input);
 
           yield* Effect.gen(function* () {
@@ -271,8 +254,6 @@ if (config === undefined) {
             const baseUrl = new URL(documentUrl).origin;
             expect(documentUrl).toBe(`${baseUrl}/v1/documents/${request.id}`);
 
-            // 2. get by document id: the provider maps the real document resource
-            // and its embedded assignment into AssinafySignatureRequestAttributes.
             const fetched = yield* getAssinafySignatureRequest(providerOptions, request.id).pipe(
               Effect.provide(signatureHttpClientLive),
             );
@@ -292,8 +273,6 @@ if (config === undefined) {
             expect(document.data.id).toBe(request.id);
             expect(document.data.assignment?.id.length).toBeGreaterThan(0);
 
-            // 3. list + pagination: the provider pages the real account-scoped
-            // document list until Assinafy returns a short page.
             const listed = yield* listAssinafySignatureRequests(providerOptions).pipe(
               Effect.provide(signatureHttpClientLive),
             );
@@ -308,8 +287,6 @@ if (config === undefined) {
             );
             expect(found).toBe(true);
 
-            // 4. delete by document id: the real deletable resource is the
-            // document. The ensuring cleanup below repeats deletion safely.
             const deleteResult = yield* deleteAssinafySignatureRequest(
               providerOptions,
               request.id,

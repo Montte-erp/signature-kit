@@ -1,12 +1,3 @@
-/**
- * verifyDetachedSignedData — verify a detached CMS SignedData against its content.
- *
- * pkijs `verify()` THROWS `SignedDataVerifyError` on a digest/signature mismatch
- * instead of returning false; we narrow that at the boundary and turn it into a
- * `valid: false` verdict. Malformed input and engine faults stay tagged errors.
- * When `trustedRoots` is supplied, the signer chain is validated too.
- */
-
 import { Effect, Schema } from "effect";
 import * as pkijs from "pkijs";
 import {

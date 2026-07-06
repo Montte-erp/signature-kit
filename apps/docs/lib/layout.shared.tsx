@@ -4,13 +4,6 @@ import { Logo } from "@/components/logo";
 import type { Lang } from "@/lib/locale";
 import { SITE_NAME } from "@/lib/site";
 
-/**
- * Shared nav/layout options, locale-aware. Internal URLs carry the active
- * `[lang]` prefix so the nav never bounces through the proxy's Accept-Language
- * redirect. Documentation pages keep the Fumadocs search, language switcher,
- * and theme toggle; the landing page overrides this with a quieter brand-only
- * header.
- */
 export function baseOptions(lang: Lang): BaseLayoutProps {
   return {
     nav: {
@@ -25,8 +18,6 @@ export function baseOptions(lang: Lang): BaseLayoutProps {
         </div>
       ),
     },
-    // A single clean sun/moon toggle — not the default 3-way light/dark/system
-    // segmented control, which renders cramped in the sidebar footer.
     themeSwitch: { mode: "light-dark" },
   };
 }

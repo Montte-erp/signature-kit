@@ -204,9 +204,6 @@ const readResponseText = (
       }),
   });
 
-// A rate-limited request (429) was rejected before it took effect, so it is always
-// safe to retry regardless of method idempotency. A 5xx on a non-idempotent method
-// may have been processed, so it stays gated by isRetryableMethod.
 const isRetryableStatus = (method: SignatureHttpMethod, status: number): boolean =>
   status === 429 || (isRetryableMethod(method) && status >= 500);
 
@@ -214,9 +211,6 @@ const RATE_LIMIT_RESET_DELTA_CUTOFF_SECONDS = 10_000_000;
 const RATE_LIMIT_RESET_PAST_SKEW_SECONDS = 86_400;
 const RATE_LIMIT_RESET_FUTURE_WINDOW_SECONDS = 31_536_000;
 
-// Absolute epoch (seconds) after which a rate-limited request may be retried, read from
-// the standard `x-ratelimit-reset` (epoch OR delta — providers use both) or
-// `Retry-After` (delta seconds) headers.
 const retryAfterEpochSeconds = (timed: TimedResponse): number | undefined => {
   const nowSeconds = Math.floor(Date.now() / 1000);
   const reset = Number(timed.response.headers.get("x-ratelimit-reset"));

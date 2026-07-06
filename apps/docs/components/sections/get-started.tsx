@@ -8,19 +8,6 @@ import { m } from "@/paraglide/messages";
 
 import { Container, Section, SectionHeading } from "./_shared";
 
-/**
- * Two-step quickstart, framed as one house two-panel terminal Card.
- *
- * Left panel (01): install the two primary packages through the package manager
- * of your choice. Right panel (02): the real first program — load an A1 layer
- * with `a1SignaturesLayer`, then inspect the certificate and sign content
- * through the `signatures` accessors, all piped through `Effect.provide`.
- *
- * Each panel is a header strip (index chip + mono label) → flush code body →
- * an `mt-auto` footnote shelf, so both shelves pin to the same baseline.
- *
- * Every code string is valid against @signature-kit/* GROUND TRUTH.
- */
 
 const INSTALL: ReadonlyArray<{ readonly value: string; readonly label: string; readonly code: string }> = [
   { value: "bun", label: "bun", code: "bun add @signature-kit/signatures @signature-kit/a1" },
@@ -53,9 +40,7 @@ const program = Effect.gen(function* () {
 
 const { identity, artifact } = await Effect.runPromise(program)`;
 
-// Stripped-chrome CodeBlock so the highlighted figure sits flush inside a panel.
 const FLUSH = "!my-0 border-0 bg-transparent shadow-none";
-// Circular numbered step badge with a soft ring — reads as an ordered sequence.
 const INDEX_CHIP =
   "grid size-6 shrink-0 place-items-center rounded-full border border-border bg-background font-mono text-[11px] font-medium text-foreground";
 

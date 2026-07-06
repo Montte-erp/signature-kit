@@ -16,21 +16,6 @@ import { m } from "@/paraglide/messages";
 
 import { Container, Section, SectionHeading } from "./_shared";
 
-/**
- * Capabilities — the "what you can do" band:
- * each capability is a left column (tight h3 + muted description + a
- * "Read the docs →" link to a REAL /docs route) over a bordered card holding a
- * server-highlighted <CodeBlock />.
- *
- * Two axes of the product live here, kept honest against GROUND TRUTH:
- *   - the local SignerAdapter seam (signatures.*, signPdf, signXml) provided by
- *     a `Signatures` layer (A1 or any custom adapter);
- *   - the remote-provider axis (`*SignatureRequest` resources + `providers(...)`
- *     layers over `SignatureHttpClient`), so snippets use Alchemy as the
- *     declarative remote-workflow seam.
- *
- * Every code string is valid against @signature-kit/*; nothing invented.
- */
 
 interface Capability {
   title: () => string;

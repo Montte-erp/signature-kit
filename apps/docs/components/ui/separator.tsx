@@ -2,11 +2,6 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-/**
- * Minimal, dependency-free Separator with the shadcn API (orientation +
- * decorative). A hairline rule on the `--border` token; vertical variant for
- * inline dividers (e.g. the provider marquee).
- */
 function Separator({
   className,
   orientation = "horizontal",

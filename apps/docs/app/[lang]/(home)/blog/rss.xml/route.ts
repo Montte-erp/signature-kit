@@ -4,8 +4,6 @@ import { blogPostPath, sortedPosts } from "@/lib/blog";
 import { parseLocale, type Lang } from "@/lib/locale";
 import { captureServerEvent } from "@/lib/posthog/server";
 
-// Per-locale RSS 2.0 feed at /{lang}/blog/rss.xml. Hand-rolled XML keeps it
-// dependency-free; the static `rss.xml` segment wins over the sibling `[slug]`.
 
 export function generateStaticParams() {
   return i18n.languages.map((lang) => ({ lang }));

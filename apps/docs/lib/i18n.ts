@@ -1,27 +1,12 @@
 import { defineI18n } from "fumadocs-core/i18n";
 import { defineI18nUI } from "fumadocs-ui/i18n";
 
-/**
- * Authoritative i18n config for the docs. Fumadocs owns routing: it builds one
- * page tree per language, the proxy prefixes every path, and `loader()` matches
- * `*.pt-br.mdx` sibling files via the default `dot` parser. Both locales are
- * always prefixed (`hideLocale: "never"`) so `/en-us/...` and `/pt-br/...` are
- * symmetric — there is no unprefixed route. `fallbackLanguage` defaults to
- * `defaultLanguage`, so a missing `pt-br` page renders its `en-us` source rather
- * than 404'ing (incremental translation rollout).
- */
 export const i18n = defineI18n({
   defaultLanguage: "en-US",
   languages: ["en-US", "pt-BR"],
   hideLocale: "never",
 });
 
-/**
- * Brazilian-Portuguese strings for the built-in Fumadocs UI chrome (search, TOC,
- * pagination, theme + language switch, 404, page actions). English ships as the
- * default, so only the `pt-br` overrides live here. `displayName` feeds the
- * built-in language switcher.
- */
 export const { provider } = defineI18nUI(i18n, {
   "en-US": { displayName: "English" },
   "pt-BR": {

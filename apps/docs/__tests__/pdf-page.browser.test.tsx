@@ -6,22 +6,10 @@ import { A4, makeDummyPdf } from "./helpers/dummy-pdf";
 import { PdfPage, loadPdfjs } from "../components/pdf-page";
 import type { PdfDocumentProxy } from "../components/pdf-page";
 
-/**
- * Browser-mode placement test (run via apps/docs/vitest.browser.config.ts). The
- * shared `PdfPage` is the real pdf.js rendering surface used by BOTH the signing
- * modal (DocumentCanvas) and the auto-sign demo. Here it rasterises a real dummy
- * PDF page to a canvas, renders the signature marker overlay, and reports click
- * positions as page fractions.
- *
- * Like the other `*.browser.test.*` files in this repo, it self-skips under the
- * plain `vitest run` (node) discovery. The real component loader owns pdf.js and
- * points at the same react-pdf-bundled pdfjs major that production uses.
- */
 
 const rafTick = () =>
   new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
 
-/** Pump animation frames until `predicate` holds, with a real frame ceiling. */
 async function waitForFrames(
   predicate: () => boolean,
   label: string,
@@ -48,14 +36,13 @@ if (typeof document === "undefined") {
       if (doc) return;
       const pdfjs = await loadPdfjs();
       const bytes = await makeDummyPdf({ pages: 1, size: A4, label: "Browser dummy" });
-      // pdf.js detaches the input buffer → slice so the source stays intact.
       doc = await pdfjs.getDocument({ data: bytes.slice() }).promise;
       expect(doc.numPages).toBe(1);
     };
 
     const mount = (ui: React.ReactElement) => {
       container = document.createElement("div");
-      container.style.width = "400px"; // concrete width for the aspect-ratio box
+      container.style.width = "400px";
       document.body.appendChild(container);
       root = createRoot(container);
       root.render(ui);
@@ -93,8 +80,6 @@ if (typeof document === "undefined") {
       );
 
       const canvas = () => currentContainer().querySelector("canvas");
-      // scale = 2 in PdfPage → a finished render sizes the canvas WELL past the
-      // default 300×150; wait for the real painted size, not just non-zero.
       await waitForFrames(
         () => {
           const c = canvas();
@@ -105,11 +90,10 @@ if (typeof document === "undefined") {
 
       const c = canvas();
       if (c === null) expect.fail("canvas missing after render");
-      expect(c.width).toBeGreaterThan(A4.width); // ~1190
-      expect(c.height).toBeGreaterThan(A4.height); // ~1684
+      expect(c.width).toBeGreaterThan(A4.width);
+      expect(c.height).toBeGreaterThan(A4.height);
       expect(c.width / c.height).toBeCloseTo(A4.width / A4.height, 1);
 
-      // The placement layer reports clicks as page fractions (0..1).
       const layer = currentContainer().querySelector<HTMLElement>('[role="button"]');
       if (layer === null) expect.fail("placement layer missing");
       layer.getBoundingClientRect();
@@ -153,7 +137,6 @@ if (typeof document === "undefined") {
         "the pdf.js canvas to finish painting at render scale",
       );
 
-      // The marker badge text ("signature") proves the overlay rendered.
       await waitForFrames(
         () => currentContainer().textContent?.includes("signature") ?? false,
         "the signature marker overlay",

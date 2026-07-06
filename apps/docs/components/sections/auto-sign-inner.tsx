@@ -33,24 +33,7 @@ import { createSyncStore, useSyncStore } from "@/lib/sync-store";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
 
-/*
- * Auto-signature demo — heavy interactive body (loaded ssr:false from auto-sign.tsx
- * so react-pdf never runs during the SSG prerender).
- *
- * GENERATION is this docs app's own react-pdf ("pdfx") path via
- * generateFormalContractPdf — a real A4 contract
- * with a FORMAL signature field. "prepare" renders the empty field (preview);
- * "sign" re-renders with the applied signature filling the field. The visible
- * crypto/PAdES step is out of scope (it needs a real .pfx — that is the live
- * <Signer /> section); "signed" here means the field is filled in the real bytes.
- *
- * STATE is a module-level sync store consumed with `useSyncExternalStore`.
- * Queue work is an Effect program seeded once at module load, then re-run from
- * button events. React only subscribes and renders; resource loading uses
- * callback refs with cleanup.
- */
 
-// --- demo data -------------------------------------------------------------
 
 const LOREM = [
   "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
@@ -60,10 +43,6 @@ const LOREM = [
   "Qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem.",
 ];
 
-// Each document showcases a different signature COMPONENT variant, so the demo
-// walks through the range (line · field · witnessed · rubrica).
-// Names/labels are Paraglide message refs (not strings) so they resolve in the
-// active locale at render/queue time.
 const DEMO_DOCS: ReadonlyArray<{
   readonly id: string;
   readonly name: () => string;
@@ -106,7 +85,6 @@ const SIGNER: Omit<SignedMark, "date"> = {
   document: "CPF/CNPJ: 000.000.000-00",
 };
 
-// --- types -----------------------------------------------------------------
 
 type DocPhase = "queued" | "generating" | "ready" | "signing" | "signed";
 
@@ -114,7 +92,7 @@ type AutoDoc = {
   readonly id: string;
   readonly name: string;
   readonly variantLabel: string;
-  readonly pdfBytes?: Uint8Array; // current display bytes (empty field, then signed)
+  readonly pdfBytes?: Uint8Array;
   readonly signed?: boolean;
 };
 
@@ -170,8 +148,6 @@ type AutoState = {
   readonly busy: boolean;
 };
 
-// A queue task: "prepare" renders the empty-field preview; "sign" re-renders with
-// the applied signature filling the field.
 type QueueItem = { readonly id: string; readonly name: string; readonly mode: "prepare" | "sign" };
 const statusEntry = (id: string, phase: DocPhase): readonly [string, DocPhase] => [id, phase];
 
@@ -182,10 +158,6 @@ const initialState = (): AutoState => ({
   busy: false,
 });
 
-// --- module-level state and Effect queue ------------------------------------
-// State lives outside React; components subscribe through `useSyncExternalStore`.
-// Sequential work is an Effect program, so no React lifecycle is needed to seed
-// or drain the preview/signing queue.
 
 const store = createSyncStore<AutoState>(initialState());
 
@@ -241,8 +213,6 @@ const runQueueItems = (items: ReadonlyArray<QueueItem>): Effect.Effect<void> =>
         Effect.ensuring(Effect.sync(() => store.setState((s) => ({ ...s, busy: false })))),
       );
 
-// runPromiseExit: fire-and-forget queue runs must never surface as unhandled
-// promise rejections if PDF generation fails.
 void Effect.runPromiseExit(
   runQueueItems(DEMO_DOCS.map((demo) => ({ id: demo.id, name: demo.name(), mode: "prepare" }))),
 );
@@ -257,8 +227,6 @@ const autoSign = (): void => {
   captureDocsEvent("auto_sign_demo_started", {
     document_count: DEMO_DOCS.length,
   });
-  // Re-render every document with the signature filled. The worker regenerates
-  // from scratch, so it never depends on prior bytes.
   store.setState((s) => ({
     ...s,
     docs: s.docs.map((d) => ({ ...d, signed: false })),
@@ -274,8 +242,6 @@ const autoSign = (): void => {
   );
 };
 
-// Reset back to fresh previews. The store is module-level, so this — not a React
-// remount — is what clears the demo.
 const resetDemo = (): void => {
   if (store.getSnapshot().busy) return;
   captureDocsEvent("auto_sign_demo_reset", {
@@ -303,7 +269,6 @@ function downloadDoc(doc: AutoDoc): void {
   URL.revokeObjectURL(url);
 }
 
-// --- per-document status badge --------------------------------------------
 
 function DocBadge({ phase }: { phase: DocPhase | undefined }) {
   if (phase === "signed")
@@ -339,15 +304,7 @@ function DocBadge({ phase }: { phase: DocPhase | undefined }) {
   return null;
 }
 
-// --- one rendered document -------------------------------------------------
 
-/**
- * Rasterises the current bytes (empty-field preview, then signed) via the shared
- * {@link PdfPage}. pdf.js detaches the buffer it is handed, so we pass a `.slice()`
- * and keep the originals for download. The signature field is part of the PDF
- * itself, so there is no overlay marker. Resource loading is attached to a
- * callback ref; React calls the returned cleanup when the node or bytes change.
- */
 function AutoDocCanvas({ doc }: { doc: AutoDoc }) {
   const [pdfDoc, setPdfDoc] = React.useState<PdfDocumentProxy | null>(null);
   const bytes = doc.pdfBytes;
@@ -387,7 +344,6 @@ function AutoDocCanvas({ doc }: { doc: AutoDoc }) {
   );
 }
 
-// --- interactive body ------------------------------------------------------
 
 export function AutoSignInner() {
   const docs = useSyncStore(store, (s) => s.docs);

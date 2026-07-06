@@ -11,15 +11,6 @@ import type {
 } from "@signature-kit/pdf/config";
 import { isPdf, makeDummyPdf, pdfPageCount, type PageSize, A4, LETTER, LEGAL } from "./helpers/dummy-pdf";
 
-/**
- * Signing with "rubricar todas as páginas" (pdf-signer `signAll` +
- * `rubricEveryPage`). The bug this guards: per-page `stampPdfRubric` calls made
- * the prep O(P²) and the batch never finished ("nao termina nunca de assinar").
- * The fix groups target pages by SIZE so same-sized pages share ONE call. This
- * test bakes the rubric on 20 MULTI-PAGE dummy PDFs (some with mixed page
- * sizes), driven through `preparePdfSigningBatch`, and asserts every output is a
- * valid PDF with its page count intact, no rubric targets the main signature page, and the batch TERMINATES.
- */
 
 const DOC_COUNT = 20;
 const SIG_W = 168;
@@ -38,7 +29,6 @@ type MultiPageDoc = {
   readonly pageDims: ReadonlyArray<PdfSignaturePage>;
 };
 
-// A bottom-right main signature rect (top-left origin builder rect) for a given page size.
 const signatureRect = (page: PageSize, pageIndex: number): PdfSignatureRect => ({
   pageIndex,
   x: page.width - MARGIN - SIG_W,
@@ -116,8 +106,7 @@ describe("signAll + rubricEveryPage", () => {
   beforeAll(async () => {
     const built = await Promise.all(
       Array.from({ length: DOC_COUNT }, async (_unused, i) => {
-        const pages = 2 + (i % 4); // 2..5 pages — always multi-page
-        // Every 3rd doc gets MIXED page sizes → forces multiple rubric groups.
+        const pages = 2 + (i % 4);
         const size: PageSize | ReadonlyArray<PageSize> =
           i % 3 === 0 ? [A4, LETTER, LEGAL, A4, LETTER].slice(0, pages) : i % 2 === 0 ? A4 : LETTER;
         const bytes = await makeDummyPdf({ pages, size, label: `Rubric doc ${i + 1}` });
@@ -143,7 +132,6 @@ describe("signAll + rubricEveryPage", () => {
     const results = await Effect.runPromise(
       preparePdfSigningBatch({
         documents: docs.map((doc) => {
-          // Sign on the LAST page; rubric the OTHERS — exactly the component split.
           const placedPage = doc.pageDims.length - 1;
           const main = doc.pageDims[placedPage];
           if (main === undefined) expect.fail(`doc ${doc.id} missing main signature page`);
@@ -195,13 +183,10 @@ describe("signAll + rubricEveryPage", () => {
       expect(rubricTargets).not.toContain(placedPage);
       expect(rubricTargets).toHaveLength(doc.pageDims.length - 1);
       expect(isPdf(stamped)).toBe(true);
-      // Stamping must NOT add or drop pages.
       expect(await pdfPageCount(stamped)).toBe(doc.pageDims.length);
-      // Drawing real content makes the file larger than the bare input.
       expect(stamped.byteLength).toBeGreaterThan(doc.bytes.byteLength);
     }
 
-    // Generous ceiling; the grouped path keeps 20 multi-page docs well-bounded.
     expect(elapsed).toBeLessThan(25000);
   }, 40000);
 });

@@ -39,9 +39,6 @@ export const ExtractedPdfSignatureSchema = Schema.Struct({
   signedData: Schema.Uint8Array,
   signature: Schema.Uint8Array,
   signatureCount: Schema.Number,
-  // The signed range must start at byte 0 and, for the newest signature, end at
-  // the end of the file — otherwise appended content escapes the signature
-  // (classic PDF signature-exclusion forgery).
   startsAtZero: Schema.Boolean,
   coversFileEnd: Schema.Boolean,
 });
@@ -219,12 +216,6 @@ export const preparePdfByteRange = (
   });
 };
 
-/**
- * Total length of the DER TLV at the start of `bytes`, or undefined when the
- * bytes do not begin with a well-formed SEQUENCE. Used to cut the CMS out of
- * the zero-padded /Contents placeholder without corrupting signatures whose
- * DER legitimately ends in 0x00 bytes.
- */
 const derSequenceTotalLength = (bytes: Uint8Array): number | undefined => {
   if (bytes.byteLength < 2 || bytes[0] !== 0x30) return undefined;
   const firstLengthByte = bytes[1] ?? 0;
@@ -355,7 +346,6 @@ export const extractPdfSignatureAtOffset = (
     };
   });
 
-/** Every signature in the document, in file order (oldest first). */
 export const extractPdfSignatures = (
   pdf: Uint8Array,
 ): Effect.Effect<ReadonlyArray<ExtractedPdfSignature>, PdfError> =>
@@ -366,7 +356,6 @@ export const extractPdfSignatures = (
     );
   });
 
-/** The newest signature (the one whose range must reach the end of the file). */
 export const extractPdfSignature = (
   pdf: Uint8Array,
 ): Effect.Effect<ExtractedPdfSignature, PdfError> =>

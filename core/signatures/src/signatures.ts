@@ -1,19 +1,6 @@
-/**
- * @signature-kit/signatures — signature runtime contracts, schemas, and typed errors.
- *
- * Everything that defines the shape of the signing runtime lives here:
- * the certificate data contract, the signer-adapter contract, the byte
- * signing inputs, and the one `SignatureKitError` every package constructs at
- * its own decision point. No package invents a parallel error model.
- */
-
 import type { ErrorMessageLocale } from "@signature-kit/i18n";
 import { Context, Effect, Layer, Schema } from "effect";
 import type { Redacted } from "effect";
-
-// =============================================================================
-// Primitive decoders
-// =============================================================================
 
 const nonEmptyString: Schema.ConstraintDecoder<string> = Schema.NonEmptyString;
 export const redactedStringSchema: Schema.ConstraintDecoder<Redacted.Redacted<string>> =
@@ -37,10 +24,6 @@ const redactedPrivateKeyPem: Schema.ConstraintDecoder<Redacted.Redacted<string>>
     { label: "signature-kit-private-key", disallowEncode: true },
   );
 
-// =============================================================================
-// Signature algorithm
-// =============================================================================
-
 export const SignatureAlgorithmSchema = Schema.Literals(["rsa-sha1", "rsa-sha256", "rsa-sha512"]);
 export type SignatureAlgorithm = (typeof SignatureAlgorithmSchema)["Type"];
 export const SignatureAlgorithmValue = {
@@ -48,10 +31,6 @@ export const SignatureAlgorithmValue = {
   rsaSha256: "rsa-sha256",
   rsaSha512: "rsa-sha512",
 } satisfies Record<string, SignatureAlgorithm>;
-
-// =============================================================================
-// Certificate data contract
-// =============================================================================
 
 export const CertificateSubjectSchema = Schema.Struct({
   commonName: Schema.NullOr(Schema.String),
@@ -84,10 +63,6 @@ export const BrazilianFieldsSchema = Schema.Struct({
 });
 export type BrazilianFields = (typeof BrazilianFieldsSchema)["Type"];
 
-/**
- * Fully parsed A1 certificate. The private key stays `Redacted` until the
- * explicit Web Crypto import boundary inside a signer adapter.
- */
 export const CertificateSchema = Schema.Struct({
   serialNumber: nonEmptyString,
   subject: CertificateSubjectSchema,
@@ -105,11 +80,6 @@ export const CertificateSchema = Schema.Struct({
 });
 export type Certificate = (typeof CertificateSchema)["Type"];
 
-// =============================================================================
-// Signer adapter contract
-// =============================================================================
-
-/** Normalized signer identity, backend-agnostic. */
 export const SignerIdentitySchema = Schema.Struct({
   subject: Schema.String,
   issuer: Schema.String,
@@ -146,10 +116,6 @@ export const VerificationResultSchema = Schema.Struct({
 });
 export type VerificationResult = (typeof VerificationResultSchema)["Type"];
 
-/**
- * The capability seam. A signer owns "where the signing power comes from".
- * It never owns document-format mutation (XML/PDF live in format modules).
- */
 export type SignerAdapter = {
   readonly id: string;
   inspect(): Effect.Effect<SignerIdentity, SignatureKitError>;
@@ -158,10 +124,6 @@ export type SignerAdapter = {
   sign(input: SignInput): Effect.Effect<SignatureArtifact, SignatureKitError>;
   verify(input: VerifyInput): Effect.Effect<VerificationResult, SignatureKitError>;
 };
-
-// =============================================================================
-// Error model — one tagged error, a literal code catalog
-// =============================================================================
 
 export const SignatureKitErrorCodeSchema = Schema.Literals([
   "signature-kit.EMPTY_FILE",
@@ -339,10 +301,6 @@ export class SignatureKitError extends Schema.TaggedErrorClass<SignatureKitError
     return catalogEntry.overridable ? (this.reason ?? catalogEntry.message) : catalogEntry.message;
   }
 }
-
-// =============================================================================
-// Signatures service
-// =============================================================================
 
 export class Signatures extends Context.Service<Signatures, SignerAdapter>()(
   "@signature-kit/signatures/Signatures",

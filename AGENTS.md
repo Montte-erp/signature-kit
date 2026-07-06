@@ -26,11 +26,13 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
 - Secrets stay `Redacted` until the explicit serialization/import boundary.
 - No `runSync` / `runPromise` / `runFork` / `Schema.decodeUnknownSync` in library internals.
 - Effect-boundary escape comments use `[allow-run: <reason>]` or
-  `[allow-string-secret: <reason>]`; the reason is required, and these comments
-  are allowed only under `formats/react/src/` and `apps/docs/`.
+  `[allow-string-secret: <reason>]`; the reason is required, and these directive
+  comments are allowed only under `formats/react/src/` and `apps/docs/`.
+- Do not add explanatory comments to code. Keep only machine-required directive
+  comments (`[allow-*]`, TypeScript references, generated-file pragmas).
 - Use static imports for modules known at author time. Dynamic import is only for
   runtime-selected plugins, platform-specific modules, or test cases that
-  explicitly exercise module loading; add a short comment naming the exception.
+  explicitly exercise module loading.
 - Stateful/global setup is a service dependency. XML-DSig is exposed through
   `XmlRuntime`/`xmlRuntimeLayer`, whose real capabilities include parsing,
   `SignedXml` construction, and cached verification-key import.

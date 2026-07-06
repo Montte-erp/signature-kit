@@ -274,8 +274,6 @@ describe("PDF DX helpers", () => {
       const widgetRects = yield* signatureWidgetRects(signed, 1);
       const content = decodedFlateStreams(signed);
 
-      // No public seam currently exposes per-rect save behavior, so assert every requested visible stamp
-      // placement materialized from one workflow call.
       expect(verification.valid).toBe(true);
       expect(verification.signatureCount).toBe(1);
       expect(countOccurrences(content, "DXSTAMP")).toBe(2);

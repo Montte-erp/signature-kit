@@ -26,8 +26,6 @@ const config = loadFlaggedConfig(
   }),
 );
 
-// Minimal single-page PDF; Clicksign v1 uploads a base64 data URI so the byte
-// content only needs to be a syntactically valid PDF.
 const livePdf = (): Uint8Array => {
   const encoder = new TextEncoder();
   const objects = [
@@ -102,7 +100,6 @@ if (config === undefined) {
       "runs the full create -> get -> list -> cancel -> delete lifecycle on the sandbox",
       () =>
         Effect.gen(function* () {
-          // 1. create (send:false / draft)
           const created = yield* createDraft;
           expect(created.provider).toBe("clicksign");
           expect(created.state).toBe("draft");
@@ -111,19 +108,15 @@ if (config === undefined) {
           const id = created.id;
 
           yield* Effect.gen(function* () {
-            // 2. get by id — assert real provider fields
             const fetched = yield* getClicksignSignatureRequest(options, id).pipe(
               Effect.provide(signatureHttpClientLive),
             );
             expect(fetched.provider).toBe("clicksign");
             expect(fetched.id).toBe(id);
-            // The remote status is provider-driven; assert it is a known state.
             expect(knownStates.has(fetched.state)).toBe(true);
             expect(typeof fetched.providerStatus).toBe("string");
             expect(fetched.detailsUrl).toContain(id);
 
-            // 3. list — the created document id must be reachable (pagination is
-            // exercised inside listClicksignSignatureRequests, which walks page_infos).
             const listed = yield* listClicksignSignatureRequests(options).pipe(
               Effect.provide(signatureHttpClientLive),
             );
@@ -132,9 +125,6 @@ if (config === undefined) {
             expect(match).toBeDefined();
             expect(match?.provider).toBe("clicksign");
 
-            // 4. cancel — a draft document may or may not be cancellable on the
-            // sandbox; exercise the real path and accept either a void success or
-            // a typed SignatureKitError contract.
             const cancelled = yield* Effect.result(
               cancelClicksignSignatureRequest(options, id).pipe(
                 Effect.provide(signatureHttpClientLive),
@@ -147,15 +137,9 @@ if (config === undefined) {
               expect(cancelled.success).toBeUndefined();
             }
 
-            // Downloading a signed document requires a human signer, so it is not
-            // exercised here. downloadClicksignSignedDocument stays referenced so
-            // the import contract is validated by the type checker.
             const _download = downloadClicksignSignedDocument;
             void _download;
           }).pipe(
-            // 5. delete — clean up whatever we created so re-runs stay idempotent.
-            // delete tolerates a 404, so this is safe even if cancel already
-            // removed the document.
             Effect.ensuring(
               deleteClicksignSignatureRequest(options, id)
                 .pipe(Effect.provide(signatureHttpClientLive))

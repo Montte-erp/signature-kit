@@ -12,31 +12,17 @@ import { captureDocsEvent } from "@/lib/posthog/client";
 import { cn } from "@/lib/utils";
 
 export type ProviderCarouselItem = {
-  /** Display name, also the logo fallback initial. */
   readonly name: string;
-  /** CodeBlock label shown in the panel header (e.g. "clicksign.ts"). */
   readonly filename: string;
-  /** Pre-resolved (server-side) brand logo URL — a plain string. */
   readonly logo: string;
-  /** Raw snippet copied to the clipboard for this provider. */
   readonly code: string;
 };
 
 type ProviderCarouselProps = {
   readonly items: ProviderCarouselItem[];
-  /**
-   * Parallel, index-matched, pre-highlighted shiki nodes built SERVER-side in
-   * providers-showcase.tsx. The carousel only ever renders `panels[index]` —
-   * it never calls CodeBlock / highlight itself (that is async-server work).
-   */
   readonly panels: ReactNode[];
 };
 
-/**
- * A single brand logo, greyscaled to stay pure-monochrome. logo.dev (fallback=404)
- * and DuckDuckGo favicons can 404 — `onError` swaps to the provider initial so a
- * circle never renders a broken-image glyph.
- */
 function ProviderLogo({ src, name }: { src: string; name: string }) {
   const [bad, setBad] = useState(false);
 
@@ -45,7 +31,6 @@ function ProviderLogo({ src, name }: { src: string; name: string }) {
   }
 
   return (
-    // eslint-disable-next-line @next/next/no-img-element
     <img
       src={src}
       alt=""
@@ -59,12 +44,6 @@ function ProviderLogo({ src, name }: { src: string; name: string }) {
   );
 }
 
-/**
- * Client carousel for the providers showcase: a strip of circular brand logos
- * over a single code panel. Picking a provider (click or ArrowLeft/ArrowRight)
- * swaps which pre-highlighted `panels[index]` node is shown — no highlighting
- * happens here. Copy mirrors install-command.tsx (writeText + 1800ms reset).
- */
 export function ProviderCarousel({ items, panels }: ProviderCarouselProps) {
   const [index, setIndex] = useState(0);
   const [copied, setCopied] = useState(false);

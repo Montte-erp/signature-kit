@@ -349,8 +349,6 @@ const toDocuSealSubmissionAttributes = (
   const id = normalizeSubmissionId(submission.id);
   const signingUrl = pickSigningUrl(submission);
   const state = docuSealSubmissionState(submission.status);
-  // Before completion, documents[0].url points at the UNSIGNED source file —
-  // advertising it as downloadUrl would hand callers unsigned bytes.
   const downloadUrl = state === "completed" ? pickDownloadUrl(submission) : undefined;
   return {
     provider: PROVIDER,
@@ -399,7 +397,6 @@ const createSubmission = (
             file: bytesToBase64(document.content),
             position: index,
           })),
-          // DocuSeal accepts completed_redirect_url as both a submission default and a submitter override.
           submitters: input.recipients.map((recipient, index) => ({
             name: recipient.name,
             email: recipient.email,
@@ -581,9 +578,7 @@ export const DocuSealSignatureRequestProvider = () =>
       return DocuSealSignatureRequest.Provider.of({
         nuke: { skip: true },
         diff: docusealSignatureRequestDiff,
-        list: () =>
-          // Retained resources must not feed account-wide nuke enumeration.
-          Effect.succeed([]),
+        list: () => Effect.succeed([]),
         read: Effect.fn(function* ({ output }) {
           if (output === undefined) return undefined;
           const options = yield* credentials;

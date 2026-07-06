@@ -9,14 +9,6 @@ import { m } from "@/paraglide/messages";
 
 import { Container, Eyebrow, Section } from "./_shared";
 
-/**
- * Centered closing CTA — pure monochrome, the page's quietest section.
- *
- * A bordered panel with a top hairline + subtle radial backdrop holds a mono
- * eyebrow, a big medium-weight headline, a muted line (open source / MIT /
- * Effect-native), then the solid quickstart Button followed by the install
- * pill. Server component; the only motion is the <FadeIn> scroll-reveal.
- */
 export function FinalCta() {
   return (
     <Section className="border-t border-border">

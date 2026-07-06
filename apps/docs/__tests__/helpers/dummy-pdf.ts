@@ -1,12 +1,5 @@
 import { PDFDocument, StandardFonts, rgb } from "@cantoo/pdf-lib";
 
-/**
- * Test helpers — real, self-contained dummy PDFs built with the SAME pdf-lib the
- * app ships (`@cantoo/pdf-lib`). No `@react-pdf/renderer`, no fontkit, no worker,
- * so these run in plain Node (vitest default env) in well under a millisecond
- * each. Every page carries real drawn text so pdf.js / pdf-lib parse genuine
- * content, and the bytes always begin with the `%PDF` magic.
- */
 
 export const A4: PageSize = { width: 595.28, height: 841.89 };
 export const LETTER: PageSize = { width: 612, height: 792 };
@@ -18,12 +11,8 @@ export interface PageSize {
 }
 
 export interface DummyPdfOptions {
-  /** Number of pages to draw. Defaults to 1. */
   readonly pages?: number;
-  /** Per-page size. A single size applies to every page; an array gives mixed
-   *  sizes (one entry per page, last entry repeated if short). Defaults to A4. */
   readonly size?: PageSize | ReadonlyArray<PageSize>;
-  /** Visible label drawn on page 1 (helps eyeball failing fixtures). */
   readonly label?: string;
 }
 
@@ -38,7 +27,6 @@ const sizeForPage = (
   return size;
 };
 
-/** Build one dummy PDF with `pages` real, text-bearing pages. */
 export async function makeDummyPdf(
   options: DummyPdfOptions = {},
 ): Promise<Uint8Array> {
@@ -65,7 +53,6 @@ export async function makeDummyPdf(
       font,
       color: rgb(0.4, 0.4, 0.4),
     });
-    // A block of body text so the page is not visually empty when rasterised.
     for (let line = 0; line < 6; line++) {
       page.drawText(
         "Lorem ipsum dolor sit amet, consectetur adipiscing elit sed do.",
@@ -80,8 +67,6 @@ export async function makeDummyPdf(
     }
   }
 
-  // useObjectStreams:false keeps the output a classic xref PDF, matching what the
-  // signing pipeline expects downstream.
   return doc.save({ useObjectStreams: false });
 }
 
@@ -99,18 +84,11 @@ export interface BuiltDummyDoc {
   readonly bytes: Uint8Array;
 }
 
-/**
- * Build `count` dummy PDFs with VARIED page counts and sizes — the shape the
- * auto-place / rubric flows have to chew through. Page counts cycle 1→5 and a
- * deterministic slice gets mixed page sizes (A4 + Letter + Legal) so the
- * group-by-size rubric path is exercised.
- */
 export async function makeDummyDocs(
   count: number,
 ): Promise<ReadonlyArray<BuiltDummyDoc>> {
   const specs: DummyDocSpec[] = Array.from({ length: count }, (_, i) => {
-    const pages = (i % 5) + 1; // 1..5
-    // Every 4th doc gets mixed page sizes to force multiple rubric groups.
+    const pages = (i % 5) + 1;
     const size =
       i % 4 === 0
         ? [A4, LETTER, LEGAL, A4, LETTER].slice(0, pages)
@@ -134,18 +112,16 @@ export async function makeDummyDocs(
   );
 }
 
-/** True when `bytes` begins with the `%PDF` magic header. */
 export function isPdf(bytes: Uint8Array): boolean {
   return (
     bytes.length > 4 &&
-    bytes[0] === 0x25 && // %
-    bytes[1] === 0x50 && // P
-    bytes[2] === 0x44 && // D
-    bytes[3] === 0x46 // F
+    bytes[0] === 0x25 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x44 &&
+    bytes[3] === 0x46
   );
 }
 
-/** Parse `bytes` with pdf-lib and return its page count (proves valid output). */
 export async function pdfPageCount(bytes: Uint8Array): Promise<number> {
   const doc = await PDFDocument.load(bytes);
   return doc.getPageCount();

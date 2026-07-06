@@ -376,8 +376,6 @@ const distributeEnvelope = (
       Effect.map((result) => ({
         provider: PROVIDER,
         id: result.id,
-        // A failed distribution means recipients were never notified — surface
-        // the envelope as still-draft rather than pretending it was sent.
         state: result.success ? "sent" : "draft",
         providerStatus: result.success ? "distributed" : "not_distributed",
         detailsUrl: `${baseUrl}/envelope/${documensoPathId(result.id)}`,
@@ -640,9 +638,7 @@ export const DocumensoSignatureRequestProvider = () =>
       return DocumensoSignatureRequest.Provider.of({
         nuke: { skip: true },
         diff: documensoSignatureRequestDiff,
-        list: () =>
-          // Retained resources must not feed account-wide nuke enumeration.
-          Effect.succeed([]),
+        list: () => Effect.succeed([]),
         read: Effect.fn(function* ({ output }) {
           if (output === undefined) return undefined;
           const options = yield* credentials;

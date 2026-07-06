@@ -1,8 +1,3 @@
-/**
- * @signature-kit/certificates — X.509 and PKCS#12 certificate parsing for
- * server and browser runtimes.
- */
-
 import { decode, encode, oidString, type Asn1Error, type Asn1Node } from "@signature-kit/asn1";
 import type { CryptoError } from "@signature-kit/crypto/config";
 import { derToPem } from "@signature-kit/crypto/pem";
@@ -73,7 +68,6 @@ export const CertificateSourceSchema = Schema.Union([
 ]);
 export type CertificateSource = (typeof CertificateSourceSchema)["Type"];
 
-/** Parse a `.pfx`/`.p12` container into a normalized certificate. */
 export const parseCertificate = (
   source: CertificateSource,
   password: Redacted.Redacted<string>,
@@ -527,7 +521,6 @@ const nameField = (fields: Record<string, string>, key: string): string | null =
   return value === undefined || value === "" ? null : value;
 };
 
-/** Parse an X.509 certificate from DER bytes. */
 export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKitError> =>
   Effect.gen(function* () {
     const cert = yield* decode(der);
@@ -572,7 +565,7 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
     }
     const serialNumber = bytesToHex(serialNode.bytes);
 
-    idx++; // signature algorithm
+    idx++;
 
     const issuerNode = tbs[idx];
     idx++;

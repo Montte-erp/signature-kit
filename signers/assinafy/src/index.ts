@@ -352,8 +352,6 @@ const createAssignment = (
             id,
             verification_method: "Email",
             notification_methods: input.send === false ? [] : ["Email"],
-            // Honor the caller's routing order like every other provider;
-            // fall back to listed order when none was given.
             step: input.recipients[index]?.routingOrder ?? index + 1,
           })),
           message: input.message,
@@ -658,9 +656,7 @@ export const AssinafySignatureRequestProvider = () =>
       return AssinafySignatureRequest.Provider.of({
         nuke: { skip: true },
         diff: assinafySignatureRequestDiff,
-        list: () =>
-          // Retained resources must not feed account-wide nuke enumeration.
-          Effect.succeed([]),
+        list: () => Effect.succeed([]),
         read: Effect.fn(function* ({ output }) {
           if (output === undefined) return undefined;
           const options = yield* credentials;

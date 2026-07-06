@@ -1,15 +1,7 @@
-/**
- * SHA-256 pure TypeScript implementation (FIPS 180-4).
- *
- * Zero runtime dependencies. Works in any JS environment.
- */
-
-// SHA-256 initial hash values (first 32 bits of fractional parts of sqrt of first 8 primes)
 const INIT_H = new Uint32Array([
   0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
 ]);
 
-// SHA-256 round constants (first 32 bits of fractional parts of cbrt of first 64 primes)
 const K = new Uint32Array([
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
   0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
@@ -25,7 +17,6 @@ function rotr32(x: number, n: number): number {
   return ((x >>> n) | (x << (32 - n))) >>> 0;
 }
 
-/** Process a single 64-byte block into hash state `h` (mutates in place). */
 function processBlock(h: Uint32Array, view: DataView, offset: number): void {
   const w = new Uint32Array(64);
   for (let t = 0; t < 16; t++) {
@@ -74,12 +65,7 @@ function processBlock(h: Uint32Array, view: DataView, offset: number): void {
   h[7] = (h[7]! + hh) >>> 0;
 }
 
-/**
- * Compute SHA-256 digest of `data`.
- * Returns a 32-byte Uint8Array.
- */
 export function sha256(data: Uint8Array): Uint8Array {
-  // ---- Pre-processing: padding ----
   const bitLen = data.length * 8;
   const padLen = data.length % 64 < 56 ? 56 - (data.length % 64) : 120 - (data.length % 64);
   const totalLen = data.length + padLen + 8;
@@ -94,14 +80,12 @@ export function sha256(data: Uint8Array): Uint8Array {
   view.setUint32(totalLen - 8, bitLenHi, false);
   view.setUint32(totalLen - 4, bitLenLo, false);
 
-  // ---- Processing ----
   const h = new Uint32Array(INIT_H);
 
   for (let i = 0; i < totalLen; i += 64) {
     processBlock(h, view, i);
   }
 
-  // ---- Produce digest ----
   const digest = new Uint8Array(32);
   const dv = new DataView(digest.buffer);
   for (let i = 0; i < 8; i++) {
@@ -110,24 +94,11 @@ export function sha256(data: Uint8Array): Uint8Array {
   return digest;
 }
 
-/**
- * Compute SHA-256 with a pre-processed initial state.
- *
- * This is used for HMAC key-schedule precomputation: the first 64-byte block
- * (ipad or opad XOR key) is processed once and the resulting state is reused
- * for every HMAC call with the same key.
- *
- * @param initState - 8-element Uint32Array with the pre-processed hash state
- * @param data      - The message data (appended after the already-processed block)
- * @param prefixLen - Number of bytes already processed (for length encoding), typically 64
- * @returns 32-byte SHA-256 digest
- */
 export function sha256WithState(
   initState: Uint32Array,
   data: Uint8Array,
   prefixLen: number,
 ): Uint8Array {
-  // Total message length = prefixLen (pre-processed) + data.length
   const totalDataLen = prefixLen + data.length;
   const bitLen = totalDataLen * 8;
   const padLen = totalDataLen % 64 < 56 ? 56 - (totalDataLen % 64) : 120 - (totalDataLen % 64);
@@ -143,7 +114,6 @@ export function sha256WithState(
   view.setUint32(totalLen - 8, bitLenHi, false);
   view.setUint32(totalLen - 4, bitLenLo, false);
 
-  // Start from the pre-processed state (copy so we don't mutate)
   const h = new Uint32Array(initState);
 
   for (let i = 0; i < totalLen; i += 64) {
@@ -158,11 +128,6 @@ export function sha256WithState(
   return digest;
 }
 
-/**
- * Process a single full 64-byte block from `blockBytes` into a copy of INIT_H.
- * Returns the resulting 8-element hash state.
- * Used to precompute HMAC ipad/opad half-states.
- */
 export function sha256ProcessBlock(blockBytes: Uint8Array): Uint32Array {
   const h = new Uint32Array(INIT_H);
   const view = new DataView(blockBytes.buffer, blockBytes.byteOffset, blockBytes.byteLength);
