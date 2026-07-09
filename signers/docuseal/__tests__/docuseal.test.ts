@@ -1,12 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
 import { signatureHttpClientLive } from "@signature-kit/http";
+import * as Provider from "alchemy/Provider";
 import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import { loadFlaggedConfig, optionalEnv, requiredEnv } from "../../../tooling/testing/env";
 import { Config, Effect, Redacted } from "effect";
 import {
   DocuSealSignatureRequest,
-  DocuSealSignatureRequestProvider,
-  docuSealCredentialsLayer,
+  providers as docuSealProviders,
   deleteDocuSealSignatureRequest,
   getDocuSealSignatureRequest,
   listDocuSealSignatureRequests,
@@ -63,13 +63,9 @@ if (config === undefined) {
 
   const reconcileDocuSealSignatureRequest = (request: DocuSealSubmissionProps) =>
     Effect.gen(function* () {
-      const provider = yield* DocuSealSignatureRequest.Provider;
+      const provider = yield* Provider.findProvider(DocuSealSignatureRequest);
       return yield* provider.reconcile(reconcileResourceProps("docuseal-live-request", request));
-    }).pipe(
-      Effect.provide(DocuSealSignatureRequestProvider()),
-      Effect.provide(docuSealCredentialsLayer(options)),
-      Effect.provide(signatureHttpClientLive),
-    );
+    }).pipe(Effect.provide(docuSealProviders(options)), Effect.provide(signatureHttpClientLive));
 
   const getById = (id: string) =>
     getDocuSealSignatureRequest(options, id).pipe(Effect.provide(signatureHttpClientLive));

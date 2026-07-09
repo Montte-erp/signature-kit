@@ -1,14 +1,14 @@
 import { describe, expect, it } from "@effect/vitest";
 import { signatureHttpClientLive } from "@signature-kit/http";
+import * as Provider from "alchemy/Provider";
 import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import { loadFlaggedConfig, optionalEnv, requiredEnv } from "../../../tooling/testing/env";
 import { Config, Effect, Redacted, Result } from "effect";
 import {
   ClicksignSignatureRequest,
-  ClicksignSignatureRequestProvider,
+  providers as clicksignProviders,
   ClicksignSignatureRequestStateSchema,
   cancelClicksignSignatureRequest,
-  clicksignCredentialsLayer,
   deleteClicksignSignatureRequest,
   downloadClicksignSignedDocument,
   getClicksignSignatureRequest,
@@ -87,13 +87,9 @@ if (config === undefined) {
       expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     } satisfies ClicksignSignatureRequestProps;
 
-    const provider = yield* ClicksignSignatureRequest.Provider;
+    const provider = yield* Provider.findProvider(ClicksignSignatureRequest);
     return yield* provider.reconcile(reconcileResourceProps("clicksign-live-request", input));
-  }).pipe(
-    Effect.provide(ClicksignSignatureRequestProvider()),
-    Effect.provide(clicksignCredentialsLayer(options)),
-    Effect.provide(signatureHttpClientLive),
-  );
+  }).pipe(Effect.provide(clicksignProviders(options)), Effect.provide(signatureHttpClientLive));
 
   describe("Clicksign live API", () => {
     it.effect(

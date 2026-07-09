@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Keep concrete credentials, provider, and provider-collection wiring private; consumers compose `ZapSignSignatureRequest` through `providers(options)`.
+
 ## 0.3.0
 
 - ZapSign now owns its single-PDF document props, attributes, state schema, schema

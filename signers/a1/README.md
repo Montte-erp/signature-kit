@@ -13,7 +13,7 @@ bun add @signature-kit/a1 @signature-kit/signatures effect
 ## Public surface
 
 - `@signature-kit/a1/config` — `A1SignerOptionsSchema`, remote-source schemas, and `A1CertificateProfileSchema`.
-- `@signature-kit/a1/signer` — `createA1SignerAdapter`, `loadA1SignerAdapter`, `a1SignerLayer`, `a1SignaturesLayer`, `parseA1CertificateProfile`, `fetchA1Pkcs12`, `a1SignaturesLayerFromUrl`, and `parseA1CertificateProfileFromUrl`.
+- `@signature-kit/a1/signer` — `createA1SignerAdapter`, `loadA1SignerAdapter`, `a1SignaturesLayer`, `parseA1CertificateProfile`, `fetchA1Pkcs12`, `a1SignaturesLayerFromUrl`, and `parseA1CertificateProfileFromUrl`.
 
 `a1SignaturesLayer(options)` is the usual application-boundary layer for local PDF/XML signing. URL helpers fetch a remote `.pfx`/`.p12` through `SignatureHttpClient`; presigned URLs are redacted in error messages through the diagnostic URL path.
 

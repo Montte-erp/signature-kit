@@ -6,7 +6,7 @@ import {
 } from "@signature-kit/signatures";
 import { prepareAndSignPdf } from "@signature-kit/pdf/workflow";
 import { Effect, Redacted, Result, Schema } from "effect";
-import { createSyncStore, useSyncStore } from "./builder";
+import { createSyncStore, useSyncStore } from "./sync-store";
 import {
   A1CertificateLoadInputSchema,
   A1SignerInputSchema,

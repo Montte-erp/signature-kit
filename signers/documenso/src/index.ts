@@ -231,12 +231,12 @@ export const DocumensoSignatureRequest = Resource<DocumensoSignatureRequest>(
   "SignatureKit.DocumensoSignatureRequest",
   { defaultRemovalPolicy: "retain" },
 );
-export class DocumensoCredentials extends Context.Service<
+class DocumensoCredentials extends Context.Service<
   DocumensoCredentials,
   Effect.Effect<DocumensoProviderOptions, SignatureKitError>
 >()("@signature-kit/documenso/Credentials") {}
 
-export const documensoCredentialsLayer = (
+const documensoCredentialsLayer = (
   options: DocumensoProviderOptions,
 ): Layer.Layer<DocumensoCredentials> =>
   Layer.effect(
@@ -628,51 +628,50 @@ const createDocumensoEnvelopeRequest = (
     }),
   );
 
-export const DocumensoSignatureRequestProvider = () =>
-  Provider.effect(
-    DocumensoSignatureRequest,
-    Effect.gen(function* () {
-      const credentials = yield* DocumensoCredentials;
-      const http = yield* SignatureHttpClient;
+const documensoSignatureRequestProvider = Provider.effect(
+  DocumensoSignatureRequest,
+  Effect.gen(function* () {
+    const credentials = yield* DocumensoCredentials;
+    const http = yield* SignatureHttpClient;
 
-      return DocumensoSignatureRequest.Provider.of({
-        nuke: { skip: true },
-        diff: documensoSignatureRequestDiff,
-        list: () => Effect.succeed([]),
-        read: Effect.fn(function* ({ output }) {
-          if (output === undefined) return undefined;
-          const options = yield* credentials;
-          const baseUrl = documensoBaseUrl(options);
-          return yield* getEnvelope(http, options, baseUrl, output.id).pipe(
-            Effect.catchIf(
-              (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
-              () => Effect.succeed(undefined),
-            ),
-          );
-        }),
-        reconcile: Effect.fn(function* ({ news, output }) {
-          if (output !== undefined) return output;
-          const options = yield* credentials;
-          const baseUrl = documensoBaseUrl(options);
-          const input = yield* documensoSignatureRequestInputFromResourceProps(news);
-          return yield* createDocumensoEnvelopeRequest(http, options, baseUrl, input);
-        }),
-        delete: Effect.fn(function* ({ output }) {
-          const options = yield* credentials;
-          const baseUrl = documensoBaseUrl(options);
-          return yield* deleteEnvelope(http, options, baseUrl, output.id);
-        }),
-      });
-    }),
-  );
+    return DocumensoSignatureRequest.Provider.of({
+      nuke: { skip: true },
+      diff: documensoSignatureRequestDiff,
+      list: () => Effect.succeed([]),
+      read: Effect.fn(function* ({ output }) {
+        if (output === undefined) return undefined;
+        const options = yield* credentials;
+        const baseUrl = documensoBaseUrl(options);
+        return yield* getEnvelope(http, options, baseUrl, output.id).pipe(
+          Effect.catchIf(
+            (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
+            () => Effect.succeed(undefined),
+          ),
+        );
+      }),
+      reconcile: Effect.fn(function* ({ news, output }) {
+        if (output !== undefined) return output;
+        const options = yield* credentials;
+        const baseUrl = documensoBaseUrl(options);
+        const input = yield* documensoSignatureRequestInputFromResourceProps(news);
+        return yield* createDocumensoEnvelopeRequest(http, options, baseUrl, input);
+      }),
+      delete: Effect.fn(function* ({ output }) {
+        const options = yield* credentials;
+        const baseUrl = documensoBaseUrl(options);
+        return yield* deleteEnvelope(http, options, baseUrl, output.id);
+      }),
+    });
+  }),
+);
 
-export class DocumensoProviders extends Provider.ProviderCollection<DocumensoProviders>()(
+class DocumensoProviders extends Provider.ProviderCollection<DocumensoProviders>()(
   DOCUMENSO_PROVIDER_COLLECTION_ID,
 ) {}
 
 export const providers = (options: DocumensoProviderOptions) =>
   Layer.effect(DocumensoProviders, Provider.collection([DocumensoSignatureRequest])).pipe(
-    Layer.provide(DocumensoSignatureRequestProvider()),
+    Layer.provide(documensoSignatureRequestProvider),
     Layer.provide(documensoCredentialsLayer(options)),
   );
 

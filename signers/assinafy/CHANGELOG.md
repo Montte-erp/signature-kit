@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Keep concrete credentials, provider, and provider-collection wiring private; consumers compose `AssinafySignatureRequest` through `providers(options)`.
+
 ## 0.3.0
 
 - Assinafy now owns its signature-request props, attributes, state schema, schema

@@ -1,16 +1,16 @@
 import { describe, expect, it } from "@effect/vitest";
 import { SignatureKitErrorCodeValue } from "@signature-kit/signatures";
 import { signatureHttpClientLive } from "@signature-kit/http";
+import * as Provider from "alchemy/Provider";
 import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import { loadFlaggedConfig, optionalEnv, requiredEnv } from "../../../tooling/testing/env";
 import { Config, Effect, Redacted, Result, Schema } from "effect";
 import {
   ZapSignSignatureRequest,
   ZapSignDocumentStateSchema,
-  ZapSignSignatureRequestProvider,
+  providers as zapSignProviders,
   type ZapSignDocumentProps,
   type ZapSignProviderOptions,
-  zapSignCredentialsLayer,
   cancelZapSignSignatureRequest,
   deleteZapSignSignatureRequest,
   downloadZapSignSignedDocument,
@@ -55,13 +55,9 @@ const reconcileZapSignSignatureRequest = (
   request: ZapSignDocumentProps,
 ) =>
   Effect.gen(function* () {
-    const provider = yield* ZapSignSignatureRequest.Provider;
+    const provider = yield* Provider.findProvider(ZapSignSignatureRequest);
     return yield* provider.reconcile(reconcileResourceProps("zapsign-live-request", request));
-  }).pipe(
-    Effect.provide(ZapSignSignatureRequestProvider()),
-    Effect.provide(zapSignCredentialsLayer(options)),
-    Effect.provide(signatureHttpClientLive),
-  );
+  }).pipe(Effect.provide(zapSignProviders(options)), Effect.provide(signatureHttpClientLive));
 
 if (config === undefined) {
   describe.skip("ZapSign live API", () => {

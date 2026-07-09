@@ -16,7 +16,7 @@ cached output do not decode credentials.
 
 ## Public surface
 
-- `@signature-kit/documenso` — Documenso envelope/document/recipient schemas, `DocumensoSignatureRequest`, `DocumensoProviders`, `providers`, `getDocumensoSignatureRequest`, `listDocumensoSignatureRequests`, `cancelDocumensoSignatureRequest`, `deleteDocumensoSignatureRequest`, and `downloadDocumensoSignedDocument`.
+- `@signature-kit/documenso` — Documenso envelope/document/recipient schemas, `DocumensoSignatureRequest`, `providers`, `getDocumensoSignatureRequest`, `listDocumensoSignatureRequests`, `cancelDocumensoSignatureRequest`, `deleteDocumensoSignatureRequest`, and `downloadDocumensoSignedDocument`.
 
 Capability matrix:
 

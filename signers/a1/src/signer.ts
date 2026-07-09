@@ -10,7 +10,7 @@ import {
 } from "@signature-kit/signatures";
 import { daysUntilExpiry, parseCertificate, toSignerIdentity } from "@signature-kit/certificates";
 import { pemToDer } from "@signature-kit/crypto/pem";
-import { Clock, Context, Effect, Layer, Match, Redacted, Schema } from "effect";
+import { Clock, Effect, Layer, Match, Redacted, Schema } from "effect";
 import {
   A1RemoteFetchSchema,
   A1RemoteSourceSchema,
@@ -132,16 +132,6 @@ const verifyWithKey = (
         operation: SignatureKitOperationValue.cryptoVerify,
       }),
   });
-
-export type A1SignerMaterial = {
-  readonly certificate: Certificate;
-  readonly profile: A1CertificateProfile;
-  readonly signer: SignerAdapter;
-};
-
-export class A1Signer extends Context.Service<A1Signer, A1SignerMaterial>()(
-  "@signature-kit/a1/Signer",
-) {}
 
 const cachedKey = (
   cache: Map<SignatureAlgorithm, CryptoKey>,
@@ -281,24 +271,6 @@ export const createA1SignerAdapter = (certificate: Certificate): SignerAdapter =
   };
 };
 
-const loadA1SignerMaterial = (
-  options: A1SignerOptions,
-): Effect.Effect<A1SignerMaterial, SignatureKitError> =>
-  loadA1Certificate(options).pipe(
-    Effect.flatMap((certificate) =>
-      certificateProfile(certificate).pipe(
-        Effect.map((profile) => ({
-          certificate,
-          profile,
-          signer: createA1SignerAdapter(certificate),
-        })),
-      ),
-    ),
-  );
-
-export const a1SignerLayer = (options: A1SignerOptions): Layer.Layer<A1Signer, SignatureKitError> =>
-  Layer.effect(A1Signer, loadA1SignerMaterial(options));
-
 export const loadA1SignerAdapter = (
   options: A1SignerOptions,
 ): Effect.Effect<SignerAdapter, SignatureKitError> =>
@@ -363,34 +335,9 @@ export const fetchA1Pkcs12 = (
     ),
   );
 
-export const a1SignaturesLayerFromUrl = (
+const loadA1CertificateFromRemoteSource = (
   source: A1RemoteSource,
-): Layer.Layer<Signatures, SignatureKitError, SignatureHttpClient> =>
-  Layer.effect(
-    Signatures,
-    Schema.decodeUnknownEffect(A1RemoteSourceSchema)(source).pipe(
-      Effect.mapError(
-        (issue) =>
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: "A1RemoteSource",
-            issueMessage: String(issue),
-          }),
-      ),
-      Effect.flatMap((valid) =>
-        fetchA1Pkcs12(valid).pipe(
-          Effect.flatMap((pfx) => loadA1Certificate({ pfx, password: valid.password })),
-          Effect.map(createA1SignerAdapter),
-        ),
-      ),
-    ),
-  );
-
-export const parseA1CertificateProfileFromUrl = (
-  source: A1RemoteSource,
-): Effect.Effect<A1CertificateProfile, SignatureKitError, SignatureHttpClient> =>
+): Effect.Effect<Certificate, SignatureKitError, SignatureHttpClient> =>
   Schema.decodeUnknownEffect(A1RemoteSourceSchema)(source).pipe(
     Effect.mapError(
       (issue) =>
@@ -404,7 +351,20 @@ export const parseA1CertificateProfileFromUrl = (
     ),
     Effect.flatMap((valid) =>
       fetchA1Pkcs12(valid).pipe(
-        Effect.flatMap((pfx) => parseA1CertificateProfile({ pfx, password: valid.password })),
+        Effect.flatMap((pfx) => loadA1Certificate({ pfx, password: valid.password })),
       ),
     ),
   );
+
+export const a1SignaturesLayerFromUrl = (
+  source: A1RemoteSource,
+): Layer.Layer<Signatures, SignatureKitError, SignatureHttpClient> =>
+  Layer.effect(
+    Signatures,
+    loadA1CertificateFromRemoteSource(source).pipe(Effect.map(createA1SignerAdapter)),
+  );
+
+export const parseA1CertificateProfileFromUrl = (
+  source: A1RemoteSource,
+): Effect.Effect<A1CertificateProfile, SignatureKitError, SignatureHttpClient> =>
+  loadA1CertificateFromRemoteSource(source).pipe(Effect.flatMap(certificateProfile));

@@ -40,6 +40,15 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
 - Never read ambient process state (`NODE_ENV`, env vars, globals) inside package
   internals to choose behavior. Decode explicit config through Schema or require a
   provided service/layer.
+- Platform-specific capabilities are service requirements. Depend on portable
+  `@effect/platform` services in library code and provide Node, Bun, or browser
+  layers at assembly boundaries; direct platform imports belong in those layers,
+  applications, or tests. Standard Web APIs are allowed only when they are part
+  of the package's declared cross-runtime contract.
+- HTTP cancellation covers fetch and response-body consumption as one lifecycle.
+  Keep the abort handle scoped to that request, race body consumption with the
+  same abort signal, clear listeners/timers on every completion path, and convert
+  public millisecond inputs to `Duration` before scheduling the timeout.
 
 ## Error rules
 
@@ -102,6 +111,10 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
 - If public docs need an example value for a Schema-backed contract, make the
   snippet use the real contract shape (`contentBase64` for remote resource props,
   not byte-only helper input) so examples do not become a parallel API.
+- Pure functions that accept a Schema-derived type do not secretly decode it
+  again. Decode untrusted values explicitly at the caller boundary; for example,
+  validate unknown i18n options with `ErrorMessageOptionsSchema` before calling
+  the synchronous `errorMessage` lookup.
 
 ## Effect 4 idioms
 
@@ -175,6 +188,12 @@ with a `Provider.effect` and a collection layer); follow that shape.
   A signer `providers(options)` layer may provide private credentials, but it must
   not bake in `signatureHttpClientLive`; transport remains a caller-provided
   `SignatureHttpClient` requirement.
+- **The public provider surface is the resource, not its wiring.** Export the
+  Alchemy resource constructor, `providers(options)`, and real upstream lifecycle
+  helper Effects. Keep credential services/layers, the concrete `Provider.effect`
+  layer, and the `ProviderCollection` class package-private. Define the concrete
+  provider once as a layer value, not as a zero-argument factory. Tests resolve it
+  through `Provider.findProvider(Resource)` after providing `providers(options)`.
 - **Credentials are lazy Effects.** Provider credential services store the
   deferred credential/options effect, not an eagerly-decoded struct:
   `Context.Service<XCredentials, Effect.Effect<XProviderOptions, SignatureKitError>>`.
@@ -232,6 +251,8 @@ with a `Provider.effect` and a collection layer); follow that shape.
   error; serialize only through `encodeState`/`reviveState` (they handle
   `Redacted`/`Date` — do not hand-roll JSON); reserve `StateStoreError` for
   transport faults, and let any other cause be a defect.
+  Do not introduce a custom state-store package until a real durable backend is
+  required; demos and tests use Alchemy's built-in in-memory state.
 
 ## Architecture taste
 
@@ -287,7 +308,7 @@ and expose headless certificate/signer/browser-PDF hooks. UI components are not
 npm-published; apps consume the shadcn registry copies they own.
 
 - **React stays intentionally narrow.** `@signature-kit/react` exposes headless
-  hooks and the data seams those hooks need (`a1`, `config`, `builder`,
+  hooks and the data seams those hooks need (`a1`, `config`, `sync-store`,
   `browser-pdf`). It does not expose UI components, provider-specific bridges,
   app queues, fetch/tRPC glue, storage, toasts/modals, rendering adapters
   (`react-pdf`, DocuSeal, remote signer flows), or app state. Future browser

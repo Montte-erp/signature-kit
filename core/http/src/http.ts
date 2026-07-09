@@ -56,28 +56,62 @@ export class SignatureHttpClient extends Context.Service<
 const compactBody = (body: string): string =>
   body.length <= 512 ? body : `${body.slice(0, 512)}…`;
 
-const AbortCauseSchema = Schema.Struct({
-  name: Schema.Literal("AbortError"),
-});
+const isRetryableStatus = (method: SignatureHttpMethod, status: number): boolean =>
+  status === 429 || (isRetryableMethod(method) && status >= 500);
+
+const RATE_LIMIT_RESET_DELTA_CUTOFF_SECONDS = 10_000_000;
+const RATE_LIMIT_RESET_PAST_SKEW_SECONDS = 86_400;
+const RATE_LIMIT_RESET_FUTURE_WINDOW_SECONDS = 31_536_000;
+
+const retryAfterEpochSeconds = (response: Response): number | undefined => {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const reset = Number(response.headers.get("x-ratelimit-reset"));
+  if (Number.isFinite(reset) && reset > 0) {
+    if (reset < RATE_LIMIT_RESET_DELTA_CUTOFF_SECONDS) return nowSeconds + reset;
+    if (
+      reset >= nowSeconds - RATE_LIMIT_RESET_PAST_SKEW_SECONDS &&
+      reset <= nowSeconds + RATE_LIMIT_RESET_FUTURE_WINDOW_SECONDS
+    ) {
+      return reset < nowSeconds ? nowSeconds : reset;
+    }
+  }
+  const retryAfter = Number(response.headers.get("retry-after"));
+  if (Number.isFinite(retryAfter) && retryAfter > 0) {
+    return nowSeconds + retryAfter;
+  }
+  return undefined;
+};
+
 const RequestAbortSchema = Schema.Struct({
   _tag: Schema.Literal("RequestAbort"),
   timedOut: Schema.Boolean,
 });
-
 type RequestAbort = (typeof RequestAbortSchema)["Type"];
+
+type AcceptedTransportResponse<A> = {
+  readonly _tag: "Accepted";
+  readonly response: Response;
+  readonly body: A;
+};
+
+type HttpStatusTransportResponse = {
+  readonly _tag: "HttpStatus";
+  readonly response: Response;
+  readonly body: string;
+};
+
+type TransportResult<A> = AcceptedTransportResponse<A> | HttpStatusTransportResponse | RequestAbort;
+
+type TransportResponse<A> = {
+  readonly response: Response;
+  readonly body: A;
+};
 
 type RequestAbortHandle = {
   readonly signal: AbortSignal;
   readonly promise: Promise<RequestAbort>;
   readonly clear: () => void;
 };
-
-type TimedResponse = {
-  readonly response: Response;
-  readonly abort: RequestAbortHandle;
-};
-
-const isRequestAbort = Schema.is(RequestAbortSchema);
 
 const startRequestAbort = (
   request: SignatureHttpRequest,
@@ -89,16 +123,13 @@ const startRequestAbort = (
     if (!controller.signal.aborted) controller.abort(signal.reason);
     pending.resolve({ _tag: "RequestAbort", timedOut });
   };
+  const timeout =
+    request.timeoutMillis === undefined ? undefined : Duration.millis(request.timeoutMillis);
   const timeoutId =
-    request.timeoutMillis === undefined
-      ? undefined
-      : setTimeout(() => abort(true), request.timeoutMillis);
+    timeout === undefined ? undefined : setTimeout(() => abort(true), Duration.toMillis(timeout));
   const abortFromSignal = (): void => abort(false);
-  if (signal.aborted) {
-    abortFromSignal();
-  } else {
-    signal.addEventListener("abort", abortFromSignal, { once: true });
-  }
+  if (signal.aborted) abortFromSignal();
+  else signal.addEventListener("abort", abortFromSignal, { once: true });
   return {
     signal: controller.signal,
     promise: pending.promise,
@@ -109,259 +140,104 @@ const startRequestAbort = (
   };
 };
 
-const raceWithRequestAbort = <A>({
-  request,
-  abort,
-  status,
-  run,
-  clearOnSuccess = true,
-  catch: catchFailure,
-}: {
-  readonly request: SignatureHttpRequest;
-  readonly abort: (signal: AbortSignal) => RequestAbortHandle;
-  readonly status?: number;
-  readonly run: (abort: RequestAbortHandle) => Promise<A>;
-  readonly catch: (error: unknown) => SignatureKitError;
-  readonly clearOnSuccess?: boolean;
-}): Effect.Effect<A, SignatureKitError> =>
-  Effect.tryPromise({
-    try: (signal) => {
-      const handle = abort(signal);
-      const body = run(handle).then(
-        (value) => {
-          if (clearOnSuccess) handle.clear();
-          return value;
-        },
-        (error) => {
-          handle.clear();
-          return Promise.reject(error);
-        },
-      );
-      const aborted = handle.promise.then((event) => {
-        handle.clear();
-        return event;
-      });
-      return Promise.race([body, aborted]);
-    },
-    catch: catchFailure,
-  }).pipe(
-    Effect.flatMap((result) =>
-      isRequestAbort(result)
-        ? Effect.fail(
+const transport = <A>(
+  request: SignatureHttpRequest,
+  readAcceptedBody: (response: Response) => Promise<A>,
+  acceptedBodyFailureReason: string,
+): Effect.Effect<TransportResponse<A>, SignatureKitError> =>
+  Effect.suspend(() => {
+    let response: Response | undefined;
+    let bodyFailureReason = `Failed to read ${request.method} ${diagnosticRequestUrl(request)} response body.`;
+    return Effect.tryPromise({
+      try: (signal): Promise<TransportResult<A>> => {
+        const abort = startRequestAbort(request, signal);
+        const requestPromise = fetch(request.url, {
+          method: request.method,
+          signal: abort.signal,
+          ...(request.headers === undefined ? {} : { headers: request.headers }),
+          ...(request.body === undefined ? {} : { body: request.body }),
+        }).then(
+          async (
+            nextResponse,
+          ): Promise<AcceptedTransportResponse<A> | HttpStatusTransportResponse> => {
+            response = nextResponse;
+            if (
+              nextResponse.ok ||
+              (request.acceptedStatuses?.includes(nextResponse.status) ?? false)
+            ) {
+              bodyFailureReason = acceptedBodyFailureReason;
+              return {
+                _tag: "Accepted",
+                response: nextResponse,
+                body: await readAcceptedBody(nextResponse),
+              };
+            }
+            return {
+              _tag: "HttpStatus",
+              response: nextResponse,
+              body: await nextResponse.text(),
+            };
+          },
+        );
+        return Promise.race([abort.promise, requestPromise]).then(
+          (result) => {
+            abort.clear();
+            return result;
+          },
+          (error) => {
+            abort.clear();
+            return Promise.reject(error);
+          },
+        );
+      },
+      catch: () =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.http,
+          retryable: isRetryableMethod(request.method),
+          provider: request.provider,
+          operation: SignatureKitOperationValue.httpRequest,
+          ...(response === undefined ? {} : { status: response.status }),
+          reason:
+            response === undefined
+              ? `Failed to call ${request.method} ${diagnosticRequestUrl(request)}.`
+              : bodyFailureReason,
+        }),
+    }).pipe(
+      Effect.flatMap((result) => {
+        if (Schema.is(RequestAbortSchema)(result)) {
+          return Effect.fail(
             new SignatureKitError({
               code: SignatureKitErrorCodeValue.http,
               retryable: isRetryableMethod(request.method),
               provider: request.provider,
               operation: SignatureKitOperationValue.httpRequest,
-              ...(status === undefined ? {} : { status }),
+              ...(response === undefined ? {} : { status: response.status }),
               reason: result.timedOut
                 ? `Request ${request.method} ${diagnosticRequestUrl(request)} timed out after ${request.timeoutMillis} ms.`
                 : `Request ${request.method} ${diagnosticRequestUrl(request)} was aborted.`,
             }),
-          )
-        : Effect.succeed(result),
-    ),
-  );
-const withRequestTimeout = <A>(
-  request: SignatureHttpRequest,
-  effect: Effect.Effect<A, SignatureKitError>,
-): Effect.Effect<A, SignatureKitError> =>
-  request.timeoutMillis === undefined
-    ? effect
-    : effect.pipe(
-        Effect.timeoutOrElse({
-          duration: Duration.millis(request.timeoutMillis),
-          orElse: () =>
-            Effect.fail(
-              new SignatureKitError({
-                code: SignatureKitErrorCodeValue.http,
-                retryable: isRetryableMethod(request.method),
-                provider: request.provider,
-                operation: SignatureKitOperationValue.httpRequest,
-                reason: `Request ${request.method} ${diagnosticRequestUrl(request)} timed out after ${request.timeoutMillis} ms.`,
-              }),
-            ),
-        }),
-      );
-
-const readResponseText = (
-  request: SignatureHttpRequest,
-  timed: TimedResponse,
-): Effect.Effect<string, SignatureKitError> =>
-  raceWithRequestAbort({
-    request,
-    abort: () => timed.abort,
-    status: timed.response.status,
-    run: () => timed.response.text(),
-    catch: () =>
-      new SignatureKitError({
-        code: SignatureKitErrorCodeValue.http,
-        retryable: isRetryableMethod(request.method),
-        provider: request.provider,
-        operation: SignatureKitOperationValue.httpRequest,
-        status: timed.response.status,
-        reason: `Failed to read ${request.method} ${diagnosticRequestUrl(request)} response body.`,
+          );
+        }
+        if (result._tag === "Accepted") {
+          return Effect.succeed({ response: result.response, body: result.body });
+        }
+        const resetAt = retryAfterEpochSeconds(result.response);
+        return Effect.fail(
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.http,
+            retryable: isRetryableStatus(request.method, result.response.status),
+            provider: request.provider,
+            operation: SignatureKitOperationValue.httpRequest,
+            status: result.response.status,
+            ...(resetAt === undefined ? {} : { retryAfterEpochSeconds: resetAt }),
+            reason:
+              result.body.length === 0
+                ? `${request.method} ${diagnosticRequestUrl(request)} returned HTTP ${result.response.status}.`
+                : `${request.method} ${diagnosticRequestUrl(request)} returned HTTP ${result.response.status}: ${compactBody(result.body)}`,
+          }),
+        );
       }),
-  });
-
-const isRetryableStatus = (method: SignatureHttpMethod, status: number): boolean =>
-  status === 429 || (isRetryableMethod(method) && status >= 500);
-
-const RATE_LIMIT_RESET_DELTA_CUTOFF_SECONDS = 10_000_000;
-const RATE_LIMIT_RESET_PAST_SKEW_SECONDS = 86_400;
-const RATE_LIMIT_RESET_FUTURE_WINDOW_SECONDS = 31_536_000;
-
-const retryAfterEpochSeconds = (timed: TimedResponse): number | undefined => {
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  const reset = Number(timed.response.headers.get("x-ratelimit-reset"));
-  if (Number.isFinite(reset) && reset > 0) {
-    if (reset < RATE_LIMIT_RESET_DELTA_CUTOFF_SECONDS) return nowSeconds + reset;
-    if (
-      reset >= nowSeconds - RATE_LIMIT_RESET_PAST_SKEW_SECONDS &&
-      reset <= nowSeconds + RATE_LIMIT_RESET_FUTURE_WINDOW_SECONDS
-    ) {
-      return reset < nowSeconds ? nowSeconds : reset;
-    }
-  }
-  const retryAfter = Number(timed.response.headers.get("retry-after"));
-  if (Number.isFinite(retryAfter) && retryAfter > 0) {
-    return nowSeconds + retryAfter;
-  }
-  return undefined;
-};
-
-const failOnHttpStatus = (
-  request: SignatureHttpRequest,
-  timed: TimedResponse,
-): Effect.Effect<never, SignatureKitError> =>
-  readResponseText(request, timed).pipe(
-    Effect.flatMap((body) => {
-      const resetAt = retryAfterEpochSeconds(timed);
-      return Effect.fail(
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.http,
-          retryable: isRetryableStatus(request.method, timed.response.status),
-          provider: request.provider,
-          operation: SignatureKitOperationValue.httpRequest,
-          status: timed.response.status,
-          ...(resetAt === undefined ? {} : { retryAfterEpochSeconds: resetAt }),
-          reason:
-            body.length === 0
-              ? `${request.method} ${diagnosticRequestUrl(request)} returned HTTP ${timed.response.status}.`
-              : `${request.method} ${diagnosticRequestUrl(request)} returned HTTP ${timed.response.status}: ${compactBody(body)}`,
-        }),
-      );
-    }),
-  );
-
-const fetchResponse = (
-  request: SignatureHttpRequest,
-): Effect.Effect<TimedResponse, SignatureKitError> =>
-  raceWithRequestAbort({
-    request,
-    abort: (signal) => startRequestAbort(request, signal),
-    clearOnSuccess: false,
-    run: (abort) =>
-      fetch(request.url, {
-        method: request.method,
-        signal: abort.signal,
-        ...(request.headers === undefined ? {} : { headers: request.headers }),
-        ...(request.body === undefined ? {} : { body: request.body }),
-      }).then((response) => ({ response, abort })),
-    catch: (error) =>
-      new SignatureKitError({
-        code: SignatureKitErrorCodeValue.http,
-        retryable: isRetryableMethod(request.method),
-        provider: request.provider,
-        operation: SignatureKitOperationValue.httpRequest,
-        reason: Schema.is(AbortCauseSchema)(error)
-          ? `Request ${request.method} ${diagnosticRequestUrl(request)} was aborted.`
-          : `Failed to call ${request.method} ${diagnosticRequestUrl(request)}.`,
-      }),
-  }).pipe(
-    Effect.flatMap((result) =>
-      result.response.ok || (request.acceptedStatuses?.includes(result.response.status) ?? false)
-        ? Effect.succeed(result)
-        : failOnHttpStatus(request, result),
-    ),
-  );
-
-const decodeJsonBody = <A>(
-  request: SignatureHttpRequest,
-  timed: TimedResponse,
-  schema: Schema.ConstraintDecoder<A>,
-  schemaName: string,
-): Effect.Effect<A, SignatureKitError> =>
-  readResponseText(request, timed).pipe(
-    Effect.flatMap((body) =>
-      Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(body).pipe(
-        Effect.mapError(
-          (issue) =>
-            new SignatureKitError({
-              code: SignatureKitErrorCodeValue.responseShape,
-              retryable: false,
-              provider: request.provider,
-              operation: SignatureKitOperationValue.httpDecode,
-              status: timed.response.status,
-              schemaName,
-              reason: `Failed to decode ${request.method} ${diagnosticRequestUrl(request)} JSON response.`,
-              issueMessage: String(issue),
-            }),
-        ),
-      ),
-    ),
-  );
-
-const readResponseBytes = (
-  request: SignatureHttpRequest,
-  timed: TimedResponse,
-): Effect.Effect<Uint8Array, SignatureKitError> =>
-  raceWithRequestAbort({
-    request,
-    abort: () => timed.abort,
-    status: timed.response.status,
-    run: () => timed.response.arrayBuffer(),
-    catch: () =>
-      new SignatureKitError({
-        code: SignatureKitErrorCodeValue.http,
-        retryable: isRetryableMethod(request.method),
-        provider: request.provider,
-        operation: SignatureKitOperationValue.httpRequest,
-        status: timed.response.status,
-        reason: `Failed to read ${request.method} ${diagnosticRequestUrl(request)} response body.`,
-      }),
-  }).pipe(Effect.map((body) => new Uint8Array(body)));
-
-const discardResponseBody = (
-  request: SignatureHttpRequest,
-  timed: TimedResponse,
-): Effect.Effect<void, SignatureKitError> =>
-  Effect.tryPromise({
-    try: () => {
-      const body = timed.response.body;
-      if (body === null) {
-        timed.abort.clear();
-        return Promise.resolve();
-      }
-      return body.cancel().then(
-        () => {
-          timed.abort.clear();
-        },
-        (error) => {
-          timed.abort.clear();
-          return Promise.reject(error);
-        },
-      );
-    },
-    catch: () =>
-      new SignatureKitError({
-        code: SignatureKitErrorCodeValue.http,
-        retryable: isRetryableMethod(request.method),
-        provider: request.provider,
-        operation: SignatureKitOperationValue.httpRequest,
-        status: timed.response.status,
-        reason: `Failed to discard ${request.method} ${diagnosticRequestUrl(request)} response body.`,
-      }),
+    );
   });
 
 export const signatureHttpClientLive: Layer.Layer<SignatureHttpClient> = Layer.succeed(
@@ -384,10 +260,27 @@ export const signatureHttpClientLive: Layer.Layer<SignatureHttpClient> = Layer.s
             }),
         ),
         Effect.flatMap((valid) =>
-          withRequestTimeout(
+          transport(
             valid,
-            fetchResponse(valid).pipe(
-              Effect.flatMap((timed) => decodeJsonBody(valid, timed, schema, schemaName)),
+            (response) => response.text(),
+            `Failed to read ${valid.method} ${diagnosticRequestUrl(valid)} response body.`,
+          ).pipe(
+            Effect.flatMap(({ response, body }) =>
+              Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(body).pipe(
+                Effect.mapError(
+                  (issue) =>
+                    new SignatureKitError({
+                      code: SignatureKitErrorCodeValue.responseShape,
+                      retryable: false,
+                      provider: valid.provider,
+                      operation: SignatureKitOperationValue.httpDecode,
+                      status: response.status,
+                      schemaName,
+                      reason: `Failed to decode ${valid.method} ${diagnosticRequestUrl(valid)} JSON response.`,
+                      issueMessage: String(issue),
+                    }),
+                ),
+              ),
             ),
           ),
         ),
@@ -405,10 +298,11 @@ export const signatureHttpClientLive: Layer.Layer<SignatureHttpClient> = Layer.s
             }),
         ),
         Effect.flatMap((valid) =>
-          withRequestTimeout(
+          transport(
             valid,
-            fetchResponse(valid).pipe(Effect.flatMap((timed) => readResponseBytes(valid, timed))),
-          ),
+            (response) => response.arrayBuffer(),
+            `Failed to read ${valid.method} ${diagnosticRequestUrl(valid)} response body.`,
+          ).pipe(Effect.map(({ body }) => new Uint8Array(body))),
         ),
       ),
     requestVoid: (request: SignatureHttpRequest) =>
@@ -424,10 +318,11 @@ export const signatureHttpClientLive: Layer.Layer<SignatureHttpClient> = Layer.s
             }),
         ),
         Effect.flatMap((valid) =>
-          withRequestTimeout(
+          transport(
             valid,
-            fetchResponse(valid).pipe(Effect.flatMap((timed) => discardResponseBody(valid, timed))),
-          ),
+            (response) => response.body?.cancel() ?? Promise.resolve(),
+            `Failed to discard ${valid.method} ${diagnosticRequestUrl(valid)} response body.`,
+          ).pipe(Effect.map(() => undefined)),
         ),
       ),
   },

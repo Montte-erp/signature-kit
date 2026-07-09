@@ -461,12 +461,12 @@ export const ClicksignSignatureRequest = Resource<ClicksignSignatureRequest>(
   { defaultRemovalPolicy: "retain" },
 );
 
-export class ClicksignCredentials extends Context.Service<
+class ClicksignCredentials extends Context.Service<
   ClicksignCredentials,
   Effect.Effect<ClicksignProviderOptions, SignatureKitError>
 >()("@signature-kit/clicksign/Credentials") {}
 
-export const clicksignCredentialsLayer = (
+const clicksignCredentialsLayer = (
   options: ClicksignProviderOptions,
 ): Layer.Layer<ClicksignCredentials> =>
   Layer.effect(
@@ -681,56 +681,50 @@ const createClicksignSignatureRequest = (
   );
 };
 
-export const ClicksignSignatureRequestProvider = () =>
-  Provider.effect(
-    ClicksignSignatureRequest,
-    Effect.gen(function* () {
-      const credentials = yield* ClicksignCredentials;
-      const http = yield* SignatureHttpClient;
+const clicksignSignatureRequestProvider = Provider.effect(
+  ClicksignSignatureRequest,
+  Effect.gen(function* () {
+    const credentials = yield* ClicksignCredentials;
+    const http = yield* SignatureHttpClient;
 
-      return ClicksignSignatureRequest.Provider.of({
-        nuke: { skip: true },
-        diff: clicksignSignatureRequestDiff,
-        list: () => Effect.succeed([]),
-        read: Effect.fn(function* ({ output }) {
-          if (output === undefined) return undefined;
-          const options = yield* credentials;
-          const baseUrl = clicksignBaseUrl(options);
-          return yield* getClicksignSignatureRequestInternal(
-            http,
-            options,
-            baseUrl,
-            output.id,
-          ).pipe(
-            Effect.catchIf(
-              (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
-              () => Effect.succeed(undefined),
-            ),
-          );
-        }),
-        reconcile: Effect.fn(function* ({ news, output }) {
-          if (output !== undefined) return output;
-          const options = yield* credentials;
-          const baseUrl = clicksignBaseUrl(options);
-          const input = yield* clicksignSignatureRequestInputFromResourceProps(news);
-          return yield* createClicksignSignatureRequest(http, options, baseUrl, input);
-        }),
-        delete: Effect.fn(function* ({ output }) {
-          const options = yield* credentials;
-          const baseUrl = clicksignBaseUrl(options);
-          return yield* deleteClicksignSignatureRequestInternal(http, options, baseUrl, output.id);
-        }),
-      });
-    }),
-  );
+    return ClicksignSignatureRequest.Provider.of({
+      nuke: { skip: true },
+      diff: clicksignSignatureRequestDiff,
+      list: () => Effect.succeed([]),
+      read: Effect.fn(function* ({ output }) {
+        if (output === undefined) return undefined;
+        const options = yield* credentials;
+        const baseUrl = clicksignBaseUrl(options);
+        return yield* getClicksignSignatureRequestInternal(http, options, baseUrl, output.id).pipe(
+          Effect.catchIf(
+            (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
+            () => Effect.succeed(undefined),
+          ),
+        );
+      }),
+      reconcile: Effect.fn(function* ({ news, output }) {
+        if (output !== undefined) return output;
+        const options = yield* credentials;
+        const baseUrl = clicksignBaseUrl(options);
+        const input = yield* clicksignSignatureRequestInputFromResourceProps(news);
+        return yield* createClicksignSignatureRequest(http, options, baseUrl, input);
+      }),
+      delete: Effect.fn(function* ({ output }) {
+        const options = yield* credentials;
+        const baseUrl = clicksignBaseUrl(options);
+        return yield* deleteClicksignSignatureRequestInternal(http, options, baseUrl, output.id);
+      }),
+    });
+  }),
+);
 
-export class ClicksignProviders extends Provider.ProviderCollection<ClicksignProviders>()(
+class ClicksignProviders extends Provider.ProviderCollection<ClicksignProviders>()(
   CLICKSIGN_PROVIDER_COLLECTION_ID,
 ) {}
 
 export const providers = (options: ClicksignProviderOptions) =>
   Layer.effect(ClicksignProviders, Provider.collection([ClicksignSignatureRequest])).pipe(
-    Layer.provide(ClicksignSignatureRequestProvider()),
+    Layer.provide(clicksignSignatureRequestProvider),
     Layer.provide(clicksignCredentialsLayer(options)),
   );
 

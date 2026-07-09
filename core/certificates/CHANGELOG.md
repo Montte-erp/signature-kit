@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Remove the redundant `X509SubjectSchema` and `X509IssuerSchema` aliases; `X509InfoSchema` uses the canonical certificate subject and issuer contracts directly.
+
 ## 0.2.1
 
 - Parse X.509 metadata and the SHA-256 fingerprint concurrently when reading a

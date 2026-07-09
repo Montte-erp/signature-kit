@@ -1,5 +1,7 @@
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import { errorMessage } from "@signature-kit/i18n";
+import { ErrorMessageOptionsSchema } from "../src/i18n";
 import {
   SignatureKitError,
   SignatureKitErrorCodeValue,
@@ -96,12 +98,7 @@ describe("errorMessage", () => {
     ).toBe("Something went wrong.");
   });
 
-  it("throws for malformed options instead of returning generic fallback", () => {
-    const error = new SignatureKitError({
-      code: SignatureKitErrorCodeValue.wrongPassword,
-      retryable: false,
-    });
-
+  it("rejects a malformed fallback locale at the schema boundary before lookup", () => {
     const malformedOptions = JSON.parse(
       JSON.stringify({
         locale: "pt-BR",
@@ -110,7 +107,9 @@ describe("errorMessage", () => {
       }),
     );
 
-    expect(() => errorMessage(error, malformedOptions)).toThrow();
+    const result = Schema.decodeUnknownResult(ErrorMessageOptionsSchema)(malformedOptions);
+
+    expect(Result.isFailure(result)).toBe(true);
   });
 
   it("prefers an explicit empty-string override", () => {

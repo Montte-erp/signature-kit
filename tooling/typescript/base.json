@@ -60,7 +60,7 @@
       "@signature-kit/pdf/byte-range": ["formats/pdf/src/byte-range.ts"],
       "@signature-kit/react/a1": ["formats/react/src/a1.ts"],
       "@signature-kit/react/config": ["formats/react/src/config.ts"],
-      "@signature-kit/react/builder": ["formats/react/src/builder.ts"],
+      "@signature-kit/react/sync-store": ["formats/react/src/sync-store.ts"],
       "@signature-kit/react/browser-pdf": ["formats/react/src/browser-pdf.ts"],
       "@signature-kit/iti/conformance": ["validators/iti/src/conformance.ts"],
       "@signature-kit/iti/remote": ["validators/iti/src/remote.ts"],

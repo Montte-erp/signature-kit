@@ -1,6 +1,7 @@
 import { type SignatureKitError, SignatureKitErrorCodeValue } from "@signature-kit/signatures";
 import { signatureHttpClientLive } from "@signature-kit/http";
 import { describe, expect, it } from "@effect/vitest";
+import * as Provider from "alchemy/Provider";
 import {
   expectProviderListResult,
   jsonBody,
@@ -16,12 +17,11 @@ import {
   type DocumensoEnvelope,
   DocumensoEnvelopeStateSchema,
   DocumensoSignatureRequest,
-  DocumensoSignatureRequestProvider,
+  providers as documensoProviders,
   deleteDocumensoSignatureRequest,
   downloadDocumensoSignedDocument,
   type DocumensoEnvelopeProps,
   type DocumensoProviderOptions,
-  documensoCredentialsLayer,
   getDocumensoSignatureRequest,
   listDocumensoSignatureRequests,
 } from "../src/index";
@@ -64,13 +64,9 @@ const reconcileDocumensoSignatureRequest = (
   request: DocumensoEnvelopeProps,
 ): Effect.Effect<DocumensoEnvelope, SignatureKitError, never> =>
   Effect.gen(function* () {
-    const provider = yield* DocumensoSignatureRequest.Provider;
+    const provider = yield* Provider.findProvider(DocumensoSignatureRequest);
     return yield* provider.reconcile(reconcileResourceProps("documenso-local", request));
-  }).pipe(
-    Effect.provide(DocumensoSignatureRequestProvider()),
-    Effect.provide(documensoCredentialsLayer(options)),
-    Effect.provide(signatureHttpClientLive),
-  );
+  }).pipe(Effect.provide(documensoProviders(options)), Effect.provide(signatureHttpClientLive));
 
 const withLocalServer = <A, E, R>(
   handler: (request: LocalRequest) => Promise<LocalResponse>,
@@ -153,11 +149,10 @@ describe("Documenso offline provider", () => {
         Effect.gen(function* () {
           const options = documensoOptions(server.baseUrl);
           const result = yield* Effect.gen(function* () {
-            const provider = yield* DocumensoSignatureRequest.Provider;
+            const provider = yield* Provider.findProvider(DocumensoSignatureRequest);
             return yield* provider.list();
           }).pipe(
-            Effect.provide(DocumensoSignatureRequestProvider()),
-            Effect.provide(documensoCredentialsLayer(options)),
+            Effect.provide(documensoProviders(options)),
             Effect.provide(signatureHttpClientLive),
           );
 

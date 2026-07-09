@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { signatureHttpClientLive } from "@signature-kit/http";
+import * as Provider from "alchemy/Provider";
 import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import {
   loadFlaggedConfig,
@@ -10,10 +11,9 @@ import {
 import { Config, Effect, Redacted, Result } from "effect";
 import {
   DocumensoSignatureRequest,
-  DocumensoSignatureRequestProvider,
+  providers as documensoProviders,
   cancelDocumensoSignatureRequest,
   deleteDocumensoSignatureRequest,
-  documensoCredentialsLayer,
   getDocumensoSignatureRequest,
   listDocumensoSignatureRequests,
   type DocumensoEnvelopeProps,
@@ -64,13 +64,9 @@ const reconcileDocumensoSignatureRequest = (
   request: DocumensoEnvelopeProps,
 ) =>
   Effect.gen(function* () {
-    const provider = yield* DocumensoSignatureRequest.Provider;
+    const provider = yield* Provider.findProvider(DocumensoSignatureRequest);
     return yield* provider.reconcile(reconcileResourceProps("documenso-live-request", request));
-  }).pipe(
-    Effect.provide(DocumensoSignatureRequestProvider()),
-    Effect.provide(documensoCredentialsLayer(options)),
-    Effect.provide(signatureHttpClientLive),
-  );
+  }).pipe(Effect.provide(documensoProviders(options)), Effect.provide(signatureHttpClientLive));
 
 if (config === undefined) {
   describe.skip("Documenso live API", () => {

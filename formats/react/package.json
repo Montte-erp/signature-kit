@@ -19,9 +19,9 @@
       "types": "./dist/config.d.ts",
       "import": "./dist/config.js"
     },
-    "./builder": {
-      "types": "./dist/builder.d.ts",
-      "import": "./dist/builder.js"
+    "./sync-store": {
+      "types": "./dist/sync-store.d.ts",
+      "import": "./dist/sync-store.js"
     },
     "./browser-pdf": {
       "types": "./dist/browser-pdf.d.ts",

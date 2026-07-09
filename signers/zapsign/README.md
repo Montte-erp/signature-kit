@@ -16,7 +16,7 @@ cached output do not decode credentials.
 
 ## Public surface
 
-- `@signature-kit/zapsign` — ZapSign document/signer schemas, `ZapSignSignatureRequest`, `ZapSignProviders`, `providers`, `getZapSignSignatureRequest`, `listZapSignSignatureRequests`, `cancelZapSignSignatureRequest`, `deleteZapSignSignatureRequest`, and `downloadZapSignSignedDocument`.
+- `@signature-kit/zapsign` — ZapSign document/signer schemas, `ZapSignSignatureRequest`, `providers`, `getZapSignSignatureRequest`, `listZapSignSignatureRequests`, `cancelZapSignSignatureRequest`, `deleteZapSignSignatureRequest`, and `downloadZapSignSignedDocument`.
 
 Capability matrix:
 

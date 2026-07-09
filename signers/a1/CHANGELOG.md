@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Remove the unused `A1Signer` service and `a1SignerLayer`; use `a1SignaturesLayer` or `loadA1SignerAdapter`.
+- Share one validated remote-certificate loader between URL-backed signing and profile APIs.
+
 ## 0.3.0
 
 - Emit distinct `SignatureKitError` codes for expired, not-yet-valid, and
