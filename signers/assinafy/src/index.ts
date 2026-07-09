@@ -216,12 +216,12 @@ export const AssinafySignatureRequest = Resource<AssinafySignatureRequest>(
   { defaultRemovalPolicy: "retain" },
 );
 
-export class AssinafyCredentials extends Context.Service<
+class AssinafyCredentials extends Context.Service<
   AssinafyCredentials,
   Effect.Effect<AssinafyProviderOptions, SignatureKitError>
 >()("@signature-kit/assinafy/Credentials") {}
 
-export const assinafyCredentialsLayer = (
+const assinafyCredentialsLayer = (
   options: AssinafyProviderOptions,
 ): Layer.Layer<AssinafyCredentials> =>
   Layer.effect(
@@ -646,51 +646,50 @@ const createAssinafySignatureRequest = (
   );
 };
 
-export const AssinafySignatureRequestProvider = () =>
-  Provider.effect(
-    AssinafySignatureRequest,
-    Effect.gen(function* () {
-      const credentials = yield* AssinafyCredentials;
-      const http = yield* SignatureHttpClient;
+const assinafySignatureRequestProvider = Provider.effect(
+  AssinafySignatureRequest,
+  Effect.gen(function* () {
+    const credentials = yield* AssinafyCredentials;
+    const http = yield* SignatureHttpClient;
 
-      return AssinafySignatureRequest.Provider.of({
-        nuke: { skip: true },
-        diff: assinafySignatureRequestDiff,
-        list: () => Effect.succeed([]),
-        read: Effect.fn(function* ({ output }) {
-          if (output === undefined) return undefined;
-          const options = yield* credentials;
-          const baseUrl = assinafyBaseUrl(options);
-          return yield* getAssinafySignatureRequestInternal(http, options, baseUrl, output.id).pipe(
-            Effect.catchIf(
-              (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
-              () => Effect.succeed(undefined),
-            ),
-          );
-        }),
-        reconcile: Effect.fn(function* ({ news, output }) {
-          if (output !== undefined) return output;
-          const options = yield* credentials;
-          const baseUrl = assinafyBaseUrl(options);
-          const input = yield* assinafySignatureRequestInputFromResourceProps(news);
-          return yield* createAssinafySignatureRequest(http, options, baseUrl, input);
-        }),
-        delete: Effect.fn(function* ({ output }) {
-          const options = yield* credentials;
-          const baseUrl = assinafyBaseUrl(options);
-          return yield* deleteAssinafySignatureRequestInternal(http, options, baseUrl, output.id);
-        }),
-      });
-    }),
-  );
+    return AssinafySignatureRequest.Provider.of({
+      nuke: { skip: true },
+      diff: assinafySignatureRequestDiff,
+      list: () => Effect.succeed([]),
+      read: Effect.fn(function* ({ output }) {
+        if (output === undefined) return undefined;
+        const options = yield* credentials;
+        const baseUrl = assinafyBaseUrl(options);
+        return yield* getAssinafySignatureRequestInternal(http, options, baseUrl, output.id).pipe(
+          Effect.catchIf(
+            (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
+            () => Effect.succeed(undefined),
+          ),
+        );
+      }),
+      reconcile: Effect.fn(function* ({ news, output }) {
+        if (output !== undefined) return output;
+        const options = yield* credentials;
+        const baseUrl = assinafyBaseUrl(options);
+        const input = yield* assinafySignatureRequestInputFromResourceProps(news);
+        return yield* createAssinafySignatureRequest(http, options, baseUrl, input);
+      }),
+      delete: Effect.fn(function* ({ output }) {
+        const options = yield* credentials;
+        const baseUrl = assinafyBaseUrl(options);
+        return yield* deleteAssinafySignatureRequestInternal(http, options, baseUrl, output.id);
+      }),
+    });
+  }),
+);
 
-export class AssinafyProviders extends Provider.ProviderCollection<AssinafyProviders>()(
+class AssinafyProviders extends Provider.ProviderCollection<AssinafyProviders>()(
   ASSINAFY_PROVIDER_COLLECTION_ID,
 ) {}
 
 export const providers = (options: AssinafyProviderOptions) =>
   Layer.effect(AssinafyProviders, Provider.collection([AssinafySignatureRequest])).pipe(
-    Layer.provide(AssinafySignatureRequestProvider()),
+    Layer.provide(assinafySignatureRequestProvider),
     Layer.provide(assinafyCredentialsLayer(options)),
   );
 

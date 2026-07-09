@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { signatureHttpClientLive } from "@signature-kit/http";
+import * as Provider from "alchemy/Provider";
 import { Effect, Redacted, Result } from "effect";
 import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import {
@@ -13,12 +14,11 @@ import {
   ZapSignSignatureRequest,
   type ZapSignDocumentProps,
   type ZapSignProviderOptions,
-  ZapSignSignatureRequestProvider,
+  providers as zapSignProviders,
   downloadZapSignSignedDocument,
   deleteZapSignSignatureRequest,
   getZapSignSignatureRequest,
   listZapSignSignatureRequests,
-  zapSignCredentialsLayer,
 } from "../src/index";
 
 const base64Pdf = Buffer.from(
@@ -52,13 +52,9 @@ const reconcileZapSignSignatureRequest = (
   request: ZapSignDocumentProps,
 ) =>
   Effect.gen(function* () {
-    const provider = yield* ZapSignSignatureRequest.Provider;
+    const provider = yield* Provider.findProvider(ZapSignSignatureRequest);
     return yield* provider.reconcile(reconcileResourceProps("zapsign-local-request", request));
-  }).pipe(
-    Effect.provide(ZapSignSignatureRequestProvider()),
-    Effect.provide(zapSignCredentialsLayer(options)),
-    Effect.provide(signatureHttpClientLive),
-  );
+  }).pipe(Effect.provide(zapSignProviders(options)), Effect.provide(signatureHttpClientLive));
 
 describe("ZapSign local API", () => {
   it.effect("returns no entries and skips upstream list for retained provider list hook", () =>
@@ -72,11 +68,10 @@ describe("ZapSign local API", () => {
           } satisfies ZapSignProviderOptions;
 
           const result = yield* Effect.gen(function* () {
-            const provider = yield* ZapSignSignatureRequest.Provider;
+            const provider = yield* Provider.findProvider(ZapSignSignatureRequest);
             return yield* provider.list();
           }).pipe(
-            Effect.provide(ZapSignSignatureRequestProvider()),
-            Effect.provide(zapSignCredentialsLayer(options)),
+            Effect.provide(zapSignProviders(options)),
             Effect.provide(signatureHttpClientLive),
           );
 

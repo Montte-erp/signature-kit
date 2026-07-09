@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { captureDocsEvent } from "@/lib/posthog/client";
-import { createSyncStore, useSyncStore } from "@/lib/sync-store";
+import { createSyncStore, useSyncStore } from "@signature-kit/react/sync-store";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
 

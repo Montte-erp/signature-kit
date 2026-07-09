@@ -16,7 +16,7 @@ cached output do not decode credentials.
 
 ## Public surface
 
-- `@signature-kit/docuseal` — DocuSeal submission/document/submitter schemas, `DocuSealSignatureRequest`, `DocuSealProviders`, `providers`, `getDocuSealSignatureRequest`, `listDocuSealSignatureRequests`, `deleteDocuSealSignatureRequest`, and `downloadDocuSealSignedDocument`.
+- `@signature-kit/docuseal` — DocuSeal submission/document/submitter schemas, `DocuSealSignatureRequest`, `providers`, `getDocuSealSignatureRequest`, `listDocuSealSignatureRequests`, `deleteDocuSealSignatureRequest`, and `downloadDocuSealSignedDocument`.
 
 Capability matrix:
 

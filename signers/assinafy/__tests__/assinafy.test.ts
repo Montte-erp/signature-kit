@@ -1,13 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
 import { signatureHttpClientLive } from "@signature-kit/http";
+import * as Provider from "alchemy/Provider";
 import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import { loadFlaggedConfig, optionalEnv, requiredEnv } from "../../../tooling/testing/env";
 import { Config, Effect, Redacted, Schema } from "effect";
 import {
   AssinafySignatureRequest,
-  AssinafySignatureRequestProvider,
   type AssinafySignatureRequestAttributes,
-  assinafyCredentialsLayer,
+  providers as assinafyProviders,
   deleteAssinafySignatureRequest,
   getAssinafySignatureRequest,
   listAssinafySignatureRequests,
@@ -192,13 +192,9 @@ const reconcileAssinafySignatureRequest = (
   request: AssinafySignatureRequestProps,
 ) =>
   Effect.gen(function* () {
-    const provider = yield* AssinafySignatureRequest.Provider;
+    const provider = yield* Provider.findProvider(AssinafySignatureRequest);
     return yield* provider.reconcile(reconcileResourceProps("assinafy-live-request", request));
-  }).pipe(
-    Effect.provide(AssinafySignatureRequestProvider()),
-    Effect.provide(assinafyCredentialsLayer(options)),
-    Effect.provide(signatureHttpClientLive),
-  );
+  }).pipe(Effect.provide(assinafyProviders(options)), Effect.provide(signatureHttpClientLive));
 
 if (config === undefined) {
   describe.skip("Assinafy live API", () => {

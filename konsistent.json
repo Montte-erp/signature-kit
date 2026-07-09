@@ -57,10 +57,7 @@
     {
       "name": "core-shared-sources-must-not-import-formats",
       "description": "Core and shared sources cannot import format packages.",
-      "paths": [
-        "{core,shared}/*/src/**/*.ts",
-        "{core,shared}/*/src/**/*.tsx"
-      ],
+      "paths": ["{core,shared}/*/src/**/*.ts", "{core,shared}/*/src/**/*.tsx"],
       "must": [
         { "name": "forbid-pdf", "mustNot": { "importFrom": "@signature-kit/pdf" } },
         { "name": "forbid-react", "mustNot": { "importFrom": "@signature-kit/react" } },
@@ -123,8 +120,6 @@
           "${signer.toPascalCase()}ProviderId",
           "${signer.toPascalCase()}ProviderOptionsSchema",
           "${signer.toPascalCase()}SignatureRequest",
-          "${signer.toPascalCase()}SignatureRequestProvider",
-          "${signer.toPascalCase()}Providers",
           "providers",
           "get${signer.toPascalCase()}SignatureRequest",
           "list${signer.toPascalCase()}SignatureRequests",

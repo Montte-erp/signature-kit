@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Keep concrete credentials, provider, and provider-collection wiring private; consumers compose `DocuSealSignatureRequest` through `providers(options)`.
+
 ## 0.3.0
 
 - DocuSeal now owns its submission props, attributes, state schema, schema names,

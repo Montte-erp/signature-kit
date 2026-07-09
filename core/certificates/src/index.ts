@@ -36,16 +36,10 @@ const ICP_BRASIL_OID_LABELS: Record<string, string> = {
   "2.16.76.1.3.8": "ICP-Brasil-OAB",
 };
 
-export const X509SubjectSchema = CertificateSubjectSchema;
-export type X509Subject = (typeof X509SubjectSchema)["Type"];
-
-export const X509IssuerSchema = CertificateIssuerSchema;
-export type X509Issuer = (typeof X509IssuerSchema)["Type"];
-
 export const X509InfoSchema = Schema.Struct({
   serialNumber: Schema.NonEmptyString,
-  subject: X509SubjectSchema,
-  issuer: X509IssuerSchema,
+  subject: CertificateSubjectSchema,
+  issuer: CertificateIssuerSchema,
   validity: CertificateValiditySchema,
   subjectAltName: Schema.NullOr(Schema.String),
   publicKeyDer: Schema.Uint8Array,

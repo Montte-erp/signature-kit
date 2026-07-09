@@ -12,7 +12,7 @@ bun add @signature-kit/certificates @signature-kit/signatures effect
 
 ## Public surface
 
-- `@signature-kit/certificates` — `X509SubjectSchema`, `X509IssuerSchema`, `X509InfoSchema`, `CertificateSourceSchema`, `parseCertificate`, `parseX509`, `extractBrazilianFields`, `toSignerIdentity`, `isCertificateValid`, and `daysUntilExpiry`.
+- `@signature-kit/certificates` — `X509InfoSchema`, `CertificateSourceSchema`, `parseCertificate`, `parseX509`, `extractBrazilianFields`, `toSignerIdentity`, `isCertificateValid`, and `daysUntilExpiry`.
 
 `CertificateSource` accepts an `ArrayBuffer` or `ArrayBufferView` of raw PKCS#12 bytes, or a `string`. A `string` source is treated as raw latin-1-encoded PKCS#12 bytes, not PEM text — PEM input is rejected and fails with `INVALID_FORMAT`. `parseCertificate(source, password)` returns the normalized `Certificate` contract from `@signature-kit/signatures`; `parseX509(der)` returns X.509 metadata without requiring a private key.
 

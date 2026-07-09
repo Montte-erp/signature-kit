@@ -24,8 +24,8 @@ Migration note: components moved out of the npm package and into the registry. R
 
 - `@signature-kit/react/a1` — `useA1Certificate`, `useA1Signer`, `getLoadedA1CertificateProfile`, and clear actions.
 - `@signature-kit/react/browser-pdf` — `usePdfObjectUrl(bytes)` with object URL cleanup.
-- `@signature-kit/react/builder` — `createSyncStore`, `useSyncStore`, and other tiny external-store helpers for headless builder state.
-- `@signature-kit/react/config` — hook input schemas, signer row types, and certificate state types.
+- `@signature-kit/react/sync-store` — `createSyncStore` and `useSyncStore` for headless external state.
+- `@signature-kit/react/config` — Schema-backed hook inputs, certificate state, signer rows, snapshots, and outcomes.
 
 Certificate persistence is not included. If an app remembers a password or encrypted PFX bytes, it owns that storage policy and passes fresh inputs back to the hooks.
 

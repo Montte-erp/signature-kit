@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { SignatureKitErrorCodeValue, type SignatureKitError } from "@signature-kit/signatures";
 import { signatureHttpClientLive, type SignatureHttpClient } from "@signature-kit/http";
+import * as Provider from "alchemy/Provider";
 import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import {
   expectProviderListResult,
@@ -12,10 +13,9 @@ import {
 import { Effect, Redacted, Result } from "effect";
 import {
   DocuSealSignatureRequest,
-  DocuSealSignatureRequestProvider,
+  providers as docuSealProviders,
   deleteDocuSealSignatureRequest,
   downloadDocuSealSignedDocument,
-  docuSealCredentialsLayer,
   getDocuSealSignatureRequest,
   listDocuSealSignatureRequests,
   type DocuSealProviderOptions,
@@ -98,12 +98,9 @@ describe("DocuSeal offline provider", () => {
       (options, requests) =>
         Effect.gen(function* () {
           const result = yield* Effect.gen(function* () {
-            const provider = yield* DocuSealSignatureRequest.Provider;
+            const provider = yield* Provider.findProvider(DocuSealSignatureRequest);
             return yield* provider.list();
-          }).pipe(
-            Effect.provide(DocuSealSignatureRequestProvider()),
-            Effect.provide(docuSealCredentialsLayer(options)),
-          );
+          }).pipe(Effect.provide(docuSealProviders(options)));
 
           expect(requests).toHaveLength(0);
           expectProviderListResult(result);
@@ -139,14 +136,11 @@ describe("DocuSeal offline provider", () => {
       (options, requests) =>
         Effect.gen(function* () {
           const created = yield* Effect.gen(function* () {
-            const provider = yield* DocuSealSignatureRequest.Provider;
+            const provider = yield* Provider.findProvider(DocuSealSignatureRequest);
             return yield* provider.reconcile(
               reconcileResourceProps("docuseal-offline-create", submissionPayload),
             );
-          }).pipe(
-            Effect.provide(DocuSealSignatureRequestProvider()),
-            Effect.provide(docuSealCredentialsLayer(options)),
-          );
+          }).pipe(Effect.provide(docuSealProviders(options)));
 
           expect(created.id).toBe("created-id");
           expect(created.state).toBe("draft");
@@ -239,9 +233,7 @@ describe("DocuSeal offline provider", () => {
       },
       (options, requests) =>
         Effect.gen(function* () {
-          const listed = yield* listDocuSealSignatureRequests(options).pipe(
-            Effect.provide(docuSealCredentialsLayer(options)),
-          );
+          const listed = yield* listDocuSealSignatureRequests(options);
 
           const listRequests = requests.filter(
             (request) => request.pathname === "/submissions" && request.method === "GET",
@@ -267,9 +259,7 @@ describe("DocuSeal offline provider", () => {
           }
 
           for (const { id, localState } of STATE_CASES) {
-            const fetched = yield* getDocuSealSignatureRequest(options, id).pipe(
-              Effect.provide(docuSealCredentialsLayer(options)),
-            );
+            const fetched = yield* getDocuSealSignatureRequest(options, id);
             expect(fetched.id).toBe(id);
             expect(fetched.state).toBe(localState);
           }
@@ -296,9 +286,7 @@ describe("DocuSeal offline provider", () => {
       },
       (options, requests) =>
         Effect.gen(function* () {
-          const result = yield* deleteDocuSealSignatureRequest(options, "missing").pipe(
-            Effect.provide(docuSealCredentialsLayer(options)),
-          );
+          const result = yield* deleteDocuSealSignatureRequest(options, "missing");
           expect(result).toBeUndefined();
           expect(requests).toHaveLength(1);
           const deleteRequest = requests[0];
@@ -342,9 +330,7 @@ describe("DocuSeal offline provider", () => {
       },
       (options, requests) =>
         Effect.gen(function* () {
-          const downloaded = yield* downloadDocuSealSignedDocument(options, "completed").pipe(
-            Effect.provide(docuSealCredentialsLayer(options)),
-          );
+          const downloaded = yield* downloadDocuSealSignedDocument(options, "completed");
 
           expect(downloaded).toEqual(expectedBytes);
           expect(requests).toHaveLength(2);
@@ -378,11 +364,7 @@ describe("DocuSeal offline provider", () => {
       },
       (options, requests) =>
         Effect.gen(function* () {
-          const result = yield* Effect.result(
-            downloadDocuSealSignedDocument(options, "draft").pipe(
-              Effect.provide(docuSealCredentialsLayer(options)),
-            ),
-          );
+          const result = yield* Effect.result(downloadDocuSealSignedDocument(options, "draft"));
 
           expect(Result.isFailure(result)).toBe(true);
           if (Result.isFailure(result)) {

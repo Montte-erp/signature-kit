@@ -1,4 +1,4 @@
-import { Result, Schema } from "effect";
+import { Schema } from "effect";
 
 const LocalizedMessageMapSchema = Schema.Record(Schema.String, Schema.String);
 export type LocalizedMessageMap = (typeof LocalizedMessageMapSchema)["Type"];
@@ -62,25 +62,19 @@ const getMessageFromCatalog = (
 const genericErrorCode: ErrorMessageFallbackCode = "i18n.GENERIC_ERROR";
 
 export const errorMessage = (error: unknown, options: ErrorMessageOptions): string => {
-  const validOptions = Result.getOrThrow(
-    Schema.decodeUnknownResult(ErrorMessageOptionsSchema)(options),
-  );
-
-  const fallbackLocale = validOptions.fallbackLocale ?? "en-US";
+  const fallbackLocale = options.fallbackLocale ?? "en-US";
   const code = Schema.is(TaggedErrorShapeSchema)(error) ? error.code : undefined;
-  const overrides = validOptions.overrides;
+  const overrides = options.overrides;
 
   if (code !== undefined) {
     const explicitOverride =
-      overrides === undefined
-        ? undefined
-        : getMessageFromCatalog(overrides, validOptions.locale, code);
+      overrides === undefined ? undefined : getMessageFromCatalog(overrides, options.locale, code);
     if (explicitOverride !== undefined) {
       return explicitOverride;
     }
 
-    for (const catalog of validOptions.catalogs) {
-      const catalogMessage = getMessageFromCatalog(catalog, validOptions.locale, code);
+    for (const catalog of options.catalogs) {
+      const catalogMessage = getMessageFromCatalog(catalog, options.locale, code);
       if (catalogMessage !== undefined) {
         return catalogMessage;
       }
@@ -92,7 +86,7 @@ export const errorMessage = (error: unknown, options: ErrorMessageOptions): stri
       return fallbackLocaleOverride;
     }
 
-    for (const catalog of validOptions.catalogs) {
+    for (const catalog of options.catalogs) {
       const fallbackCatalogMessage = getMessageFromCatalog(catalog, fallbackLocale, code);
       if (fallbackCatalogMessage !== undefined) {
         return fallbackCatalogMessage;
@@ -101,7 +95,7 @@ export const errorMessage = (error: unknown, options: ErrorMessageOptions): stri
   }
 
   return (
-    getMessageFromCatalog(localizedErrorMessageFallbacks, validOptions.locale, genericErrorCode) ??
+    getMessageFromCatalog(localizedErrorMessageFallbacks, options.locale, genericErrorCode) ??
     getMessageFromCatalog(localizedErrorMessageFallbacks, fallbackLocale, genericErrorCode) ??
     getMessageFromCatalog(localizedErrorMessageFallbacks, "en-US", genericErrorCode) ??
     "Something went wrong."

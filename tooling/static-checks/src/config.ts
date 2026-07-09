@@ -34,23 +34,23 @@ export const requiredEffectSpanFiles: Record<string, readonly RequiredSpanCall[]
 
 export const allowedEffectProvideSites: Record<string, readonly string[]> = {
   "signers/assinafy/src/index.ts": [
-    "AssinafySignatureRequestProvider()",
+    "assinafySignatureRequestProvider",
     "assinafyCredentialsLayer(options)",
   ],
   "signers/clicksign/src/index.ts": [
-    "ClicksignSignatureRequestProvider()",
+    "clicksignSignatureRequestProvider",
     "clicksignCredentialsLayer(options)",
   ],
   "signers/documenso/src/index.ts": [
-    "DocumensoSignatureRequestProvider()",
+    "documensoSignatureRequestProvider",
     "documensoCredentialsLayer(options)",
   ],
   "signers/docuseal/src/index.ts": [
-    "DocuSealSignatureRequestProvider()",
+    "docuSealSignatureRequestProvider",
     "docuSealCredentialsLayer(options)",
   ],
   "signers/zapsign/src/index.ts": [
-    "ZapSignSignatureRequestProvider()",
+    "zapSignSignatureRequestProvider",
     "zapSignCredentialsLayer(options)",
   ],
 };

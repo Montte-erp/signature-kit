@@ -16,7 +16,7 @@ cached output do not decode credentials.
 
 ## Public surface
 
-- `@signature-kit/assinafy` — Assinafy request/document/signer schemas, `AssinafySignatureRequest`, `AssinafyProviders`, `providers`, `getAssinafySignatureRequest`, `listAssinafySignatureRequests`, `deleteAssinafySignatureRequest`, and `downloadAssinafySignedDocument`.
+- `@signature-kit/assinafy` — Assinafy request/document/signer schemas, `AssinafySignatureRequest`, `providers`, `getAssinafySignatureRequest`, `listAssinafySignatureRequests`, `deleteAssinafySignatureRequest`, and `downloadAssinafySignedDocument`.
 
 Capability matrix:
 

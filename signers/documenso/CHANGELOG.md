@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Keep concrete credentials, provider, and provider-collection wiring private; consumers compose `DocumensoSignatureRequest` through `providers(options)`.
+
 ## 0.3.0
 
 - Documenso now owns its envelope props, attributes, state schema, schema names,

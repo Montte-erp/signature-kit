@@ -209,12 +209,12 @@ export const ZapSignSignatureRequest = Resource<ZapSignSignatureRequest>(
   { defaultRemovalPolicy: "retain" },
 );
 
-export class ZapSignCredentials extends Context.Service<
+class ZapSignCredentials extends Context.Service<
   ZapSignCredentials,
   Effect.Effect<ZapSignProviderOptions, SignatureKitError>
 >()("@signature-kit/zapsign/Credentials") {}
 
-export const zapSignCredentialsLayer = (
+const zapSignCredentialsLayer = (
   options: ZapSignProviderOptions,
 ): Layer.Layer<ZapSignCredentials> =>
   Layer.effect(
@@ -511,51 +511,50 @@ const downloadZapSignSignedDocumentInternal = (
     }),
   );
 
-export const ZapSignSignatureRequestProvider = () =>
-  Provider.effect(
-    ZapSignSignatureRequest,
-    Effect.gen(function* () {
-      const credentials = yield* ZapSignCredentials;
-      const http = yield* SignatureHttpClient;
+const zapSignSignatureRequestProvider = Provider.effect(
+  ZapSignSignatureRequest,
+  Effect.gen(function* () {
+    const credentials = yield* ZapSignCredentials;
+    const http = yield* SignatureHttpClient;
 
-      return ZapSignSignatureRequest.Provider.of({
-        nuke: { skip: true },
-        diff: zapsignSignatureRequestDiff,
-        list: () => Effect.succeed([]),
-        read: Effect.fn(function* ({ output }) {
-          if (output === undefined) return undefined;
-          const options = yield* credentials;
-          const baseUrl = zapSignBaseUrl(options);
-          return yield* getZapSignSignatureRequestInternal(http, options, baseUrl, output.id).pipe(
-            Effect.catchIf(
-              (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
-              () => Effect.succeed(undefined),
-            ),
-          );
-        }),
-        reconcile: Effect.fn(function* ({ news, output }) {
-          if (output !== undefined) return output;
-          const options = yield* credentials;
-          const baseUrl = zapSignBaseUrl(options);
-          const input = yield* zapsignSignatureRequestInputFromResourceProps(news);
-          return yield* createZapSignDocument(http, options, baseUrl, input);
-        }),
-        delete: Effect.fn(function* ({ output }) {
-          const options = yield* credentials;
-          const baseUrl = zapSignBaseUrl(options);
-          return yield* deleteZapSignSignatureRequestInternal(http, options, baseUrl, output.id);
-        }),
-      });
-    }),
-  );
+    return ZapSignSignatureRequest.Provider.of({
+      nuke: { skip: true },
+      diff: zapsignSignatureRequestDiff,
+      list: () => Effect.succeed([]),
+      read: Effect.fn(function* ({ output }) {
+        if (output === undefined) return undefined;
+        const options = yield* credentials;
+        const baseUrl = zapSignBaseUrl(options);
+        return yield* getZapSignSignatureRequestInternal(http, options, baseUrl, output.id).pipe(
+          Effect.catchIf(
+            (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
+            () => Effect.succeed(undefined),
+          ),
+        );
+      }),
+      reconcile: Effect.fn(function* ({ news, output }) {
+        if (output !== undefined) return output;
+        const options = yield* credentials;
+        const baseUrl = zapSignBaseUrl(options);
+        const input = yield* zapsignSignatureRequestInputFromResourceProps(news);
+        return yield* createZapSignDocument(http, options, baseUrl, input);
+      }),
+      delete: Effect.fn(function* ({ output }) {
+        const options = yield* credentials;
+        const baseUrl = zapSignBaseUrl(options);
+        return yield* deleteZapSignSignatureRequestInternal(http, options, baseUrl, output.id);
+      }),
+    });
+  }),
+);
 
-export class ZapSignProviders extends Provider.ProviderCollection<ZapSignProviders>()(
+class ZapSignProviders extends Provider.ProviderCollection<ZapSignProviders>()(
   ZAPSIGN_PROVIDER_COLLECTION_ID,
 ) {}
 
 export const providers = (options: ZapSignProviderOptions) =>
   Layer.effect(ZapSignProviders, Provider.collection([ZapSignSignatureRequest])).pipe(
-    Layer.provide(ZapSignSignatureRequestProvider()),
+    Layer.provide(zapSignSignatureRequestProvider),
     Layer.provide(zapSignCredentialsLayer(options)),
   );
 

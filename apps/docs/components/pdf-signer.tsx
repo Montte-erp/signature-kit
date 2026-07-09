@@ -65,7 +65,7 @@ import {
   type PdfDocumentProxy,
   type PdfLoadingTask,
 } from "@/components/pdf-page";
-import { createSyncStore, useSyncStore } from "@/lib/sync-store";
+import { createSyncStore, useSyncStore } from "@signature-kit/react/sync-store";
 import { caveat } from "@/lib/handwriting-font";
 import { cn } from "@/lib/utils";
 import { captureDocsEvent } from "@/lib/posthog/client";

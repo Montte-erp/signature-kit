@@ -1,11 +1,11 @@
 import { SignatureKitErrorCodeValue } from "@signature-kit/signatures";
 import { signatureHttpClientLive } from "@signature-kit/http";
 import { describe, expect, it } from "@effect/vitest";
+import * as Provider from "alchemy/Provider";
 import { Effect, Redacted, Result, Schema } from "effect";
 import {
   AssinafySignatureRequest,
-  AssinafySignatureRequestProvider,
-  assinafyCredentialsLayer,
+  providers as assinafyProviders,
   deleteAssinafySignatureRequest,
   downloadAssinafySignedDocument,
   getAssinafySignatureRequest,
@@ -36,13 +36,9 @@ const reconcileAssinafySignatureRequest = (
   request: AssinafySignatureRequestProps,
 ) =>
   Effect.gen(function* () {
-    const provider = yield* AssinafySignatureRequest.Provider;
+    const provider = yield* Provider.findProvider(AssinafySignatureRequest);
     return yield* provider.reconcile(reconcileResourceProps("assinafy-local-request", request));
-  }).pipe(
-    Effect.provide(AssinafySignatureRequestProvider()),
-    Effect.provide(assinafyCredentialsLayer(options)),
-    Effect.provide(signatureHttpClientLive),
-  );
+  }).pipe(Effect.provide(assinafyProviders(options)), Effect.provide(signatureHttpClientLive));
 
 const stateFixture: readonly {
   readonly id: string;
@@ -123,11 +119,10 @@ describe("Assinafy local API", () => {
         Effect.gen(function* () {
           const options = makeProviderOptions(server.baseUrl);
           const result = yield* Effect.gen(function* () {
-            const provider = yield* AssinafySignatureRequest.Provider;
+            const provider = yield* Provider.findProvider(AssinafySignatureRequest);
             return yield* provider.list();
           }).pipe(
-            Effect.provide(AssinafySignatureRequestProvider()),
-            Effect.provide(assinafyCredentialsLayer(options)),
+            Effect.provide(assinafyProviders(options)),
             Effect.provide(signatureHttpClientLive),
           );
 

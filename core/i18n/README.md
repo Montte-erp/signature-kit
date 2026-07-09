@@ -16,6 +16,8 @@ bun add @signature-kit/i18n effect
 
 `errorMessage(error, options)` reads `_tag` and `code` structurally. Consumers do not need `instanceof`, `.code` helper wrappers, or reason-string matching.
 
+`errorMessage` is a pure lookup over the Schema-derived `ErrorMessageOptions` type. Decode untrusted options explicitly with `ErrorMessageOptionsSchema` before calling it.
+
 Resolution order for a known code:
 
 1. `overrides[locale][code]`

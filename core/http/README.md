@@ -18,6 +18,8 @@ bun add @signature-kit/http @signature-kit/signatures effect
 
 Retry metadata is conservative: `GET`, `PUT`, and `DELETE` failures are marked retryable; `POST` and `PATCH` are not. HTTP 429 is always retryable regardless of method; 5xx is retryable only when the method itself is retryable. Other statuses, including 408, are not retryable. When a rate-limited response carries a reset time, the `x-ratelimit-reset` header is read before `Retry-After`, and the result is preserved as `retryAfterEpochSeconds`.
 
+The timeout owns the complete fetch-and-body lifecycle. Interruption aborts the active request, and slow response bodies cannot outlive `timeoutMillis`.
+
 Redaction rule: if credentials must appear in a transport URL, pass a credential-free `diagnosticUrl`; `SignatureKitError.reason` only uses the diagnostic URL.
 
 Body contract: `SignatureHttpBodySchema` accepts `string | FormData | URLSearchParams`; multipart/form-data requests are sent via `FormData`.

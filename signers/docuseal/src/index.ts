@@ -236,12 +236,12 @@ export const DocuSealSignatureRequest = Resource<DocuSealSignatureRequest>(
   { defaultRemovalPolicy: "retain" },
 );
 
-export class DocuSealCredentials extends Context.Service<
+class DocuSealCredentials extends Context.Service<
   DocuSealCredentials,
   Effect.Effect<DocuSealProviderOptions, SignatureKitError>
 >()("@signature-kit/docuseal/Credentials") {}
 
-export const docuSealCredentialsLayer = (
+const docuSealCredentialsLayer = (
   options: DocuSealProviderOptions,
 ): Layer.Layer<DocuSealCredentials> =>
   Layer.effect(
@@ -568,51 +568,50 @@ const downloadDocumentFromSubmission = (
     }),
   );
 
-export const DocuSealSignatureRequestProvider = () =>
-  Provider.effect(
-    DocuSealSignatureRequest,
-    Effect.gen(function* () {
-      const credentials = yield* DocuSealCredentials;
-      const http = yield* SignatureHttpClient;
+const docuSealSignatureRequestProvider = Provider.effect(
+  DocuSealSignatureRequest,
+  Effect.gen(function* () {
+    const credentials = yield* DocuSealCredentials;
+    const http = yield* SignatureHttpClient;
 
-      return DocuSealSignatureRequest.Provider.of({
-        nuke: { skip: true },
-        diff: docusealSignatureRequestDiff,
-        list: () => Effect.succeed([]),
-        read: Effect.fn(function* ({ output }) {
-          if (output === undefined) return undefined;
-          const options = yield* credentials;
-          const baseUrl = docuSealBaseUrl(options);
-          return yield* fetchSubmission(http, options, baseUrl, output.id).pipe(
-            Effect.map((result) => toDocuSealSubmissionAttributes(baseUrl, result)),
-            Effect.catchIf(
-              (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
-              () => Effect.succeed(undefined),
-            ),
-          );
-        }),
-        reconcile: Effect.fn(function* ({ news, output }) {
-          if (output !== undefined) return output;
-          const options = yield* credentials;
-          const baseUrl = docuSealBaseUrl(options);
-          const input = yield* docusealSignatureRequestInputFromResourceProps(news);
-          return yield* createSubmission(http, options, baseUrl, input);
-        }),
-        delete: Effect.fn(function* ({ output }) {
-          const options = yield* credentials;
-          const baseUrl = docuSealBaseUrl(options);
-          return yield* deleteSubmission(http, options, baseUrl, output.id);
-        }),
-      });
-    }),
-  );
-export class DocuSealProviders extends Provider.ProviderCollection<DocuSealProviders>()(
+    return DocuSealSignatureRequest.Provider.of({
+      nuke: { skip: true },
+      diff: docusealSignatureRequestDiff,
+      list: () => Effect.succeed([]),
+      read: Effect.fn(function* ({ output }) {
+        if (output === undefined) return undefined;
+        const options = yield* credentials;
+        const baseUrl = docuSealBaseUrl(options);
+        return yield* fetchSubmission(http, options, baseUrl, output.id).pipe(
+          Effect.map((result) => toDocuSealSubmissionAttributes(baseUrl, result)),
+          Effect.catchIf(
+            (error) => error.code === SignatureKitErrorCodeValue.http && error.status === 404,
+            () => Effect.succeed(undefined),
+          ),
+        );
+      }),
+      reconcile: Effect.fn(function* ({ news, output }) {
+        if (output !== undefined) return output;
+        const options = yield* credentials;
+        const baseUrl = docuSealBaseUrl(options);
+        const input = yield* docusealSignatureRequestInputFromResourceProps(news);
+        return yield* createSubmission(http, options, baseUrl, input);
+      }),
+      delete: Effect.fn(function* ({ output }) {
+        const options = yield* credentials;
+        const baseUrl = docuSealBaseUrl(options);
+        return yield* deleteSubmission(http, options, baseUrl, output.id);
+      }),
+    });
+  }),
+);
+class DocuSealProviders extends Provider.ProviderCollection<DocuSealProviders>()(
   DOCUSEAL_PROVIDER_COLLECTION_ID,
 ) {}
 
 export const providers = (options: DocuSealProviderOptions) =>
   Layer.effect(DocuSealProviders, Provider.collection([DocuSealSignatureRequest])).pipe(
-    Layer.provide(DocuSealSignatureRequestProvider()),
+    Layer.provide(docuSealSignatureRequestProvider),
     Layer.provide(docuSealCredentialsLayer(options)),
   );
 

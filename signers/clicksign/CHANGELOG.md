@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Keep concrete credentials, provider, and provider-collection wiring private; consumers compose `ClicksignSignatureRequest` through `providers(options)`.
+
 ## 0.3.0
 
 - Clicksign now owns its document/signature-request props, attributes, state

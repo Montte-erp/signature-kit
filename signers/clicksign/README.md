@@ -16,7 +16,7 @@ cached output do not decode credentials.
 
 ## Public surface
 
-- `@signature-kit/clicksign` — Clicksign request/document/signer schemas, `ClicksignSignatureRequest`, `ClicksignProviders`, `providers`, `getClicksignSignatureRequest`, `listClicksignSignatureRequests`, `cancelClicksignSignatureRequest`, `deleteClicksignSignatureRequest`, and `downloadClicksignSignedDocument`.
+- `@signature-kit/clicksign` — Clicksign request/document/signer schemas, `ClicksignSignatureRequest`, `providers`, `getClicksignSignatureRequest`, `listClicksignSignatureRequests`, `cancelClicksignSignatureRequest`, `deleteClicksignSignatureRequest`, and `downloadClicksignSignedDocument`.
 
 Capability matrix:
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { SignatureKitErrorCodeValue, type SignatureKitError } from "@signature-kit/signatures";
 import { signatureHttpClientLive } from "@signature-kit/http";
+import * as Provider from "alchemy/Provider";
 import {
   expectProviderListResult,
   jsonBody,
@@ -14,8 +15,7 @@ import { Effect, Redacted, Result } from "effect";
 import {
   type ClicksignProviderOptions,
   ClicksignSignatureRequest,
-  ClicksignSignatureRequestProvider,
-  clicksignCredentialsLayer,
+  providers as clicksignProviders,
   deleteClicksignSignatureRequest,
   downloadClicksignSignedDocument,
   getClicksignSignatureRequest,
@@ -59,13 +59,9 @@ const reconcileClicksign = (
 ): Effect.Effect<ClicksignSignatureRequestAttributes, SignatureKitError, never> => {
   const options = clicksignOptions(server.baseUrl);
   return Effect.gen(function* () {
-    const provider = yield* ClicksignSignatureRequest.Provider;
+    const provider = yield* Provider.findProvider(ClicksignSignatureRequest);
     return yield* provider.reconcile(reconcileResourceProps("clicksign-local", input));
-  }).pipe(
-    Effect.provide(ClicksignSignatureRequestProvider()),
-    Effect.provide(clicksignCredentialsLayer(options)),
-    Effect.provide(signatureHttpClientLive),
-  );
+  }).pipe(Effect.provide(clicksignProviders(options)), Effect.provide(signatureHttpClientLive));
 };
 
 const withLocalServer = <A, E, R>(
@@ -102,11 +98,10 @@ describe("Clicksign local HTTP provider tests", () => {
         Effect.gen(function* () {
           const options = clicksignOptions(server.baseUrl);
           const result = yield* Effect.gen(function* () {
-            const provider = yield* ClicksignSignatureRequest.Provider;
+            const provider = yield* Provider.findProvider(ClicksignSignatureRequest);
             return yield* provider.list();
           }).pipe(
-            Effect.provide(ClicksignSignatureRequestProvider()),
-            Effect.provide(clicksignCredentialsLayer(options)),
+            Effect.provide(clicksignProviders(options)),
             Effect.provide(signatureHttpClientLive),
           );
 
