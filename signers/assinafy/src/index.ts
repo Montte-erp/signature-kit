@@ -1,3 +1,4 @@
+import { base64ToBytes } from "@signature-kit/crypto/base64";
 import {
   SignatureKitError,
   SignatureKitErrorCodeValue,
@@ -103,26 +104,28 @@ const assinafySignatureRequestDiff = ({
 }): Effect.Effect<typeof assinafySignatureRequestNoopDiff | undefined> =>
   Effect.succeed(olds === undefined ? undefined : assinafySignatureRequestNoopDiff);
 
-const assinafySignatureRequestInputFromProps = (
+const assinafySignatureRequestInputFromProps = Effect.fn(function* (
   props: AssinafySignatureRequestProps,
-): AssinafySignatureRequestInput => {
+) {
   const [document] = props.documents;
+  const content = yield* base64ToBytes(document.contentBase64).pipe(Effect.orDie);
+  const documents: AssinafySignatureRequestInput["documents"] = [
+    {
+      fileName: document.fileName,
+      mimeType: document.mimeType,
+      content,
+    },
+  ];
   return {
     title: props.title,
-    documents: [
-      {
-        fileName: document.fileName,
-        mimeType: document.mimeType,
-        content: Uint8Array.fromBase64(document.contentBase64),
-      },
-    ],
+    documents,
     recipients: props.recipients,
     ...(props.message === undefined ? {} : { message: props.message }),
     ...(props.send === undefined ? {} : { send: props.send }),
     ...(props.expiresAt === undefined ? {} : { expiresAt: props.expiresAt }),
     ...(props.redirectUrl === undefined ? {} : { redirectUrl: props.redirectUrl }),
   };
-};
+});
 
 const assinafySignatureRequestInputFromResourceProps = (
   props: unknown,
@@ -139,7 +142,7 @@ const assinafySignatureRequestInputFromResourceProps = (
           issueMessage: String(issue),
         }),
     ),
-    Effect.map(assinafySignatureRequestInputFromProps),
+    Effect.flatMap(assinafySignatureRequestInputFromProps),
   );
 
 const ASSINAFY_PROVIDER_COLLECTION_ID = "@signature-kit/assinafy/Providers";

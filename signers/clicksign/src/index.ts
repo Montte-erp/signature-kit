@@ -1,4 +1,4 @@
-import { bytesToBase64 } from "@signature-kit/crypto/base64";
+import { base64ToBytes, bytesToBase64 } from "@signature-kit/crypto/base64";
 import {
   SignatureKitError,
   SignatureKitErrorCodeValue,
@@ -108,26 +108,28 @@ const clicksignSignatureRequestDiff = ({
 }): Effect.Effect<typeof clicksignSignatureRequestNoopDiff | undefined> =>
   Effect.succeed(olds === undefined ? undefined : clicksignSignatureRequestNoopDiff);
 
-const clicksignSignatureRequestInputFromProps = (
+const clicksignSignatureRequestInputFromProps = Effect.fn(function* (
   props: ClicksignSignatureRequestProps,
-): ClicksignSignatureRequestInput => {
+) {
   const [document] = props.documents;
+  const content = yield* base64ToBytes(document.contentBase64).pipe(Effect.orDie);
+  const documents: ClicksignSignatureRequestInput["documents"] = [
+    {
+      fileName: document.fileName,
+      mimeType: document.mimeType,
+      content,
+    },
+  ];
   return {
     title: props.title,
-    documents: [
-      {
-        fileName: document.fileName,
-        mimeType: document.mimeType,
-        content: Uint8Array.fromBase64(document.contentBase64),
-      },
-    ],
+    documents,
     recipients: props.recipients,
     ...(props.message === undefined ? {} : { message: props.message }),
     ...(props.send === undefined ? {} : { send: props.send }),
     ...(props.expiresAt === undefined ? {} : { expiresAt: props.expiresAt }),
     ...(props.redirectUrl === undefined ? {} : { redirectUrl: props.redirectUrl }),
   };
-};
+});
 
 const clicksignSignatureRequestInputFromResourceProps = (
   props: unknown,
@@ -144,7 +146,7 @@ const clicksignSignatureRequestInputFromResourceProps = (
           issueMessage: String(issue),
         }),
     ),
-    Effect.map(clicksignSignatureRequestInputFromProps),
+    Effect.flatMap(clicksignSignatureRequestInputFromProps),
   );
 
 const CLICKSIGN_PROVIDER_COLLECTION_ID = "@signature-kit/clicksign/Providers";

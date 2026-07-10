@@ -211,6 +211,7 @@
       "name": "@signature-kit/assinafy",
       "version": "0.3.0",
       "dependencies": {
+        "@signature-kit/crypto": "^0.2.1",
         "@signature-kit/http": "^0.1.0",
         "@signature-kit/signatures": "^0.1.0",
         "alchemy": "2.0.0-beta.57",
@@ -232,6 +233,7 @@
       "name": "@signature-kit/documenso",
       "version": "0.3.0",
       "dependencies": {
+        "@signature-kit/crypto": "^0.2.1",
         "@signature-kit/http": "^0.1.0",
         "@signature-kit/signatures": "^0.1.0",
         "alchemy": "2.0.0-beta.57",

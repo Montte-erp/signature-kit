@@ -3,6 +3,9 @@
   "include": ["src/**/*.ts"],
   "references": [
     {
+      "path": "../../shared/crypto"
+    },
+    {
       "path": "../../core/signatures"
     },
     {

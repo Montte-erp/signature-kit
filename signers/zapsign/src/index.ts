@@ -1,4 +1,4 @@
-import { bytesToBase64 } from "@signature-kit/crypto/base64";
+import { base64ToBytes, bytesToBase64 } from "@signature-kit/crypto/base64";
 import {
   SignatureKitError,
   SignatureKitErrorCodeValue,
@@ -102,26 +102,26 @@ const zapsignSignatureRequestDiff = ({
 }): Effect.Effect<typeof zapsignSignatureRequestNoopDiff | undefined> =>
   Effect.succeed(olds === undefined ? undefined : zapsignSignatureRequestNoopDiff);
 
-const zapsignSignatureRequestInputFromProps = (
-  props: ZapSignDocumentProps,
-): ZapSignDocumentInput => {
+const zapsignSignatureRequestInputFromProps = Effect.fn(function* (props: ZapSignDocumentProps) {
   const [document] = props.documents;
+  const content = yield* base64ToBytes(document.contentBase64).pipe(Effect.orDie);
+  const documents: ZapSignDocumentInput["documents"] = [
+    {
+      fileName: document.fileName,
+      mimeType: document.mimeType,
+      content,
+    },
+  ];
   return {
     title: props.title,
-    documents: [
-      {
-        fileName: document.fileName,
-        mimeType: document.mimeType,
-        content: Uint8Array.fromBase64(document.contentBase64),
-      },
-    ],
+    documents,
     recipients: props.recipients,
     ...(props.message === undefined ? {} : { message: props.message }),
     ...(props.send === undefined ? {} : { send: props.send }),
     ...(props.expiresAt === undefined ? {} : { expiresAt: props.expiresAt }),
     ...(props.redirectUrl === undefined ? {} : { redirectUrl: props.redirectUrl }),
   };
-};
+});
 
 const zapsignSignatureRequestInputFromResourceProps = (
   props: unknown,
@@ -138,7 +138,7 @@ const zapsignSignatureRequestInputFromResourceProps = (
           issueMessage: String(issue),
         }),
     ),
-    Effect.map(zapsignSignatureRequestInputFromProps),
+    Effect.flatMap(zapsignSignatureRequestInputFromProps),
   );
 
 const ZAPSIGN_PROVIDER_COLLECTION_ID = "@signature-kit/zapsign/Providers";

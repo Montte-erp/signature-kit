@@ -1,4 +1,4 @@
-import { bytesToBase64 } from "@signature-kit/crypto/base64";
+import { base64ToBytes, bytesToBase64 } from "@signature-kit/crypto/base64";
 import {
   SignatureKitError,
   SignatureKitErrorCodeValue,
@@ -107,24 +107,32 @@ const docusealSignatureRequestDiff = ({
 }): Effect.Effect<typeof docusealSignatureRequestNoopDiff | undefined> =>
   Effect.succeed(olds === undefined ? undefined : docusealSignatureRequestNoopDiff);
 
-const docusealSignatureRequestInputFromProps = (
+const docusealSignatureRequestInputFromProps = Effect.fn(function* (
   props: DocuSealSubmissionProps,
-): DocuSealSubmissionInput => {
+) {
   const [firstDocument, ...restDocuments] = props.documents;
-  return {
-    title: props.title,
-    documents: [
-      {
-        fileName: firstDocument.fileName,
-        mimeType: firstDocument.mimeType,
-        content: Uint8Array.fromBase64(firstDocument.contentBase64),
-      },
-      ...restDocuments.map((document) => ({
+  const firstContent = yield* base64ToBytes(firstDocument.contentBase64).pipe(Effect.orDie);
+  const decodedRestDocuments = yield* Effect.forEach(restDocuments, (document) =>
+    base64ToBytes(document.contentBase64).pipe(
+      Effect.orDie,
+      Effect.map((content) => ({
         fileName: document.fileName,
         mimeType: document.mimeType,
-        content: Uint8Array.fromBase64(document.contentBase64),
+        content,
       })),
-    ],
+    ),
+  );
+  const documents: DocuSealSubmissionInput["documents"] = [
+    {
+      fileName: firstDocument.fileName,
+      mimeType: firstDocument.mimeType,
+      content: firstContent,
+    },
+    ...decodedRestDocuments,
+  ];
+  return {
+    title: props.title,
+    documents,
     recipients: props.recipients,
     ...(props.subject === undefined ? {} : { subject: props.subject }),
     ...(props.message === undefined ? {} : { message: props.message }),
@@ -132,7 +140,7 @@ const docusealSignatureRequestInputFromProps = (
     ...(props.expiresAt === undefined ? {} : { expiresAt: props.expiresAt }),
     ...(props.redirectUrl === undefined ? {} : { redirectUrl: props.redirectUrl }),
   };
-};
+});
 
 const docusealSignatureRequestInputFromResourceProps = (
   props: unknown,
@@ -149,7 +157,7 @@ const docusealSignatureRequestInputFromResourceProps = (
           issueMessage: String(issue),
         }),
     ),
-    Effect.map(docusealSignatureRequestInputFromProps),
+    Effect.flatMap(docusealSignatureRequestInputFromProps),
   );
 
 const DOCUSEAL_PROVIDER_COLLECTION_ID = "@signature-kit/docuseal/Providers";

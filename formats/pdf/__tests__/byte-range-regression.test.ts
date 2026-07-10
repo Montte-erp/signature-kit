@@ -210,16 +210,12 @@ const createXrefStreamSignaturePdf = (): Uint8Array => {
   );
 };
 
-const copyBytesToArrayBuffer = (input: Uint8Array): ArrayBuffer => {
-  const buffer = new ArrayBuffer(input.byteLength);
-  new Uint8Array(buffer).set(input);
-  return buffer;
-};
-
 const deflateBytes = async (input: Uint8Array): Promise<Uint8Array> => {
   const compression = new CompressionStream("deflate");
   const writer = compression.writable.getWriter();
-  await writer.write(copyBytesToArrayBuffer(input));
+  const copy = new Uint8Array(input.byteLength);
+  copy.set(input);
+  await writer.write(copy);
   await writer.close();
   return new Uint8Array(await new Response(compression.readable).arrayBuffer());
 };
