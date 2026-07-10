@@ -1,0 +1,47 @@
+import initLiteParseWasm, { LiteParse } from "@llamaindex/liteparse-wasm";
+import liteParseWasmUrl from "@llamaindex/liteparse-wasm/liteparse_wasm_bg.wasm?url";
+import { Schema } from "effect";
+
+import { hasBoundedPdfLiteParseResult, PdfLiteParseResultSchemaForPageCount } from "./config";
+import { LiteParseWorkerRequestSchema } from "./liteparse-browser-protocol";
+import type { LiteParseWorkerRequest } from "./liteparse-browser-protocol";
+
+const isLiteParseWorkerRequest = Schema.is(LiteParseWorkerRequestSchema);
+
+const parseLiteParseRequest = (request: LiteParseWorkerRequest): Promise<unknown> =>
+  initLiteParseWasm(liteParseWasmUrl).then(() => {
+    const parser = new LiteParse({
+      ocrEnabled: false,
+      maxPages: request.pageCount,
+      outputFormat: "json",
+      preserveVerySmallText: true,
+      quiet: true,
+    });
+    return Promise.resolve()
+      .then(() => parser.parse(request.pdf))
+      .finally(() => parser.free());
+  });
+
+globalThis.addEventListener("message", (event: MessageEvent<unknown>) => {
+  const request = event.data;
+  if (!isLiteParseWorkerRequest(request)) {
+    globalThis.postMessage({ kind: "failure" }, {});
+    return;
+  }
+
+  void parseLiteParseRequest(request).then(
+    (result) => {
+      if (
+        hasBoundedPdfLiteParseResult(result, request.pageCount) &&
+        Schema.is(PdfLiteParseResultSchemaForPageCount(request.pageCount))(result)
+      ) {
+        globalThis.postMessage({ kind: "success", result }, {});
+        return;
+      }
+      globalThis.postMessage({ kind: "failure" }, {});
+    },
+    () => {
+      globalThis.postMessage({ kind: "failure" }, {});
+    },
+  );
+});

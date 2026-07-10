@@ -49,12 +49,23 @@ export const signXml = (
     );
     const xmlRuntime = yield* XmlRuntime;
     const algorithm = input.algorithm ?? "rsa-sha256";
+
+    const document = yield* xmlRuntime.parse(input.xml);
+    const sourceSignatureStructure = yield* xmlRuntime.validateSigningDocument(document);
+    if (!sourceSignatureStructure.canAppendSignature) {
+      return yield* Effect.fail(
+        new XmlError({
+          code: XmlErrorCodeValue.signFailed,
+          retryable: false,
+          reason: "XML signature count would exceed verification limits.",
+          operation: XmlOperationValue.sign,
+        }),
+      );
+    }
     const [certificate, signingKey] = yield* Effect.all(
       [signatures.certificate(), signatures.importSigningKey(algorithm)],
       { concurrency: "unbounded" },
     );
-
-    const document = yield* xmlRuntime.parse(input.xml);
     const canonicalizationTransform = xmlCanonicalizationTransform(input.canonicalization);
     const reference: OptionsSignReference =
       input.referenceId === undefined
@@ -85,7 +96,7 @@ export const signXml = (
         }),
     });
 
-    return yield* Effect.try({
+    const output = yield* Effect.try({
       try: () => signedXml.toString(),
       catch: () =>
         new XmlError({
@@ -94,4 +105,16 @@ export const signXml = (
           operation: XmlOperationValue.sign,
         }),
     });
+    const signedDocument = yield* xmlRuntime.parse(output).pipe(
+      Effect.mapError(
+        () =>
+          new XmlError({
+            code: XmlErrorCodeValue.signFailed,
+            retryable: false,
+            operation: XmlOperationValue.sign,
+          }),
+      ),
+    );
+    yield* xmlRuntime.validateSigningDocument(signedDocument);
+    return output;
   });

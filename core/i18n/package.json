@@ -23,8 +23,8 @@
   },
   "scripts": {
     "build": "tsc -b tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsc -p tsconfig.json --noEmit --tsBuildInfoFile .cache/typecheck.tsbuildinfo",
+    "test": "vitest run --root ../.. core/i18n/__tests__"
   },
   "dependencies": {
     "effect": "4.0.0-beta.86"
@@ -34,7 +34,23 @@
     "@signature-kit/signatures": "^0.1.0"
   },
   "nx": {
+    "implicitDependencies": [
+      "!@signature-kit/crypto",
+      "!@signature-kit/signatures"
+    ],
     "targets": {
+      "test": {
+        "dependsOn": [
+          "build",
+          {
+            "projects": [
+              "@signature-kit/crypto",
+              "@signature-kit/signatures"
+            ],
+            "target": "build"
+          }
+        ]
+      },
       "npm-pack": {
         "executor": "nx:run-commands",
         "options": {

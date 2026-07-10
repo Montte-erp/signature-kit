@@ -30,6 +30,8 @@ bun add @signature-kit/a1
 - `@signature-kit/pdf/merge` — `mergePdfs`; it copies pages only and intentionally drops source AcroForms, outlines, metadata, and attachments.
 - `@signature-kit/pdf/liteparse-browser` — browser-only LiteParse text-box extraction.
 
+`signatureLength` is CMS byte capacity: a value of `n` reserves exactly `n` bytes, represented by `2n` hexadecimal digits in `/Contents`.
+
 Verification coverage semantics: every signature ByteRange must start at byte 0, each signature must cryptographically verify, and the newest signature must cover the file end. Without `trustedRoots`, `verifyPdf` checks coverage and CMS cryptography but does not bind the signer to a trusted chain. Supplying `trustedRoots` makes `chainValid` and the final `valid` verdict require chain validation.
 
 Rubrics never stamp the same page as the full visible signature block. `rubricPageIndexesExcludingSignature(...)` skips the main signature page, and single-page documents receive only the main block.

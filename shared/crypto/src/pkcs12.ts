@@ -1,7 +1,6 @@
+import type { Asn1Error } from "@signature-kit/asn1";
 import {
   type Asn1Node,
-  Asn1Error,
-  bytesOf,
   childrenOf,
   decode,
   encode,
@@ -9,14 +8,10 @@ import {
   oidString,
 } from "@signature-kit/asn1";
 import { Effect, Redacted } from "effect";
-import {
-  CryptoError,
-  CryptoErrorCodeValue,
-  CryptoOperationValue,
-  type Pkcs12Result,
-} from "./config";
-import { type HmacHashAlgorithm, hmac } from "./primitives/hmac";
-import { pbkdf2 } from "./primitives/pbkdf2";
+import { CryptoError, CryptoErrorCodeValue, CryptoOperationValue } from "./config";
+import type { Pkcs12Result } from "./config";
+import { createHmac, hmac } from "./primitives/hmac";
+import type { HmacHashAlgorithm } from "./primitives/hmac";
 import { sha1 } from "./primitives/sha1";
 import { sha256 } from "./primitives/sha256";
 import { sha384, sha512 } from "./primitives/sha512";
@@ -44,6 +39,7 @@ const OID_HMAC_SHA1 = "1.2.840.113549.2.7";
 const OID_HMAC_SHA256 = "1.2.840.113549.2.9";
 const OID_HMAC_SHA384 = "1.2.840.113549.2.10";
 const OID_HMAC_SHA512 = "1.2.840.113549.2.11";
+const OID_SHA1 = "1.3.14.3.2.26";
 const OID_SHA256 = "2.16.840.1.101.3.4.2.1";
 const OID_SHA384 = "2.16.840.1.101.3.4.2.2";
 const OID_SHA512 = "2.16.840.1.101.3.4.2.3";
@@ -51,6 +47,11 @@ const OID_SHA512 = "2.16.840.1.101.3.4.2.3";
 type Pkcs12Error = CryptoError | Asn1Error;
 
 const MAX_KDF_ITERATIONS = 10_000_000;
+const MAX_KDF_WORK = 10_000_000;
+const KDF_YIELD_INTERVAL = 1_024;
+const kdfYield = Effect.sleep("0 millis");
+
+type KdfBudget = { remaining: number };
 
 const boundedIterations = (iterations: number, label: string): Effect.Effect<number, CryptoError> =>
   Number.isSafeInteger(iterations) && iterations >= 1 && iterations <= MAX_KDF_ITERATIONS
@@ -92,11 +93,11 @@ const concatBytes = (parts: readonly Uint8Array[]): Uint8Array => {
 };
 
 const readOctetString = (node: Asn1Node): Effect.Effect<Uint8Array, CryptoError> => {
-  if (node.tag !== 0x04) {
+  if (node.class !== "universal" || node.tag !== 0x04) {
     return Effect.fail(
       new CryptoError({
         code: CryptoErrorCodeValue.corruptedFile,
-        reason: `Expected OCTET STRING, got tag ${node.tag}.`,
+        reason: `Expected universal OCTET STRING, got ${node.class} tag ${node.tag}.`,
         operation: CryptoOperationValue.pkcs12Decode,
       }),
     );
@@ -163,6 +164,26 @@ const padToMultiple = (data: Uint8Array, blockSize: number): Uint8Array => {
 const hashOutputLength = (algorithm: HmacHashAlgorithm): number =>
   algorithm === "sha1" ? 20 : algorithm === "sha256" ? 32 : algorithm === "sha384" ? 48 : 64;
 
+const consumeKdfWork = (
+  budget: KdfBudget,
+  label: string,
+  iterations: number,
+  blocks: number,
+): Effect.Effect<void, CryptoError> => {
+  const work = iterations * blocks;
+  if (!Number.isSafeInteger(work) || work > budget.remaining) {
+    return Effect.fail(
+      new CryptoError({
+        code: CryptoErrorCodeValue.corruptedFile,
+        reason: `PKCS#12 KDF work budget exceeded for ${label}: ${work} operations.`,
+        operation: CryptoOperationValue.pkcs12Decode,
+      }),
+    );
+  }
+  budget.remaining -= work;
+  return Effect.succeed(undefined);
+};
+
 const pkcs12Kdf = (
   bmpPassword: Uint8Array,
   salt: Uint8Array,
@@ -170,60 +191,131 @@ const pkcs12Kdf = (
   purpose: number,
   keyLen: number,
   algorithm: HmacHashAlgorithm,
-): Uint8Array => {
-  const v = algorithm === "sha384" || algorithm === "sha512" ? 128 : 64;
+  budget: KdfBudget,
+): Effect.Effect<Uint8Array, CryptoError> =>
+  Effect.gen(function* () {
+    const hashLength = hashOutputLength(algorithm);
+    yield* consumeKdfWork(budget, "PKCS#12", iterations, Math.ceil(keyLen / hashLength));
 
-  const D = new Uint8Array(v);
-  D.fill(purpose);
+    const v = algorithm === "sha384" || algorithm === "sha512" ? 128 : 64;
 
-  const S = padToMultiple(salt, v);
-  const P = padToMultiple(bmpPassword, v);
+    const D = new Uint8Array(v);
+    D.fill(purpose);
 
-  const I = new Uint8Array(S.length + P.length);
-  I.set(S, 0);
-  I.set(P, S.length);
+    const S = padToMultiple(salt, v);
+    const P = padToMultiple(bmpPassword, v);
 
-  const DI = new Uint8Array(D.length + I.length);
-  DI.set(D, 0);
-  DI.set(I, D.length);
+    const I = new Uint8Array(S.length + P.length);
+    I.set(S, 0);
+    I.set(P, S.length);
 
-  const result = new Uint8Array(keyLen);
-  let resultOffset = 0;
+    const DI = new Uint8Array(D.length + I.length);
+    DI.set(D, 0);
+    DI.set(I, D.length);
 
-  while (resultOffset < keyLen) {
-    let A = hashBytes(algorithm, DI);
-    for (let i = 1; i < iterations; i++) {
-      A = hashBytes(algorithm, A);
-    }
+    const result = new Uint8Array(keyLen);
+    let resultOffset = 0;
+    let hashesSinceYield = 0;
 
-    const toCopy = Math.min(keyLen - resultOffset, A.length);
-    result.set(A.subarray(0, toCopy), resultOffset);
-    resultOffset += toCopy;
-    if (resultOffset >= keyLen) break;
+    while (resultOffset < keyLen) {
+      let A = hashBytes(algorithm, DI);
+      hashesSinceYield++;
+      if (hashesSinceYield === KDF_YIELD_INTERVAL) {
+        yield* kdfYield;
+        hashesSinceYield = 0;
+      }
+      for (let i = 1; i < iterations; i++) {
+        A = hashBytes(algorithm, A);
+        hashesSinceYield++;
+        if (hashesSinceYield === KDF_YIELD_INTERVAL) {
+          yield* kdfYield;
+          hashesSinceYield = 0;
+        }
+      }
 
-    const B = padToMultiple(A, v);
-    for (let j = 0; j < I.length; j += v) {
-      let carry = 1;
-      for (let k = v - 1; k >= 0; k--) {
-        const sum = I[j + k]! + B[k]! + carry;
-        I[j + k] = sum & 0xff;
-        DI[D.length + j + k] = sum & 0xff;
-        carry = sum >>> 8;
+      const toCopy = Math.min(keyLen - resultOffset, A.length);
+      result.set(A.subarray(0, toCopy), resultOffset);
+      resultOffset += toCopy;
+      if (resultOffset >= keyLen) break;
+
+      const B = padToMultiple(A, v);
+      for (let j = 0; j < I.length; j += v) {
+        let carry = 1;
+        for (let k = v - 1; k >= 0; k--) {
+          const sum = I[j + k]! + B[k]! + carry;
+          I[j + k] = sum & 0xff;
+          DI[D.length + j + k] = sum & 0xff;
+          carry = sum >>> 8;
+        }
       }
     }
-  }
 
-  return result;
+    return result;
+  });
+
+const pbkdf2Kdf = (
+  prf: HmacHashAlgorithm,
+  password: Uint8Array,
+  salt: Uint8Array,
+  iterations: number,
+  keyLength: number,
+  budget: KdfBudget,
+): Effect.Effect<Uint8Array, CryptoError> =>
+  Effect.gen(function* () {
+    const hashLength = hashOutputLength(prf);
+    const blockCount = Math.ceil(keyLength / hashLength);
+    yield* consumeKdfWork(budget, "PBKDF2", iterations, blockCount);
+
+    const hmacContext = createHmac(prf, password);
+    const derivedKey = new Uint8Array(keyLength);
+    let hashesSinceYield = 0;
+
+    for (let blockIndex = 1; blockIndex <= blockCount; blockIndex++) {
+      const saltWithIndex = new Uint8Array(salt.length + 4);
+      saltWithIndex.set(salt);
+      saltWithIndex[salt.length] = (blockIndex >>> 24) & 0xff;
+      saltWithIndex[salt.length + 1] = (blockIndex >>> 16) & 0xff;
+      saltWithIndex[salt.length + 2] = (blockIndex >>> 8) & 0xff;
+      saltWithIndex[salt.length + 3] = blockIndex & 0xff;
+
+      let u = hmacContext.compute(saltWithIndex);
+      const block = new Uint8Array(u);
+      hashesSinceYield++;
+      if (hashesSinceYield === KDF_YIELD_INTERVAL) {
+        yield* kdfYield;
+        hashesSinceYield = 0;
+      }
+
+      for (let iteration = 1; iteration < iterations; iteration++) {
+        u = hmacContext.compute(u);
+        for (let j = 0; j < hashLength; j++) block[j]! ^= u[j]!;
+        hashesSinceYield++;
+        if (hashesSinceYield === KDF_YIELD_INTERVAL) {
+          yield* kdfYield;
+          hashesSinceYield = 0;
+        }
+      }
+
+      const offset = (blockIndex - 1) * hashLength;
+      derivedKey.set(block.subarray(0, Math.min(hashLength, keyLength - offset)), offset);
+    }
+
+    return derivedKey;
+  });
+
+const macHashAlgorithm = (oid: string): Effect.Effect<HmacHashAlgorithm, CryptoError> => {
+  if (oid === OID_SHA1) return Effect.succeed("sha1");
+  if (oid === OID_SHA256) return Effect.succeed("sha256");
+  if (oid === OID_SHA384) return Effect.succeed("sha384");
+  if (oid === OID_SHA512) return Effect.succeed("sha512");
+  return Effect.fail(
+    new CryptoError({
+      code: CryptoErrorCodeValue.unsupportedAlgorithm,
+      reason: `Unsupported PKCS#12 MAC hash: ${oid}`,
+      operation: CryptoOperationValue.pkcs12Decode,
+    }),
+  );
 };
-
-const macHashAlgorithm = (oid: string): HmacHashAlgorithm =>
-  oid === OID_SHA256
-    ? "sha256"
-    : oid === OID_SHA384
-      ? "sha384"
-      : oid === OID_SHA512
-        ? "sha512"
-        : "sha1";
 
 const constantTimeEquals = (a: Uint8Array, b: Uint8Array): boolean => {
   if (a.length !== b.length) return false;
@@ -238,14 +330,16 @@ const verifyMac = (
   macNode: Asn1Node,
   authSafeData: Uint8Array,
   bmpPassword: Uint8Array,
+  budget: KdfBudget,
 ): Effect.Effect<void, Pkcs12Error> =>
   Effect.gen(function* () {
     const macFields = yield* childrenOf(macNode);
     const digestInfo = yield* childrenOf(yield* elementAt(macFields, 0, "DigestInfo"));
     const algorithmSeq = yield* childrenOf(yield* elementAt(digestInfo, 0, "AlgorithmIdentifier"));
     const macAlgOid = yield* oidString(yield* elementAt(algorithmSeq, 0, "MAC algorithm OID"));
-    const expectedDigest = yield* bytesOf(yield* elementAt(digestInfo, 1, "MAC digest"));
-    const macSalt = yield* bytesOf(yield* elementAt(macFields, 1, "MAC salt"));
+    const expectedDigest = yield* readOctetString(yield* elementAt(digestInfo, 1, "MAC digest"));
+    const macSalt = yield* readOctetString(yield* elementAt(macFields, 1, "MAC salt"));
+    const algorithm = yield* macHashAlgorithm(macAlgOid);
 
     const iterations = yield* boundedIterations(
       macFields.length >= 3
@@ -254,14 +348,14 @@ const verifyMac = (
       "MAC",
     );
 
-    const algorithm = macHashAlgorithm(macAlgOid);
-    const macKey = pkcs12Kdf(
+    const macKey = yield* pkcs12Kdf(
       bmpPassword,
       macSalt,
       iterations,
       3,
       hashOutputLength(algorithm),
       algorithm,
+      budget,
     );
     const computed = hmac(algorithm, macKey, authSafeData);
 
@@ -289,10 +383,38 @@ const pbkdf2HashAlgorithm = (oid: string): Effect.Effect<HmacHashAlgorithm, Cryp
   );
 };
 
+const validateCbcParameters = (
+  algorithm: string,
+  ivLength: number,
+  ciphertext: Uint8Array,
+  blockSize: number,
+): Effect.Effect<void, CryptoError> => {
+  if (ivLength !== blockSize) {
+    return Effect.fail(
+      new CryptoError({
+        code: CryptoErrorCodeValue.corruptedFile,
+        reason: `Invalid ${algorithm} IV length: expected ${blockSize} bytes, got ${ivLength}.`,
+        operation: CryptoOperationValue.pkcs12Decode,
+      }),
+    );
+  }
+  if (ciphertext.length === 0 || ciphertext.length % blockSize !== 0) {
+    return Effect.fail(
+      new CryptoError({
+        code: CryptoErrorCodeValue.corruptedFile,
+        reason: `Invalid ${algorithm} ciphertext length: ${ciphertext.length}.`,
+        operation: CryptoOperationValue.pkcs12Decode,
+      }),
+    );
+  }
+  return Effect.succeed(undefined);
+};
+
 const decryptPbes2 = (
   encryptedData: Uint8Array,
   params: Asn1Node,
   passwordBytes: Uint8Array,
+  budget: KdfBudget,
 ): Effect.Effect<Uint8Array, Pkcs12Error> =>
   Effect.gen(function* () {
     const pbes2Params = yield* childrenOf(params);
@@ -311,7 +433,7 @@ const decryptPbes2 = (
     }
 
     const pbkdf2Params = yield* childrenOf(yield* elementAt(kdfInfo, 1, "PBKDF2-params"));
-    const salt = yield* bytesOf(yield* elementAt(pbkdf2Params, 0, "PBKDF2 salt"));
+    const salt = yield* readOctetString(yield* elementAt(pbkdf2Params, 0, "PBKDF2 salt"));
     const iterations = yield* boundedIterations(
       Number(yield* integerBigInt(yield* elementAt(pbkdf2Params, 1, "PBKDF2 iterations"))),
       "PBKDF2",
@@ -320,29 +442,30 @@ const decryptPbes2 = (
     let prf: HmacHashAlgorithm = "sha1";
     for (let i = 2; i < pbkdf2Params.length; i++) {
       const param = pbkdf2Params[i];
-      if (param !== undefined && param.kind === "constructed" && param.tag === 0x10) {
+      if (
+        param !== undefined &&
+        param.class === "universal" &&
+        param.kind === "constructed" &&
+        param.tag === 0x10
+      ) {
         const prfOid = yield* oidString(yield* elementAt(param.children, 0, "PRF OID"));
         prf = yield* pbkdf2HashAlgorithm(prfOid);
       }
     }
 
     const encOid = yield* oidString(yield* elementAt(encScheme, 0, "encryption OID"));
-    const iv = yield* bytesOf(yield* elementAt(encScheme, 1, "encryption IV"));
+    const iv = yield* readOctetString(yield* elementAt(encScheme, 1, "encryption IV"));
 
     if (encOid === OID_AES_128_CBC || encOid === OID_AES_192_CBC || encOid === OID_AES_256_CBC) {
-      const keyLen = encOid === OID_AES_128_CBC ? 16 : encOid === OID_AES_192_CBC ? 24 : 32;
-      return yield* aesCbcDecrypt(
-        pbkdf2(prf, passwordBytes, salt, iterations, keyLen),
-        iv,
-        encryptedData,
-      );
+      const keyLength = encOid === OID_AES_128_CBC ? 16 : encOid === OID_AES_192_CBC ? 24 : 32;
+      yield* validateCbcParameters("AES-CBC", iv.length, encryptedData, 16);
+      const key = yield* pbkdf2Kdf(prf, passwordBytes, salt, iterations, keyLength, budget);
+      return yield* aesCbcDecrypt(key, iv, encryptedData);
     }
     if (encOid === OID_DES_EDE3_CBC) {
-      return yield* tripleDesCbcDecrypt(
-        pbkdf2(prf, passwordBytes, salt, iterations, 24),
-        iv,
-        encryptedData,
-      );
+      yield* validateCbcParameters("3DES-CBC", iv.length, encryptedData, 8);
+      const key = yield* pbkdf2Kdf(prf, passwordBytes, salt, iterations, 24, budget);
+      return yield* tripleDesCbcDecrypt(key, iv, encryptedData);
     }
     return yield* Effect.fail(
       new CryptoError({
@@ -359,42 +482,57 @@ const decryptPbe = (
   algorithmParams: Asn1Node,
   bmpPassword: Uint8Array,
   passwordBytes: Uint8Array,
+  budget: KdfBudget,
 ): Effect.Effect<Uint8Array, Pkcs12Error> => {
   if (algorithmOid === OID_PBES2) {
-    return decryptPbes2(encryptedData, algorithmParams, passwordBytes);
+    return decryptPbes2(encryptedData, algorithmParams, passwordBytes, budget);
   }
-
-  return Effect.gen(function* () {
-    const params = yield* childrenOf(algorithmParams);
-    const salt = yield* bytesOf(yield* elementAt(params, 0, "PBE salt"));
-    const iterations = yield* boundedIterations(
-      Number(yield* integerBigInt(yield* elementAt(params, 1, "PBE iterations"))),
-      "PBE",
-    );
-    const derive = (length: number, purpose: number): Uint8Array =>
-      pkcs12Kdf(bmpPassword, salt, iterations, purpose, length, "sha1");
-
-    if (algorithmOid === OID_PBE_SHA_3DES) {
-      return yield* tripleDesCbcDecrypt(derive(24, 1), derive(8, 2), encryptedData);
-    }
-    if (algorithmOid === OID_PBE_SHA_2DES) {
-      const k16 = derive(16, 1);
-      const key24 = concatBytes([k16, k16.subarray(0, 8)]);
-      return yield* tripleDesCbcDecrypt(key24, derive(8, 2), encryptedData);
-    }
-    if (algorithmOid === OID_PBE_SHA_RC2_128) {
-      return yield* rc2CbcDecrypt(derive(16, 1), 128, derive(8, 2), encryptedData);
-    }
-    if (algorithmOid === OID_PBE_SHA_RC2_40) {
-      return yield* rc2CbcDecrypt(derive(5, 1), 40, derive(8, 2), encryptedData);
-    }
-    return yield* Effect.fail(
+  if (
+    algorithmOid !== OID_PBE_SHA_3DES &&
+    algorithmOid !== OID_PBE_SHA_2DES &&
+    algorithmOid !== OID_PBE_SHA_RC2_128 &&
+    algorithmOid !== OID_PBE_SHA_RC2_40
+  ) {
+    return Effect.fail(
       new CryptoError({
         code: CryptoErrorCodeValue.unsupportedAlgorithm,
         reason: `Unsupported PBE algorithm: ${algorithmOid}`,
         operation: CryptoOperationValue.pkcs12Decode,
       }),
     );
+  }
+
+  return Effect.gen(function* () {
+    const params = yield* childrenOf(algorithmParams);
+    const salt = yield* readOctetString(yield* elementAt(params, 0, "PBE salt"));
+    const iterations = yield* boundedIterations(
+      Number(yield* integerBigInt(yield* elementAt(params, 1, "PBE iterations"))),
+      "PBE",
+    );
+
+    if (algorithmOid === OID_PBE_SHA_3DES) {
+      yield* validateCbcParameters("3DES-CBC", 8, encryptedData, 8);
+      const key = yield* pkcs12Kdf(bmpPassword, salt, iterations, 1, 24, "sha1", budget);
+      const iv = yield* pkcs12Kdf(bmpPassword, salt, iterations, 2, 8, "sha1", budget);
+      return yield* tripleDesCbcDecrypt(key, iv, encryptedData);
+    }
+    if (algorithmOid === OID_PBE_SHA_2DES) {
+      yield* validateCbcParameters("3DES-CBC", 8, encryptedData, 8);
+      const key16 = yield* pkcs12Kdf(bmpPassword, salt, iterations, 1, 16, "sha1", budget);
+      const key = concatBytes([key16, key16.subarray(0, 8)]);
+      const iv = yield* pkcs12Kdf(bmpPassword, salt, iterations, 2, 8, "sha1", budget);
+      return yield* tripleDesCbcDecrypt(key, iv, encryptedData);
+    }
+    if (algorithmOid === OID_PBE_SHA_RC2_128) {
+      yield* validateCbcParameters("RC2-CBC", 8, encryptedData, 8);
+      const key = yield* pkcs12Kdf(bmpPassword, salt, iterations, 1, 16, "sha1", budget);
+      const iv = yield* pkcs12Kdf(bmpPassword, salt, iterations, 2, 8, "sha1", budget);
+      return yield* rc2CbcDecrypt(key, 128, iv, encryptedData);
+    }
+    yield* validateCbcParameters("RC2-CBC", 8, encryptedData, 8);
+    const key = yield* pkcs12Kdf(bmpPassword, salt, iterations, 1, 5, "sha1", budget);
+    const iv = yield* pkcs12Kdf(bmpPassword, salt, iterations, 2, 8, "sha1", budget);
+    return yield* rc2CbcDecrypt(key, 40, iv, encryptedData);
   });
 };
 
@@ -402,6 +540,7 @@ const decryptEncryptedData = (
   node: Asn1Node,
   bmpPassword: Uint8Array,
   passwordBytes: Uint8Array,
+  budget: KdfBudget,
 ): Effect.Effect<Uint8Array, Pkcs12Error> =>
   Effect.gen(function* () {
     const edChildren = yield* childrenOf(node);
@@ -422,14 +561,17 @@ const decryptEncryptedData = (
     }
     const encryptedContent =
       encryptedContentNode.kind === "constructed"
-        ? concatBytes(
-            yield* Effect.forEach(encryptedContentNode.children, (child) =>
-              child.kind === "primitive" ? Effect.succeed(child.bytes) : readOctetString(child),
-            ),
-          )
+        ? concatBytes(yield* Effect.forEach(encryptedContentNode.children, readOctetString))
         : encryptedContentNode.bytes;
 
-    return yield* decryptPbe(encryptedContent, algOid, algParams, bmpPassword, passwordBytes).pipe(
+    return yield* decryptPbe(
+      encryptedContent,
+      algOid,
+      algParams,
+      bmpPassword,
+      passwordBytes,
+      budget,
+    ).pipe(
       Effect.mapError((error) =>
         error.code === CryptoErrorCodeValue.cipherError
           ? new CryptoError({
@@ -465,7 +607,7 @@ const readLocalKeyId = (
       if (valuesNode === undefined || valuesNode.kind !== "constructed") continue;
       const valueNode = valuesNode.children[0];
       if (valueNode === undefined) continue;
-      return bytesToHex(yield* bytesOf(valueNode));
+      return bytesToHex(yield* readOctetString(valueNode));
     }
     return null;
   });
@@ -501,10 +643,135 @@ const parseSafeBags = (safeContents: Asn1Node): Effect.Effect<readonly SafeBag[]
     return bags;
   });
 
+const validatePrivateKeyInfo = (pkcs8: Uint8Array): Effect.Effect<void, Pkcs12Error> =>
+  Effect.gen(function* () {
+    const node = yield* decode(pkcs8).pipe(
+      Effect.mapError(
+        (error) =>
+          new CryptoError({
+            code: CryptoErrorCodeValue.corruptedFile,
+            reason: `Invalid decrypted PKCS#8: ${error.reason ?? error.message}`,
+            operation: CryptoOperationValue.pkcs12Decode,
+          }),
+      ),
+    );
+    if (node.class !== "universal" || node.kind !== "constructed" || node.tag !== 0x10) {
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.corruptedFile,
+          reason: "Decrypted private key is not a PKCS#8 SEQUENCE.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
+      );
+    }
+
+    const fields = node.children;
+    if (fields.length < 3 || fields.length > 4) {
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.corruptedFile,
+          reason: "Decrypted private key has an invalid PKCS#8 field count.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
+      );
+    }
+
+    const versionNode = yield* elementAt(fields, 0, "PKCS#8 version");
+    if (
+      versionNode.class !== "universal" ||
+      versionNode.kind !== "primitive" ||
+      versionNode.tag !== 0x02 ||
+      versionNode.bytes.length === 0
+    ) {
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.corruptedFile,
+          reason: "Decrypted private key has an invalid PKCS#8 version.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
+      );
+    }
+    if ((yield* integerBigInt(versionNode)) !== 0n) {
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.corruptedFile,
+          reason: "Unsupported decrypted PKCS#8 version.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
+      );
+    }
+
+    const algorithmNode = yield* elementAt(fields, 1, "PKCS#8 AlgorithmIdentifier");
+    if (
+      algorithmNode.class !== "universal" ||
+      algorithmNode.kind !== "constructed" ||
+      algorithmNode.tag !== 0x10
+    ) {
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.corruptedFile,
+          reason: "Decrypted private key has an invalid AlgorithmIdentifier.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
+      );
+    }
+    if (algorithmNode.children.length < 1 || algorithmNode.children.length > 2) {
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.corruptedFile,
+          reason: "Decrypted private key has an invalid AlgorithmIdentifier field count.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
+      );
+    }
+    const algorithmOid = yield* elementAt(algorithmNode.children, 0, "PKCS#8 algorithm OID");
+    if (
+      algorithmOid.class !== "universal" ||
+      algorithmOid.kind !== "primitive" ||
+      algorithmOid.tag !== 0x06
+    ) {
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.corruptedFile,
+          reason: "Decrypted private key has an invalid PKCS#8 algorithm OID.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
+      );
+    }
+    yield* oidString(algorithmOid);
+
+    const privateKeyNode = yield* elementAt(fields, 2, "PKCS#8 private key");
+    if (privateKeyNode.class !== "universal" || privateKeyNode.tag !== 0x04) {
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.corruptedFile,
+          reason: "Decrypted private key has an invalid PKCS#8 private key field.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
+      );
+    }
+    yield* readOctetString(privateKeyNode);
+
+    const attributes = fields[3];
+    if (
+      attributes !== undefined &&
+      (attributes.class !== "context" || attributes.kind !== "constructed" || attributes.tag !== 0)
+    ) {
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.corruptedFile,
+          reason: "Decrypted private key has invalid PKCS#8 attributes.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
+      );
+    }
+  });
+
 const decryptShroudedKeyBag = (
   encryptedKeyInfoDer: Uint8Array,
   bmpPassword: Uint8Array,
   passwordBytes: Uint8Array,
+  budget: KdfBudget,
 ): Effect.Effect<Uint8Array, Pkcs12Error> =>
   Effect.gen(function* () {
     const node = yield* decode(encryptedKeyInfoDer);
@@ -512,7 +779,7 @@ const decryptShroudedKeyBag = (
     const algSeq = yield* childrenOf(yield* elementAt(fields, 0, "AlgorithmIdentifier"));
     const algOid = yield* oidString(yield* elementAt(algSeq, 0, "algorithm OID"));
     const algParams = yield* elementAt(algSeq, 1, "algorithm parameters");
-    const encryptedData = yield* bytesOf(yield* elementAt(fields, 1, "encrypted key"));
+    const encryptedData = yield* readOctetString(yield* elementAt(fields, 1, "encrypted key"));
 
     const pkcs8 = yield* decryptPbe(
       encryptedData,
@@ -520,6 +787,7 @@ const decryptShroudedKeyBag = (
       algParams,
       bmpPassword,
       passwordBytes,
+      budget,
     ).pipe(
       Effect.mapError((error) =>
         error.code === CryptoErrorCodeValue.cipherError
@@ -540,6 +808,7 @@ const decryptShroudedKeyBag = (
         }),
       );
     }
+    yield* validatePrivateKeyInfo(pkcs8);
     return pkcs8;
   });
 
@@ -551,11 +820,26 @@ export const parsePkcs12 = (
     const phrase = Redacted.value(password);
     const bmpPassword = toBmpString(phrase);
     const passwordBytes = new TextEncoder().encode(phrase);
+    const kdfBudget: KdfBudget = { remaining: MAX_KDF_WORK };
 
     const pfx = yield* decode(data);
     const pfxChildren = yield* childrenOf(pfx);
 
-    const version = yield* integerBigInt(yield* elementAt(pfxChildren, 0, "PFX version"));
+    const versionNode = yield* elementAt(pfxChildren, 0, "PFX version");
+    if (
+      versionNode.class !== "universal" ||
+      versionNode.kind !== "primitive" ||
+      versionNode.tag !== 0x02
+    ) {
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.invalidFormat,
+          reason: "Expected universal INTEGER PFX version.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
+      );
+    }
+    const version = yield* integerBigInt(versionNode);
     if (version !== 3n) {
       return yield* Effect.fail(
         new CryptoError({
@@ -585,7 +869,12 @@ export const parsePkcs12 = (
     const authSafeData = yield* readOctetString(authSafeContent);
 
     if (pfxChildren.length >= 3) {
-      yield* verifyMac(yield* elementAt(pfxChildren, 2, "MacData"), authSafeData, bmpPassword);
+      yield* verifyMac(
+        yield* elementAt(pfxChildren, 2, "MacData"),
+        authSafeData,
+        bmpPassword,
+        kdfBudget,
+      );
     }
 
     const safeContents = yield* childrenOf(yield* decode(authSafeData));
@@ -608,6 +897,7 @@ export const parsePkcs12 = (
                 yield* unwrapContextTag(yield* elementAt(ciChildren, 1, "EncryptedData"), 0),
                 bmpPassword,
                 passwordBytes,
+                kdfBudget,
               )
             : undefined;
 
@@ -641,13 +931,26 @@ export const parsePkcs12 = (
       );
     }
 
-    const privateKey = yield* decryptShroudedKeyBag(keyBag.data, bmpPassword, passwordBytes);
+    const privateKey = yield* decryptShroudedKeyBag(
+      keyBag.data,
+      bmpPassword,
+      passwordBytes,
+      kdfBudget,
+    );
 
-    const matched =
+    const endEntity =
       keyBag.localKeyId === null
-        ? undefined
+        ? firstCert
         : certificates.find((entry) => entry.localKeyId === keyBag.localKeyId);
-    const endEntity = matched ?? firstCert;
+    if (endEntity === undefined) {
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.corruptedFile,
+          reason: "No certificate matched the private key localKeyId.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
+      );
+    }
     const chain = certificates.filter((entry) => entry !== endEntity).map((entry) => entry.data);
 
     return {

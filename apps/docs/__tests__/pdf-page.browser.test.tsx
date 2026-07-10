@@ -6,9 +6,7 @@ import { A4, makeDummyPdf } from "./helpers/dummy-pdf";
 import { PdfPage, loadPdfjs } from "../components/pdf-page";
 import type { PdfDocumentProxy } from "../components/pdf-page";
 
-
-const rafTick = () =>
-  new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+const rafTick = () => new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
 
 async function waitForFrames(
   predicate: () => boolean,
@@ -60,7 +58,6 @@ if (typeof document === "undefined") {
       expect.fail("missing test container");
     };
 
-
     const currentDoc = (): PdfDocumentProxy => {
       if (doc !== undefined) return doc;
       expect.fail("pdf.js document was not loaded");
@@ -80,13 +77,10 @@ if (typeof document === "undefined") {
       );
 
       const canvas = () => currentContainer().querySelector("canvas");
-      await waitForFrames(
-        () => {
-          const c = canvas();
-          return c !== null && c.width > A4.width && c.height > A4.height;
-        },
-        "the pdf.js canvas to finish painting at render scale",
-      );
+      await waitForFrames(() => {
+        const c = canvas();
+        return c !== null && c.width > A4.width && c.height > A4.height;
+      }, "the pdf.js canvas to finish painting at render scale");
 
       const c = canvas();
       if (c === null) expect.fail("canvas missing after render");
@@ -129,13 +123,10 @@ if (typeof document === "undefined") {
         }),
       );
 
-      await waitForFrames(
-        () => {
-          const c = currentContainer().querySelector("canvas");
-          return c !== null && c.width > A4.width;
-        },
-        "the pdf.js canvas to finish painting at render scale",
-      );
+      await waitForFrames(() => {
+        const c = currentContainer().querySelector("canvas");
+        return c !== null && c.width > A4.width;
+      }, "the pdf.js canvas to finish painting at render scale");
 
       await waitForFrames(
         () => currentContainer().textContent?.includes("signature") ?? false,

@@ -1,7 +1,9 @@
 import { PDFDocument } from "@cantoo/pdf-lib";
 import { Effect, Schema } from "effect";
 import { parsePdfTextBoxesBrowser } from "./liteparse-browser";
+import type { LiteParseWorkerFactory } from "./liteparse-browser";
 import { clampCoordinate } from "./placement";
+import { visiblePdfPageSize } from "./stamp";
 import {
   PdfError,
   PdfErrorCodeValue,
@@ -77,7 +79,7 @@ const pdfPagesFromBytes = (
     try: async () => {
       const pdfDoc = await PDFDocument.load(pdf);
       return pdfDoc.getPages().map((page, index) => {
-        const size = page.getSize();
+        const size = visiblePdfPageSize(page);
         return { index, width: size.width, height: size.height };
       });
     },
@@ -91,22 +93,95 @@ const pdfPagesFromBytes = (
   });
 
 type ResolvedAnchorGeometry = {
-  readonly pages: ReadonlyArray<PdfSignaturePage>;
+  readonly pageTextBoxes: ReadonlyArray<{
+    readonly page: PdfSignaturePage;
+    readonly textBoxes: ReadonlyArray<PdfTextBox>;
+  }>;
+};
+
+type PdfTextAnchorSearchWithTextBoxes = PdfTextAnchorSearchInput & {
   readonly textBoxes: ReadonlyArray<ReadonlyArray<PdfTextBox>>;
+};
+
+const resolvedAnchorGeometry = (
+  pages: ReadonlyArray<PdfSignaturePage>,
+  textBoxes: ReadonlyArray<ReadonlyArray<PdfTextBox>>,
+): Effect.Effect<ResolvedAnchorGeometry, PdfError> => {
+  const declaredPageIndexes = new Set<number>();
+  let greatestPageIndex = -1;
+  for (const page of pages) {
+    if (declaredPageIndexes.has(page.index)) {
+      return Effect.fail(
+        new PdfError({
+          code: PdfErrorCodeValue.invalidBuilderInput,
+          retryable: false,
+          operation: PdfOperationValue.findTextAnchors,
+          schemaName: PdfSchemaNameValue.pdfTextAnchorSearchInput,
+          reason: `Text-anchor pages declare duplicate page index ${page.index}.`,
+        }),
+      );
+    }
+    declaredPageIndexes.add(page.index);
+    greatestPageIndex = Math.max(greatestPageIndex, page.index);
+  }
+  if (textBoxes.length !== greatestPageIndex + 1) {
+    return Effect.fail(
+      new PdfError({
+        code: PdfErrorCodeValue.invalidBuilderInput,
+        retryable: false,
+        operation: PdfOperationValue.findTextAnchors,
+        schemaName: PdfSchemaNameValue.pdfTextAnchorSearchInput,
+        reason: "Text-anchor textBoxes must cover exactly the declared page-index range.",
+      }),
+    );
+  }
+  for (const [pageIndex, boxes] of textBoxes.entries()) {
+    if (!declaredPageIndexes.has(pageIndex) && boxes.length > 0) {
+      return Effect.fail(
+        new PdfError({
+          code: PdfErrorCodeValue.invalidBuilderInput,
+          retryable: false,
+          operation: PdfOperationValue.findTextAnchors,
+          schemaName: PdfSchemaNameValue.pdfTextAnchorSearchInput,
+          reason: `Text-anchor textBoxes reference undeclared page ${pageIndex}.`,
+        }),
+      );
+    }
+  }
+  const pageTextBoxes: Array<{
+    readonly page: PdfSignaturePage;
+    readonly textBoxes: ReadonlyArray<PdfTextBox>;
+  }> = [];
+  for (const page of pages) {
+    const boxes = textBoxes[page.index];
+    if (boxes === undefined) {
+      return Effect.fail(
+        new PdfError({
+          code: PdfErrorCodeValue.invalidBuilderInput,
+          retryable: false,
+          operation: PdfOperationValue.findTextAnchors,
+          schemaName: PdfSchemaNameValue.pdfTextAnchorSearchInput,
+          reason: `Text-anchor textBoxes omit declared page ${page.index}.`,
+        }),
+      );
+    }
+    pageTextBoxes.push({ page, textBoxes: boxes });
+  }
+  return Effect.succeed({ pageTextBoxes });
 };
 
 const resolveAnchorGeometry = (
   input: PdfTextAnchorSearchInput,
-): Effect.Effect<ResolvedAnchorGeometry, PdfError> => {
+): Effect.Effect<ResolvedAnchorGeometry, PdfError, LiteParseWorkerFactory> => {
   const resolveTextBoxes = (
     pages: ReadonlyArray<PdfSignaturePage>,
-  ): Effect.Effect<ResolvedAnchorGeometry, PdfError> => {
+  ): Effect.Effect<ResolvedAnchorGeometry, PdfError, LiteParseWorkerFactory> => {
     if (input.textBoxes !== undefined) {
-      return Effect.succeed({ pages, textBoxes: input.textBoxes });
+      return resolvedAnchorGeometry(pages, input.textBoxes);
     }
     if (input.pdf !== undefined) {
       return parsePdfTextBoxesBrowser(input.pdf, pages.length).pipe(
-        Effect.map((textBoxes) => ({ pages, textBoxes })),
+        Effect.flatMap((textBoxes) => resolvedAnchorGeometry(pages, textBoxes)),
       );
     }
     return Effect.fail(
@@ -133,10 +208,16 @@ const resolveAnchorGeometry = (
   );
 };
 
-export const findPdfTextAnchors = (
+export function findPdfTextAnchors(
+  input: PdfTextAnchorSearchWithTextBoxes,
+): Effect.Effect<ReadonlyArray<PdfSignatureRect>, PdfError>;
+export function findPdfTextAnchors(
   input: PdfTextAnchorSearchInput,
-): Effect.Effect<ReadonlyArray<PdfSignatureRect>, PdfError> =>
-  Schema.decodeUnknownEffect(PdfTextAnchorSearchInputSchema)(input).pipe(
+): Effect.Effect<ReadonlyArray<PdfSignatureRect>, PdfError, LiteParseWorkerFactory>;
+export function findPdfTextAnchors(
+  input: PdfTextAnchorSearchInput,
+): Effect.Effect<ReadonlyArray<PdfSignatureRect>, PdfError, LiteParseWorkerFactory> {
+  return Schema.decodeUnknownEffect(PdfTextAnchorSearchInputSchema)(input).pipe(
     Effect.mapError(
       (issue) =>
         new PdfError({
@@ -150,14 +231,14 @@ export const findPdfTextAnchors = (
     ),
     Effect.flatMap((valid) =>
       resolveAnchorGeometry(valid).pipe(
-        Effect.map(({ pages, textBoxes }) =>
-          pages.flatMap((page, pageIndex) => {
-            const boxes = textBoxes[pageIndex] ?? [];
-            return boxes.flatMap((box) =>
+        Effect.map(({ pageTextBoxes }) =>
+          pageTextBoxes.flatMap(({ page, textBoxes }) =>
+            textBoxes.flatMap((box) =>
               boxMatches(box, valid.matchers) ? [rectForAnchorBox(page, box, valid)] : [],
-            );
-          }),
+            ),
+          ),
         ),
       ),
     ),
   );
+}

@@ -5,7 +5,8 @@ import {
   extractBrazilianFields,
   isCertificateValid,
   parseCertificate,
-} from "@signature-kit/certificates";
+  parseX509,
+} from "../src/index";
 import { Effect, Redacted, Result } from "effect";
 
 const testPassword = Redacted.make("test1234");
@@ -21,6 +22,72 @@ const binaryString = (bytes: Uint8Array): string => {
   for (const byte of bytes) value += String.fromCharCode(byte);
   return value;
 };
+
+const concatBytes = (...chunks: Uint8Array[]): Uint8Array => {
+  let length = 0;
+  for (const chunk of chunks) length += chunk.length;
+  const result = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+};
+
+const derLength = (length: number): Uint8Array =>
+  length < 0x80
+    ? new Uint8Array([length])
+    : length < 0x100
+      ? new Uint8Array([0x81, length])
+      : new Uint8Array([0x82, length >> 8, length & 0xff]);
+
+const der = (tag: number, content: Uint8Array): Uint8Array =>
+  concatBytes(new Uint8Array([tag]), derLength(content.length), content);
+
+const sequence = (...children: Uint8Array[]): Uint8Array => der(0x30, concatBytes(...children));
+const set = (...children: Uint8Array[]): Uint8Array => der(0x31, concatBytes(...children));
+const primitive = (tag: number, value: Uint8Array): Uint8Array => der(tag, value);
+const text = (value: string): Uint8Array => new TextEncoder().encode(value);
+const time = (tag: number, value: string): Uint8Array => primitive(tag, text(value));
+const contextConstructed = (tag: number, ...children: Uint8Array[]): Uint8Array =>
+  der(0xa0 | tag, concatBytes(...children));
+
+const distinguishedName = (
+  value: Uint8Array,
+  oid: Uint8Array = new Uint8Array([0x55, 0x04, 0x03]),
+): Uint8Array => sequence(set(sequence(primitive(0x06, oid), value)));
+
+const utf8Name = (value: string): Uint8Array => distinguishedName(primitive(0x0c, text(value)));
+
+const subjectAltNameExtension = (generalNames: Uint8Array): Uint8Array =>
+  contextConstructed(
+    3,
+    sequence(
+      sequence(primitive(0x06, new Uint8Array([0x55, 0x1d, 0x11])), primitive(0x04, generalNames)),
+    ),
+  );
+
+const minimalX509 = (
+  validity: Uint8Array,
+  issuer: Uint8Array = utf8Name("Issuer"),
+  subject: Uint8Array = utf8Name("Subject"),
+  generalNames: Uint8Array | null = null,
+): Uint8Array => {
+  const tbs = [
+    primitive(0x02, new Uint8Array([0x01])),
+    sequence(),
+    issuer,
+    validity,
+    subject,
+    sequence(),
+  ];
+  if (generalNames !== null) tbs.push(subjectAltNameExtension(generalNames));
+  return sequence(sequence(...tbs), sequence(), primitive(0x03, new Uint8Array([0x00])));
+};
+
+const validity = (notBefore: Uint8Array, notAfter: Uint8Array): Uint8Array =>
+  sequence(notBefore, notAfter);
 
 describe("certificates", () => {
   it.effect("parses a valid PKCS#12 file and exposes certificate material", () =>
@@ -101,6 +168,158 @@ describe("certificates", () => {
       "34785515000166",
     );
   });
+
+  it("anchors CPF extraction to an exact labelled field", () => {
+    expect(extractBrazilianFields("CN=Company, CPF=12345678901", null).cpf).toBe("12345678901");
+    expect(extractBrazilianFields("CN=Company, CPF=123.456.789-01", null).cpf).toBe("12345678901");
+    expect(extractBrazilianFields("CN=Company, CPF=123456789012", null).cpf).toBeNull();
+    expect(extractBrazilianFields("CN=Company, CPF=123.456.789-012", null).cpf).toBeNull();
+    expect(extractBrazilianFields("CN=Company, CPF=12345678901-2", null).cpf).toBeNull();
+    expect(extractBrazilianFields("CN=Company, notCPF=12345678901", null).cpf).toBeNull();
+    expect(extractBrazilianFields("CN=Company, CPF=12345678901x", null).cpf).toBeNull();
+  });
+
+  it.effect("accepts documented UTCTime seconds omission and rejects impossible dates", () =>
+    Effect.gen(function* () {
+      const utcWithoutSeconds = yield* parseX509(
+        minimalX509(validity(time(23, "2401010000Z"), time(23, "250101000000Z"))),
+      );
+      const generalizedTime = yield* parseX509(
+        minimalX509(validity(time(24, "20240229010203Z"), time(24, "20250228010203Z"))),
+      );
+
+      expect(utcWithoutSeconds.validity.notBefore.toISOString()).toBe("2024-01-01T00:00:00.000Z");
+      expect(generalizedTime.validity.notBefore.toISOString()).toBe("2024-02-29T01:02:03.000Z");
+
+      const malformedTimes = [
+        "241301000000Z",
+        "240231000000Z",
+        "240101240000Z",
+        "240101006000Z",
+        "240101000060Z",
+        "240101000000+2460",
+      ];
+      for (const malformed of malformedTimes) {
+        const result = yield* Effect.result(
+          parseX509(minimalX509(validity(time(23, malformed), time(23, "250101000000Z")))),
+        );
+        expect(Result.isFailure(result), malformed).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure.code).toBe("signature-kit.X509_PARSE_FAILED");
+        }
+      }
+    }),
+  );
+
+  it.effect("rejects an empty X.509 issuer name", () =>
+    Effect.gen(function* () {
+      const result = yield* Effect.result(
+        parseX509(
+          minimalX509(validity(time(23, "240101000000Z"), time(23, "250101000000Z")), sequence()),
+        ),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe("signature-kit.X509_PARSE_FAILED");
+      }
+    }),
+  );
+
+  it.effect("rejects an X.509 issuer without an AttributeTypeAndValue", () =>
+    Effect.gen(function* () {
+      const result = yield* Effect.result(
+        parseX509(
+          minimalX509(
+            validity(time(23, "240101000000Z"), time(23, "250101000000Z")),
+            sequence(set()),
+          ),
+        ),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe("signature-kit.X509_PARSE_FAILED");
+      }
+    }),
+  );
+
+  it.effect("preserves unfamiliar issuer attribute OIDs in raw output", () =>
+    Effect.gen(function* () {
+      const parsed = yield* parseX509(
+        minimalX509(
+          validity(time(23, "240101000000Z"), time(23, "250101000000Z")),
+          distinguishedName(
+            primitive(0x0c, text("Custom Issuer")),
+            new Uint8Array([0x2a, 0x03, 0x04]),
+          ),
+        ),
+      );
+
+      expect(parsed.issuer.raw).toBe("1.2.3.4=Custom Issuer");
+    }),
+  );
+
+  it.effect("decodes X.509 UniversalString values as UTF-32BE", () =>
+    Effect.gen(function* () {
+      const universalSubject = distinguishedName(
+        primitive(
+          0x1c,
+          new Uint8Array([0x00, 0x00, 0x00, 0x4f, 0x00, 0x00, 0x00, 0x6c, 0x00, 0x00, 0x00, 0xe1]),
+        ),
+      );
+      const parsed = yield* parseX509(
+        minimalX509(
+          validity(time(23, "240101000000Z"), time(23, "250101000000Z")),
+          utf8Name("Issuer"),
+          universalSubject,
+        ),
+      );
+
+      expect(parsed.subject.commonName).toBe("Olá");
+      expect(parsed.subject.raw).toBe("CN=Olá");
+    }),
+  );
+
+  it.effect("unwraps directoryName subject alternative names", () =>
+    Effect.gen(function* () {
+      const parsed = yield* parseX509(
+        minimalX509(
+          validity(time(23, "240101000000Z"), time(23, "250101000000Z")),
+          utf8Name("Issuer"),
+          utf8Name("Subject"),
+          sequence(contextConstructed(4, utf8Name("Alt Name"))),
+        ),
+      );
+
+      expect(parsed.subjectAltName).toBe("CN=Alt Name");
+    }),
+  );
+
+  it.effect("renders binary IP address and registered ID subject alternative names", () =>
+    Effect.gen(function* () {
+      const parsed = yield* parseX509(
+        minimalX509(
+          validity(time(23, "240101000000Z"), time(23, "250101000000Z")),
+          utf8Name("Issuer"),
+          utf8Name("Subject"),
+          sequence(
+            primitive(0x87, new Uint8Array([127, 0, 0, 1])),
+            primitive(
+              0x87,
+              new Uint8Array([
+                0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x01,
+              ]),
+            ),
+            primitive(0x88, new Uint8Array([0x2a, 0x03, 0x04])),
+          ),
+        ),
+      );
+
+      expect(parsed.subjectAltName).toBe("127.0.0.1, 2001:db8::1, 1.2.3.4");
+    }),
+  );
 
   it.effect("keeps parse failures in the typed Effect error channel", () =>
     Effect.gen(function* () {

@@ -9,7 +9,8 @@ import { signPdf } from "@signature-kit/pdf/sign";
 import { deriveSignerInitials, stampPdfRubric } from "@signature-kit/pdf/stamp";
 import { verifyPdf } from "@signature-kit/pdf/verify";
 import { prepareAndSignPdf } from "@signature-kit/pdf/workflow";
-import { Effect, Redacted, Result } from "effect";
+import { liteParseWorkerBrowserLayer } from "../src/liteparse-browser";
+import { Effect, Layer, Redacted, Result } from "effect";
 import { SignatureKitErrorCodeValue } from "@signature-kit/signatures";
 import { readA1Fixture } from "../../../tooling/testing/fixtures";
 import { extractPdfSignature } from "../src/byte-range";
@@ -187,7 +188,7 @@ describe("PDF DX helpers", () => {
     }),
   );
 
-  it.effect("defaults ICP-Brasil placeholders to 32768 bytes and keeps explicit size", () =>
+  it.effect("reserves two Contents hex digits for each configured CMS byte", () =>
     Effect.gen(function* () {
       const pdf = yield* createPdf([[320, 180]]);
       const implicit = yield* addSignaturePlaceholder({ pdf, policy: "pades-icp-brasil" });
@@ -197,8 +198,8 @@ describe("PDF DX helpers", () => {
         signatureLength: 64,
       });
 
-      expect(contentHexLength(implicit)).toBe(32768);
-      expect(contentHexLength(explicit)).toBe(64);
+      expect(contentHexLength(implicit)).toBe(32768 * 2);
+      expect(contentHexLength(explicit)).toBe(64 * 2);
     }),
   );
 
@@ -233,7 +234,14 @@ describe("PDF DX helpers", () => {
             pages: [{ index: 0, width: 320, height: 180 }],
             lines: ["RE-SIGN WORKFLOW"],
             signing: { policy: "pades-icp-brasil", reason: "DX workflow re-sign" },
-          }).pipe(Effect.provide(a1SignaturesLayer({ pfx, password: PASSWORD }))),
+          }).pipe(
+            Effect.provide(
+              Layer.merge(
+                a1SignaturesLayer({ pfx, password: PASSWORD }),
+                liteParseWorkerBrowserLayer,
+              ),
+            ),
+          ),
         );
 
         if (Result.isFailure(result)) {
@@ -269,7 +277,11 @@ describe("PDF DX helpers", () => {
         lines: ["DXSTAMP"],
         rubric: { initials: "AC" },
         signing: { policy: "pades-icp-brasil", reason: "DX workflow" },
-      }).pipe(Effect.provide(a1SignaturesLayer({ pfx, password: PASSWORD })));
+      }).pipe(
+        Effect.provide(
+          Layer.merge(a1SignaturesLayer({ pfx, password: PASSWORD }), liteParseWorkerBrowserLayer),
+        ),
+      );
       const verification = yield* verifyPdf({ pdf: signed });
       const widgetRects = yield* signatureWidgetRects(signed, 1);
       const content = decodedFlateStreams(signed);
@@ -305,7 +317,11 @@ describe("PDF DX helpers", () => {
         },
         rubric: { lines: ["RUBRIC_PAGE_3_ONLY"] },
         signing: { policy: "pades-icp-brasil", reason: "DX workflow with rubrics" },
-      }).pipe(Effect.provide(a1SignaturesLayer({ pfx, password: PASSWORD })));
+      }).pipe(
+        Effect.provide(
+          Layer.merge(a1SignaturesLayer({ pfx, password: PASSWORD }), liteParseWorkerBrowserLayer),
+        ),
+      );
       const verification = yield* verifyPdf({ pdf: signed });
       const content = decodedFlateStreams(signed);
 

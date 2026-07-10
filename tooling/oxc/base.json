@@ -2,13 +2,20 @@
   "$schema": "../../node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "import"],
   "categories": {
-    "correctness": "warn"
+    "correctness": "error"
   },
   "rules": {
     "no-debugger": "error",
     "no-unused-vars": "warn",
     "no-console": "off",
-    "no-undef": "off"
+    "no-undef": "off",
+    "no-restricted-imports": ["error", { "paths": ["better-result", "evlog", "zod", "ky"] }],
+    "typescript/no-require-imports": "error",
+
+    "typescript/consistent-type-imports": [
+      "error",
+      { "prefer": "type-imports", "fixStyle": "separate-type-imports" }
+    ]
   },
   "ignorePatterns": [
     "dist/**",

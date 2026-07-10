@@ -1,28 +1,39 @@
 import { describe, expect, it } from "@effect/vitest";
-import { SignatureKitErrorCodeValue, type SignatureKitError } from "@signature-kit/signatures";
+import { SignatureKitErrorCodeValue } from "@signature-kit/signatures";
+import type { SignatureKitError } from "@signature-kit/signatures";
 import { signatureHttpClientLive } from "@signature-kit/http";
 import * as Provider from "alchemy/Provider";
 import {
   expectProviderListResult,
   jsonBody,
   localHttpServer,
-  type LocalRequest,
-  type LocalResponse,
-  type LocalServer,
 } from "../../../tooling/testing/local-http";
+import type { LocalRequest, LocalResponse, LocalServer } from "../../../tooling/testing/local-http";
 import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
-import { Effect, Redacted, Result } from "effect";
+import { Context, Effect, Layer, Redacted, Result } from "effect";
 import {
-  type ClicksignProviderOptions,
   ClicksignSignatureRequest,
   providers as clicksignProviders,
   deleteClicksignSignatureRequest,
   downloadClicksignSignedDocument,
   getClicksignSignatureRequest,
   listClicksignSignatureRequests,
-  type ClicksignSignatureRequestAttributes,
-  type ClicksignSignatureRequestProps,
 } from "../src/index";
+import type {
+  ClicksignProviderOptions,
+  ClicksignSignatureRequestAttributes,
+  ClicksignSignatureRequestProps,
+} from "../src/index";
+
+class FirstClicksignProvider extends Context.Service<
+  FirstClicksignProvider,
+  Provider.ProviderService<ClicksignSignatureRequest>
+>()("@signature-kit/clicksign/tests/FirstProvider") {}
+
+class SecondClicksignProvider extends Context.Service<
+  SecondClicksignProvider,
+  Provider.ProviderService<ClicksignSignatureRequest>
+>()("@signature-kit/clicksign/tests/SecondProvider") {}
 
 const ACCESS_TOKEN = "clicksign-local-token";
 const LOCAL_DOCUMENT_BASE64 = Buffer.from("clicksign local test payload").toString("base64");
@@ -111,6 +122,82 @@ describe("Clicksign local HTTP provider tests", () => {
       ),
       Effect.scoped,
     ),
+  );
+
+  it.effect("isolates provider options inside one composed Layer graph", () =>
+    Effect.gen(function* () {
+      const handler = (request: LocalRequest): Promise<LocalResponse> => {
+        const id = request.pathname.split("/").at(-1) ?? "missing";
+        return Promise.resolve({
+          status: 200,
+          body: JSON.stringify({ document: { key: id, status: "running" } }),
+        });
+      };
+      const firstServer = yield* localHttpServer(handler);
+      const secondServer = yield* localHttpServer(handler);
+      const firstLayer = Layer.effect(
+        FirstClicksignProvider,
+        Provider.findProvider(ClicksignSignatureRequest),
+      ).pipe(
+        Layer.provide(
+          clicksignProviders({
+            accessToken: Redacted.make("first-token"),
+            baseUrl: firstServer.baseUrl,
+            locale: "en-US",
+          }),
+        ),
+      );
+      const secondLayer = Layer.effect(
+        SecondClicksignProvider,
+        Provider.findProvider(ClicksignSignatureRequest),
+      ).pipe(
+        Layer.provide(
+          clicksignProviders({
+            accessToken: Redacted.make("second-token"),
+            baseUrl: secondServer.baseUrl,
+            locale: "en-US",
+          }),
+        ),
+      );
+
+      const result = yield* Effect.gen(function* () {
+        const firstProvider = yield* FirstClicksignProvider;
+        const secondProvider = yield* SecondClicksignProvider;
+        if (firstProvider.read === undefined || secondProvider.read === undefined) {
+          return yield* Effect.die("Clicksign provider must implement read.");
+        }
+        const olds = defaultInput();
+        const [first, second] = yield* Effect.all(
+          [
+            firstProvider.read({
+              id: "first",
+              instanceId: "first-instance",
+              olds,
+              output: { provider: "clicksign", id: "first", state: "sent" },
+            }),
+            secondProvider.read({
+              id: "second",
+              instanceId: "second-instance",
+              olds,
+              output: { provider: "clicksign", id: "second", state: "sent" },
+            }),
+          ],
+          { concurrency: "unbounded" },
+        );
+        return { firstProvider, secondProvider, first, second };
+      }).pipe(
+        Effect.provide(Layer.merge(firstLayer, secondLayer)),
+        Effect.provide(signatureHttpClientLive),
+      );
+
+      expect(result.firstProvider).not.toBe(result.secondProvider);
+      expect(result.first?.id).toBe("first");
+      expect(result.second?.id).toBe("second");
+      expect(firstServer.requests).toHaveLength(1);
+      expect(secondServer.requests).toHaveLength(1);
+      expect(firstServer.requests[0]?.query.get("access_token")).toBe("first-token");
+      expect(secondServer.requests[0]?.query.get("access_token")).toBe("second-token");
+    }).pipe(Effect.scoped),
   );
 
   it.effect("reconciles create requests with expected path/method/query token/body", () =>

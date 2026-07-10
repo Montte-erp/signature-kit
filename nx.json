@@ -1,26 +1,69 @@
 {
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "defaultBase": "main",
+  "namedInputs": {
+    "default": ["{projectRoot}/**/*", "sharedGlobals"],
+    "production": [
+      "default",
+      "!{projectRoot}/**/__tests__/**/*",
+      "!{projectRoot}/**/*.test.ts",
+      "!{projectRoot}/**/*.test.tsx",
+      "!{projectRoot}/**/*.spec.ts",
+      "!{projectRoot}/**/*.spec.tsx",
+      "!{projectRoot}/README.md",
+      "!{projectRoot}/CHANGELOG.md"
+    ],
+    "sharedGlobals": [
+      "{workspaceRoot}/bun.lock",
+      "{workspaceRoot}/tooling/typescript/base.json",
+      "{workspaceRoot}/tooling/typescript/core.json",
+      {
+        "runtime": "bun --version"
+      }
+    ]
+  },
   "targetDefaults": {
     "build": {
-      "dependsOn": [
-        "^build"
+      "cache": true,
+      "dependsOn": ["^build"],
+      "inputs": [
+        "production",
+        {
+          "dependentTasksOutputFiles": "**/*.{d.ts,d.cts,d.mts,tsbuildinfo}",
+          "transitive": true
+        }
       ],
-      "outputs": [
-        "{projectRoot}/dist"
-      ]
+      "outputs": ["{projectRoot}/dist", "{projectRoot}/.cache/tsbuildinfo.json"]
+    },
+    "typecheck": {
+      "cache": true,
+      "dependsOn": ["^build"],
+      "inputs": [
+        "production",
+        {
+          "dependentTasksOutputFiles": "**/*.{d.ts,d.cts,d.mts,tsbuildinfo}",
+          "transitive": true
+        }
+      ],
+      "outputs": ["{projectRoot}/.cache/typecheck.tsbuildinfo"]
+    },
+    "test": {
+      "cache": false,
+      "dependsOn": ["build"]
     },
     "npm-pack": {
-      "dependsOn": [
-        "build"
-      ],
+      "dependsOn": ["build"],
       "cache": false
     },
     "npm-publish": {
-      "dependsOn": [
-        "build",
-        "^npm-publish"
-      ],
+      "dependsOn": ["build", "^npm-publish"],
       "cache": false
+    }
+  },
+  "pluginsConfig": {
+    "@nx/js": {
+      "analyzeSourceFiles": false,
+      "projectsAffectedByDependencyUpdates": "auto"
     }
   },
   "analytics": false

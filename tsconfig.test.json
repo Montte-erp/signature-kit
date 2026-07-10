@@ -19,7 +19,7 @@
     "signers/**/__tests__/**/*.ts",
     "validators/**/__tests__/**/*.ts",
     "tooling/integration-tests/**/*.ts",
-    "tooling/static-checks/__tests__/**/*.ts",
+    "tooling/static-checks/**/*.ts",
     "tooling/testing/**/*.ts",
     "tooling/vitest/**/*.ts"
   ]

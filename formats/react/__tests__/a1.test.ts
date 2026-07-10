@@ -9,8 +9,8 @@ import {
   getLoadedA1CertificateProfile,
   loadA1Certificate,
   signA1Documents,
-} from "@signature-kit/react/a1";
-import type { A1SignerInput, A1SignerSignedRow } from "@signature-kit/react/config";
+} from "../src/a1";
+import type { A1SignerInput, A1SignerSignedRow } from "../src/config";
 
 const CERTIFICATE_PASSWORD = "changeit";
 const WRONG_PASSWORD = "wrong-password";
@@ -86,6 +86,35 @@ describe("@signature-kit/react/a1 actions", () => {
     if (!outcome.ok) {
       expect(outcome.error.code).toBe(SignatureKitErrorCodeValue.wrongPassword);
       expect(outcome.error.message).toBe("Wrong certificate password.");
+    }
+  });
+
+  it("rejects an empty signer batch at the public action boundary", async () => {
+    const pfx = await Effect.runPromise(readA1Fixture("ecpf"));
+    const outcome = await Reflect.apply(signA1Documents, undefined, [
+      { documents: [], credentials: { pfx, password: CERTIFICATE_PASSWORD }, signing: {} },
+    ]);
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.error.code).toBe(SignatureKitErrorCodeValue.invalidInput);
+    }
+  });
+
+  it("rejects duplicate signer document ids at the public action boundary", async () => {
+    const pfx = await Effect.runPromise(readA1Fixture("ecpf"));
+    const outcome = await signA1Documents({
+      documents: [
+        { id: "duplicate", pdf: await createPdf() },
+        { id: "duplicate", pdf: await createPdf() },
+      ],
+      signing: {},
+      credentials: { pfx, password: CERTIFICATE_PASSWORD },
+    });
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.error.code).toBe(SignatureKitErrorCodeValue.invalidInput);
     }
   });
 

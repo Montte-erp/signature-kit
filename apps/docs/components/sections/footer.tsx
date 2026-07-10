@@ -13,7 +13,6 @@ const GithubMark = (props: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
-
 const GITHUB_URL = "https://github.com/Montte-erp/signature-kit";
 
 const DOCS_LINKS: ReadonlyArray<{ readonly href: string; readonly label: () => string }> = [
@@ -125,9 +124,7 @@ export const Footer = () => (
             Montte
           </a>
         </p>
-        <p className="font-mono text-xs text-muted-foreground">
-          {m.footer_copyright()}
-        </p>
+        <p className="font-mono text-xs text-muted-foreground">{m.footer_copyright()}</p>
       </div>
     </div>
   </footer>

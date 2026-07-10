@@ -77,7 +77,22 @@ export const A1SignerInputSchema = Schema.Struct({
   credentials: Schema.optional(A1SignerCredentialsSchema),
   signing: PdfSigningBatchSigningOptionsSchema,
   stamp: Schema.optional(A1SignerStampSchema),
-});
+}).check(
+  Schema.makeFilter((input) => {
+    if (input.documents.length === 0) {
+      return { path: ["documents"], issue: "A1 signer requires at least one document." };
+    }
+
+    const ids = new Set<string>();
+    for (const document of input.documents) {
+      if (ids.has(document.id)) {
+        return { path: ["documents"], issue: "A1 signer document ids must be unique." };
+      }
+      ids.add(document.id);
+    }
+    return undefined;
+  }),
+);
 export type A1SignerInput = (typeof A1SignerInputSchema)["Type"];
 
 export const A1CertificateStatusSchema = Schema.Literals(["idle", "loading", "ready", "error"]);

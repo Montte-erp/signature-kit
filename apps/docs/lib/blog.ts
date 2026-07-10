@@ -17,8 +17,7 @@ export function sortedPosts(lang: Lang) {
 }
 
 export function readingMinutes(slug: string, lang: Lang): number {
-  const candidates =
-    lang === "en-US" ? [`${slug}.mdx`] : [`${slug}.${lang}.mdx`, `${slug}.mdx`];
+  const candidates = lang === "en-US" ? [`${slug}.mdx`] : [`${slug}.${lang}.mdx`, `${slug}.mdx`];
 
   for (const file of candidates) {
     const candidate = path.join(BLOG_DIR, file);

@@ -3,15 +3,21 @@ import { signatures } from "@signature-kit/signatures";
 import { Effect, Redacted, Result } from "effect";
 import { readA1Fixture } from "../../../tooling/testing/fixtures";
 import { a1SignaturesLayer } from "@signature-kit/a1/signer";
-import { signXml } from "@signature-kit/xml/sign";
-import { verifyXml } from "@signature-kit/xml/verify";
-import { XmlRuntime, xmlRuntimeLayer } from "@signature-kit/xml/runtime";
+import { signXml } from "../src/sign";
+import { verifyXml } from "../src/verify";
+import { XmlRuntime, xmlRuntimeLayer } from "../src/runtime";
+import type { XmlRequiredReference } from "../src/config";
 
 const PASSWORD = Redacted.make("changeit");
 
 const toBase64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64");
 
 const XML_INCLUSIVE_C14N = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315";
+
+const invoiceReference: XmlRequiredReference = {
+  uri: "#invoice-1",
+  path: [{ localName: "invoice", namespaceUri: null }],
+};
 
 const sampleNfse = `<?xml version="1.0" encoding="UTF-8"?>
 <CompNfse xmlns="http://www.abrasf.org.br/nfse.xsd">
@@ -48,22 +54,27 @@ describe("XML-DSig", () => {
       const trusted = yield* verifyXml({
         xml: signed,
         publicKeyDer,
-        requireReferenceUri: "#invoice-1",
+        requiredReference: invoiceReference,
       }).pipe(Effect.provide(xmlRuntimeLayer));
-      const untrusted = yield* verifyXml({
-        xml: signed,
-        requireReferenceUri: "#invoice-1",
-      }).pipe(Effect.provide(xmlRuntimeLayer));
+      const missingTrustSource = yield* Effect.result(
+        verifyXml({
+          xml: signed,
+          requiredReference: invoiceReference,
+        }).pipe(Effect.provide(xmlRuntimeLayer)),
+      );
       const tampered = yield* verifyXml({
         xml: signed.replace("100.00", "999.00"),
         publicKeyDer,
-        requireReferenceUri: "#invoice-1",
+        requiredReference: invoiceReference,
       }).pipe(Effect.provide(xmlRuntimeLayer));
 
       expect(signed).toContain("<ds:Signature");
       expect(trusted.valid).toBe(true);
       expect(trusted.referenceUris).toEqual(["#invoice-1"]);
-      expect(untrusted.valid).toBe(false);
+      expect(Result.isFailure(missingTrustSource)).toBe(true);
+      if (Result.isFailure(missingTrustSource)) {
+        expect(missingTrustSource.failure.code).toBe("xml.INVALID_INPUT");
+      }
       expect(tampered.valid).toBe(false);
     }),
   );
@@ -231,6 +242,55 @@ describe("XML-DSig", () => {
       expect(signed).toContain(XML_INCLUSIVE_C14N);
       expect(verified.valid).toBe(true);
       expect(verified.signatureCount).toBe(1);
+    }).pipe(Effect.provide(xmlRuntimeLayer)),
+  );
+
+  it.effect("rejects Base64 transforms on required XML references", () =>
+    Effect.gen(function* () {
+      const pfx = yield* readA1Fixture("ecpf");
+      const layer = a1SignaturesLayer({ pfx, password: PASSWORD });
+      const certificate = yield* signatures.certificate().pipe(Effect.provide(layer));
+      const signingKey = yield* signatures
+        .importSigningKey("rsa-sha256")
+        .pipe(Effect.provide(layer));
+      const xmlRuntime = yield* XmlRuntime;
+      const document = yield* xmlRuntime.parse(
+        '<root><target Id="target">dHJ1c3RlZA==</target></root>',
+      );
+      const SignedXml = yield* xmlRuntime.signedXml();
+      const signedXml = new SignedXml();
+
+      yield* Effect.promise(() =>
+        signedXml.Sign({ name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, signingKey, document, {
+          x509: [toBase64(certificate.certificateDer)],
+          references: [{ hash: "SHA-256", transforms: ["base64"], uri: "#target" }],
+        }),
+      );
+
+      const signed = `<root><target Id="target">dHJ1c3RlZA==</target>${signedXml.toString()}</root>`;
+      const mutated = signed.replace(
+        '<target Id="target">',
+        '<target Id="target" role="attacker-controlled">',
+      );
+      const generic = yield* verifyXml({
+        xml: mutated,
+        publicKeyDer: certificate.publicKeyDer,
+      }).pipe(Effect.provide(xmlRuntimeLayer));
+      const required = yield* verifyXml({
+        xml: mutated,
+        publicKeyDer: certificate.publicKeyDer,
+        requiredReference: {
+          uri: "#target",
+          path: [
+            { localName: "root", namespaceUri: null },
+            { localName: "target", namespaceUri: null },
+          ],
+        },
+      }).pipe(Effect.provide(xmlRuntimeLayer));
+
+      expect(mutated).not.toBe(signed);
+      expect(generic.valid).toBe(true);
+      expect(required.valid).toBe(false);
     }).pipe(Effect.provide(xmlRuntimeLayer)),
   );
 

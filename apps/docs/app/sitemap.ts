@@ -41,7 +41,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
   }
 
   for (const post of sortedPosts("en-US")) {
-    out.push(...localized(byLang((l) => blogPostPath(l, post.slugs)), post.data.date));
+    out.push(
+      ...localized(
+        byLang((l) => blogPostPath(l, post.slugs)),
+        post.data.date,
+      ),
+    );
   }
 
   return out;

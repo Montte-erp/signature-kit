@@ -34,7 +34,10 @@ import {
   placePdfSignatureFieldsBatch,
   type PdfSignatureBuilderStore,
 } from "@signature-kit/pdf/builder-store";
-import { parsePdfTextBoxesBrowser } from "@signature-kit/pdf/liteparse-browser";
+import {
+  liteParseWorkerBrowserLayer,
+  parsePdfTextBoxesBrowser,
+} from "@signature-kit/pdf/liteparse-browser";
 import type {
   PdfSignatureBadge,
   PdfSignatureBuilderState,
@@ -197,9 +200,15 @@ const updateSignerRuntime = (update: (state: SignerRuntimeState) => SignerRuntim
   signerRuntimeStore.setState(update);
 };
 
+const isDocumentMutationLocked = (): boolean => {
+  const { busy, placing } = signerRuntimeStore.getSnapshot();
+  return busy || placing;
+};
+
 type PdfDocumentLoadLifecycle = {
   active: boolean;
   task?: PdfLoadingTask;
+  doc?: PdfDocumentProxy;
 };
 
 const destroyPdfLoadingTask = (task: PdfLoadingTask | undefined): Effect.Effect<void> =>
@@ -218,6 +227,16 @@ const destroyPdfDocument = (doc: PdfDocumentProxy): Effect.Effect<void> =>
         catch: () => "pdf-document-destroy-failed",
       }).pipe(Effect.ignore, Effect.asVoid);
 
+const destroyPdfDocumentLoad = (lifecycle: PdfDocumentLoadLifecycle): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const task = lifecycle.task;
+    const doc = lifecycle.doc;
+    lifecycle.task = undefined;
+    lifecycle.doc = undefined;
+    yield* destroyPdfLoadingTask(task);
+    if (doc !== undefined) yield* destroyPdfDocument(doc);
+  });
+
 const loadPdfDocumentFromBytes = (
   bytes: Uint8Array,
   lifecycle: PdfDocumentLoadLifecycle,
@@ -234,8 +253,12 @@ const loadPdfDocumentFromBytes = (
       try: () => task.promise,
       catch: () => "pdf-load-failed",
     }).pipe(Effect.orElseSucceed(() => undefined));
+    lifecycle.task = undefined;
     if (loaded === undefined) return undefined;
-    if (lifecycle.active) return loaded;
+    if (lifecycle.active) {
+      lifecycle.doc = loaded;
+      return loaded;
+    }
     yield* destroyPdfDocument(loaded);
     return undefined;
   });
@@ -475,14 +498,14 @@ function DocumentCanvas({
       );
       return () => {
         lifecycle.active = false;
-        setDoc(null);
-        void Effect.runPromise(destroyPdfLoadingTask(lifecycle.task));
+        void Effect.runPromise(destroyPdfDocumentLoad(lifecycle));
       };
     },
     [activeDoc.pdfBytes, onError],
   );
 
   const place = async (pageIndex: number, fracX: number, fracY: number) => {
+    if (isDocumentMutationLocked()) return;
     const page = pages[pageIndex];
     if (!page) return;
     const x = fracX * page.width;
@@ -672,6 +695,7 @@ function DocList({
   onRemove,
   placingIds,
   queuedIds,
+  disabled,
 }: {
   docs: readonly DocEntry[];
   activeDocId: string | undefined;
@@ -679,6 +703,7 @@ function DocList({
   onRemove: (id: string) => void;
   placingIds: readonly string[];
   queuedIds: readonly string[];
+  disabled: boolean;
 }) {
   const placing = new Set(placingIds);
   const queued = new Set(queuedIds);
@@ -692,6 +717,7 @@ function DocList({
               type="button"
               variant="ghost"
               onClick={() => onSelect(d.id)}
+              disabled={disabled}
               className={cn(
                 "flex h-auto min-w-0 flex-1 justify-start gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50",
                 active
@@ -715,6 +741,7 @@ function DocList({
             </Button>
             <Button
               type="button"
+              disabled={disabled}
               variant="ghost"
               onClick={() => onRemove(d.id)}
               aria-label={m.signer_aria_remove({ name: d.name })}
@@ -886,7 +913,12 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     patchSignerRuntime({ error: "" });
   }, []);
 
+  const reportError = React.useCallback((message: string) => {
+    patchSignerRuntime({ error: message });
+  }, []);
+
   const handlePlaced = React.useCallback(() => {
+    if (isDocumentMutationLocked()) return;
     captureDocsEvent("pdf_signer_signature_placed", {
       document_count: docs.length,
       placed_count: placedCount,
@@ -923,6 +955,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
 
   const onTemplateChange = React.useCallback(
     (docId: string, template: PdfSignatureTemplate, rect?: PdfSignatureRect) => {
+      if (isDocumentMutationLocked()) return;
       updateSignerRuntime((state) => {
         const nextDocs = state.docs.map((doc) =>
           doc.id === docId ? { ...doc, template, rect } : doc,
@@ -938,6 +971,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
   );
 
   const onPdfFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (isDocumentMutationLocked()) return;
     const files = Array.from(event.currentTarget.files ?? []);
     event.currentTarget.value = "";
     captureDocsEvent("pdf_signer_pdfs_selected", {
@@ -986,6 +1020,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       );
       const pageTextBoxes = await Effect.runPromise(
         parsePdfTextBoxesBrowser(bytes.success, pageDims.length).pipe(
+          Effect.provide(liteParseWorkerBrowserLayer),
           Effect.catchTag("PdfError", () => Effect.succeed(pageTextBoxesFallback)),
         ),
       );
@@ -1016,6 +1051,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
   };
 
   const removeDoc = (docId: string) => {
+    if (isDocumentMutationLocked()) return;
     captureDocsEvent("pdf_signer_document_removed", {
       remaining_count: docs.length - 1,
     });
@@ -1034,7 +1070,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
   };
 
   const autoPlaceAll = async () => {
-    if (docs.length === 0 || placing) return;
+    if (docs.length === 0 || isDocumentMutationLocked()) return;
     captureDocsEvent("pdf_signer_auto_place_started", {
       document_count: docs.length,
       unplaced_count: unplacedCount,
@@ -1053,7 +1089,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       documentId: doc.documentId,
       draft: SIGNATURE_DRAFT,
     }));
-    let nextDocs = docs;
     patchSignerRuntime({ placing: true, queuedIds: queue.map((item) => item.id) });
 
     await Effect.runPromise(
@@ -1067,12 +1102,18 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
         },
         onItemSettled: (result) => {
           if (result.ok) {
-            nextDocs = nextDocs.map((doc) =>
-              doc.id === result.id
-                ? { ...doc, template: result.template, rect: result.field.rect }
-                : doc,
-            );
-            patchSignerRuntime({ docs: nextDocs, activeDocId: result.id });
+            updateSignerRuntime((state) => {
+              if (!state.docs.some((doc) => doc.id === result.id)) return state;
+              return {
+                ...state,
+                docs: state.docs.map((doc) =>
+                  doc.id === result.id
+                    ? { ...doc, template: result.template, rect: result.field.rect }
+                    : doc,
+                ),
+                activeDocId: result.id,
+              };
+            });
           } else {
             patchSignerRuntime({ error: result.error.message });
           }
@@ -1085,18 +1126,25 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       }),
     );
 
-    if (activeStep === 1 && nextDocs.length > 0 && nextDocs.every((doc) => doc.rect)) {
+    const completedState = signerRuntimeStore.getSnapshot();
+    const completedDocs = completedState.docs;
+    if (
+      completedState.activeStep === 1 &&
+      completedDocs.length > 0 &&
+      completedDocs.every((doc) => doc.rect)
+    ) {
       patchSignerRuntime({ activeStep: 2 });
     }
     captureDocsEvent("pdf_signer_auto_place_completed", {
-      placed_count: nextDocs.filter((doc) => doc.rect).length,
-      total_count: nextDocs.length,
+      placed_count: completedDocs.filter((doc) => doc.rect).length,
+      total_count: completedDocs.length,
     });
     patchSignerRuntime({ placing: false, queuedIds: [], placingIds: [] });
   };
 
   const onPfxFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
+    if (isDocumentMutationLocked()) return;
     if (!file) return;
     captureDocsEvent("pdf_signer_certificate_selected", {
       file_size: file.size,
@@ -1125,6 +1173,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
   };
 
   const signAll = async () => {
+    if (isDocumentMutationLocked()) return;
     const placed = docs.filter((d) => d.rect);
     if (placed.length === 0) {
       captureDocsEvent("pdf_signer_sign_blocked", { reason: "no_signature_placement" });
@@ -1373,7 +1422,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     a.href = url;
     a.download = name.replace(/\.pdf$/i, "") + "-signed.pdf";
     a.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
   const downloadOne = (docId: string) => {
     const d = docs.find((x) => x.id === docId);
@@ -1396,7 +1445,10 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     }
   };
 
-  const canSign = Boolean(placedCount > 0 && pfxBytes && password.length > 0 && !busy);
+  const documentMutationLocked = busy || placing;
+  const canSign = Boolean(
+    placedCount > 0 && pfxBytes && password.length > 0 && !documentMutationLocked,
+  );
 
   const headerRefs = React.useRef<Partial<Record<1 | 2 | 3 | 4, HTMLButtonElement | null>>>({});
   const goToStep = (n: 1 | 2 | 3 | 4) => {
@@ -1405,6 +1457,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
   };
 
   const loadProfileThenAdvance = async () => {
+    if (isDocumentMutationLocked()) return;
     if (!pfxBytes || password.length === 0) return;
     captureDocsEvent("pdf_signer_certificate_profile_started");
     patchSignerRuntime({ busy: true, status: m.signer_status_reading_identity() });
@@ -1507,6 +1560,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                     data-ph-no-autocapture
                     data-analytics-sensitive
                     className="sr-only"
+                    disabled={documentMutationLocked}
                     onChange={onPdfFiles}
                   />
                 </Label>
@@ -1518,7 +1572,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                   rubricEveryPage={rubricEveryPage}
                   onTemplateChange={onTemplateChange}
                   onPlaced={handlePlaced}
-                  onError={(message) => patchSignerRuntime({ error: message })}
+                  onError={reportError}
                 />
               )}
             </Card>
@@ -1569,6 +1623,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                   onRemove={removeDoc}
                   placingIds={placingIds}
                   queuedIds={queuedIds}
+                  disabled={documentMutationLocked}
                 />
               ) : null}
               {docs.length > 0 ? (
@@ -1577,7 +1632,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                   variant="outline"
                   size="sm"
                   onClick={() => void autoPlaceAll()}
-                  disabled={placing}
+                  disabled={documentMutationLocked}
                   className="gap-1.5 text-xs text-foreground disabled:opacity-60"
                 >
                   {placing ? (
@@ -1595,6 +1650,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                 variant="outline"
                 size="sm"
                 onClick={() => pdfInputRef.current?.click()}
+                disabled={documentMutationLocked}
                 className="gap-1.5 text-xs text-foreground"
               >
                 <FileUp className="size-3.5" data-icon="inline-start" />
@@ -1609,6 +1665,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                 data-analytics-sensitive
                 className="sr-only"
                 onChange={onPdfFiles}
+                disabled={documentMutationLocked}
               />
               <p className="text-[11px] leading-relaxed text-muted-foreground">
                 {docs.length === 0
@@ -1641,6 +1698,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                 variant="outline"
                 size="sm"
                 onClick={() => pfxInputRef.current?.click()}
+                disabled={documentMutationLocked}
                 className="gap-1.5 text-xs text-foreground"
               >
                 <Lock className="size-3.5" data-icon="inline-start" />
@@ -1654,6 +1712,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
                 data-analytics-sensitive
                 className="sr-only"
                 onChange={onPfxFile}
+                disabled={documentMutationLocked}
               />
               <form
                 onSubmit={(event) => {

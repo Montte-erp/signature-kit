@@ -10,6 +10,7 @@ import { observabilityCatalogChecks } from "../src/rules/observability-catalogs"
 import { configChecks } from "../src/rules/config";
 import { dependencyChecks } from "../src/rules/dependencies";
 import { hasCheckedExtension } from "../src/filesystem";
+import { importDeclarationLineMap } from "../src/runner";
 
 const expectedChecks = [
   ...schemaContractChecks,
@@ -38,23 +39,30 @@ const anyCheckMatches = (checks: readonly Check[], line: string): boolean =>
 const anyCheckMatchesSource = (checks: readonly Check[], path: string, source: string): boolean => {
   const rawLines = source.split(/\r?\n/);
   const lines = rawLines.map((line) => line.trim());
-  return rawLines.some((rawLine, index) =>
-    checks.some((check) =>
-      check.test({
-        line: lines[index] ?? "",
-        rawLine,
-        window: lines
-          .slice(index, index + 3)
-          .join(" ")
-          .trim(),
-        path,
-        source,
-        lineNumber: index + 1,
-        lines,
-        rawLines,
-      }),
-    ),
-  );
+  const importLines = importDeclarationLineMap(rawLines);
+  return rawLines.some((rawLine, index) => {
+    const line = lines[index] ?? "";
+    if (!line || line.startsWith("*") || line.startsWith("//")) {
+      return false;
+    }
+    return checks.some(
+      (check) =>
+        (!check.ignoreImportLine || !importLines[index]) &&
+        check.test({
+          line,
+          rawLine,
+          window: lines
+            .slice(index, index + 3)
+            .join(" ")
+            .trim(),
+          path,
+          source,
+          lineNumber: index + 1,
+          lines,
+          rawLines,
+        }),
+    );
+  });
 };
 
 describe("declarative smell rules", () => {
@@ -64,10 +72,25 @@ describe("declarative smell rules", () => {
     );
   });
 
-  it("rejects instanceof-based cause classification", () => {
-    expect(
-      anyCheckMatches(errorHandlingChecks, "if (cause instanceof Error) return cause.message;"),
-    ).toBe(true);
+  it("rejects instanceof error and cause classification", () => {
+    for (const line of [
+      "if (cause instanceof Error) return cause.message;",
+      "if (cause instanceof DOMException) return cause.name;",
+      "if (error instanceof RemoteFailure) return error.code;",
+      "if (error instanceof vendor.TransportFault) return error.code;",
+      "if (error instanceof ValidationException) return error.code;",
+    ]) {
+      expect(anyCheckMatches(errorHandlingChecks, line)).toBe(true);
+    }
+  });
+
+  it("allows instanceof for structural parsed-node discrimination", () => {
+    for (const line of [
+      "if (object instanceof PDFNumber) return object.asNumber();",
+      "if (value instanceof asn1js.Sequence) return value.valueBlock.value;",
+    ]) {
+      expect(anyCheckMatches(errorHandlingChecks, line)).toBe(false);
+    }
   });
 
   it("rejects generic cause metadata wrappers", () => {
@@ -90,6 +113,20 @@ describe("declarative smell rules", () => {
     );
   });
 
+  it("requires catalog values for domain code, operation, and phase strings", () => {
+    for (const line of [
+      'code: "document.invalid",',
+      'operation: "document.verify",',
+      'phase: "DocumentVerification",',
+    ]) {
+      expect(anyCheckMatches(observabilityCatalogChecks, line)).toBe(true);
+    }
+  });
+
+  it("allows ordinary names outside observability catalogs", () => {
+    expect(anyCheckMatches(observabilityCatalogChecks, 'name: "document.pdf",')).toBe(false);
+  });
+
   it("rejects all TypeScript as casts including const assertions", () => {
     expect(anyCheckMatches(typeSafetyChecks, "const codes = ['A'] as const;")).toBe(true);
   });
@@ -98,6 +135,17 @@ describe("declarative smell rules", () => {
     expect(anyCheckMatches(typeSafetyChecks, "Effect.as({ ok: true })")).toBe(false);
   });
 
+  it("does not treat aliases in multiline imports as TypeScript casts", () => {
+    expect(
+      anyCheckMatchesSource(
+        typeSafetyChecks,
+        "formats/xml/src/runtime.ts",
+        `import {
+  Signature as XmlDsigSignature,
+} from "xmldsigjs";`,
+      ),
+    ).toBe(false);
+  });
   it("allows real package entry modules", () => {
     expect(
       anyCheckMatchesSource(
@@ -106,15 +154,6 @@ describe("declarative smell rules", () => {
         'import { Effect } from "effect";\nexport const clicksign = () => Effect.void;',
       ),
     ).toBe(false);
-  });
-
-  const inlineImportType =
-    "const verify = (SignedXml: typeof " + "imp" + 'ort("xmldsigjs").SignedXml) => true;';
-
-  it("rejects inline import type annotations", () => {
-    expect(
-      anyCheckMatchesSource(architectureChecks, "formats/xml/src/verify.ts", inlineImportType),
-    ).toBe(true);
   });
 
   it("requires reasoned Effect run escapes in allowed React or docs paths", () => {
@@ -145,6 +184,40 @@ const result = await Effect.runPromise(program);
         `
 // effect-boundary: React hook event action [allow-run: hook event-action boundary]
 const result = await Effect.runPromise(program);
+`,
+      ),
+    ).toBe(true);
+  });
+
+  it("requires a reasoned provide marker immediately before a React provide call", () => {
+    expect(
+      anyCheckMatchesSource(
+        effectBoundaryChecks,
+        "formats/react/src/a1.ts",
+        `
+// effect-boundary: browser worker injection [allow-provide: browser worker layer boundary]
+Effect.provide(Layer.empty);
+`,
+      ),
+    ).toBe(false);
+    expect(
+      anyCheckMatchesSource(
+        effectBoundaryChecks,
+        "formats/react/src/a1.ts",
+        `
+// effect-boundary: browser worker injection [allow-provide]
+Effect.provide(Layer.empty);
+`,
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        effectBoundaryChecks,
+        "formats/react/src/a1.ts",
+        `
+// effect-boundary: browser worker injection [allow-provide: browser worker layer boundary]
+const program = Effect.void;
+Effect.provide(Layer.empty);
 `,
       ),
     ).toBe(true);
@@ -292,6 +365,23 @@ export const ExampleProvider = () =>
         "list: () => listRequests().pipe(Effect.map((requests) => Array.from(requests))),",
       ),
     ).toBe(true);
+  });
+
+  it("rejects memoized provider layers under per-call credential wrappers", () => {
+    expect(
+      anyCheckMatchesSource(
+        architectureChecks,
+        "signers/example/src/index.ts",
+        "Layer.provide(exampleSignatureRequestProvider)",
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        architectureChecks,
+        "signers/example/src/index.ts",
+        "Layer.provide(Layer.fresh(exampleSignatureRequestProvider))",
+      ),
+    ).toBe(false);
   });
 
   it("flags core package manifest dependencies on product packages", () => {

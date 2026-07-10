@@ -8,12 +8,17 @@ Use `findPdfTextAnchors` quando o documento de negócio já nomeia a área de as
 ```ts title="anchor-placement.ts"
 import { findPdfTextAnchors } from "@signature-kit/pdf/anchors"
 import { type PdfSignaturePage, type PdfTextBox } from "@signature-kit/pdf/config"
-import { parsePdfTextBoxesBrowser } from "@signature-kit/pdf/liteparse-browser"
+import {
+  liteParseWorkerBrowserLayer,
+  parsePdfTextBoxesBrowser,
+} from "@signature-kit/pdf/liteparse-browser"
 import { prepareAndSignPdf } from "@signature-kit/pdf/workflow"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 
 const pages: Array<PdfSignaturePage> = template.documents[0]?.pages ?? []
-const extractedTextBoxes = await Effect.runPromise(parsePdfTextBoxesBrowser(pdf, pages.length))
+const extractedTextBoxes = await Effect.runPromise(
+  parsePdfTextBoxesBrowser(pdf, pages.length).pipe(Effect.provide(liteParseWorkerBrowserLayer)),
+)
 const pageTextBoxes: Array<Array<PdfTextBox>> = extractedTextBoxes.map((page) =>
   Array.from(page),
 )
@@ -45,7 +50,7 @@ const signedPdf = await Effect.runPromise(
     },
     rubric: { initials: "MS" },
     signing: { policy: "pades-icp-brasil", name: "Maria Souza" },
-  }).pipe(Effect.provide(layer)),
+  }).pipe(Effect.provide(Layer.merge(layer, liteParseWorkerBrowserLayer))),
 )
 ```
 

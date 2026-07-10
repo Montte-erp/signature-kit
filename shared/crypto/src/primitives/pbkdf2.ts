@@ -1,4 +1,5 @@
-import { createHmac, type HmacHashAlgorithm, hmac } from "./hmac";
+import { createHmac, hmac } from "./hmac";
+import type { HmacHashAlgorithm } from "./hmac";
 
 export function pbkdf2(
   prf: HmacHashAlgorithm,

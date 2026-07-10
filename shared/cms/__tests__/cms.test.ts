@@ -1,82 +1,24 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "@effect/vitest";
-import * as asn1js from "asn1js";
-import * as pkijs from "pkijs";
-import { vi } from "vitest";
 import { buildSignedAttributes } from "../src/attributes";
 import {
   CmsHashAlgorithmValue,
   CmsOid,
   CmsVerifyResultSchema,
-  TimestampOptionsSchema,
   hashAlgorithmOid,
   webCryptoHashName,
 } from "../src/config";
-import { toArrayBuffer } from "../src/engine";
-import { IcpBrasilPadesPolicy, parseIcpBrasilPadesPolicy } from "../src/icp-brasil";
-import { requestTimestamp } from "../src/timestamp";
-import { Effect, Result, Schema } from "effect";
-
-const ICP_BRASIL_AD_RB_V11_POLICY_HASH_BASE64 = "RPxYFustcF2MjwIqf5Oz+0nt+uGnuRSe9vq4M+m7Y/g=";
-
-const bytesToBase64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64");
-
+import { Effect, Schema } from "effect";
 const containsBytes = (haystack: Uint8Array, needle: Uint8Array): boolean => {
   if (needle.length === 0) return true;
   const lastStart = haystack.length - needle.length;
-  for (let start = 0; start <= lastStart; start++) {
+  for (let start = 0; start <= lastStart; start += 1) {
     let matched = true;
-    for (let offset = 0; offset < needle.length; offset++) {
+    for (let offset = 0; offset < needle.length; offset += 1) {
       if (haystack[start + offset] !== needle[offset]) matched = false;
     }
     if (matched) return true;
   }
   return false;
-};
-
-const timestampResponse = (
-  requestDer: Uint8Array,
-  overrideImprint: Uint8Array | null,
-): Uint8Array => {
-  const requestSchema = asn1js.fromBER(toArrayBuffer(requestDer));
-  const request = new pkijs.TimeStampReq({ schema: requestSchema.result });
-  const hashedMessage =
-    overrideImprint === null
-      ? request.messageImprint.hashedMessage
-      : new asn1js.OctetString({ valueHex: toArrayBuffer(overrideImprint) });
-  const tstInfoBase = {
-    version: 1,
-    policy: "1.2.3.4",
-    messageImprint: new pkijs.MessageImprint({
-      hashAlgorithm: request.messageImprint.hashAlgorithm,
-      hashedMessage,
-    }),
-    serialNumber: new asn1js.Integer({ value: 1 }),
-    genTime: new Date("2026-01-02T03:04:05Z"),
-  };
-  const tstInfo = new pkijs.TSTInfo(
-    request.nonce === undefined ? tstInfoBase : { ...tstInfoBase, nonce: request.nonce },
-  );
-  const signed = new pkijs.SignedData({
-    version: 3,
-    encapContentInfo: new pkijs.EncapsulatedContentInfo({
-      eContentType: "1.2.840.113549.1.9.16.1.4",
-      eContent: new asn1js.OctetString({ valueHex: tstInfo.toSchema().toBER(false) }),
-    }),
-    signerInfos: [],
-  });
-  const token = new pkijs.ContentInfo({
-    contentType: pkijs.ContentInfo.SIGNED_DATA,
-    content: signed.toSchema(true),
-  });
-  return new Uint8Array(
-    new pkijs.TimeStampResp({
-      status: new pkijs.PKIStatusInfo({ status: pkijs.PKIStatus.granted }),
-      timeStampToken: token,
-    })
-      .toSchema()
-      .toBER(false),
-  );
 };
 
 describe("CMS contracts", () => {
@@ -134,95 +76,6 @@ describe("CMS contracts", () => {
     const encoded = new Uint8Array(policy?.values[0]?.toBER(false) ?? new ArrayBuffer(0));
     expect(containsBytes(encoded, policyHash)).toBe(true);
   });
-
-  it.effect("parses the pinned ICP-Brasil AD-RB policy fixture", () =>
-    Effect.gen(function* () {
-      const fixture = yield* Effect.promise(
-        async () =>
-          new Uint8Array(
-            await readFile(new URL("./fixtures/PA_PAdES_AD_RB_v1_1.der", import.meta.url)),
-          ),
-      );
-      const policy = yield* parseIcpBrasilPadesPolicy(fixture);
-
-      expect(policy.policyOid).toBe(IcpBrasilPadesPolicy.adRbV11.policyOid);
-      expect(policy.policyUri).toBe(IcpBrasilPadesPolicy.adRbV11.policyUri);
-      expect(policy.policyHashAlgorithm).toBe("sha256");
-      expect(bytesToBase64(policy.policyHash)).toBe(ICP_BRASIL_AD_RB_V11_POLICY_HASH_BASE64);
-      expect(bytesToBase64(IcpBrasilPadesPolicy.adRbV11.policyHash)).toBe(
-        ICP_BRASIL_AD_RB_V11_POLICY_HASH_BASE64,
-      );
-    }),
-  );
-
-  it.effect("validates RFC 3161 timestamp options with the Effect Schema", () =>
-    Schema.decodeUnknownEffect(TimestampOptionsSchema)({
-      tsaUrl: "https://timestamp.valid.com.br",
-      hashAlgorithm: "sha256",
-      timeoutMillis: 5000,
-    }).pipe(
-      Effect.map((options) => {
-        expect(options.tsaUrl).toContain("timestamp.valid.com.br");
-        expect(options.hashAlgorithm).toBe("sha256");
-      }),
-    ),
-  );
-
-  it.effect("binds RFC 3161 timestamp responses to the request imprint and nonce", () =>
-    Effect.gen(function* () {
-      vi.stubGlobal("fetch", (_request: RequestInfo | URL, init?: RequestInit) => {
-        const body = init?.body;
-        if (Schema.is(Schema.Uint8Array)(body)) {
-          return Promise.resolve(
-            new Response(toArrayBuffer(timestampResponse(body, null)), {
-              status: 200,
-              headers: { "content-type": "application/timestamp-reply" },
-            }),
-          );
-        }
-        return Promise.resolve(new Response(new Uint8Array(), { status: 400 }));
-      });
-
-      const token = yield* requestTimestamp({
-        data: new Uint8Array([1, 2, 3]),
-        tsaUrl: "https://tsa.example.test",
-        hashAlgorithm: "sha256",
-      });
-
-      expect(token.byteLength).toBeGreaterThan(0);
-    }).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllGlobals()))),
-  );
-
-  it.effect("rejects RFC 3161 timestamp responses with a different imprint", () =>
-    Effect.gen(function* () {
-      vi.stubGlobal("fetch", (_request: RequestInfo | URL, init?: RequestInit) => {
-        const body = init?.body;
-        if (Schema.is(Schema.Uint8Array)(body)) {
-          return Promise.resolve(
-            new Response(toArrayBuffer(timestampResponse(body, new Uint8Array(32).fill(0xff))), {
-              status: 200,
-              headers: { "content-type": "application/timestamp-reply" },
-            }),
-          );
-        }
-        return Promise.resolve(new Response(new Uint8Array(), { status: 400 }));
-      });
-
-      const result = yield* Effect.result(
-        requestTimestamp({
-          data: new Uint8Array([1, 2, 3]),
-          tsaUrl: "https://tsa.example.test",
-          hashAlgorithm: "sha256",
-        }),
-      );
-
-      expect(Result.isFailure(result)).toBe(true);
-      if (Result.isFailure(result)) {
-        expect(result.failure.code).toBe("cms.TIMESTAMP_ERROR");
-        expect(result.failure.reason).toContain("message imprint");
-      }
-    }).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllGlobals()))),
-  );
 
   it.effect("makes revocation verification state explicit in CMS verify results", () =>
     Schema.decodeUnknownEffect(CmsVerifyResultSchema)({

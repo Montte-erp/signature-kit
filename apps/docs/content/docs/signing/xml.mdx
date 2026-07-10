@@ -83,10 +83,20 @@ description: "Sign XML with signXml and validate with verifyXml: enveloped refer
   </Step>
 
   <Step title="Verify the signature">
-    `verifyXml` takes an `XmlVerificationRequest` and returns `Effect<XmlVerificationResult, XmlError, XmlRuntime>`. There is no `Signatures` requirement, but the `XmlRuntime` service is required. Pass `trustedCertificateDer` (the X.509 certificate DER you trust) or `publicKeyDer` (the `SubjectPublicKeyInfo` DER) so `verifyXml` knows which key to check the signature against.
+    `verifyXml` takes an `XmlVerificationRequest` and returns `Effect<XmlVerificationResult, XmlError, XmlRuntime>`. There is no `Signatures` requirement, but the `XmlRuntime` service is required. Supply exactly one of `trustedCertificateDer` (the X.509 certificate DER you trust) or `publicKeyDer` (the `SubjectPublicKeyInfo` DER) so `verifyXml` knows which key to check the signature against.
+
+    When an application consumes a specific signed element, use `requiredReference`. Its `path` runs from the document element through the target; each segment must match exactly one namespace-aware direct child. Use `namespaceUri: null` for elements without a namespace.
+
+    To bound verification work, documents may contain at most 4 `<Signature>` elements, 4 direct `SignedInfo` `<Reference>` elements per signature, 8 of those references in total, 3 direct `<Transform>` elements per reference, and 8 transforms in total. A reference may contain only one canonicalization transform. Exceeding a limit returns `result.valid === false` before cryptographic verification.
+
+    Only XML 1.0 is accepted. Parser guardrails reject input above 10 MiB, 16,384 nodes, 2,048 attributes, 64 namespace declarations, or depth 1,024. `InclusiveNamespaces` `PrefixList` values are capped at 4,096 characters and 64 tokens.
+
+    Documents must contain exactly one root element. Other than the optional leading XML declaration and XML whitespace, prolog and epilog content is rejected.
+
+    `signXml` revalidates its serialized result with these guards and fails with `xml.SIGN_FAILED` rather than returning XML that `verifyXml` would reject.
 
     <Callout type="warn">
-      `verifyXml` never trusts the certificate embedded in the signature's `KeyInfo` automatically — that's a deliberate hardening measure against signature-wrapping attacks, where an attacker swaps in their own certificate alongside a forged signature. If you don't pass `publicKeyDer` or `trustedCertificateDer`, `result.valid` is always `false`.
+      `verifyXml` never trusts the certificate embedded in the signature's `KeyInfo` automatically — that's a deliberate hardening measure against signature-wrapping attacks, where an attacker swaps in their own certificate alongside a forged signature. Omitting a trust source or supplying both sources fails with `xml.INVALID_INPUT`.
     </Callout>
 
     ```ts title="verify-xml.ts"
@@ -99,12 +109,18 @@ description: "Sign XML with signXml and validate with verifyXml: enveloped refer
     const result = yield* verifyXml({
       xml: signed,
       trustedCertificateDer,                     // Uint8Array — X.509 DER you trust out-of-band
-      requireReferenceUri: "#nfe-1",              // makes result.valid false if the URI is absent
+      requiredReference: {
+        uri: "#nfe-1",
+        path: [
+          { localName: "NFe", namespaceUri: "http://www.portalfiscal.inf.br/nfe" },
+          { localName: "infNFe", namespaceUri: "http://www.portalfiscal.inf.br/nfe" },
+        ],
+      },
     }).pipe(Effect.provide(xmlRuntimeLayer))
 
     // XmlVerificationResult
     result.valid           // boolean
-    result.signatureCount  // number — how many <Signature> elements were verified
+    result.signatureCount  // number — how many <Signature> elements were found
     result.referenceUris   // readonly string[] — e.g. ["#nfe-1"]
     ```
   </Step>
@@ -121,7 +137,13 @@ description: "Sign XML with signXml and validate with verifyXml: enveloped refer
     const result = yield* verifyXml({
       xml: signed,
       publicKeyDer,                              // Uint8Array — SubjectPublicKeyInfo DER
-      requireReferenceUri: "#nfe-1",
+      requiredReference: {
+        uri: "#nfe-1",
+        path: [
+          { localName: "NFe", namespaceUri: "http://www.portalfiscal.inf.br/nfe" },
+          { localName: "infNFe", namespaceUri: "http://www.portalfiscal.inf.br/nfe" },
+        ],
+      },
     }).pipe(Effect.provide(xmlRuntimeLayer))
     // result.valid: boolean
     ```
@@ -133,12 +155,12 @@ description: "Sign XML with signXml and validate with verifyXml: enveloped refer
 Every signing failure is a typed `SignatureKitError` on the error channel; XML parsing, canonicalization, and verification failures arrive as `XmlError`. The most common:
 
 <Cards>
-  <Card title="xml.INVALID_INPUT" href="/docs/signing/errors#error-catalog">An invalid signing request — the XML does not match `XmlSigningRequestSchema`.</Card>
+  <Card title="xml.INVALID_INPUT" href="/docs/signing/errors#error-catalog">An invalid signing or verification request — including missing or competing verification trust sources.</Card>
   <Card title="xml.SIGN_FAILED" href="/docs/signing/errors#error-catalog">The signing operation over the digest could not be completed, including an unresolvable referenceId (no element with that Id).</Card>
 </Cards>
 
 <Callout type="info">
-  An invalid signature, or a `requireReferenceUri` that isn't among the signed references, is **not** an Effect error — `verifyXml` still succeeds and returns `result.valid === false`. `verifyXml` only fails on the error channel for the cases below.
+  An invalid signature, a `requiredReference` whose signed URI and semantic path do not match, or a verification work limit is **not** an Effect error — `verifyXml` still succeeds and returns `result.valid === false`. `verifyXml` only fails on the error channel for the cases below.
 </Callout>
 
 <Cards>

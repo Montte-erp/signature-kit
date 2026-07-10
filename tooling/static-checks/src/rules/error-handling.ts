@@ -18,7 +18,11 @@ const hasRuntimeErrorHelpers = (line: string): boolean => {
     return true;
   }
 
-  if (/\binstanceof\b/.test(line)) {
+  if (
+    /\binstanceof\s+(?:(?:[A-Za-z_$][\w$]*\.)*)(?:Error|DOMException|[A-Za-z_$][\w$]*(?:Error|Failure|Fault|Exception))\b/.test(
+      line,
+    )
+  ) {
     return true;
   }
   const throwNewMatch = /throw\s+new\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?(?:\s*<[^>]+>)?)/g;

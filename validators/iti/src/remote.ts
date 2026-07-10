@@ -10,9 +10,8 @@ import {
   ItiConformanceReportSchema,
   ItiOperation,
   validatePdfConformance,
-  type ItiConformanceOutcome,
-  type ItiConformanceReport,
 } from "./conformance";
+import type { ItiConformanceOutcome, ItiConformanceReport } from "./conformance";
 
 const ITI_PROVIDER = "iti";
 const ITI_SUBMISSION_URL = "https://validar.iti.gov.br/arquivo";
@@ -45,12 +44,16 @@ const ItiVerifierReportPayloadSchema = Schema.Struct({
 });
 type ItiVerifierReport = (typeof ItiVerifierReportPayloadSchema)["Type"];
 
-const parseRemoteStatus = (status: string): ItiTrustedRemoteOutcome | undefined => {
-  const normalized = status.trim().toLowerCase();
-  if (normalized.includes("aprov")) return "approved";
-  if (normalized.includes("reprov")) return "rejected";
-  return undefined;
+const ITI_REMOTE_STATUS_OUTCOMES: Readonly<Record<string, ItiTrustedRemoteOutcome>> = {
+  aprovado: "approved",
+  reprovado: "rejected",
 };
+
+const normalizeRemoteStatus = (status: string): string =>
+  status.normalize("NFKC").trim().toLocaleLowerCase("pt-BR");
+
+const parseRemoteStatus = (status: string): ItiTrustedRemoteOutcome | undefined =>
+  ITI_REMOTE_STATUS_OUTCOMES[normalizeRemoteStatus(status)];
 
 const parseItiVerifierReport = (verifierReport: unknown): ItiVerifierReport | undefined =>
   Option.getOrUndefined(Schema.decodeUnknownOption(ItiVerifierReportPayloadSchema)(verifierReport));
@@ -74,6 +77,11 @@ const ItiVerifierReportResponseSchema = Schema.Struct({
   verifierReport: Schema.Unknown,
 });
 
+const ItiPartialValidationResponseSchema = Schema.Struct({
+  qtds: Schema.Tuple([Schema.Number, Schema.Number]),
+  json: Schema.Unknown,
+});
+
 const ItiUntrustedCertificateResponseSchema = Schema.Struct({
   errorCode: Schema.Number,
   hash: Schema.NonEmptyString,
@@ -85,12 +93,12 @@ const ItiRemoteOutcomeSchema = Schema.Union([
   Schema.Literal("unknown"),
 ]);
 
-const ItiRemoteResponseSchema = Schema.Union([
-  ItiVerifierReportResponseSchema,
-  ItiUntrustedCertificateResponseSchema,
+const ItiRemoteHttpResponseSchema = Schema.Union([
+  Schema.Struct({ status: Schema.Literal(200), body: ItiVerifierReportResponseSchema }),
+  Schema.Struct({ status: Schema.Literal(206), body: ItiPartialValidationResponseSchema }),
+  Schema.Struct({ status: Schema.Literal(406), body: ItiUntrustedCertificateResponseSchema }),
 ]);
-
-type ItiRemoteResponse = (typeof ItiRemoteResponseSchema)["Type"];
+type ItiRemoteHttpResponse = (typeof ItiRemoteHttpResponseSchema)["Type"];
 
 export const ItiRemoteVerifierReportSchema = Schema.Struct({
   validator: Schema.Literal(ItiOperation.remote),
@@ -103,6 +111,19 @@ export const ItiRemoteVerifierReportSchema = Schema.Struct({
   rawVerifierReport: Schema.Unknown,
 });
 export type ItiRemoteVerifierReport = (typeof ItiRemoteVerifierReportSchema)["Type"];
+
+export const ItiRemotePartialReportSchema = Schema.Struct({
+  validator: Schema.Literal(ItiOperation.remote),
+  outcome: Schema.Literal("partial"),
+  approved: Schema.Literal(false),
+  processedSignatureCount: Schema.Number,
+  totalSignatureCount: Schema.Number,
+  conformance: ItiConformanceReportSchema,
+  localConformance: ItiConformanceReportSchema,
+  rawVerifierReport: Schema.Unknown,
+  rawResponse: Schema.Unknown,
+});
+export type ItiRemotePartialReport = (typeof ItiRemotePartialReportSchema)["Type"];
 
 export const ItiRemoteUntrustedCertificateReportSchema = Schema.Struct({
   validator: Schema.Literal(ItiOperation.remote),
@@ -119,6 +140,7 @@ export type ItiRemoteUntrustedCertificateReport =
 
 export const ItiRemoteValidationReportSchema = Schema.Union([
   ItiRemoteVerifierReportSchema,
+  ItiRemotePartialReportSchema,
   ItiRemoteUntrustedCertificateReportSchema,
 ]);
 export type ItiRemoteValidationReport = (typeof ItiRemoteValidationReportSchema)["Type"];
@@ -126,14 +148,14 @@ export type ItiRemoteValidationReport = (typeof ItiRemoteValidationReportSchema)
 const submitToIti = (
   pdf: Uint8Array,
   fileName: string,
-): Effect.Effect<ItiRemoteResponse, SignatureKitError, SignatureHttpClient> => {
+): Effect.Effect<ItiRemoteHttpResponse, SignatureKitError, SignatureHttpClient> => {
   const formData = new FormData();
   formData.append(
     "signature_files[]",
     new File([pdf.slice()], fileName, { type: "application/pdf" }),
   );
   return SignatureHttpClient.use((http) =>
-    http.requestJson(
+    http.requestJsonResponse(
       {
         method: "POST",
         url: ITI_SUBMISSION_URL,
@@ -146,40 +168,54 @@ const submitToIti = (
           "User-Agent": "Mozilla/5.0 SignatureKit ITI validator",
         },
       },
-      ItiRemoteResponseSchema,
+      ItiRemoteHttpResponseSchema,
       "ItiRemoteResponse",
     ),
   );
 };
 
 const buildRemoteReport = (
-  response: ItiRemoteResponse,
+  response: ItiRemoteHttpResponse,
   conformance: ItiConformanceReport,
 ): Effect.Effect<ItiRemoteValidationReport> => {
-  if ("verifierReport" in response) {
-    const decodedVerifierReport = parseItiVerifierReport(response.verifierReport);
-    const verdict = getVerifierVerdict(decodedVerifierReport);
+  if (response.status === 206) {
+    const [processedSignatureCount, totalSignatureCount] = response.body.qtds;
     return Effect.succeed({
       validator: ItiOperation.remote,
-      outcome: verdict?.outcome ?? "unknown",
-      approved: verdict?.approved ?? false,
-      ...(verdict === undefined
-        ? {}
-        : { remoteOutcome: verdict.outcome, remoteApproved: verdict.approved }),
+      outcome: "partial",
+      approved: false,
+      processedSignatureCount,
+      totalSignatureCount,
       conformance,
       localConformance: conformance,
-      rawVerifierReport: response.verifierReport,
+      rawVerifierReport: response.body.json,
+      rawResponse: response.body,
     });
   }
+  if (response.status === 406) {
+    return Effect.succeed({
+      validator: ItiOperation.remote,
+      outcome: "untrusted_certificate",
+      approved: false,
+      errorCode: response.body.errorCode,
+      hash: response.body.hash,
+      name: response.body.nome,
+      conformance,
+      rawResponse: response.body,
+    });
+  }
+  const decodedVerifierReport = parseItiVerifierReport(response.body.verifierReport);
+  const verdict = getVerifierVerdict(decodedVerifierReport);
   return Effect.succeed({
     validator: ItiOperation.remote,
-    outcome: "untrusted_certificate",
-    approved: false,
-    errorCode: response.errorCode,
-    hash: response.hash,
-    name: response.nome,
+    outcome: verdict?.outcome ?? "unknown",
+    approved: verdict?.approved ?? false,
+    ...(verdict === undefined
+      ? {}
+      : { remoteOutcome: verdict.outcome, remoteApproved: verdict.approved }),
     conformance,
-    rawResponse: response,
+    localConformance: conformance,
+    rawVerifierReport: response.body.verifierReport,
   });
 };
 
@@ -213,8 +249,7 @@ export const validatePdfWithIti = (
         }),
       );
     }
-    const response = yield* submitToIti(pdf, valid.fileName ?? DEFAULT_FILE_NAME);
     const conformance = yield* validatePdfConformance({ pdf });
-    const report = yield* buildRemoteReport(response, conformance);
-    return report;
+    const response = yield* submitToIti(pdf, valid.fileName ?? DEFAULT_FILE_NAME);
+    return yield* buildRemoteReport(response, conformance);
   });

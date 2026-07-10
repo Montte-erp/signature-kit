@@ -48,8 +48,8 @@ export type SignatureDialogProps = {
   readonly anchorStampSize?: PdfStampSize;
   readonly onSigned: (rows: ReadonlyArray<SignatureDialogSignedRow>) => void | Promise<void>;
   readonly getSavedPassword?: () => string | null;
-  readonly onSavePassword?: (password: string | null) => void;
-  readonly onWrongPassword?: () => void;
+  readonly onSavePassword?: (password: string | null) => void | Promise<void>;
+  readonly onWrongPassword?: () => void | Promise<void>;
   readonly locale?: "en-US" | "pt-BR";
   readonly title?: string;
   readonly description?: string;
@@ -67,8 +67,13 @@ type SignatureDialogFormValues = {
   readonly rememberPassword: boolean;
 };
 
-const catalogs = [pdfErrorMessages, cmsErrorMessages, signatureKitErrorMessages];
+type SignatureDialogActionState =
+  | { readonly status: "idle" }
+  | { readonly status: "running" }
+  | { readonly status: "failed"; readonly error: unknown };
 
+const catalogs = [pdfErrorMessages, cmsErrorMessages, signatureKitErrorMessages];
+const emptyAnchorValues: ReadonlyArray<string> = [];
 
 const withAnchorFallback = (
   document: SignatureDialogDocument,
@@ -90,8 +95,8 @@ export function SignatureDialog({
   buildDocuments,
   signing,
   stamp,
-  anchorTokens = [],
-  anchorDigits = [],
+  anchorTokens = emptyAnchorValues,
+  anchorDigits = emptyAnchorValues,
   anchorStampSize,
   onSigned,
   getSavedPassword,
@@ -108,11 +113,13 @@ export function SignatureDialog({
   const signer = useA1Signer();
   const [open, setOpen] = React.useState(false);
   const [needsPassword, setNeedsPassword] = React.useState(false);
+  const [actionState, setActionState] = React.useState<SignatureDialogActionState>({
+    status: "idle",
+  });
   const lastSignedRows = signedRows(signer.rows);
   const firstPdfUrl = usePdfObjectUrl(lastSignedRows[0]?.signedPdf ?? null);
-  const savedPassword = getSavedPassword?.() ?? "";
   const form = useForm<SignatureDialogFormValues>({
-    defaultValues: { password: savedPassword, rememberPassword: savedPassword.length > 0 },
+    defaultValues: { password: "", rememberPassword: false },
   });
   const password = form.useStore((state) => state.values.password);
   const rememberPassword = form.useStore((state) => state.values.rememberPassword);
@@ -120,47 +127,76 @@ export function SignatureDialog({
   const formatRowError = (row: A1SignerRow): string =>
     row.status === "failed" ? errorMessage(row.error, { locale, catalogs }) : "";
   const signerError = signer.error === null ? "" : errorMessage(signer.error, { locale, catalogs });
+  const actionError =
+    actionState.status === "failed" ? errorMessage(actionState.error, { locale, catalogs }) : "";
+  const dialogError = actionError.length > 0 ? actionError : signerError;
+  const actionRunning = actionState.status === "running";
+  const actionFailed = actionState.status === "failed";
 
-  const run = async (passwordToUse: string) => {
-    const matchers = pdfTextAnchorMatchersFromProps(anchorTokens, anchorDigits);
-    const anchorSize = anchorStampSize ?? stamp?.stampSize ?? DEFAULT_PDF_ANCHOR_STAMP_SIZE;
-    const documents = (await buildDocuments()).map((document) =>
-      withAnchorFallback(document, matchers, anchorSize),
-    );
-    const result = await signer.sign({
-      documents,
-      credentials: { pfx, password: passwordToUse },
-      signing,
-      ...(stamp === undefined ? {} : { stamp }),
-    });
-    if (!result.ok) return;
+  const recoverFromWrongPassword = async () => {
+    setNeedsPassword(true);
+    const outcomes = await Promise.allSettled([onWrongPassword?.(), onSavePassword?.(null)]);
+    const rejectedOutcome = outcomes.find((outcome) => outcome.status === "rejected");
+    if (rejectedOutcome?.status === "rejected") throw rejectedOutcome.reason;
+  };
 
-    if (result.rows.some(isWrongPasswordRow)) {
-      onWrongPassword?.();
-      onSavePassword?.(null);
-      setNeedsPassword(true);
-      return;
+  const run = async (
+    passwordToUse: string | undefined,
+    passwordToSave: string | null | undefined,
+  ) => {
+    setActionState({ status: "running" });
+
+    try {
+      if (passwordToSave !== undefined) await onSavePassword?.(passwordToSave);
+
+      const resolvedPassword = passwordToUse ?? getSavedPassword?.() ?? "";
+      if (resolvedPassword.length === 0) {
+        setNeedsPassword(true);
+        setActionState({ status: "idle" });
+        return;
+      }
+
+      const matchers = pdfTextAnchorMatchersFromProps(anchorTokens, anchorDigits);
+      const anchorSize = anchorStampSize ?? stamp?.stampSize ?? DEFAULT_PDF_ANCHOR_STAMP_SIZE;
+      const documents = (await buildDocuments()).map((document) =>
+        withAnchorFallback(document, matchers, anchorSize),
+      );
+      const result = await signer.sign({
+        documents,
+        credentials: { pfx, password: resolvedPassword },
+        signing,
+        ...(stamp === undefined ? {} : { stamp }),
+      });
+      if (!result.ok) {
+        if (result.error.code === SignatureKitErrorCodeValue.wrongPassword) {
+          await recoverFromWrongPassword();
+        }
+        setActionState({ status: "idle" });
+        return;
+      }
+
+      if (result.rows.some(isWrongPasswordRow)) {
+        await recoverFromWrongPassword();
+        setActionState({ status: "idle" });
+        return;
+      }
+
+      const signed = signedRows(result.rows);
+      if (signed.length > 0) await onSigned(signed);
+      setActionState({ status: "idle" });
+    } catch (error) {
+      setActionState({ status: "failed", error });
     }
-
-    const signed = signedRows(result.rows);
-    if (signed.length > 0) void onSigned(signed);
   };
 
   const start = () => {
-    const saved = getSavedPassword?.() ?? "";
-    if (saved.length > 0) {
-      setNeedsPassword(false);
-      void run(saved);
-      return;
-    }
-    setNeedsPassword(true);
+    setNeedsPassword(false);
+    void run(undefined, undefined);
   };
 
   const submitPassword = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (rememberPassword) onSavePassword?.(password);
-    if (!rememberPassword) onSavePassword?.(null);
-    void run(password);
+    void run(password, rememberPassword ? password : null);
   };
 
   return (
@@ -169,7 +205,7 @@ export function SignatureDialog({
         <Button
           type="button"
           className={cn("gap-2", className)}
-          disabled={signer.busy}
+          disabled={signer.busy || actionRunning}
           onClick={start}
         >
           <PenLine aria-hidden className="size-4" />
@@ -181,56 +217,61 @@ export function SignatureDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        {signerError.length > 0 ? (
+        {dialogError.length > 0 ? (
           <p className="text-sm text-destructive" role="alert">
-            {signerError}
+            {dialogError}
           </p>
         ) : null}
 
         {needsPassword ? (
-          <form className="grid gap-4" onSubmit={submitPassword}>
-            <input
-              type="text"
-              autoComplete="username"
-              value=""
-              readOnly
-              tabIndex={-1}
-              aria-hidden="true"
-              className="sr-only"
-            />
-            <form.Field name="password">
-              {(field) => (
-                <div className="grid gap-2">
-                  <Label htmlFor="signature-dialog-password">Certificate password</Label>
-                  <Input
-                    id="signature-dialog-password"
-                    type="password"
-                    data-ph-no-autocapture
-                    data-analytics-sensitive
-                    autoComplete="current-password"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => field.handleChange(event.currentTarget.value)}
-                  />
-                </div>
-              )}
-            </form.Field>
-            <form.Field name="rememberPassword">
-              {(field) => (
-                <Label className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
-                  <Checkbox
-                    checked={field.state.value}
-                    onCheckedChange={(checked) => field.handleChange(checked === true)}
-                  />
-                  Remember password in this app
-                </Label>
-              )}
-            </form.Field>
-            <Button type="submit" disabled={signer.busy || password.length === 0}>
-              {signer.busy ? <Loader2 aria-hidden className="size-4 animate-spin" /> : null}
-              {submitLabel}
-            </Button>
-          </form>
+          <form.Provider>
+            <form className="grid gap-4" onSubmit={submitPassword}>
+              <input
+                type="text"
+                autoComplete="username"
+                value=""
+                readOnly
+                tabIndex={-1}
+                aria-hidden="true"
+                className="sr-only"
+              />
+              <form.Field name="password">
+                {(field) => (
+                  <div className="grid gap-2">
+                    <Label htmlFor="signature-dialog-password">Certificate password</Label>
+                    <Input
+                      id="signature-dialog-password"
+                      type="password"
+                      data-ph-no-autocapture
+                      data-analytics-sensitive
+                      autoComplete="current-password"
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.currentTarget.value)}
+                    />
+                  </div>
+                )}
+              </form.Field>
+              <form.Field name="rememberPassword">
+                {(field) => (
+                  <Label className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
+                    <Checkbox
+                      checked={field.state.value}
+                      onCheckedChange={(checked) => field.handleChange(checked === true)}
+                    />
+                    Remember password in this app
+                  </Label>
+                )}
+              </form.Field>
+              <Button
+                type="submit"
+                disabled={signer.busy || actionRunning || password.length === 0}
+              >
+                {signer.busy ? <Loader2 aria-hidden className="size-4 animate-spin" /> : null}
+                {submitLabel}
+              </Button>
+            </form>
+          </form.Provider>
         ) : null}
 
         <div data-slot="signature-dialog-progress" className="grid gap-2">
@@ -252,7 +293,7 @@ export function SignatureDialog({
           ))}
         </div>
 
-        {lastSignedRows.length > 0 ? (
+        {!actionRunning && !actionFailed && signer.error === null && lastSignedRows.length > 0 ? (
           <div data-slot="signature-dialog-success" className="rounded-md border border-border p-3">
             {success?.({ rows: lastSignedRows, firstPdfUrl }) ?? (
               <div className="flex items-center justify-between gap-3">

@@ -38,7 +38,8 @@ const registry = {
       name: "signature-certificate-form",
       type: "registry:component",
       title: "Signature Certificate Form",
-      description: "Password confirmation form for browser A1 signing, with callback-owned persistence.",
+      description:
+        "Password confirmation form for browser A1 signing, with callback-owned persistence.",
       registryDependencies: ["button", "checkbox", "input", "label"],
       dependencies: ["@tanstack/react-form@0.11.0", "lucide-react"],
       files: [
@@ -53,9 +54,15 @@ const registry = {
       name: "certificate-upload-form",
       type: "registry:component",
       title: "Certificate Upload Form",
-      description: "PFX/P12 upload form that parses an A1 certificate in the browser and returns profile metadata.",
+      description:
+        "PFX/P12 upload form that parses an A1 certificate in the browser and returns profile metadata.",
       registryDependencies: ["badge", "button", "card", "input", "label"],
-      dependencies: ["@signature-kit/react", "@signature-kit/a1", "@tanstack/react-form@0.11.0", "lucide-react"],
+      dependencies: [
+        "@signature-kit/react",
+        "@signature-kit/a1",
+        "@tanstack/react-form@0.11.0",
+        "lucide-react",
+      ],
       files: [
         {
           path: "registry/default/certificate-upload-form/certificate-upload-form.tsx",
@@ -68,9 +75,15 @@ const registry = {
       name: "signature-pdf-viewer",
       type: "registry:component",
       title: "Signature PDF Viewer",
-      description: "react-pdf preview with text-anchor highlighting and manual click-to-place signature rectangles.",
+      description:
+        "react-pdf preview with text-anchor highlighting and manual click-to-place signature rectangles.",
       registryDependencies: ["badge", "button"],
-      dependencies: ["@signature-kit/pdf", "effect@4.0.0-beta.86", "lucide-react", "react-pdf@10.4.1"],
+      dependencies: [
+        "@signature-kit/pdf",
+        "effect@4.0.0-beta.86",
+        "lucide-react",
+        "react-pdf@10.4.1",
+      ],
       files: [
         {
           path: "registry/default/signature-pdf-viewer/signature-pdf-viewer.tsx",
@@ -83,7 +96,8 @@ const registry = {
       name: "signature-dialog",
       type: "registry:block",
       title: "Signature Dialog",
-      description: "Direct browser A1 signing dialog with saved-password retry handling, progress rows, and signed-PDF download preview.",
+      description:
+        "Direct browser A1 signing dialog with saved-password retry handling, progress rows, and signed-PDF download preview.",
       registryDependencies: ["badge", "button", "checkbox", "dialog", "input", "label"],
       dependencies: [
         "@signature-kit/react",
@@ -106,7 +120,8 @@ const registry = {
       name: "signing-progress-list",
       type: "registry:component",
       title: "Signing Progress List",
-      description: "Standalone per-document signing status list for pending, signing, signed, and failed rows.",
+      description:
+        "Standalone per-document signing status list for pending, signing, signed, and failed rows.",
       registryDependencies: ["badge"],
       dependencies: ["lucide-react"],
       files: [
@@ -121,7 +136,8 @@ const registry = {
       name: "pdf-signature-anchor",
       type: "registry:component",
       title: "PDF Signature Anchor",
-      description: "Invisible @react-pdf/renderer Text marker for SignatureKit text-anchor placement.",
+      description:
+        "Invisible @react-pdf/renderer Text marker for SignatureKit text-anchor placement.",
       dependencies: ["@react-pdf/renderer"],
       files: [
         {

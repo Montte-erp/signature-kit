@@ -1,8 +1,10 @@
-import { decode, oidString, type Asn1Error, type Asn1Node } from "@signature-kit/asn1";
+import * as asn1js from "asn1js";
+import { decode, oidString } from "@signature-kit/asn1";
+import type { Asn1Error, Asn1Node } from "@signature-kit/asn1";
 import { Effect, Option, Schema } from "effect";
 import * as pkijs from "pkijs";
 import { CmsError, CmsErrorCodeValue, CmsOid, CmsOperationValue } from "./config";
-import { toArrayBuffer } from "./engine";
+import { digest, toArrayBuffer } from "./engine";
 
 export const CmsSignedAttributeSchema = Schema.Struct({
   type: Schema.NonEmptyString,
@@ -42,12 +44,40 @@ type X509NameEntry = {
   readonly value: StringValue;
 };
 
+type SubjectPublicKey = {
+  readonly valueBlock: {
+    readonly valueHexView: Uint8Array;
+  };
+};
+
+type SubjectPublicKeyInfo = {
+  readonly subjectPublicKey: SubjectPublicKey;
+};
+
+type Asn1OctetString = {
+  readonly idBlock: {
+    readonly tagClass: number;
+    readonly tagNumber: number;
+    readonly isConstructed: boolean;
+  };
+  readonly valueBlock: {
+    readonly valueHexView: Uint8Array;
+  };
+};
+
+type PkiJsExtension = {
+  readonly extnID: string;
+  readonly extnValue: Asn1OctetString;
+};
+
 type InspectableCertificate = BerSchemaSerializable & {
   readonly subject: {
     readonly typesAndValues: readonly X509NameEntry[];
   };
   readonly issuer: BerSchemaSerializable;
   readonly serialNumber: BerSerializable;
+  readonly subjectPublicKeyInfo: SubjectPublicKeyInfo;
+  readonly extensions?: readonly PkiJsExtension[];
 };
 
 type SignerIssuerAndSerial = {
@@ -55,9 +85,22 @@ type SignerIssuerAndSerial = {
   readonly serialNumber: BerSerializable;
 };
 
-const COMMON_NAME_OID = "2.5.4.3";
+type SignerIdentifier =
+  | {
+      readonly type: "issuerAndSerial";
+      readonly issuerAndSerial: SignerIssuerAndSerial;
+    }
+  | {
+      readonly type: "subjectKeyIdentifier";
+      readonly subjectKeyIdentifier: Uint8Array;
+    };
 
+const COMMON_NAME_OID = "2.5.4.3";
+const SUBJECT_KEY_IDENTIFIER_OID = "2.5.29.14";
 const isObject = (value: unknown): value is object => value !== null && typeof value === "object";
+
+const isUint8Array = (value: unknown): value is Uint8Array =>
+  Object.prototype.toString.call(value) === "[object Uint8Array]";
 
 const BerSerializableSchema = Schema.declare<BerSerializable>((value): value is BerSerializable => {
   if (!isObject(value)) return false;
@@ -71,6 +114,42 @@ const BerSchemaSerializableSchema = Schema.declare<BerSchemaSerializable>(
   },
 );
 
+const SubjectPublicKeySchema = Schema.declare<SubjectPublicKey>(
+  (value): value is SubjectPublicKey => {
+    if (!isObject(value)) return false;
+    const valueBlock = Reflect.get(value, "valueBlock");
+    return isObject(valueBlock) && isUint8Array(Reflect.get(valueBlock, "valueHexView"));
+  },
+);
+
+const Asn1OctetStringSchema = Schema.declare<Asn1OctetString>((value): value is Asn1OctetString => {
+  if (!isObject(value)) return false;
+  const idBlock = Reflect.get(value, "idBlock");
+  const valueBlock = Reflect.get(value, "valueBlock");
+  return (
+    isObject(idBlock) &&
+    Reflect.get(idBlock, "tagClass") === 1 &&
+    Reflect.get(idBlock, "tagNumber") === 4 &&
+    Reflect.get(idBlock, "isConstructed") === false &&
+    isObject(valueBlock) &&
+    isUint8Array(Reflect.get(valueBlock, "valueHexView"))
+  );
+});
+
+const PkiJsExtensionSchema = Schema.declare<PkiJsExtension>((value): value is PkiJsExtension => {
+  if (!isObject(value)) return false;
+  return (
+    typeof Reflect.get(value, "extnID") === "string" &&
+    Schema.is(Asn1OctetStringSchema)(Reflect.get(value, "extnValue"))
+  );
+});
+
+const SubjectPublicKeyInfoSchema = Schema.declare<SubjectPublicKeyInfo>(
+  (value): value is SubjectPublicKeyInfo => {
+    if (!isObject(value)) return false;
+    return Schema.is(SubjectPublicKeySchema)(Reflect.get(value, "subjectPublicKey"));
+  },
+);
 const SignerIssuerAndSerialSchema = Schema.declare<SignerIssuerAndSerial>(
   (value): value is SignerIssuerAndSerial => {
     if (!isObject(value)) return false;
@@ -80,6 +159,42 @@ const SignerIssuerAndSerialSchema = Schema.declare<SignerIssuerAndSerial>(
     );
   },
 );
+
+const subjectKeyIdentifierFromSid = (sid: unknown): Uint8Array | undefined => {
+  if (!isObject(sid)) return undefined;
+  const idBlock = Reflect.get(sid, "idBlock");
+  const valueBlock = Reflect.get(sid, "valueBlock");
+  if (!isObject(idBlock) || !isObject(valueBlock)) return undefined;
+  if (Reflect.get(idBlock, "tagClass") !== 3 || Reflect.get(idBlock, "tagNumber") !== 0) {
+    return undefined;
+  }
+  if (Reflect.get(idBlock, "isConstructed") === true) {
+    const values = Reflect.get(valueBlock, "value");
+    if (!Array.isArray(values)) return undefined;
+    const first = values[0];
+    if (!isObject(first)) return undefined;
+    const firstValueBlock = Reflect.get(first, "valueBlock");
+    const firstValueHexView = isObject(firstValueBlock)
+      ? Reflect.get(firstValueBlock, "valueHexView")
+      : undefined;
+    return isUint8Array(firstValueHexView) ? firstValueHexView : undefined;
+  }
+  const valueHexView = Reflect.get(valueBlock, "valueHexView");
+  return isUint8Array(valueHexView) ? valueHexView : undefined;
+};
+
+const signerIdentifierFromSid = (sid: unknown): SignerIdentifier | undefined => {
+  const issuerAndSerial = Option.getOrUndefined(
+    Schema.decodeUnknownOption(SignerIssuerAndSerialSchema)(sid),
+  );
+  if (issuerAndSerial !== undefined) {
+    return { type: "issuerAndSerial", issuerAndSerial };
+  }
+  const subjectKeyIdentifier = subjectKeyIdentifierFromSid(sid);
+  return subjectKeyIdentifier === undefined
+    ? undefined
+    : { type: "subjectKeyIdentifier", subjectKeyIdentifier };
+};
 
 const derBytes = (value: BerSerializable | BerSchemaSerializable): Uint8Array =>
   "toBER" in value
@@ -101,20 +216,62 @@ const matchesSignerSid = (
   bytesEqual(derBytes(certificate.issuer), derBytes(sid.issuer)) &&
   bytesEqual(derBytes(certificate.serialNumber), derBytes(sid.serialNumber));
 
+const subjectKeyIdentifierFromCertificate = (
+  certificate: InspectableCertificate,
+): Uint8Array | null | undefined => {
+  const subjectKeyIdentifierExtensions = certificate.extensions?.filter(
+    (extension) => extension.extnID === SUBJECT_KEY_IDENTIFIER_OID,
+  );
+  if (subjectKeyIdentifierExtensions === undefined || subjectKeyIdentifierExtensions.length === 0) {
+    return undefined;
+  }
+  if (subjectKeyIdentifierExtensions.length !== 1) return null;
+  const subjectKeyIdentifierExtension = subjectKeyIdentifierExtensions[0];
+  if (subjectKeyIdentifierExtension === undefined) return null;
+
+  const encodedSubjectKeyIdentifier =
+    subjectKeyIdentifierExtension.extnValue.valueBlock.valueHexView;
+  const decodedSubjectKeyIdentifier = asn1js.fromBER(toArrayBuffer(encodedSubjectKeyIdentifier));
+  if (
+    decodedSubjectKeyIdentifier.offset !== encodedSubjectKeyIdentifier.byteLength ||
+    !Schema.is(Asn1OctetStringSchema)(decodedSubjectKeyIdentifier.result)
+  ) {
+    return null;
+  }
+  return decodedSubjectKeyIdentifier.result.valueBlock.valueHexView;
+};
+
 const findSignerCertificate = (
   certificates: readonly unknown[] | undefined,
-  sid: SignerIssuerAndSerial | undefined,
-): InspectableCertificate | undefined => {
-  for (const certificate of certificates ?? []) {
-    const inspectable = Option.getOrUndefined(
-      Schema.decodeUnknownOption(InspectableCertificateSchema)(certificate),
-    );
-    if (inspectable !== undefined && (sid === undefined || matchesSignerSid(inspectable, sid))) {
-      return inspectable;
+  sid: SignerIdentifier | undefined,
+): Effect.Effect<InspectableCertificate | undefined, CmsError> =>
+  Effect.gen(function* () {
+    if (sid === undefined) return undefined;
+    for (const certificate of certificates ?? []) {
+      const inspectable = Option.getOrUndefined(
+        Schema.decodeUnknownOption(InspectableCertificateSchema)(certificate),
+      );
+      if (inspectable === undefined) continue;
+      if (sid.type === "issuerAndSerial") {
+        if (matchesSignerSid(inspectable, sid.issuerAndSerial)) return inspectable;
+        continue;
+      }
+      const certificateSubjectKeyIdentifier = subjectKeyIdentifierFromCertificate(inspectable);
+      if (certificateSubjectKeyIdentifier === null) continue;
+      if (certificateSubjectKeyIdentifier !== undefined) {
+        if (bytesEqual(certificateSubjectKeyIdentifier, sid.subjectKeyIdentifier)) {
+          return inspectable;
+        }
+        continue;
+      }
+      const keyIdentifier = yield* digest(
+        "sha1",
+        inspectable.subjectPublicKeyInfo.subjectPublicKey.valueBlock.valueHexView,
+      );
+      if (bytesEqual(keyIdentifier, sid.subjectKeyIdentifier)) return inspectable;
     }
-  }
-  return undefined;
-};
+    return undefined;
+  });
 
 const hasStringValue = (value: unknown): value is StringValue => {
   if (!isObject(value)) return false;
@@ -135,12 +292,16 @@ const InspectableCertificateSchema = Schema.declare<InspectableCertificate>(
     if (!isObject(value)) return false;
     const subject = Reflect.get(value, "subject");
     const typesAndValues = isObject(subject) ? Reflect.get(subject, "typesAndValues") : undefined;
+    const extensions = Reflect.get(value, "extensions");
     return (
       Schema.is(BerSchemaSerializableSchema)(value) &&
       Schema.is(BerSchemaSerializableSchema)(Reflect.get(value, "issuer")) &&
       Schema.is(BerSerializableSchema)(Reflect.get(value, "serialNumber")) &&
+      Schema.is(SubjectPublicKeyInfoSchema)(Reflect.get(value, "subjectPublicKeyInfo")) &&
       Array.isArray(typesAndValues) &&
-      typesAndValues.every(hasNameEntry)
+      typesAndValues.every(hasNameEntry) &&
+      (extensions === undefined ||
+        (Array.isArray(extensions) && extensions.every(Schema.is(PkiJsExtensionSchema))))
     );
   },
 );
@@ -309,10 +470,8 @@ export const inspectDetachedSignedData = (
       signerInfo.signedAttrs?.attributes ?? [],
       inspectAttribute,
     );
-    const signerSid = Option.getOrUndefined(
-      Schema.decodeUnknownOption(SignerIssuerAndSerialSchema)(signerInfo.sid),
-    );
-    const inspectableCertificate = findSignerCertificate(signed.certificates, signerSid);
+    const signerSid = signerIdentifierFromSid(signerInfo.sid);
+    const inspectableCertificate = yield* findSignerCertificate(signed.certificates, signerSid);
 
     return {
       signerCommonName:

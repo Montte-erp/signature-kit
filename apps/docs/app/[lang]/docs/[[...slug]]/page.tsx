@@ -1,10 +1,5 @@
 import { source } from "@/lib/source";
-import {
-  DocsBody,
-  DocsDescription,
-  DocsPage,
-  DocsTitle,
-} from "fumadocs-ui/layouts/docs/page";
+import { DocsBody, DocsDescription, DocsPage, DocsTitle } from "fumadocs-ui/layouts/docs/page";
 import { notFound } from "next/navigation";
 import { getMDXComponents } from "@/components/mdx";
 import type { Metadata } from "next";
@@ -23,11 +18,7 @@ export default async function Page(props: PageProps<"/[lang]/docs/[[...slug]]">)
   const MDX = page.data.body;
 
   return (
-    <DocsPage
-      toc={page.data.toc}
-      full={page.data.full}
-      tableOfContent={{ style: "clerk" }}
-    >
+    <DocsPage toc={page.data.toc} full={page.data.full} tableOfContent={{ style: "clerk" }}>
       <DocsTitle>{page.data.title}</DocsTitle>
       <DocsDescription>{page.data.description}</DocsDescription>
       <DocsBody>

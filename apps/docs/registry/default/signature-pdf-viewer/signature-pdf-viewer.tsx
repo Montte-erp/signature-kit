@@ -1,6 +1,7 @@
 "use client";
 
 import { findPdfTextAnchors } from "@signature-kit/pdf/anchors";
+import { liteParseWorkerBrowserLayer } from "@signature-kit/pdf/liteparse-browser";
 import {
   DEFAULT_PDF_ANCHOR_STAMP_SIZE,
   type PdfSignaturePage,
@@ -8,7 +9,7 @@ import {
   type PdfStampSize,
   pdfTextAnchorMatchersFromProps,
 } from "@signature-kit/pdf/config";
-import { Effect, Result } from "effect";
+import { Effect, Exit, Result } from "effect";
 import { Loader2, LocateFixed } from "lucide-react";
 import * as React from "react";
 import { Document, Page, pdfjs } from "react-pdf";
@@ -38,9 +39,15 @@ export type SignaturePdfViewerProps = {
   readonly className?: string;
 };
 
+const emptyAnchorValues: ReadonlyArray<string> = [];
+
+type ActiveAnchorScan = {
+  readonly owner: number;
+  cancel: () => void;
+};
+
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
-
 
 export function SignaturePdfViewer({
   file,
@@ -48,39 +55,80 @@ export function SignaturePdfViewer({
   mode,
   value,
   onChange,
-  anchorTokens = [],
-  anchorDigits = [],
+  anchorTokens = emptyAnchorValues,
+  anchorDigits = emptyAnchorValues,
   stampSize = DEFAULT_PDF_ANCHOR_STAMP_SIZE,
   pageWidth = 720,
   className,
 }: SignaturePdfViewerProps) {
   const [anchorStatus, setAnchorStatus] = React.useState<"idle" | "scanning" | "error">("idle");
+  const activeAnchorScan = React.useRef<ActiveAnchorScan | null>(null);
+  const anchorScanOwner = React.useRef(0);
+  const matchers = React.useMemo(
+    () => pdfTextAnchorMatchersFromProps(anchorTokens, anchorDigits),
+    [anchorDigits, anchorTokens],
+  );
+  const anchorScanInputs = React.useMemo(
+    () => ({ file, matchers, mode, pages, stampSize }),
+    [file, matchers, mode, pages, stampSize],
+  );
+  const handledAnchorScanInputs = React.useRef(anchorScanInputs);
   const documentFile = React.useMemo(() => {
     const buffer = new ArrayBuffer(file.byteLength);
     new Uint8Array(buffer).set(file);
     return { data: buffer };
   }, [file]);
+  const invalidateAnchorScan = React.useCallback((): void => {
+    const activeScan = activeAnchorScan.current;
+    anchorScanOwner.current += 1;
+    activeAnchorScan.current = null;
+    activeScan?.cancel();
+  }, []);
 
-  const scanAnchors = async () => {
-    const matchers = pdfTextAnchorMatchersFromProps(anchorTokens, anchorDigits);
-    if (matchers.length === 0) return;
-    setAnchorStatus("scanning");
-    const result = await Effect.runPromise(
-      Effect.result(
-        findPdfTextAnchors({
-          pdf: file,
-          pages,
-          matchers,
-          stampSize,
-        }),
-      ),
-    );
-    if (Result.isSuccess(result)) {
+  React.useEffect(() => {
+    if (handledAnchorScanInputs.current === anchorScanInputs) return;
+    handledAnchorScanInputs.current = anchorScanInputs;
+    invalidateAnchorScan();
+    setAnchorStatus("idle");
+  }, [anchorScanInputs, invalidateAnchorScan]);
+
+  React.useEffect(() => invalidateAnchorScan, [invalidateAnchorScan]);
+
+  const scanAnchors = (): void => {
+    invalidateAnchorScan();
+    handledAnchorScanInputs.current = anchorScanInputs;
+    if (matchers.length === 0) {
       setAnchorStatus("idle");
-      onChange(result.success);
-    } else {
-      setAnchorStatus("error");
+      return;
     }
+
+    const owner = anchorScanOwner.current + 1;
+    const scan: ActiveAnchorScan = { owner, cancel: () => {} };
+    anchorScanOwner.current = owner;
+    activeAnchorScan.current = scan;
+    setAnchorStatus("scanning");
+    const cancel = Effect.runCallback(
+      findPdfTextAnchors({
+        pdf: file,
+        pages,
+        matchers,
+        stampSize,
+      }).pipe(Effect.provide(liteParseWorkerBrowserLayer), Effect.result),
+      {
+        onExit: (exit) => {
+          if (anchorScanOwner.current !== owner || activeAnchorScan.current !== scan) return;
+          activeAnchorScan.current = null;
+          if (Exit.isSuccess(exit) && Result.isSuccess(exit.value)) {
+            setAnchorStatus("idle");
+            onChange(exit.value.success);
+            return;
+          }
+          setAnchorStatus("error");
+        },
+      },
+    );
+
+    if (activeAnchorScan.current === scan) scan.cancel = cancel;
   };
 
   const placeManually = (
@@ -112,7 +160,13 @@ export function SignaturePdfViewer({
           <span className="text-sm text-muted-foreground">{value.length} placement(s)</span>
         </div>
         {mode === "anchors" ? (
-          <Button type="button" variant="outline" size="sm" onClick={scanAnchors}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={anchorStatus === "scanning"}
+            onClick={scanAnchors}
+          >
             {anchorStatus === "scanning" ? (
               <Loader2 aria-hidden className="size-4 animate-spin" />
             ) : (
@@ -128,7 +182,10 @@ export function SignaturePdfViewer({
         </p>
       ) : null}
       <div className="max-h-[70vh] overflow-auto rounded-lg border border-border bg-muted/30 p-3">
-        <Document file={documentFile} loading={<p className="p-6 text-sm text-muted-foreground">Loading PDF…</p>}>
+        <Document
+          file={documentFile}
+          loading={<p className="p-6 text-sm text-muted-foreground">Loading PDF…</p>}
+        >
           <div className="flex flex-col items-center gap-4">
             {pages.map((page) => {
               const scale = pageWidth / page.width;

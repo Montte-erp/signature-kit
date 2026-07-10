@@ -1,11 +1,16 @@
 "use client";
 
-import { motion, useAnimationFrame, useMotionValue, useReducedMotion, useTransform } from "motion/react";
+import {
+  motion,
+  useAnimationFrame,
+  useMotionValue,
+  useReducedMotion,
+  useTransform,
+} from "motion/react";
 import { useRef } from "react";
 import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
-
 
 export interface MarqueeItem {
   readonly key: string;
@@ -55,8 +60,7 @@ export function Marquee({
     <div
       className={cn(
         "overflow-x-clip",
-        fade &&
-          "[mask-image:linear-gradient(to_right,transparent,#000_8%,#000_92%,transparent)]",
+        fade && "[mask-image:linear-gradient(to_right,transparent,#000_8%,#000_92%,transparent)]",
         className,
       )}
     >

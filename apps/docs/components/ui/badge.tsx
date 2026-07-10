@@ -10,10 +10,8 @@ const badgeVariants = cva(
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
-        secondary:
-          "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
-        outline:
-          "border-border bg-input/30 text-foreground [a]:hover:bg-muted",
+        secondary: "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
+        outline: "border-border bg-input/30 text-foreground [a]:hover:bg-muted",
         ghost: "hover:bg-muted hover:text-muted-foreground",
         link: "text-primary underline-offset-4 hover:underline",
       },
@@ -29,8 +27,7 @@ function Badge({
   variant = "default",
   asChild = false,
   ...props
-}: React.ComponentProps<"span"> &
-  VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
+}: React.ComponentProps<"span"> & VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
   const Comp = asChild ? Slot : "span";
 
   return (

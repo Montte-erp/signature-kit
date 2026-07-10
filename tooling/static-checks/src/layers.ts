@@ -24,7 +24,14 @@ export type WorkspaceLayerDiagnostic = {
   readonly message: string;
 };
 
-const workspaceRoots: readonly string[] = ["shared", "core", "signers", "formats", "validators"];
+const workspaceRoots: readonly string[] = [
+  "shared",
+  "core",
+  "signers",
+  "formats",
+  "validators",
+  "apps",
+];
 
 const allowedDependencyLayers: Record<WorkspaceLayer, readonly WorkspaceLayer[]> = {
   shared: ["shared"],
@@ -107,6 +114,7 @@ const tsconfigReferences = (rootDirectory: string, packageDirectory: string): re
 
 const compilerPathAliases = (rootDirectory: string): ReadonlyMap<string, readonly string[]> => {
   const tsconfigPath = `${rootDirectory}/tooling/typescript/base.json`;
+  const tsconfigDirectory = dirname(tsconfigPath);
   if (!existsSync(tsconfigPath)) {
     return new Map();
   }
@@ -130,7 +138,12 @@ const compilerPathAliases = (rootDirectory: string): ReadonlyMap<string, readonl
     }
     const targets = value.filter((target): target is string => typeof target === "string");
     if (targets.length === value.length) {
-      aliases.set(specifier, targets);
+      aliases.set(
+        specifier,
+        targets.map((target) =>
+          normalizePath(relative(rootDirectory, resolve(tsconfigDirectory, target))),
+        ),
+      );
     }
   }
   return aliases;
@@ -249,7 +262,14 @@ const sourceFilePaths = (directory: string): readonly string[] => {
     const path = `${directory}/${entry}`;
     const stats = statSync(path);
     if (stats.isDirectory()) {
-      if (entry === "dist" || entry === "node_modules" || entry === ".cache") {
+      if (
+        entry === "dist" ||
+        entry === "node_modules" ||
+        entry === ".cache" ||
+        entry === ".next" ||
+        entry === ".source" ||
+        entry === "paraglide"
+      ) {
         return [];
       }
       return sourceFilePaths(path);
@@ -391,6 +411,18 @@ const referenceDiagnostics = (
   return [...missingReferences, ...undeclaredReferences];
 };
 
+const packageForImportSpecifier = (
+  packagesByName: ReadonlyMap<string, WorkspacePackage>,
+  specifier: string,
+): WorkspacePackage | undefined => {
+  const exact = packagesByName.get(specifier);
+  if (exact !== undefined) return exact;
+  for (const [name, workspacePackage] of packagesByName) {
+    if (specifier.startsWith(`${name}/`)) return workspacePackage;
+  }
+  return undefined;
+};
+
 const packageImportDiagnostics = (
   workspacePackage: WorkspacePackage,
   packagesByName: ReadonlyMap<string, WorkspacePackage>,
@@ -401,7 +433,7 @@ const packageImportDiagnostics = (
     return [];
   }
 
-  const importedPackage = packagesByName.get(specifier);
+  const importedPackage = packageForImportSpecifier(packagesByName, specifier);
   if (importedPackage === undefined || importedPackage.name === workspacePackage.name) {
     return [];
   }
@@ -494,9 +526,13 @@ export const collectWorkspaceLayerDiagnostics = (
 
   return packages.flatMap((workspacePackage) => [
     ...dependencyDiagnostics(workspacePackage, byName),
-    ...referenceDiagnostics(workspacePackage, byName, byDirectory),
-    ...exportPathDiagnostics(rootDirectory, workspacePackage, pathAliases),
-    ...distParityDiagnostics(rootDirectory, workspacePackage),
+    ...(workspacePackage.layer === "apps"
+      ? []
+      : [
+          ...referenceDiagnostics(workspacePackage, byName, byDirectory),
+          ...exportPathDiagnostics(rootDirectory, workspacePackage, pathAliases),
+          ...distParityDiagnostics(rootDirectory, workspacePackage),
+        ]),
     ...importDiagnostics(rootDirectory, workspacePackage, packages, byName),
   ]);
 };

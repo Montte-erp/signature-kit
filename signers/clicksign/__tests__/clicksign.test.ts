@@ -13,9 +13,8 @@ import {
   downloadClicksignSignedDocument,
   getClicksignSignatureRequest,
   listClicksignSignatureRequests,
-  type ClicksignProviderOptions,
-  type ClicksignSignatureRequestProps,
 } from "../src/index";
+import type { ClicksignProviderOptions, ClicksignSignatureRequestProps } from "../src/index";
 
 const config = loadFlaggedConfig(
   "SIGNATURE_KIT_LIVE_REMOTE_SIGNERS",

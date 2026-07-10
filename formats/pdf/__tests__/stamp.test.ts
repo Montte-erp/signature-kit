@@ -1,32 +1,43 @@
 import { describe, expect, it } from "@effect/vitest";
-import { inflateSync } from "node:zlib";
+import { deflateSync, inflateSync } from "node:zlib";
 import {
   PDFArray,
   PDFDict,
   PDFDocument,
+  PDFHexString,
   PDFName,
   PDFNumber,
-  PDFString,
   StandardFonts,
+  degrees,
 } from "@cantoo/pdf-lib";
 import { a1SignaturesLayer } from "@signature-kit/a1/signer";
 import { signPdf } from "@signature-kit/pdf/sign";
 import { verifyPdf } from "@signature-kit/pdf/verify";
 import { Effect, Redacted, Result } from "effect";
 import { readA1Fixture } from "../../../tooling/testing/fixtures";
+import { signPdf as signPdfFromSource } from "../src/sign";
+import { preparePdfByteRange } from "../src/byte-range";
+import { addSignaturePlaceholder } from "../src/placeholder";
+import { verifyPdf as verifyPdfFromSource } from "../src/verify";
 import {
   layoutPdfSignatureBadge,
+  pdfCoordinateTupleFromTopLeftRect,
+  topLeftRectFromPdfCoordinateTuple,
+  visiblePdfPageSize,
+  rubricPageIndexesExcludingSignature,
   rubricRectForPage,
   stampPdfRubric,
   stampPdfRubricOnPages,
   stampPdfVisibleSignature,
+  stampPdfVisibleSignatures,
 } from "../src/stamp";
 import type { PdfSignatureBadgeLayoutRect, PdfSignatureBadgeTextRunLayout } from "../src/stamp";
-import {
-  PdfErrorCodeValue,
-  type PdfCoordinateTuple,
-  type PdfSignatureBadge,
-  type PdfSignaturePage,
+import { PdfErrorCodeValue, PdfOperationValue } from "../src/config";
+import type {
+  PdfCoordinateTuple,
+  PdfSignatureBadge,
+  PdfSignaturePage,
+  PdfVisibleStampInput,
 } from "../src/config";
 
 const createThreePagePdf: Effect.Effect<Uint8Array> = Effect.promise(async () => {
@@ -45,12 +56,152 @@ const ONE_BY_ONE_PNG = Uint8Array.from(
   ),
   (character) => character.charCodeAt(0),
 );
+const OVERSIZED_PNG_HEADER = Uint8Array.of(
+  137,
+  80,
+  78,
+  71,
+  13,
+  10,
+  26,
+  10,
+  0,
+  0,
+  0,
+  13,
+  73,
+  72,
+  68,
+  82,
+  255,
+  255,
+  255,
+  255,
+  255,
+  255,
+  255,
+  255,
+  8,
+  6,
+  0,
+  0,
+  0,
+);
+
+const PNG_SIGNATURE = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10);
+const PNG_IHDR_TYPE = Uint8Array.of(73, 72, 68, 82);
+const PNG_IDAT_TYPE = Uint8Array.of(73, 68, 65, 84);
+const PNG_IEND_TYPE = Uint8Array.of(73, 69, 78, 68);
+const PNG_ACTL_TYPE = Uint8Array.of(97, 99, 84, 76);
+const PNG_FCTL_TYPE = Uint8Array.of(102, 99, 84, 76);
+const PNG_FDAT_TYPE = Uint8Array.of(102, 100, 65, 84);
+
+const crc32 = (bytes: Uint8Array): number => {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+};
+
+const pngChunk = (type: Uint8Array, data: Uint8Array): Uint8Array => {
+  const chunk = new Uint8Array(data.byteLength + 12);
+  const length = data.byteLength;
+  chunk[0] = (length >>> 24) & 0xff;
+  chunk[1] = (length >>> 16) & 0xff;
+  chunk[2] = (length >>> 8) & 0xff;
+  chunk[3] = length & 0xff;
+  chunk.set(type, 4);
+  chunk.set(data, 8);
+  const crc = crc32(chunk.subarray(4, data.byteLength + 8));
+  chunk[data.byteLength + 8] = (crc >>> 24) & 0xff;
+  chunk[data.byteLength + 9] = (crc >>> 16) & 0xff;
+  chunk[data.byteLength + 10] = (crc >>> 8) & 0xff;
+  chunk[data.byteLength + 11] = crc & 0xff;
+  return chunk;
+};
+
+const pngWithIdat = (interlace: 0 | 1, inflated: Uint8Array): Uint8Array => {
+  const ihdr = Uint8Array.of(0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, interlace);
+  const chunks = [
+    PNG_SIGNATURE,
+    pngChunk(PNG_IHDR_TYPE, ihdr),
+    pngChunk(PNG_IDAT_TYPE, new Uint8Array(deflateSync(inflated))),
+    pngChunk(PNG_IEND_TYPE, new Uint8Array()),
+  ];
+  const png = new Uint8Array(chunks.reduce((length, chunk) => length + chunk.byteLength, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    png.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return png;
+};
+
+const INTERLACED_ONE_BY_ONE_PNG = pngWithIdat(1, Uint8Array.of(0, 255, 255, 255, 255));
+const compressedPngExpansionBomb = (): Uint8Array => pngWithIdat(0, new Uint8Array(1024 * 1024));
+
+const apngWithHugeFrame = (): Uint8Array => {
+  const frameCompressed = new Uint8Array(deflateSync(Uint8Array.of(0, 255, 255, 255, 255)));
+  const frameData = new Uint8Array(4 + frameCompressed.byteLength);
+  frameData.set(Uint8Array.of(0, 0, 0, 1));
+  frameData.set(frameCompressed, 4);
+  const chunks = [
+    PNG_SIGNATURE,
+    pngChunk(PNG_IHDR_TYPE, Uint8Array.of(0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0)),
+    pngChunk(PNG_ACTL_TYPE, Uint8Array.of(0, 0, 0, 2, 0, 0, 0, 0)),
+    pngChunk(
+      PNG_FCTL_TYPE,
+      Uint8Array.of(
+        0,
+        0,
+        0,
+        0,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        255,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        100,
+        0,
+        0,
+      ),
+    ),
+    pngChunk(PNG_IDAT_TYPE, frameCompressed),
+    pngChunk(PNG_FDAT_TYPE, frameData),
+    pngChunk(PNG_IEND_TYPE, new Uint8Array()),
+  ];
+  const png = new Uint8Array(chunks.reduce((length, chunk) => length + chunk.byteLength, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    png.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return png;
+};
 
 const RUBRIC_RECT: PdfCoordinateTuple = [20, 20, 140, 64];
 const LEGAL_PAGE: PdfSignaturePage = { index: 1, width: 612, height: 1008 };
 const SIGNATURE_RECT = {
   pageIndex: 2,
-  x: 320,
+  x: 140,
   y: 120,
   width: 168,
   height: 48,
@@ -94,6 +245,7 @@ const BADGE_STAMP: PdfSignatureBadge = {
   ],
   qr: { text: VALIDAR_ITI_URL },
 };
+const MALICIOUS_PDF_TEXT = ") \\ ( /ByteRange /Contents — São Paulo ✓";
 const REFERENCE_BADGE_CONTAINER: PdfSignatureBadgeLayoutRect = {
   x: 76,
   y: 162,
@@ -120,6 +272,15 @@ it("places repeated rubrics compactly in the right-side middle", () => {
     width: 72,
     height: 32,
   });
+});
+
+it("excludes rubric pages by their declared index", () => {
+  const pages: PdfSignaturePage[] = [
+    { index: 1, width: 600, height: 1000 },
+    { index: 0, width: 320, height: 180 },
+  ];
+
+  expect(rubricPageIndexesExcludingSignature(pages, 1)).toStrictEqual([0]);
 });
 
 it("nudges repeated rubrics away from LiteParse text boxes", () => {
@@ -188,7 +349,7 @@ const linkAnnotationsForPage = (
       const annotation = pdfDoc.context.lookupMaybe(annots.get(index), PDFDict);
       const subtype = annotation?.lookupMaybe(PDFName.of("Subtype"), PDFName);
       const action = annotation?.lookupMaybe(PDFName.of("A"), PDFDict);
-      const uri = action?.lookupMaybe(PDFName.of("URI"), PDFString)?.decodeText();
+      const uri = action?.lookupMaybe(PDFName.of("URI"), PDFHexString)?.decodeText();
       const rect = annotation?.lookupMaybe(PDFName.of("Rect"), PDFArray);
       if (subtype?.toString() === "/Link" && uri !== undefined && rect !== undefined) {
         const left = rect.lookup(0, PDFNumber).asNumber();
@@ -238,6 +399,217 @@ describe("stampPdfRubric", () => {
       expect(stamped.byteLength).toBeGreaterThan(pdf.byteLength);
     }),
   );
+  it.effect("preserves existing signatures through default rubric helpers", () =>
+    Effect.gen(function* () {
+      const pfx = yield* readA1Fixture("ecnpj");
+      const pdf = yield* createThreePagePdf;
+      const firstSigned = yield* signPdfFromSource({
+        pdf,
+        reason: "Initial rubric preservation signature",
+        name: "Empresa CNPJ:60278873000192",
+        signatureLength: 32768,
+      }).pipe(Effect.provide(a1SignaturesLayer({ pfx, password: PASSWORD })));
+      const directlyRubriced = yield* stampPdfRubric(firstSigned, {
+        rect: RUBRIC_RECT,
+        pages: [0],
+        lines: ["RUBRIC PRESERVATION"],
+      });
+      const pageRubriced = yield* stampPdfRubricOnPages({
+        pdf: directlyRubriced,
+        pageDimensions: [
+          { index: 0, width: 320, height: 180 },
+          { index: 1, width: 320, height: 180 },
+          { index: 2, width: 320, height: 180 },
+        ],
+        pages: [1],
+        lines: ["PAGE RUBRIC PRESERVATION"],
+      });
+      const reSigned = yield* signPdfFromSource({
+        pdf: pageRubriced,
+        reason: "Follow-up rubric preservation signature",
+        name: "Empresa CNPJ:60278873000192",
+        signatureLength: 32768,
+      }).pipe(Effect.provide(a1SignaturesLayer({ pfx, password: PASSWORD })));
+      const verification = yield* verifyPdfFromSource({ pdf: reSigned });
+
+      expect(verification.valid).toBe(true);
+      expect(verification.signatureCount).toBe(2);
+    }),
+  );
+
+  it.effect("keeps signed PDFs byte-identical for no-op rubric and visible stamps", () =>
+    Effect.gen(function* () {
+      const pfx = yield* readA1Fixture("ecnpj");
+      const pdf = yield* createThreePagePdf;
+      const signed = yield* signPdfFromSource({
+        pdf,
+        reason: "No-op stamp preservation signature",
+        name: "Empresa CNPJ:60278873000192",
+        signatureLength: 32768,
+      }).pipe(Effect.provide(a1SignaturesLayer({ pfx, password: PASSWORD })));
+      const noTargetRubric = yield* stampPdfRubric(signed, {
+        rect: RUBRIC_RECT,
+        pages: [],
+        border: false,
+      });
+      const noContentRubric = yield* stampPdfRubric(signed, {
+        rect: RUBRIC_RECT,
+        pages: [0],
+        border: false,
+        lines: [],
+      });
+      const noTargetPageRubric = yield* stampPdfRubricOnPages({
+        pdf: signed,
+        pageDimensions: [
+          { index: 0, width: 320, height: 180 },
+          { index: 1, width: 320, height: 180 },
+          { index: 2, width: 320, height: 180 },
+        ],
+        pages: [],
+        border: false,
+        lines: [],
+      });
+      const noContentVisible = yield* stampPdfVisibleSignature({
+        pdf: signed,
+        pageIndex: 0,
+        rect: { pageIndex: 0, x: 20, y: 20, width: 80, height: 40 },
+        border: false,
+        lines: [],
+      });
+      const [noTargetVerification, noContentVerification, visibleVerification] = yield* Effect.all([
+        verifyPdfFromSource({ pdf: noTargetRubric }),
+        verifyPdfFromSource({ pdf: noContentRubric }),
+        verifyPdfFromSource({ pdf: noContentVisible }),
+      ]);
+
+      expect(noTargetRubric).toStrictEqual(signed);
+      expect(noContentRubric).toStrictEqual(signed);
+      expect(noTargetPageRubric).toStrictEqual(signed);
+      expect(noContentVisible).toStrictEqual(signed);
+      expect(noTargetVerification.valid).toBe(true);
+      expect(noContentVerification.valid).toBe(true);
+      expect(visibleVerification.valid).toBe(true);
+    }),
+  );
+
+  it.effect("validates malformed empty visible stamps before no-op handling", () =>
+    Effect.gen(function* () {
+      const malformedInput: PdfVisibleStampInput = {
+        pdf: new Uint8Array([1, 2, 3]),
+        pageIndex: 0,
+        rect: { pageIndex: 0, x: 0, y: 0, width: 80, height: 40 },
+        border: false,
+        lines: [],
+      };
+      expect(Reflect.set(malformedInput, "pdf", "not-a-pdf")).toBe(true);
+      expect(Reflect.set(malformedInput, "pageIndex", Number.NaN)).toBe(true);
+      expect(Reflect.set(malformedInput.rect, "pageIndex", Number.NaN)).toBe(true);
+      const result = yield* Effect.result(stampPdfVisibleSignature(malformedInput));
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+      }
+    }),
+  );
+  it.effect("rejects empty batches and malformed later visible stamp targets", () =>
+    Effect.gen(function* () {
+      const pdf = yield* createThreePagePdf;
+      const emptyInput: Parameters<typeof stampPdfVisibleSignatures>[0] = {
+        pdf,
+        stamps: [{ pageIndex: 0, rect: { pageIndex: 0, x: 20, y: 20, width: 80, height: 40 } }],
+        lines: ["x"],
+      };
+      const malformedLaterInput: Parameters<typeof stampPdfVisibleSignatures>[0] = {
+        pdf,
+        stamps: [
+          { pageIndex: 0, rect: { pageIndex: 0, x: 20, y: 20, width: 80, height: 40 } },
+          { pageIndex: 1, rect: { pageIndex: 1, x: 20, y: 20, width: 80, height: 40 } },
+        ],
+        lines: ["x"],
+      };
+      expect(Reflect.set(emptyInput.stamps, "length", 0)).toBe(true);
+      expect(Reflect.set(malformedLaterInput.stamps, 1, undefined)).toBe(true);
+      const [empty, malformedLater] = yield* Effect.all([
+        Effect.result(stampPdfVisibleSignatures(emptyInput, false)),
+        Effect.result(stampPdfVisibleSignatures(malformedLaterInput, false)),
+      ]);
+
+      for (const result of [empty, malformedLater]) {
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+        }
+      }
+    }),
+  );
+
+  it.effect("rejects conflicting initials rubric modes", () =>
+    Effect.gen(function* () {
+      const pdf = yield* createThreePagePdf;
+      const lineConflict = yield* Effect.result(
+        stampPdfRubric(pdf, {
+          rect: RUBRIC_RECT,
+          pages: [0],
+          initials: "AB",
+          lines: ["CONFLICT"],
+        }),
+      );
+      const imageConflict = yield* Effect.result(
+        stampPdfRubric(pdf, {
+          rect: RUBRIC_RECT,
+          pages: [0],
+          initials: "AB",
+          imagePng: ONE_BY_ONE_PNG,
+        }),
+      );
+
+      expect(Result.isFailure(lineConflict)).toBe(true);
+      expect(Result.isFailure(imageConflict)).toBe(true);
+      if (Result.isFailure(lineConflict)) {
+        expect(lineConflict.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+      }
+      if (Result.isFailure(imageConflict)) {
+        expect(imageConflict.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+      }
+    }),
+  );
+
+  it.effect("rejects legacy visible fields combined with badge mode", () =>
+    Effect.gen(function* () {
+      const pdf = yield* createThreePagePdf;
+      const base = {
+        pdf,
+        pageIndex: SIGNATURE_RECT.pageIndex,
+        rect: SIGNATURE_RECT,
+        badge: BADGE_STAMP,
+      };
+      const [lines, inkPng, qr, border, batch] = yield* Effect.all([
+        Effect.result(stampPdfVisibleSignature({ ...base, lines: ["legacy"] })),
+        Effect.result(stampPdfVisibleSignature({ ...base, inkPng: ONE_BY_ONE_PNG })),
+        Effect.result(stampPdfVisibleSignature({ ...base, qr: { text: "legacy" } })),
+        Effect.result(stampPdfVisibleSignature({ ...base, border: false })),
+        Effect.result(
+          stampPdfVisibleSignatures(
+            {
+              pdf,
+              stamps: [{ pageIndex: SIGNATURE_RECT.pageIndex, rect: SIGNATURE_RECT }],
+              badge: BADGE_STAMP,
+              inkPng: ONE_BY_ONE_PNG,
+            },
+            false,
+          ),
+        ),
+      ]);
+
+      for (const result of [lines, inkPng, qr, border, batch]) {
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+        }
+      }
+    }),
+  );
 
   it.effect("stamping more pages adds more content than stamping one", () =>
     Effect.gen(function* () {
@@ -262,8 +634,149 @@ describe("stampPdfRubric", () => {
         imagePng: ONE_BY_ONE_PNG,
         lines: ["Signed"],
       });
+      expect(ONE_BY_ONE_PNG[28]).toBe(0);
       expect(yield* pageCount(stamped)).toBe(3);
       expect(stamped.byteLength).toBeGreaterThan(pdf.byteLength);
+    }),
+  );
+
+  it.effect("draws an embedded interlaced PNG rubric", () =>
+    Effect.gen(function* () {
+      const pdf = yield* createThreePagePdf;
+      const stamped = yield* stampPdfRubric(pdf, {
+        rect: RUBRIC_RECT,
+        pages: [0],
+        imagePng: INTERLACED_ONE_BY_ONE_PNG,
+      });
+
+      expect(stamped.byteLength).toBeGreaterThan(pdf.byteLength);
+    }),
+  );
+
+  it.effect("rejects oversized PNG dimensions before image decoding", () =>
+    Effect.gen(function* () {
+      const pdf = yield* createThreePagePdf;
+      const rubric = yield* Effect.result(
+        stampPdfRubric(pdf, {
+          rect: RUBRIC_RECT,
+          pages: [0],
+          border: false,
+          imagePng: OVERSIZED_PNG_HEADER,
+        }),
+      );
+      const visible = yield* Effect.result(
+        stampPdfVisibleSignature({
+          pdf,
+          pageIndex: SIGNATURE_RECT.pageIndex,
+          rect: SIGNATURE_RECT,
+          border: false,
+          inkPng: OVERSIZED_PNG_HEADER,
+        }),
+      );
+
+      expect(Result.isFailure(rubric)).toBe(true);
+      expect(Result.isFailure(visible)).toBe(true);
+      if (Result.isFailure(rubric)) {
+        expect(rubric.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+        expect(rubric.failure.operation).toBe(PdfOperationValue.stamp);
+        expect(rubric.failure.reason).toBe(
+          "PNG image exceeds supported input or decoded pixel limits.",
+        );
+      }
+      if (Result.isFailure(visible)) {
+        expect(visible.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+        expect(visible.failure.operation).toBe(PdfOperationValue.stamp);
+        expect(visible.failure.reason).toBe(
+          "PNG image exceeds supported input or decoded pixel limits.",
+        );
+      }
+    }),
+  );
+
+  it.effect("rejects compressed PNG output beyond its filtered scanlines", () =>
+    Effect.gen(function* () {
+      const pdf = yield* createThreePagePdf;
+      const result = yield* Effect.result(
+        stampPdfRubric(pdf, {
+          rect: RUBRIC_RECT,
+          pages: [0],
+          border: false,
+          imagePng: compressedPngExpansionBomb(),
+        }),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+      }
+    }),
+  );
+  it.effect("rejects animated PNG frame chunks before image decoding", () =>
+    Effect.gen(function* () {
+      const pdf = yield* createThreePagePdf;
+      const result = yield* Effect.result(
+        stampPdfVisibleSignature({
+          pdf,
+          pageIndex: SIGNATURE_RECT.pageIndex,
+          rect: SIGNATURE_RECT,
+          border: false,
+          inkPng: apngWithHugeFrame(),
+        }),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+      }
+    }),
+  );
+
+  it.effect("resolves reordered rubric metadata by declared page index", () =>
+    Effect.gen(function* () {
+      const pdf = yield* Effect.promise(async () => {
+        const pdfDoc = await PDFDocument.create();
+        pdfDoc.addPage([320, 180]);
+        pdfDoc.addPage([600, 1000]);
+        return new Uint8Array(await pdfDoc.save({ useObjectStreams: false }));
+      });
+      const reordered = yield* stampPdfRubricOnPages({
+        pdf,
+        pageDimensions: [
+          { index: 1, width: 600, height: 1000 },
+          { index: 0, width: 320, height: 180 },
+        ],
+        pages: [0],
+        lines: ["REORDERED RUBRIC"],
+      });
+      const missing = yield* Effect.result(
+        stampPdfRubricOnPages({
+          pdf,
+          pageDimensions: [{ index: 1, width: 600, height: 1000 }],
+          pages: [0],
+          lines: ["MISSING METADATA"],
+        }),
+      );
+      const duplicate = yield* Effect.result(
+        stampPdfRubricOnPages({
+          pdf,
+          pageDimensions: [
+            { index: 0, width: 320, height: 180 },
+            { index: 0, width: 320, height: 180 },
+          ],
+          pages: [0],
+          lines: ["DUPLICATE METADATA"],
+        }),
+      );
+
+      expect(reordered.byteLength).toBeGreaterThan(pdf.byteLength);
+      expect(Result.isFailure(missing)).toBe(true);
+      expect(Result.isFailure(duplicate)).toBe(true);
+      if (Result.isFailure(missing)) {
+        expect(missing.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+      }
+      if (Result.isFailure(duplicate)) {
+        expect(duplicate.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+      }
     }),
   );
 
@@ -401,6 +914,36 @@ describe("stampPdfRubric", () => {
       expect(linkAnnotationCount).toBe(1);
     }),
   );
+  it.effect("truncates unbreakable badge values before they leave the badge", () =>
+    Effect.promise(async () => {
+      const pdfDoc = await PDFDocument.create();
+      const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+      const value = "X".repeat(1000);
+      const layout = layoutPdfSignatureBadge(
+        {
+          ...BADGE_STAMP,
+          rows: [[{ label: "Signatário", value }]],
+        },
+        REFERENCE_BADGE_CONTAINER,
+        regularFont,
+        boldFont,
+      );
+      const item = layout.rows[0]?.items[0];
+
+      expect(item).toBeDefined();
+      if (item !== undefined) {
+        expectRectInside(layout.rows[0]!.rect, layout.container);
+        expectRunInside(item.label, layout.container);
+        expectRunInside(item.value, layout.container);
+        expect(item.value.text).not.toBe(value);
+        expect(item.value.text).toMatch(/\.\.\.$/);
+        expect(regularFont.widthOfTextAtSize(item.value.text, layout.rowSize)).toBeLessThanOrEqual(
+          item.value.rect.width + GEOMETRY_EPSILON,
+        );
+      }
+    }),
+  );
 
   it.effect(
     "draws a structured badge with rounded border, dashed separator, link annotation, and valid signing",
@@ -413,7 +956,6 @@ describe("stampPdfRubric", () => {
           pageIndex: QR_SIGNATURE_RECT.pageIndex,
           rect: QR_SIGNATURE_RECT,
           badge: BADGE_STAMP,
-          border: false,
         });
         const content = decodedFlateStreams(stamped);
         const links = yield* linkAnnotationsForPage(stamped, QR_SIGNATURE_RECT.pageIndex);
@@ -436,6 +978,90 @@ describe("stampPdfRubric", () => {
         expect(verification.valid).toBe(true);
         expect(verification.signatureCount).toBe(1);
       }),
+  );
+
+  it.effect("round-trips untrusted badge URIs without PDF syntax injection", () =>
+    Effect.gen(function* () {
+      const pdf = yield* createThreePagePdf;
+      const stamped = yield* stampPdfVisibleSignature({
+        pdf,
+        pageIndex: QR_SIGNATURE_RECT.pageIndex,
+        rect: QR_SIGNATURE_RECT,
+        badge: {
+          ...BADGE_STAMP,
+          footer: [{ text: "Verificar", link: MALICIOUS_PDF_TEXT }],
+        },
+      });
+      const links = yield* linkAnnotationsForPage(stamped, QR_SIGNATURE_RECT.pageIndex);
+      const roundTripped = yield* Effect.promise(async () => {
+        const reloaded = await PDFDocument.load(stamped);
+        return new Uint8Array(await reloaded.save({ useObjectStreams: false }));
+      });
+      const roundTrippedLinks = yield* linkAnnotationsForPage(
+        roundTripped,
+        QR_SIGNATURE_RECT.pageIndex,
+      );
+
+      expect(links).toHaveLength(1);
+      expect(links[0]?.uri).toBe(MALICIOUS_PDF_TEXT);
+      expect(roundTrippedLinks).toHaveLength(1);
+      expect(roundTrippedLinks[0]?.uri).toBe(MALICIOUS_PDF_TEXT);
+      expect(Buffer.from(stamped).toString("latin1")).not.toContain(MALICIOUS_PDF_TEXT);
+    }),
+  );
+
+  it.effect("preserves one signature dictionary and untrusted PDF text round trips", () =>
+    Effect.gen(function* () {
+      const pdf = yield* createThreePagePdf;
+      const stamped = yield* stampPdfVisibleSignature({
+        pdf,
+        pageIndex: QR_SIGNATURE_RECT.pageIndex,
+        rect: QR_SIGNATURE_RECT,
+        badge: {
+          ...BADGE_STAMP,
+          footer: [{ text: "Verificar", link: MALICIOUS_PDF_TEXT }],
+        },
+      });
+      const placeholder = yield* addSignaturePlaceholder({
+        pdf: stamped,
+        signatureLength: 64,
+        reason: MALICIOUS_PDF_TEXT,
+        contactInfo: `Contato ${MALICIOUS_PDF_TEXT}`,
+        name: `Nome ${MALICIOUS_PDF_TEXT}`,
+        location: `Local ${MALICIOUS_PDF_TEXT}`,
+      });
+      const prepared = yield* preparePdfByteRange(placeholder);
+      const metadata = yield* Effect.promise(async () => {
+        const pdfDoc = await PDFDocument.load(prepared.pdf);
+        const acroForm = pdfDoc.catalog.lookupMaybe(PDFName.of("AcroForm"), PDFDict);
+        const fields = acroForm?.lookupMaybe(PDFName.of("Fields"), PDFArray);
+        const field =
+          fields === undefined ? undefined : pdfDoc.context.lookupMaybe(fields.get(0), PDFDict);
+        const signature = field?.lookupMaybe(PDFName.of("V"), PDFDict);
+        return {
+          reason: signature?.lookupMaybe(PDFName.of("Reason"), PDFHexString)?.decodeText(),
+          contactInfo: signature
+            ?.lookupMaybe(PDFName.of("ContactInfo"), PDFHexString)
+            ?.decodeText(),
+          name: signature?.lookupMaybe(PDFName.of("Name"), PDFHexString)?.decodeText(),
+          location: signature?.lookupMaybe(PDFName.of("Location"), PDFHexString)?.decodeText(),
+        };
+      });
+      const links = yield* linkAnnotationsForPage(prepared.pdf, QR_SIGNATURE_RECT.pageIndex);
+      const rawPdf = Buffer.from(prepared.pdf).toString("latin1");
+      expect(rawPdf).not.toContain(MALICIOUS_PDF_TEXT);
+
+      expect([...rawPdf.matchAll(/\/Type\s*\/Sig\b/g)]).toHaveLength(1);
+      expect([...rawPdf.matchAll(/\/ByteRange\b/g)]).toHaveLength(1);
+      expect(metadata).toStrictEqual({
+        reason: MALICIOUS_PDF_TEXT,
+        contactInfo: `Contato ${MALICIOUS_PDF_TEXT}`,
+        name: `Nome ${MALICIOUS_PDF_TEXT}`,
+        location: `Local ${MALICIOUS_PDF_TEXT}`,
+      });
+      expect(links).toHaveLength(1);
+      expect(links[0]?.uri).toBe(MALICIOUS_PDF_TEXT);
+    }),
   );
 
   it.effect("scales long badge values without failing the stamp", () =>
@@ -478,6 +1104,102 @@ describe("stampPdfRubric", () => {
       }
     }),
   );
+  it.effect("maps visible stamps through the rotated CropBox coordinate system", () =>
+    Effect.gen(function* () {
+      const rect = { pageIndex: 0, x: 0, y: 0, width: 80, height: 40 };
+      const geometry = yield* Effect.promise(async () => {
+        const cropOnlyDoc = await PDFDocument.create();
+        const cropOnlyPage = cropOnlyDoc.addPage([400, 400]);
+        cropOnlyPage.setCropBox(100, 100, 200, 160);
+        const pdfDoc = await PDFDocument.create();
+        const page = pdfDoc.addPage([400, 400]);
+        page.setCropBox(100, 100, 200, 160);
+        page.setRotation(degrees(90));
+        const rotatedWidgetRect = pdfCoordinateTupleFromTopLeftRect(rect, page);
+        return {
+          pdf: new Uint8Array(await pdfDoc.save({ useObjectStreams: false })),
+          cropOnlyPdf: new Uint8Array(await cropOnlyDoc.save({ useObjectStreams: false })),
+          cropOnlyPageSize: visiblePdfPageSize(cropOnlyPage),
+          rotatedPageSize: visiblePdfPageSize(page),
+          cropOnlyWidgetRect: pdfCoordinateTupleFromTopLeftRect(rect, cropOnlyPage),
+          rotatedWidgetRect,
+          rotatedVisibleRect: topLeftRectFromPdfCoordinateTuple(rotatedWidgetRect, page),
+        };
+      });
+      const stamped = yield* stampPdfVisibleSignature({
+        pdf: geometry.pdf,
+        pageIndex: 0,
+        rect,
+        lines: ["ROTATED CROPBOX"],
+      });
+      const cropOnlyStamped = yield* stampPdfVisibleSignature({
+        pdf: geometry.cropOnlyPdf,
+        pageIndex: 0,
+        rect,
+        lines: ["CROPBOX"],
+      });
+
+      expect(geometry.cropOnlyPageSize).toStrictEqual({ width: 200, height: 160 });
+      expect(geometry.rotatedPageSize).toStrictEqual({ width: 160, height: 200 });
+      expect(geometry.cropOnlyWidgetRect).toStrictEqual([100, 220, 180, 260]);
+      expect(geometry.rotatedWidgetRect).toStrictEqual([100, 100, 140, 180]);
+      expect(geometry.rotatedVisibleRect).toStrictEqual({
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+      });
+      expect(decodedFlateStreams(stamped)).toMatch(/\b0 1 -1 0 300 100 cm\b/);
+      expect(decodedFlateStreams(cropOnlyStamped)).toMatch(/\b1 0 0 1 100 100 cm\b/);
+    }),
+  );
+  it.effect("round-trips non-square CropBox coordinates across every page rotation", () =>
+    Effect.promise(async () => {
+      const pdfDoc = await PDFDocument.create();
+      for (const rotation of [0, 90, 180, 270]) {
+        const page = pdfDoc.addPage([500, 400]);
+        page.setCropBox(100, 25, 200, 100);
+        page.setRotation(degrees(rotation));
+        const rect = { pageIndex: 0, x: 20, y: 30, width: 40, height: 25 };
+        const tuple = pdfCoordinateTupleFromTopLeftRect(rect, page);
+
+        expect(topLeftRectFromPdfCoordinateTuple(tuple, page)).toStrictEqual({
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        });
+      }
+    }),
+  );
+  it.effect("maps rubric helpers through non-square rotated CropBoxes", () =>
+    Effect.gen(function* () {
+      const pdf = yield* Effect.promise(async () => {
+        const pdfDoc = await PDFDocument.create();
+        const clockwise = pdfDoc.addPage([400, 400]);
+        clockwise.setCropBox(100, 100, 200, 160);
+        clockwise.setRotation(degrees(90));
+        const counterclockwise = pdfDoc.addPage([400, 400]);
+        counterclockwise.setCropBox(100, 100, 200, 160);
+        counterclockwise.setRotation(degrees(270));
+        return new Uint8Array(await pdfDoc.save({ useObjectStreams: false }));
+      });
+      const stamped = yield* stampPdfRubricOnPages({
+        pdf,
+        pageDimensions: [
+          { index: 0, width: 160, height: 200 },
+          { index: 1, width: 160, height: 200 },
+        ],
+        pages: [0, 1],
+        initials: "AB",
+        border: false,
+      });
+      const content = decodedFlateStreams(stamped);
+
+      expect(content).toMatch(/\b0 1 -1 0 300 100 cm\b/);
+      expect(content).toMatch(/\b0 -1 1 0 100 260 cm\b/);
+    }),
+  );
 
   it.effect("keeps the legacy lines stamp content snapshot-stable", () =>
     Effect.gen(function* () {
@@ -511,6 +1233,138 @@ describe("stampPdfRubric", () => {
       if (Result.isFailure(result)) {
         expect(result.failure.code).toBe(PdfErrorCodeValue.stampFailed);
       }
+    }),
+  );
+
+  it.effect("rejects invalid visible rects and page identities on every batch target", () =>
+    Effect.gen(function* () {
+      const pdf = yield* createThreePagePdf;
+      const invalidRects = [
+        { pageIndex: 0, x: Number.NaN, y: 20, width: 80, height: 40 },
+        { pageIndex: 0, x: 20, y: Number.POSITIVE_INFINITY, width: 80, height: 40 },
+        { pageIndex: 0, x: 241, y: 20, width: 80, height: 40 },
+      ];
+      for (const rect of invalidRects) {
+        const result = yield* Effect.result(
+          stampPdfVisibleSignature({ pdf, pageIndex: rect.pageIndex, rect, lines: ["x"] }),
+        );
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+        }
+      }
+      const [mismatchedSingle, mismatchedBatch] = yield* Effect.all([
+        Effect.result(
+          stampPdfVisibleSignature({
+            pdf,
+            pageIndex: 0,
+            rect: { pageIndex: 1, x: 20, y: 20, width: 80, height: 40 },
+            lines: ["x"],
+          }),
+        ),
+        Effect.result(
+          stampPdfVisibleSignatures(
+            {
+              pdf,
+              stamps: [
+                { pageIndex: 0, rect: { pageIndex: 1, x: 20, y: 20, width: 80, height: 40 } },
+              ],
+              lines: ["x"],
+            },
+            false,
+          ),
+        ),
+      ]);
+      for (const result of [mismatchedSingle, mismatchedBatch]) {
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+        }
+      }
+
+      const laterTargetResult = yield* Effect.result(
+        stampPdfVisibleSignatures(
+          {
+            pdf,
+            stamps: [
+              { pageIndex: 0, rect: { pageIndex: 0, x: 20, y: 20, width: 80, height: 40 } },
+              { pageIndex: 1, rect: { pageIndex: 1, x: 241, y: 20, width: 80, height: 40 } },
+            ],
+            lines: ["x"],
+          },
+          false,
+        ),
+      );
+      expect(Result.isFailure(laterTargetResult)).toBe(true);
+      if (Result.isFailure(laterTargetResult)) {
+        expect(laterTargetResult.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+      }
+    }),
+  );
+
+  it.effect("rejects visible rects outside rotated CropBox dimensions", () =>
+    Effect.gen(function* () {
+      const pdf = yield* Effect.promise(async () => {
+        const pdfDoc = await PDFDocument.create();
+        const page = pdfDoc.addPage([400, 400]);
+        page.setCropBox(100, 100, 200, 100);
+        page.setRotation(degrees(90));
+        return new Uint8Array(await pdfDoc.save({ useObjectStreams: false }));
+      });
+      const result = yield* Effect.result(
+        stampPdfVisibleSignature({
+          pdf,
+          pageIndex: 0,
+          rect: { pageIndex: 0, x: 80, y: 0, width: 30, height: 40 },
+          lines: ["x"],
+        }),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+      }
+    }),
+  );
+
+  it.effect("rejects invalid and CropBox-external rubric tuples", () =>
+    Effect.gen(function* () {
+      const pdf = yield* createThreePagePdf;
+      const invalidRects: ReadonlyArray<PdfCoordinateTuple> = [
+        [Number.NaN, 20, 92, 52],
+        [20, 20, Number.POSITIVE_INFINITY, 52],
+        [20, 20, 20, 52],
+      ];
+      for (const rect of invalidRects) {
+        const result = yield* Effect.result(
+          stampPdfRubric(pdf, { rect, pages: [0], lines: ["x"] }),
+        );
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+        }
+      }
+
+      const croppedPdf = yield* Effect.promise(async () => {
+        const pdfDoc = await PDFDocument.create();
+        const page = pdfDoc.addPage([400, 400]);
+        page.setCropBox(100, 100, 200, 160);
+        return new Uint8Array(await pdfDoc.save({ useObjectStreams: false }));
+      });
+      const outsideResult = yield* Effect.result(
+        stampPdfRubric(croppedPdf, { rect: [20, 20, 92, 52], pages: [0], lines: ["x"] }),
+      );
+      expect(Result.isFailure(outsideResult)).toBe(true);
+      if (Result.isFailure(outsideResult)) {
+        expect(outsideResult.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+      }
+
+      const stamped = yield* stampPdfRubric(croppedPdf, {
+        rect: [100, 220, 180, 260],
+        pages: [0],
+        lines: ["x"],
+      });
+      expect(stamped.byteLength).toBeGreaterThan(croppedPdf.byteLength);
     }),
   );
 

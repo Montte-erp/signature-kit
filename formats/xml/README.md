@@ -23,7 +23,15 @@ bun add @signature-kit/a1
 - `@signature-kit/xml/sign` — `signXml`.
 - `@signature-kit/xml/verify` — `verifyXml`.
 
-Verification requires an explicit key source: `publicKeyDer` or `trustedCertificateDer`. Self-signed embedded certificates are not accepted as valid signers by default. Verification rejects duplicate or relocated target references and can require a specific reference URI.
+Verification requires exactly one explicit key source: `publicKeyDer` or `trustedCertificateDer`, never both. Self-signed embedded certificates are not accepted as valid signers by default. Verification rejects duplicate or hidden target references; `requiredReference` additionally binds a signed URI to a unique namespace-aware direct-child path from the document element to the target.
+
+To bound verification work, documents with more than 4 `<Signature>` elements, more than 4 direct `SignedInfo` `<Reference>` elements in one signature, more than 8 such references in total, more than 3 direct `<Transform>` elements in one reference, more than 8 transforms in total, or a repeated canonicalization transform in a reference return `valid: false` before cryptographic verification.
+
+Only XML 1.0 is accepted. Parser guardrails reject input above 10 MiB, 16,384 nodes, 2,048 attributes, 64 namespace declarations, or depth 1,024. `InclusiveNamespaces` `PrefixList` values are capped at 4,096 characters and 64 tokens.
+
+Documents must contain exactly one root element. Other than the optional leading XML declaration and XML whitespace, prolog and epilog content is rejected.
+
+`signXml` revalidates its serialized result with these guards and fails with `xml.SIGN_FAILED` rather than returning XML that `verifyXml` would reject.
 
 ## Example
 
@@ -48,7 +56,10 @@ const program = Effect.gen(function* () {
   const verification = yield* verifyXml({
     xml: signedXml,
     trustedCertificateDer,
-    requireReferenceUri: "#invoice-1",
+    requiredReference: {
+      uri: "#invoice-1",
+      path: [{ localName: "invoice", namespaceUri: null }],
+    },
   });
 
   return { signedXml, verification };

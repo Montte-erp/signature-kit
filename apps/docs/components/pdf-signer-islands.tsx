@@ -12,7 +12,6 @@ const PdfSignerIsland = dynamic(() => import("./pdf-signer").then((mod) => mod.P
   loading: () => <PdfSignerSkeleton />,
 });
 
-
 const PdfSignerDialogIsland = dynamic(
   () => import("./pdf-signer").then((mod) => mod.PdfSignerDialog),
   {
@@ -30,7 +29,6 @@ type PdfSignerProps = {
   readonly className?: string;
   readonly inDialog?: boolean;
 };
-
 
 type PdfSignerDialogProps = {
   readonly children: ReactNode;
@@ -56,13 +54,8 @@ export function PdfSigner(props: PdfSignerProps) {
   return <PdfSignerIsland {...props} />;
 }
 
-
 export function PdfSignerDialog({ children }: PdfSignerDialogProps) {
-  return (
-    <PdfSignerDialogIsland>
-      {children}
-    </PdfSignerDialogIsland>
-  );
+  return <PdfSignerDialogIsland>{children}</PdfSignerDialogIsland>;
 }
 
 export function PdfSignerDialogFallback({ children }: PdfSignerDialogProps) {

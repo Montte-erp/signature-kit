@@ -9,18 +9,14 @@ import { m } from "@/paraglide/messages";
 
 import { Container, Section, SectionHeading } from "./_shared";
 
-
-const AutoSignInner = dynamic(
-  () => import("./auto-sign-inner").then((mod) => mod.AutoSignInner),
-  { ssr: false, loading: () => <AutoSignSkeleton /> },
-);
+const AutoSignInner = dynamic(() => import("./auto-sign-inner").then((mod) => mod.AutoSignInner), {
+  ssr: false,
+  loading: () => <AutoSignSkeleton />,
+});
 
 function AutoSignSkeleton() {
   return (
-    <div
-      aria-hidden
-      className="mt-10 grid gap-6 lg:grid-cols-[1fr_22rem]"
-    >
+    <div aria-hidden className="mt-10 grid gap-6 lg:grid-cols-[1fr_22rem]">
       <div className="h-[30rem] animate-pulse rounded-xl border border-border bg-muted/30" />
       <div className="flex flex-col gap-4">
         <div className="h-9 w-40 animate-pulse rounded-md bg-muted/30" />

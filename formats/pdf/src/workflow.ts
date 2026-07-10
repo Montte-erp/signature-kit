@@ -1,16 +1,17 @@
-import { PDFDocument } from "@cantoo/pdf-lib";
+import { PDFDocument, type PDFPage } from "@cantoo/pdf-lib";
 import type { CmsError } from "@signature-kit/cms/config";
 import type { SignatureKitError } from "@signature-kit/signatures";
 import type { Signatures } from "@signature-kit/signatures";
 import { signPdf as signPdfDocument } from "./sign";
 import { findPdfTextAnchors } from "./anchors";
+import type { LiteParseWorkerFactory } from "./liteparse-browser";
 import { Effect, Schema } from "effect";
 import {
   autoPlacePdfSignatureField,
   createPdfSignatureBuilderStateFromTemplate,
   createPdfSignatureTemplate,
-  pdfSignatureAppearanceFromField,
   placePdfSignatureField,
+  validatePdfSignatureTemplate,
 } from "./builder";
 import {
   PdfDocumentInputSchema,
@@ -28,6 +29,7 @@ import {
 import type {
   PdfDocumentInput,
   PdfCoordinateTuple,
+  PdfOperation,
   PdfBatchResult,
   PdfPrepareAndSignInput,
   PdfSignaturePage,
@@ -51,6 +53,7 @@ import {
   rubricPageIndexesExcludingSignature,
   stampPdfRubricOnPages,
   stampPdfVisibleSignatures,
+  visiblePdfPageSize,
 } from "./stamp";
 import { hasPdfByteRange } from "./byte-range";
 
@@ -58,6 +61,11 @@ export type PdfPageLabeler = (pageNumber: number) => string;
 
 type PdfDocumentLoadOptions = {
   readonly pageLabel?: PdfPageLabeler;
+};
+
+type PdfLoadedSignatureDocument = {
+  readonly document: PdfSignatureDocument;
+  readonly pdfPages: ReadonlyArray<PDFPage>;
 };
 
 const hasSignaturePage = (
@@ -85,10 +93,10 @@ export const readPdfBlobBytes = (file: Blob): Effect.Effect<Uint8Array, PdfError
       }),
   });
 
-export const loadPdfSignatureDocument = (
+const loadPdfSignatureDocumentWithPages = (
   input: PdfDocumentInput,
   options?: PdfDocumentLoadOptions,
-): Effect.Effect<PdfSignatureDocument, PdfError> =>
+): Effect.Effect<PdfLoadedSignatureDocument, PdfError> =>
   Schema.decodeUnknownEffect(PdfDocumentInputSchema)(input).pipe(
     Effect.mapError((issue) => {
       return new PdfError({
@@ -104,8 +112,9 @@ export const loadPdfSignatureDocument = (
       Effect.tryPromise({
         try: async () => {
           const pdf = await PDFDocument.load(valid.pdf);
-          const pages = pdf.getPages().map((page, index) => {
-            const size = page.getSize();
+          const pdfPages = pdf.getPages();
+          const pages = pdfPages.map((page, index) => {
+            const size = visiblePdfPageSize(page);
             const label = options?.pageLabel?.(index + 1);
             return {
               index,
@@ -115,10 +124,13 @@ export const loadPdfSignatureDocument = (
             };
           });
           return {
-            id: valid.id,
-            name: valid.name,
-            source: valid.source ?? { type: PdfDocumentSourceTypeValue.uploaded },
-            pages,
+            document: {
+              id: valid.id,
+              name: valid.name,
+              source: valid.source ?? { type: PdfDocumentSourceTypeValue.uploaded },
+              pages,
+            },
+            pdfPages,
           };
         },
         catch: () =>
@@ -130,8 +142,8 @@ export const loadPdfSignatureDocument = (
           }),
       }),
     ),
-    Effect.flatMap((document) => {
-      if (document.pages.length === 0) {
+    Effect.flatMap((loaded) => {
+      if (loaded.document.pages.length === 0) {
         return Effect.fail(
           new PdfError({
             code: PdfErrorCodeValue.emptyTemplate,
@@ -141,8 +153,194 @@ export const loadPdfSignatureDocument = (
           }),
         );
       }
-      return Effect.succeed(document);
+      return Effect.succeed(loaded);
     }),
+  );
+
+export const loadPdfSignatureDocument = (
+  input: PdfDocumentInput,
+  options?: PdfDocumentLoadOptions,
+): Effect.Effect<PdfSignatureDocument, PdfError> =>
+  loadPdfSignatureDocumentWithPages(input, options).pipe(Effect.map((loaded) => loaded.document));
+
+type PdfSigningBatchGeometry = {
+  readonly pages: ReadonlyArray<PdfSignaturePage>;
+  readonly signatureRect: PdfSignatureRect;
+  readonly signaturePagePosition: number;
+};
+
+type PdfSignatureFieldGeometry = {
+  readonly pageDimensions: ReadonlyArray<PdfSignaturePage>;
+  readonly signatureRect: PdfSignatureRect;
+};
+
+const pdfPagePositionForDeclaredIdentity = (
+  pages: ReadonlyArray<PdfSignaturePage>,
+  pageIndex: number,
+  operation: PdfOperation,
+): Effect.Effect<number, PdfError> => {
+  let position: number | undefined;
+  for (let candidatePosition = 0; candidatePosition < pages.length; candidatePosition += 1) {
+    const page = pages[candidatePosition];
+    if (page?.index !== pageIndex) continue;
+    if (position !== undefined) {
+      return Effect.fail(
+        new PdfError({
+          code: PdfErrorCodeValue.invalidBuilderInput,
+          retryable: false,
+          operation,
+          reason: `PDF page identity ${pageIndex} is declared more than once.`,
+        }),
+      );
+    }
+    position = candidatePosition;
+  }
+  return position === undefined
+    ? Effect.fail(
+        new PdfError({
+          code: PdfErrorCodeValue.invalidBuilderInput,
+          retryable: false,
+          operation,
+          reason: `PDF page identity ${pageIndex} is not declared.`,
+        }),
+      )
+    : Effect.succeed(position);
+};
+
+const validateSignatureRectsForLoadedPages = (
+  pages: ReadonlyArray<PdfSignaturePage>,
+  rects: ReadonlyArray<PdfSignatureRect>,
+): Effect.Effect<ReadonlyArray<PdfSignatureRect>, PdfError> =>
+  Effect.forEach(
+    rects,
+    (rect) => {
+      const page = pages.find((candidate) => candidate.index === rect.pageIndex);
+      if (page === undefined) {
+        return Effect.fail(
+          new PdfError({
+            code: PdfErrorCodeValue.unknownDocument,
+            retryable: false,
+            operation: PdfOperationValue.prepareAndSign,
+            reason: `Signature rect references page ${rect.pageIndex} outside the loaded PDF.`,
+          }),
+        );
+      }
+      const fitsPage =
+        rect.x >= 0 &&
+        rect.y >= 0 &&
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.x + rect.width <= page.width &&
+        rect.y + rect.height <= page.height;
+      return fitsPage
+        ? Effect.void
+        : Effect.fail(
+            new PdfError({
+              code: PdfErrorCodeValue.fieldOutOfBounds,
+              retryable: false,
+              operation: PdfOperationValue.prepareAndSign,
+              reason: `Signature rect must fit within loaded page ${page.index} (${page.width}×${page.height}).`,
+            }),
+          );
+    },
+    { discard: true },
+  ).pipe(Effect.as(rects));
+
+const resolvePdfSigningBatchGeometry = (
+  document: PdfSigningBatchDocument,
+): Effect.Effect<PdfSigningBatchGeometry, PdfError> =>
+  loadPdfSignatureDocument({
+    id: document.id,
+    name: document.id,
+    pdf: document.pdf,
+  }).pipe(
+    Effect.flatMap((loaded) =>
+      validatePdfSignatureTemplate(document.template).pipe(
+        Effect.flatMap((template) => {
+          const field = template.fields.find((candidate) => candidate.id === document.fieldId);
+          if (field === undefined) {
+            return Effect.fail(
+              new PdfError({
+                code: PdfErrorCodeValue.unknownField,
+                retryable: false,
+                operation: PdfOperationValue.signField,
+                reason: `Field ${document.fieldId} does not exist on template ${template.id}.`,
+              }),
+            );
+          }
+          if (field.documentId !== document.id) {
+            return Effect.fail(
+              new PdfError({
+                code: PdfErrorCodeValue.invalidBuilderInput,
+                retryable: false,
+                operation: PdfOperationValue.signField,
+                reason: `Field ${field.id} belongs to document ${field.documentId}, not ${document.id}.`,
+              }),
+            );
+          }
+          const templateDocument = template.documents.find(
+            (candidate) => candidate.id === field.documentId,
+          );
+          if (templateDocument === undefined) {
+            return Effect.fail(
+              new PdfError({
+                code: PdfErrorCodeValue.unknownDocument,
+                retryable: false,
+                operation: PdfOperationValue.signField,
+                reason: `Field ${field.id} references an unknown template document.`,
+              }),
+            );
+          }
+          const pageGeometryMatches =
+            templateDocument.pages.length === loaded.pages.length &&
+            templateDocument.pages.every((page, index) => {
+              const candidate = loaded.pages[index];
+              return (
+                candidate !== undefined &&
+                page.width === candidate.width &&
+                page.height === candidate.height
+              );
+            });
+          if (!pageGeometryMatches) {
+            return Effect.fail(
+              new PdfError({
+                code: PdfErrorCodeValue.invalidBuilderInput,
+                retryable: false,
+                operation: PdfOperationValue.signField,
+                reason: "Template page geometry does not match the loaded PDF.",
+              }),
+            );
+          }
+          if (
+            field.rect.pageIndex !== document.rect.pageIndex ||
+            field.rect.x !== document.rect.x ||
+            field.rect.y !== document.rect.y ||
+            field.rect.width !== document.rect.width ||
+            field.rect.height !== document.rect.height
+          ) {
+            return Effect.fail(
+              new PdfError({
+                code: PdfErrorCodeValue.invalidBuilderInput,
+                retryable: false,
+                operation: PdfOperationValue.signField,
+                reason: "Batch signature rect does not match the selected template field.",
+              }),
+            );
+          }
+          return pdfPagePositionForDeclaredIdentity(
+            templateDocument.pages,
+            field.rect.pageIndex,
+            PdfOperationValue.signField,
+          ).pipe(
+            Effect.map((signaturePagePosition) => ({
+              pages: loaded.pages,
+              signatureRect: field.rect,
+              signaturePagePosition,
+            })),
+          );
+        }),
+      ),
+    ),
   );
 
 export const createPdfSignatureTemplateFromBytes = (
@@ -273,6 +471,106 @@ export const createPdfSignatureBuilderStateFromBytes = (
     ),
   );
 
+const signatureFieldGeometryFromTemplate = (
+  template: PdfSignatureTemplate,
+  fieldId: string,
+): Effect.Effect<PdfSignatureFieldGeometry, PdfError> =>
+  validatePdfSignatureTemplate(template).pipe(
+    Effect.flatMap((checked) => {
+      const field = checked.fields.find((candidate) => candidate.id === fieldId);
+      if (field === undefined) {
+        return Effect.fail(
+          new PdfError({
+            code: PdfErrorCodeValue.unknownField,
+            retryable: false,
+            operation: PdfOperationValue.signField,
+            reason: `Field ${fieldId} does not exist on template ${checked.id}.`,
+          }),
+        );
+      }
+      const document = checked.documents.find((candidate) => candidate.id === field.documentId);
+      return document === undefined
+        ? Effect.fail(
+            new PdfError({
+              code: PdfErrorCodeValue.invalidBuilderInput,
+              retryable: false,
+              operation: PdfOperationValue.signField,
+              reason: `Field ${field.id} references an undeclared document page identity.`,
+            }),
+          )
+        : Effect.succeed({
+            pageDimensions: document.pages,
+            signatureRect: field.rect,
+          });
+    }),
+  );
+
+const widgetRectFromPage = (
+  page: PDFPage | undefined,
+  signatureRect: PdfSignatureRect,
+  operation: PdfOperation,
+): Effect.Effect<PdfCoordinateTuple, PdfError> => {
+  if (page === undefined) {
+    return Effect.fail(
+      new PdfError({
+        code: PdfErrorCodeValue.unknownDocument,
+        retryable: false,
+        operation,
+        reason: "The signature rect references a page outside the loaded PDF.",
+      }),
+    );
+  }
+  const size = visiblePdfPageSize(page);
+  const fitsVisiblePage =
+    Number.isFinite(signatureRect.x) &&
+    Number.isFinite(signatureRect.y) &&
+    Number.isFinite(signatureRect.width) &&
+    Number.isFinite(signatureRect.height) &&
+    signatureRect.x >= 0 &&
+    signatureRect.y >= 0 &&
+    signatureRect.width > 0 &&
+    signatureRect.height > 0 &&
+    signatureRect.x + signatureRect.width <= size.width &&
+    signatureRect.y + signatureRect.height <= size.height;
+  return fitsVisiblePage
+    ? Effect.succeed(pdfCoordinateTupleFromTopLeftRect(signatureRect, page))
+    : Effect.fail(
+        new PdfError({
+          code: PdfErrorCodeValue.fieldOutOfBounds,
+          retryable: false,
+          operation,
+          reason: `Signature rect must fit within loaded visible page (${size.width}×${size.height}).`,
+        }),
+      );
+};
+
+const widgetRectFromPdf = (
+  pdf: Uint8Array,
+  pageDimensions: ReadonlyArray<PdfSignaturePage>,
+  signatureRect: PdfSignatureRect,
+  operation: PdfOperation,
+): Effect.Effect<
+  { readonly pageIndex: number; readonly widgetRect: PdfCoordinateTuple },
+  PdfError
+> =>
+  pdfPagePositionForDeclaredIdentity(pageDimensions, signatureRect.pageIndex, operation).pipe(
+    Effect.flatMap((pageIndex) =>
+      Effect.tryPromise({
+        try: async () => (await PDFDocument.load(pdf)).getPages()[pageIndex],
+        catch: () =>
+          new PdfError({
+            code: PdfErrorCodeValue.pdfLoadFailed,
+            retryable: false,
+            operation,
+            reason: "PDF bytes could not be parsed for signature widget placement.",
+          }),
+      }).pipe(
+        Effect.flatMap((page) => widgetRectFromPage(page, signatureRect, operation)),
+        Effect.map((widgetRect) => ({ pageIndex, widgetRect })),
+      ),
+    ),
+  );
+
 export const signPdfSignatureField = (
   input: PdfSigningInput,
 ): Effect.Effect<Uint8Array, PdfError | CmsError | SignatureKitError, Signatures> =>
@@ -288,22 +586,34 @@ export const signPdfSignatureField = (
       });
     }),
     Effect.flatMap((valid) =>
-      pdfSignatureAppearanceFromField(valid.template, valid.fieldId).pipe(
-        Effect.flatMap((appearance) =>
-          signPdfDocument({
-            pdf: valid.pdf,
-            reason: valid.reason ?? "SignatureKit PDF signature",
-            contactInfo: valid.contactInfo,
-            name: valid.name,
-            location: valid.location,
-            signingTime: valid.signingTime,
-            signatureLength: valid.signatureLength,
-            hashAlgorithm: valid.hashAlgorithm,
-            policy: valid.policy,
-            icpBrasil: valid.icpBrasil,
-            timestamp: valid.timestamp,
-            appearance,
-          }),
+      signatureFieldGeometryFromTemplate(valid.template, valid.fieldId).pipe(
+        Effect.flatMap(({ pageDimensions, signatureRect }) =>
+          widgetRectFromPdf(
+            valid.pdf,
+            pageDimensions,
+            signatureRect,
+            PdfOperationValue.signField,
+          ).pipe(
+            Effect.flatMap(({ pageIndex, widgetRect }) =>
+              signPdfDocument({
+                pdf: valid.pdf,
+                reason: valid.reason ?? "SignatureKit PDF signature",
+                contactInfo: valid.contactInfo,
+                name: valid.name,
+                location: valid.location,
+                signingTime: valid.signingTime,
+                signatureLength: valid.signatureLength,
+                hashAlgorithm: valid.hashAlgorithm,
+                policy: valid.policy,
+                icpBrasil: valid.icpBrasil,
+                timestamp: valid.timestamp,
+                appearance: {
+                  pageIndex,
+                  widgetRect,
+                },
+              }),
+            ),
+          ),
         ),
       ),
     ),
@@ -334,6 +644,8 @@ const pdfSigningInputFromPreparedDocument = (
 
 const stampRubricsForPreparedDocument = (
   document: PdfSigningBatchDocument,
+  pages: ReadonlyArray<PdfSignaturePage>,
+  signaturePagePosition: number,
   stamp: PdfSigningBatchVisibleStamp,
   pdf: Uint8Array,
   forIncrementalUpdate: boolean,
@@ -347,20 +659,17 @@ const stampRubricsForPreparedDocument = (
   ) {
     return Effect.succeed(pdf);
   }
-  const pages = rubricPageIndexesExcludingSignature(
-    document.pageDimensions,
-    document.rect.pageIndex,
-  );
-  return pages.length === 0
+  const rubricPages = rubricPageIndexesExcludingSignature(pages, signaturePagePosition);
+  return rubricPages.length === 0
     ? Effect.succeed(pdf)
     : stampPdfRubricOnPages(
         {
           pdf,
-          pageDimensions: document.pageDimensions,
+          pageDimensions: pages,
           ...(document.pageTextBoxes === undefined
             ? {}
             : { pageTextBoxes: document.pageTextBoxes }),
-          pages,
+          pages: rubricPages,
           ...(rubricLines.length === 0 ? {} : { lines: rubricLines }),
           ...(stamp.rubricaPng === undefined ? {} : { imagePng: stamp.rubricaPng }),
           ...(stamp.rubricInitials === undefined ? {} : { initials: stamp.rubricInitials }),
@@ -374,7 +683,7 @@ const stampRubricsForPreparedDocument = (
 };
 
 const stampMainSignatureForPreparedDocument = (
-  document: PdfSigningBatchDocument,
+  signatureRect: PdfSignatureRect,
   stamp: PdfSigningBatchVisibleStamp | undefined,
   pdf: Uint8Array,
   forIncrementalUpdate: boolean,
@@ -392,7 +701,7 @@ const stampMainSignatureForPreparedDocument = (
   return stampPdfVisibleSignatures(
     {
       pdf,
-      stamps: [{ pageIndex: document.rect.pageIndex, rect: document.rect }],
+      stamps: [{ pageIndex: signatureRect.pageIndex, rect: signatureRect }],
       ...(lines.length === 0 ? {} : { lines }),
       ...(stamp.badge === undefined ? {} : { badge: stamp.badge }),
       ...(stamp.inkPng === undefined ? {} : { inkPng: stamp.inkPng }),
@@ -407,21 +716,36 @@ const preparePdfSigningBatchDocument = (
   document: PdfSigningBatchDocument,
   stamp: PdfSigningBatchVisibleStamp | undefined,
   signing: PdfSigningBatchPreparationInput["signing"],
-): Effect.Effect<PdfSigningBatchPreparationResult, never> => {
-  const forIncrementalUpdate = hasPdfByteRange(document.pdf);
-  const preparedPdf =
-    stamp === undefined
-      ? Effect.succeed(document.pdf)
-      : stampRubricsForPreparedDocument(document, stamp, document.pdf, forIncrementalUpdate).pipe(
-          Effect.flatMap((pdf) =>
-            stampMainSignatureForPreparedDocument(document, stamp, pdf, forIncrementalUpdate),
-          ),
-        );
-
-  return preparedPdf.pipe(
-    Effect.map((pdf): PdfSigningBatchPreparationResult => {
-      const item = pdfSigningInputFromPreparedDocument(document, pdf, signing);
-      return { id: document.id, ok: true, item };
+): Effect.Effect<PdfSigningBatchPreparationResult, never> =>
+  resolvePdfSigningBatchGeometry(document).pipe(
+    Effect.flatMap(({ pages, signatureRect, signaturePagePosition }) => {
+      const forIncrementalUpdate = hasPdfByteRange(document.pdf);
+      const preparedPdf =
+        stamp === undefined
+          ? Effect.succeed(document.pdf)
+          : stampRubricsForPreparedDocument(
+              document,
+              pages,
+              signaturePagePosition,
+              stamp,
+              document.pdf,
+              forIncrementalUpdate,
+            ).pipe(
+              Effect.flatMap((pdf) =>
+                stampMainSignatureForPreparedDocument(
+                  { ...signatureRect, pageIndex: signaturePagePosition },
+                  stamp,
+                  pdf,
+                  forIncrementalUpdate,
+                ),
+              ),
+            );
+      return preparedPdf.pipe(
+        Effect.map((pdf): PdfSigningBatchPreparationResult => {
+          const item = pdfSigningInputFromPreparedDocument(document, pdf, signing);
+          return { id: document.id, ok: true, item };
+        }),
+      );
     }),
     Effect.match({
       onSuccess: (result): PdfSigningBatchPreparationResult => result,
@@ -432,39 +756,43 @@ const preparePdfSigningBatchDocument = (
       }),
     }),
   );
-};
 
 const DEFAULT_PREPARE_AND_SIGN_DOCUMENT_ID = "document";
 const DEFAULT_PREPARE_AND_SIGN_DOCUMENT_NAME = "document.pdf";
 const DEFAULT_PREPARE_AND_SIGN_STAMP_SIZE = { width: 180, height: 54 };
 
-const prepareAndSignPages = (
-  input: PdfPrepareAndSignInput,
-): Effect.Effect<ReadonlyArray<PdfSignaturePage>, PdfError> =>
-  input.pages === undefined
-    ? loadPdfSignatureDocument({
-        id: input.documentId ?? DEFAULT_PREPARE_AND_SIGN_DOCUMENT_ID,
-        name: input.documentName ?? DEFAULT_PREPARE_AND_SIGN_DOCUMENT_NAME,
-        pdf: input.pdf,
-      }).pipe(Effect.map((document) => document.pages))
-    : Effect.succeed(input.pages);
-
 const prepareAndSignStampRects = (
   input: PdfPrepareAndSignInput,
   pages: ReadonlyArray<PdfSignaturePage>,
-): Effect.Effect<ReadonlyArray<PdfSignatureRect>, PdfError> => {
+): Effect.Effect<ReadonlyArray<PdfSignatureRect>, PdfError, LiteParseWorkerFactory> => {
   const stampRects = input.stampRects ?? [];
-  if (stampRects.length > 0) return Effect.succeed(stampRects);
+  if (stampRects.length > 0) {
+    return validateSignatureRectsForLoadedPages(pages, stampRects);
+  }
   if (input.anchors !== undefined) {
-    return findPdfTextAnchors({
-      pdf: input.pdf,
-      pages,
-      ...(input.pageTextBoxes === undefined ? {} : { textBoxes: input.pageTextBoxes }),
-      matchers: input.anchors.matchers,
-      stampSize: input.anchors.stampSize,
-      ...(input.anchors.placement === undefined ? {} : { placement: input.anchors.placement }),
-      ...(input.anchors.offset === undefined ? {} : { offset: input.anchors.offset }),
-    }).pipe(
+    const anchors =
+      input.pageTextBoxes === undefined
+        ? findPdfTextAnchors({
+            pdf: input.pdf,
+            pages,
+            matchers: input.anchors.matchers,
+            stampSize: input.anchors.stampSize,
+            ...(input.anchors.placement === undefined
+              ? {}
+              : { placement: input.anchors.placement }),
+            ...(input.anchors.offset === undefined ? {} : { offset: input.anchors.offset }),
+          })
+        : findPdfTextAnchors({
+            pages,
+            textBoxes: input.pageTextBoxes,
+            matchers: input.anchors.matchers,
+            stampSize: input.anchors.stampSize,
+            ...(input.anchors.placement === undefined
+              ? {}
+              : { placement: input.anchors.placement }),
+            ...(input.anchors.offset === undefined ? {} : { offset: input.anchors.offset }),
+          });
+    return anchors.pipe(
       Effect.flatMap((rects) =>
         rects.length === 0
           ? Effect.fail(
@@ -475,7 +803,7 @@ const prepareAndSignStampRects = (
                 reason: "Text-anchor search did not find a signature placement.",
               }),
             )
-          : Effect.succeed(rects),
+          : validateSignatureRectsForLoadedPages(pages, rects),
       ),
     );
   }
@@ -490,7 +818,7 @@ const prepareAndSignStampRects = (
           reason: "PDF prepare-and-sign requires at least one page.",
         }),
       )
-    : Effect.succeed([
+    : validateSignatureRectsForLoadedPages(pages, [
         defaultPdfSignatureRect(page, input.stampSize ?? DEFAULT_PREPARE_AND_SIGN_STAMP_SIZE),
       ]);
 };
@@ -508,12 +836,26 @@ const prepareAndSignMainStamp = (
   ) {
     return Effect.succeed(input.pdf);
   }
+  const firstStampRect = stampRects[0];
+  if (firstStampRect === undefined) {
+    return Effect.fail(
+      new PdfError({
+        code: PdfErrorCodeValue.stampFailed,
+        retryable: false,
+        operation: PdfOperationValue.prepareAndSign,
+        reason: "PDF prepare-and-sign requires at least one visible stamp rectangle.",
+      }),
+    );
+  }
 
   const forIncrementalUpdate = hasPdfByteRange(input.pdf);
   return stampPdfVisibleSignatures(
     {
       pdf: input.pdf,
-      stamps: stampRects.map((rect) => ({ pageIndex: rect.pageIndex, rect })),
+      stamps: [
+        { pageIndex: firstStampRect.pageIndex, rect: firstStampRect },
+        ...stampRects.slice(1).map((rect) => ({ pageIndex: rect.pageIndex, rect })),
+      ],
       ...(lines.length === 0 ? {} : { lines }),
       ...(input.badge === undefined ? {} : { badge: input.badge }),
       ...(input.inkPng === undefined ? {} : { inkPng: input.inkPng }),
@@ -557,26 +899,13 @@ const prepareAndSignRubrics = (
       );
 };
 
-const prepareAndSignWidgetRect = (
-  pages: ReadonlyArray<PdfSignaturePage>,
-  signatureRect: PdfSignatureRect,
-): Effect.Effect<PdfCoordinateTuple, PdfError> => {
-  const page = pages.find((candidate) => candidate.index === signatureRect.pageIndex);
-  return page === undefined
-    ? Effect.fail(
-        new PdfError({
-          code: PdfErrorCodeValue.unknownDocument,
-          retryable: false,
-          operation: PdfOperationValue.prepareAndSign,
-          reason: "The final signature rect references a page outside the PDF document.",
-        }),
-      )
-    : Effect.succeed(pdfCoordinateTupleFromTopLeftRect(signatureRect, page.height));
-};
-
 export const prepareAndSignPdf = (
   input: PdfPrepareAndSignInput,
-): Effect.Effect<Uint8Array, PdfError | CmsError | SignatureKitError, Signatures> =>
+): Effect.Effect<
+  Uint8Array,
+  PdfError | CmsError | SignatureKitError,
+  Signatures | LiteParseWorkerFactory
+> =>
   Schema.decodeUnknownEffect(PdfPrepareAndSignInputSchema)(input).pipe(
     Effect.mapError(
       (issue) =>
@@ -590,9 +919,14 @@ export const prepareAndSignPdf = (
         }),
     ),
     Effect.flatMap((valid) =>
-      prepareAndSignPages(valid).pipe(
-        Effect.flatMap((pages) =>
-          prepareAndSignStampRects(valid, pages).pipe(
+      loadPdfSignatureDocumentWithPages({
+        id: valid.documentId ?? DEFAULT_PREPARE_AND_SIGN_DOCUMENT_ID,
+        name: valid.documentName ?? DEFAULT_PREPARE_AND_SIGN_DOCUMENT_NAME,
+        pdf: valid.pdf,
+      }).pipe(
+        Effect.flatMap(({ document, pdfPages }) => {
+          const pages = document.pages;
+          return prepareAndSignStampRects(valid, pages).pipe(
             Effect.flatMap((stampRects) => {
               const signatureRect = stampRects[stampRects.length - 1];
               if (signatureRect === undefined) {
@@ -618,7 +952,11 @@ export const prepareAndSignPdf = (
                   ),
                 ),
                 Effect.flatMap((rubriced) =>
-                  prepareAndSignWidgetRect(pages, signatureRect).pipe(
+                  widgetRectFromPage(
+                    pdfPages[signatureRect.pageIndex],
+                    signatureRect,
+                    PdfOperationValue.prepareAndSign,
+                  ).pipe(
                     Effect.flatMap((widgetRect) =>
                       signPdfDocument({
                         pdf: rubriced,
@@ -636,8 +974,8 @@ export const prepareAndSignPdf = (
                 ),
               );
             }),
-          ),
-        ),
+          );
+        }),
       ),
     ),
   );
@@ -675,11 +1013,15 @@ export const preparePdfSigningBatch = (
       Effect.forEach(valid.documents, (document, index) =>
         preparePdfSigningBatchDocument(document, valid.stamp, valid.signing).pipe(
           Effect.tap((result) =>
-            Effect.sync(() => callbacks.onItemSettled?.(result, index, valid.documents.length)),
+            Effect.sync(() =>
+              callbacks.onItemSettled?.(result, index, valid.documents.length),
+            ).pipe(Effect.exit, Effect.asVoid),
           ),
-          Effect.tap(
-            (result) =>
-              callbacks.yieldAfterItem?.(result, index, valid.documents.length) ?? Effect.void,
+          Effect.tap((result) =>
+            Effect.suspend(
+              () =>
+                callbacks.yieldAfterItem?.(result, index, valid.documents.length) ?? Effect.void,
+            ).pipe(Effect.exit, Effect.asVoid),
           ),
         ),
       ),
@@ -703,7 +1045,10 @@ export const signPdfSignatureBatch = (
           onFailure: (error): PdfBatchResult => ({ id: item.id, ok: false, error }),
         }),
         Effect.tap((result) =>
-          Effect.sync(() => callbacks.onItemSettled?.(result, index, items.length)),
+          Effect.sync(() => callbacks.onItemSettled?.(result, index, items.length)).pipe(
+            Effect.exit,
+            Effect.asVoid,
+          ),
         ),
       ),
   );

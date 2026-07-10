@@ -9,14 +9,13 @@ import {
   ZapSignSignatureRequest,
   ZapSignDocumentStateSchema,
   providers as zapSignProviders,
-  type ZapSignDocumentProps,
-  type ZapSignProviderOptions,
   cancelZapSignSignatureRequest,
   deleteZapSignSignatureRequest,
   downloadZapSignSignedDocument,
   getZapSignSignatureRequest,
   listZapSignSignatureRequests,
 } from "../src/index";
+import type { ZapSignDocumentProps, ZapSignProviderOptions } from "../src/index";
 
 const config = loadFlaggedConfig(
   "SIGNATURE_KIT_LIVE_REMOTE_SIGNERS",

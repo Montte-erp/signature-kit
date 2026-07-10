@@ -10,9 +10,8 @@ import {
   deleteDocuSealSignatureRequest,
   getDocuSealSignatureRequest,
   listDocuSealSignatureRequests,
-  type DocuSealProviderOptions,
-  type DocuSealSubmissionProps,
 } from "../src/index";
+import type { DocuSealProviderOptions, DocuSealSubmissionProps } from "../src/index";
 
 const config = loadFlaggedConfig(
   "SIGNATURE_KIT_LIVE_REMOTE_SIGNERS",

@@ -52,7 +52,10 @@ describe("SignatureKit server integration", () => {
       );
       const xmlVerification = yield* verifyXml({
         xml: signedXml,
-        requireReferenceUri: "#server-invoice",
+        requiredReference: {
+          uri: "#server-invoice",
+          path: [{ localName: "invoice", namespaceUri: null }],
+        },
         publicKeyDer,
       }).pipe(Effect.provide(xmlRuntimeLayer));
       expect(xmlVerification.valid).toBe(true);

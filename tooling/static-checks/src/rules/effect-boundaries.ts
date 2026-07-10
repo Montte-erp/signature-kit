@@ -20,10 +20,9 @@ const hasLegacyEffectServiceApi = (line: string): boolean =>
   /\b(?:Context\.(?:Reference|Tag|GenericTag)|Effect\.(?:Tag|Service))\s*[<(]/.test(line);
 
 const hasLocalEffectBoundary = (context: CheckContext): boolean => {
-  const current = context.rawLine;
   const previous = context.rawLines[context.lineNumber - 2] ?? "";
-  const boundaryPattern = /\/\/\s*effect-boundary:\s*\S[\s\S]*\[allow-provide\]/;
-  return boundaryPattern.test(current) || boundaryPattern.test(previous);
+  const boundaryPattern = /\/\/\s*effect-boundary:\s*\S[\s\S]*\[allow-provide:\s*[^\]]+\]/;
+  return boundaryPattern.test(previous);
 };
 
 const hasEffectProvideCall = (context: CheckContext): boolean =>
@@ -58,7 +57,7 @@ export const effectBoundaryChecks: readonly Check[] = [
   },
   {
     message:
-      "Do not apply Effect/Layer provide inside the library without an explicit boundary marker or allowlist entry.",
+      "Do not apply Effect/Layer provide inside the library without an adjacent `[allow-provide: reason]` boundary marker or allowlist entry.",
     test: hasHiddenEffectProvide,
     ignoreImportLine: true,
   },

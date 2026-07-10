@@ -3,7 +3,8 @@ import { AsnConvert, OctetString } from "@peculiar/asn1-schema";
 import * as asn1js from "asn1js";
 import * as pkijs from "pkijs";
 import { Schema } from "effect";
-import { type IcpBrasilPolicy, IcpBrasilPolicySchema, CmsOid, hashAlgorithmOid } from "./config";
+import { IcpBrasilPolicySchema, CmsOid, hashAlgorithmOid } from "./config";
+import type { IcpBrasilPolicy } from "./config";
 import { toArrayBuffer } from "./engine";
 
 const contentTypeAttribute = (): pkijs.Attribute =>

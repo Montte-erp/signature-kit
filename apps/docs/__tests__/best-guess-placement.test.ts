@@ -15,7 +15,6 @@ import type {
 } from "@signature-kit/pdf/config";
 import { makeDummyDocs } from "./helpers/dummy-pdf";
 
-
 const DOC_COUNT = 25;
 
 const SIGNATURE_DRAFT: PdfSignatureFieldDraft = {
@@ -41,7 +40,6 @@ type ParsedDoc = {
   readonly template: PdfSignatureTemplate;
   readonly pageDims: ReadonlyArray<PdfSignaturePage>;
 };
-
 
 describe("best-guess auto-placement", () => {
   let parsed: ReadonlyArray<ParsedDoc>;

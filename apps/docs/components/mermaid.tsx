@@ -63,7 +63,6 @@ const renderMermaidChart = (
     }),
   );
 
-
 export function Mermaid({ chart, className }: MermaidProps) {
   const id = `mermaid-${useId().replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const theme = useSyncExternalStore(

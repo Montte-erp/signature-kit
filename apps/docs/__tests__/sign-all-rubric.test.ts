@@ -9,8 +9,15 @@ import type {
   PdfSignatureTemplate,
   PdfTextBox,
 } from "@signature-kit/pdf/config";
-import { isPdf, makeDummyPdf, pdfPageCount, type PageSize, A4, LETTER, LEGAL } from "./helpers/dummy-pdf";
-
+import {
+  isPdf,
+  makeDummyPdf,
+  pdfPageCount,
+  type PageSize,
+  A4,
+  LETTER,
+  LEGAL,
+} from "./helpers/dummy-pdf";
 
 const DOC_COUNT = 20;
 const SIG_W = 168;
@@ -37,10 +44,7 @@ const signatureRect = (page: PageSize, pageIndex: number): PdfSignatureRect => (
   height: SIG_H,
 });
 
-const templateForDoc = (
-  doc: MultiPageDoc,
-  rect: PdfSignatureRect,
-): PdfSignatureTemplate => ({
+const templateForDoc = (doc: MultiPageDoc, rect: PdfSignatureRect): PdfSignatureTemplate => ({
   id: `template-${doc.id}`,
   name: doc.name,
   documents: [
@@ -96,9 +100,10 @@ it("nudges repeated rubrics away from LiteParse text boxes", () => {
   expect(textBox.y < nudged.y + nudged.height && textBox.y + textBox.height > nudged.y).toBe(false);
 });
 
-
 it("returns no rubric targets when the main signature is on the only page", () => {
-  expect(rubricPageIndexesExcludingSignature([{ index: 0, width: A4.width, height: A4.height }], 0)).toEqual([]);
+  expect(
+    rubricPageIndexesExcludingSignature([{ index: 0, width: A4.width, height: A4.height }], 0),
+  ).toEqual([]);
 });
 describe("signAll + rubricEveryPage", () => {
   let docs: ReadonlyArray<MultiPageDoc>;
@@ -170,7 +175,9 @@ describe("signAll + rubricEveryPage", () => {
 
     const stampedById = Object.fromEntries(
       results.flatMap((result) =>
-        result.ok ? [[result.id, result.item.input.pdf] satisfies readonly [string, Uint8Array]] : [],
+        result.ok
+          ? [[result.id, result.item.input.pdf] satisfies readonly [string, Uint8Array]]
+          : [],
       ),
     );
 

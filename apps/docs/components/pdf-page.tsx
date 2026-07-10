@@ -5,7 +5,6 @@ import { Effect } from "effect";
 
 import { m } from "@/paraglide/messages";
 
-
 export interface PdfViewport {
   readonly width: number;
   readonly height: number;
@@ -218,7 +217,7 @@ export function PdfPage({
             height: `${(ghost.rect.height / heightPt) * 100}%`,
           }}
         >
-          {stampPreview?.rubricaDataUrl ?? stampPreview?.inkDataUrl ? (
+          {(stampPreview?.rubricaDataUrl ?? stampPreview?.inkDataUrl) ? (
             <img
               src={stampPreview?.rubricaDataUrl ?? stampPreview?.inkDataUrl}
               alt=""

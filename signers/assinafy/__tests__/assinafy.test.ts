@@ -6,13 +6,15 @@ import { loadFlaggedConfig, optionalEnv, requiredEnv } from "../../../tooling/te
 import { Config, Effect, Redacted, Schema } from "effect";
 import {
   AssinafySignatureRequest,
-  type AssinafySignatureRequestAttributes,
   providers as assinafyProviders,
   deleteAssinafySignatureRequest,
   getAssinafySignatureRequest,
   listAssinafySignatureRequests,
-  type AssinafyProviderOptions,
-  type AssinafySignatureRequestProps,
+} from "../src/index";
+import type {
+  AssinafySignatureRequestAttributes,
+  AssinafyProviderOptions,
+  AssinafySignatureRequestProps,
 } from "../src/index";
 
 const config = loadFlaggedConfig(
