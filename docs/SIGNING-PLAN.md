@@ -58,7 +58,7 @@ and call the same `Signatures` service.
 ### `@signature-kit/xml`
 
 - `signXml({ xml, referenceId?, algorithm? }) → Effect<string, XmlError | SignatureKitError, Signatures>`
-- `verifyXml({ xml, publicKeyDer?, requireReferenceUri? }) → Effect<XmlVerificationResult, XmlError>`
+- `verifyXml({ xml, exactly one of publicKeyDer/trustedCertificateDer, requiredReference?: { uri, path } }) → Effect<XmlVerificationResult, XmlError>`
 
 ### `@signature-kit/pdf`
 

@@ -689,7 +689,7 @@ class AssinafyProviders extends Provider.ProviderCollection<AssinafyProviders>()
 
 export const providers = (options: AssinafyProviderOptions) =>
   Layer.effect(AssinafyProviders, Provider.collection([AssinafySignatureRequest])).pipe(
-    Layer.provide(assinafySignatureRequestProvider),
+    Layer.provide(Layer.fresh(assinafySignatureRequestProvider)),
     Layer.provide(assinafyCredentialsLayer(options)),
   );
 

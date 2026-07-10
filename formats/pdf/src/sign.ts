@@ -4,8 +4,8 @@ import { createDetachedSignedData } from "@signature-kit/cms/sign";
 import { signatures } from "@signature-kit/signatures";
 import type { Signatures } from "@signature-kit/signatures";
 import type { SignatureAlgorithm, SignatureKitError } from "@signature-kit/signatures";
-import { Effect, Match } from "effect";
-import { PdfError, PdfErrorCodeValue, PdfOperationValue } from "./config";
+import { Effect, Match, Schema } from "effect";
+import { PdfError, PdfErrorCodeValue, PdfOperationValue, PdfSigningRequestSchema } from "./config";
 import type { PdfSigningRequest } from "./config";
 import { bytesToHex, encodeAscii, replaceRange } from "./bytes";
 import { preparePdfByteRange } from "./byte-range";
@@ -39,17 +39,29 @@ export const signPdf = (
   input: PdfSigningRequest,
 ): Effect.Effect<Uint8Array, PdfError | CmsError | SignatureKitError, Signatures> =>
   Effect.gen(function* () {
-    const hashAlgorithm = input.hashAlgorithm ?? "sha256";
+    const request = yield* Schema.decodeUnknownEffect(PdfSigningRequestSchema)(input).pipe(
+      Effect.mapError(
+        (issue) =>
+          new PdfError({
+            code: PdfErrorCodeValue.invalidBuilderInput,
+            retryable: false,
+            reason: "PDF signing request failed schema validation.",
+            operation: PdfOperationValue.sign,
+            issueMessage: String(issue),
+          }),
+      ),
+    );
+    const hashAlgorithm = request.hashAlgorithm ?? "sha256";
     const signatureAlgorithm = yield* signatureAlgorithmForHash(hashAlgorithm);
-    const placeholderPdf = yield* addSignaturePlaceholder(input);
+    const placeholderPdf = yield* addSignaturePlaceholder(request);
     const prepared = yield* preparePdfByteRange(placeholderPdf);
     const [certificate, signingKey] = yield* Effect.all(
       [signatures.certificate(), signatures.importSigningKey(signatureAlgorithm)],
       { concurrency: "unbounded" },
     );
     const icpBrasil =
-      input.icpBrasil ??
-      (input.policy === "pades-icp-brasil" ? IcpBrasilPadesPolicy.adRbV11 : undefined);
+      request.icpBrasil ??
+      (request.policy === "pades-icp-brasil" ? IcpBrasilPadesPolicy.adRbV11 : undefined);
     const cms = yield* createDetachedSignedData({
       content: prepared.signedData,
       signingKey,
@@ -57,7 +69,7 @@ export const signPdf = (
       chainDer: certificate.intermediateCertificates,
       hashAlgorithm,
       icpBrasil,
-      timestamp: input.timestamp,
+      timestamp: request.timestamp,
     });
     const signatureHex = bytesToHex(cms);
     if (signatureHex.length > prepared.placeholderLength) {

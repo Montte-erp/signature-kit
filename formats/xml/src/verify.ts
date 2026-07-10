@@ -1,10 +1,6 @@
 import type { SignatureAlgorithm } from "@signature-kit/signatures";
 import { Effect, Schema } from "effect";
-import type { SignedXml as XmlDsigSignedXml } from "xmldsigjs";
 import {
-  type XmlHashAlgorithm,
-  type XmlVerificationRequest,
-  type XmlVerificationResult,
   XmlError,
   XmlErrorCodeValue,
   XmlOperationValue,
@@ -12,17 +8,65 @@ import {
   XmlVerificationRequestSchema,
   xmlHashAlgorithmFromSignatureAlgorithm,
 } from "./config";
-import { XmlRuntime, type XmlRuntimeService } from "./runtime";
+import type {
+  XmlHashAlgorithm,
+  XmlRequiredReference,
+  XmlVerificationRequest,
+  XmlVerificationResult,
+} from "./config";
+import { XmlRuntime } from "./runtime";
+import type { XmlRuntimeService, XmlRuntimeSignedXmlConstructor } from "./runtime";
 
 const XMLDSIG_NAMESPACE = "http://www.w3.org/2000/09/xmldsig#";
 const XML_RSA_ALGORITHM_NAME = "RSASSA-PKCS1-v1_5";
-
 const XML_CORE_CRYPTOGRAPHIC_ERROR_CODE = 13;
+
+const XML_ENVELOPED_SIGNATURE_TRANSFORM = "http://www.w3.org/2000/09/xmldsig#enveloped-signature";
+const XML_CANONICALIZATION_TRANSFORMS: Record<string, true> = {
+  "http://www.w3.org/TR/2001/REC-xml-c14n-20010315": true,
+  "http://www.w3.org/TR/2001/REC-xml-c14n-20010315#WithComments": true,
+  "http://www.w3.org/2001/10/xml-exc-c14n#": true,
+  "http://www.w3.org/2001/10/xml-exc-c14n#WithComments": true,
+  "http://www.w3.org/2006/12/xml-c14n11": true,
+  "http://www.w3.org/2006/12/xml-c14n11#WithComments": true,
+};
+
+type SignatureVerificationMetadata = {
+  readonly signatureElement: Element;
+  readonly hash: XmlHashAlgorithm;
+};
+
 const XmlCoreErrorSchema = Schema.Struct({
   prefix: Schema.Literal("XMLJS"),
   code: Schema.Number,
   message: Schema.String,
 });
+
+const isXmlCoreCryptographicCause = Schema.is(XmlCoreErrorSchema);
+
+const directElementsByName = (
+  parent: Element,
+  namespaceUri: string | null,
+  localName: string,
+  maximumCount: number,
+): Array<Element> | undefined => {
+  const directElements: Array<Element> = [];
+  const children = parent.children;
+  for (let index = 0; index < children.length; index += 1) {
+    const element = children.item(index);
+    if (
+      element !== null &&
+      element.localName === localName &&
+      (element.namespaceURI ?? null) === namespaceUri
+    ) {
+      if (directElements.length === maximumCount) {
+        return undefined;
+      }
+      directElements.push(element);
+    }
+  }
+  return directElements;
+};
 
 const xmlVerificationAlgorithm = (hash: XmlHashAlgorithm): RsaHashedImportParams => ({
   name: XML_RSA_ALGORITHM_NAME,
@@ -60,34 +104,42 @@ const importTrustedCertificateVerificationKey = (
   );
 
 const inferSignatureHashAlgorithm = (
-  signatureElement: Element,
+  signedInfoElement: Element,
+  referenceElements: ReadonlyArray<Element>,
   fallback: SignatureAlgorithm | undefined,
 ): XmlHashAlgorithm | undefined => {
-  const signatureMethodUri = signatureElement
-    .getElementsByTagNameNS(XMLDSIG_NAMESPACE, "SignatureMethod")
-    .item(0)
-    ?.getAttribute("Algorithm");
-  const signatureMethodHash =
-    signatureMethodUri === undefined || signatureMethodUri === null
-      ? undefined
-      : xmlHashAlgorithmFromString(signatureMethodUri);
+  const signatureMethods = directElementsByName(
+    signedInfoElement,
+    XMLDSIG_NAMESPACE,
+    "SignatureMethod",
+    1,
+  );
+  if (signatureMethods === undefined || signatureMethods.length !== 1) {
+    return undefined;
+  }
+  const signatureMethod = signatureMethods[0];
+  if (signatureMethod === undefined) {
+    return undefined;
+  }
+  const signatureMethodHash = xmlHashAlgorithmFromString(
+    signatureMethod.getAttribute("Algorithm") ?? "",
+  );
 
   if (signatureMethodHash !== undefined) {
     return signatureMethodHash;
   }
 
-  const digestMethodNodes = signatureElement.getElementsByTagNameNS(
-    XMLDSIG_NAMESPACE,
-    "DigestMethod",
-  );
   let inferred: XmlHashAlgorithm | undefined;
-  for (let index = 0; index < digestMethodNodes.length; index += 1) {
-    const digestMethodNode = digestMethodNodes.item(index);
-    if (digestMethodNode === null) {
-      continue;
+  for (const reference of referenceElements) {
+    const digestMethods = directElementsByName(reference, XMLDSIG_NAMESPACE, "DigestMethod", 1);
+    if (digestMethods === undefined || digestMethods.length !== 1) {
+      return undefined;
     }
-    const digestMethodUri = digestMethodNode.getAttribute("Algorithm") ?? "";
-    const current = xmlHashAlgorithmFromString(digestMethodUri);
+    const digestMethod = digestMethods[0];
+    if (digestMethod === undefined) {
+      return undefined;
+    }
+    const current = xmlHashAlgorithmFromString(digestMethod.getAttribute("Algorithm") ?? "");
     if (current === undefined) {
       continue;
     }
@@ -106,40 +158,51 @@ const inferSignatureHashAlgorithm = (
   );
 };
 
-const indexElementsById = (document: Document): Map<string, Array<Element>> => {
-  const indexedById = new Map<string, Array<Element>>();
+const indexElementsById = (document: Document): Map<string, Set<Element>> => {
+  const indexedById = new Map<string, Set<Element>>();
   const elements = document.getElementsByTagName("*");
-
-  const add = (element: Element, id: string): void => {
-    if (id.length === 0) {
-      return;
-    }
-    const existing = indexedById.get(id);
-    if (existing === undefined) {
-      indexedById.set(id, [element]);
-      return;
-    }
-    existing.push(element);
-  };
 
   for (let index = 0; index < elements.length; index += 1) {
     const element = elements.item(index);
     if (element === null) {
       continue;
     }
-    const idAttr = element.getAttribute("Id") ?? "";
-    add(element, idAttr);
-    add(element, element.getAttribute("id") ?? "");
-    add(element, element.getAttribute("ID") ?? "");
+    const aliases = new Set([
+      element.getAttribute("Id") ?? "",
+      element.getAttribute("id") ?? "",
+      element.getAttribute("ID") ?? "",
+    ]);
+    for (const id of aliases) {
+      if (id.length === 0) {
+        continue;
+      }
+      const indexedElements = indexedById.get(id);
+      if (indexedElements === undefined) {
+        indexedById.set(id, new Set([element]));
+        continue;
+      }
+      indexedElements.add(element);
+    }
   }
 
   return indexedById;
 };
 
+const isTargetInsideSignature = (target: Element, signatures: ReadonlySet<Element>): boolean => {
+  let current: Element | null = target;
+  while (current !== null) {
+    if (signatures.has(current)) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+};
+
 const isTargetAmbiguousOrHidden = (
   uri: string,
-  indexedById: Map<string, Array<Element>>,
-  signatures: ReadonlyArray<Element>,
+  indexedById: Map<string, Set<Element>>,
+  signatures: ReadonlySet<Element>,
 ): boolean => {
   if (uri.length === 0) {
     return false;
@@ -147,33 +210,111 @@ const isTargetAmbiguousOrHidden = (
   if (uri.length === 1 || !uri.startsWith("#")) {
     return true;
   }
-  const id = uri.slice(1);
-  const matched = indexedById.get(id) ?? [];
-  if (matched.length !== 1) {
+  const matched = indexedById.get(uri.slice(1));
+  if (matched === undefined || matched.size !== 1) {
     return true;
   }
-  const target = matched[0];
-  if (target === undefined) {
-    return true;
+  for (const target of matched) {
+    return isTargetInsideSignature(target, signatures);
   }
-  return signatures.some((signature) => signature === target || signature.contains(target));
+  return true;
 };
 
-const collectSignatureReferences = (signatureElement: Element): Array<string> => {
-  const references = signatureElement.getElementsByTagNameNS(XMLDSIG_NAMESPACE, "Reference");
-  const values: Array<string> = [];
-  for (let index = 0; index < references.length; index += 1) {
-    const reference = references.item(index);
-    values.push(reference?.getAttribute("URI") ?? "");
+const isRequiredReferenceAtExpectedLocation = (
+  document: Document,
+  requiredReference: XmlRequiredReference,
+  indexedById: Map<string, Set<Element>>,
+  signatures: ReadonlySet<Element>,
+): boolean => {
+  const root = document.documentElement;
+  const rootPathSegment = requiredReference.path[0];
+  if (
+    root === null ||
+    rootPathSegment === undefined ||
+    root.localName !== rootPathSegment.localName ||
+    (root.namespaceURI ?? null) !== rootPathSegment.namespaceUri
+  ) {
+    return false;
   }
-  return values;
+
+  let target: Element = root;
+  for (let index = 1; index < requiredReference.path.length; index += 1) {
+    const pathSegment = requiredReference.path[index];
+    if (pathSegment === undefined) {
+      return false;
+    }
+    const matches = directElementsByName(
+      target,
+      pathSegment.namespaceUri,
+      pathSegment.localName,
+      1,
+    );
+    if (matches === undefined || matches.length !== 1) {
+      return false;
+    }
+    const match = matches[0];
+    if (match === undefined) {
+      return false;
+    }
+    target = match;
+  }
+
+  const uri = requiredReference.uri;
+  if (isTargetAmbiguousOrHidden(uri, indexedById, signatures)) {
+    return false;
+  }
+  const indexedTargets = indexedById.get(uri.slice(1));
+  if (indexedTargets === undefined || indexedTargets.size !== 1) {
+    return false;
+  }
+  for (const indexedTarget of indexedTargets) {
+    return indexedTarget === target;
+  }
+  return false;
+};
+
+const hasSafeRequiredReferenceTransforms = (referenceElement: Element): boolean => {
+  const transformsContainers = directElementsByName(
+    referenceElement,
+    XMLDSIG_NAMESPACE,
+    "Transforms",
+    1,
+  );
+  if (transformsContainers === undefined) {
+    return false;
+  }
+  const transformsContainer = transformsContainers[0];
+  if (transformsContainer === undefined) {
+    return true;
+  }
+  const transformElements = directElementsByName(
+    transformsContainer,
+    XMLDSIG_NAMESPACE,
+    "Transform",
+    3,
+  );
+  if (transformElements === undefined || transformElements.length === 0) {
+    return transformElements !== undefined;
+  }
+  if (transformElements.length !== 2) {
+    return false;
+  }
+  const envelopedTransform = transformElements[0];
+  const canonicalizationTransform = transformElements[1];
+  return (
+    envelopedTransform !== undefined &&
+    canonicalizationTransform !== undefined &&
+    envelopedTransform.getAttribute("Algorithm") === XML_ENVELOPED_SIGNATURE_TRANSFORM &&
+    XML_CANONICALIZATION_TRANSFORMS[canonicalizationTransform.getAttribute("Algorithm") ?? ""] ===
+      true
+  );
 };
 
 const verifySingleSignature = (
   document: Document,
   signatureElement: Element,
   publicKey: CryptoKey,
-  SignedXml: typeof XmlDsigSignedXml,
+  SignedXml: XmlRuntimeSignedXmlConstructor,
 ): Effect.Effect<boolean, XmlError> =>
   Effect.gen(function* () {
     const signedXml = new SignedXml(document);
@@ -192,20 +333,15 @@ const verifySingleSignature = (
       catch: (cause) => cause,
     }).pipe(
       Effect.catch((cause) =>
-        Schema.decodeUnknownEffect(XmlCoreErrorSchema)(cause).pipe(
-          Effect.catch(() => Effect.die(cause)),
-          Effect.flatMap((xmlCoreError) =>
-            xmlCoreError.code === XML_CORE_CRYPTOGRAPHIC_ERROR_CODE
-              ? Effect.succeed(false)
-              : Effect.fail(
-                  new XmlError({
-                    code: XmlErrorCodeValue.verifyFailed,
-                    retryable: false,
-                    operation: XmlOperationValue.verify,
-                  }),
-                ),
-          ),
-        ),
+        isXmlCoreCryptographicCause(cause) && cause.code === XML_CORE_CRYPTOGRAPHIC_ERROR_CODE
+          ? Effect.succeed(false)
+          : Effect.fail(
+              new XmlError({
+                code: XmlErrorCodeValue.verifyFailed,
+                retryable: false,
+                operation: XmlOperationValue.verify,
+              }),
+            ),
       ),
     );
   });
@@ -227,13 +363,13 @@ export const verifyXml = (
       ),
     );
     const xmlRuntime = yield* XmlRuntime;
-    const SignedXml = yield* xmlRuntime.signedXml();
     const signatureHashFallback = input.algorithm;
-
     const document = yield* xmlRuntime.parse(input.xml);
+    yield* xmlRuntime.validateSignatureTransforms(document);
 
-    const signatureNodeList = document.getElementsByTagNameNS(XMLDSIG_NAMESPACE, "Signature");
-    if (signatureNodeList.length === 0) {
+    const signatureStructure = xmlRuntime.inspectSignatureStructure(document);
+    const signatureCount = signatureStructure.signatureCount;
+    if (signatureCount === 0) {
       return yield* Effect.fail(
         new XmlError({
           code: XmlErrorCodeValue.signatureNotFound,
@@ -244,76 +380,125 @@ export const verifyXml = (
       );
     }
 
-    const signatureElements: Array<Element> = [];
-    for (let index = 0; index < signatureNodeList.length; index += 1) {
-      const signatureElement = signatureNodeList.item(index);
-      if (signatureElement !== null) {
-        signatureElements.push(signatureElement);
-      }
+    const signatureElements = signatureStructure.signatureElements;
+    const signatureElementSet = new Set(signatureElements);
+    const indexedById = indexElementsById(document);
+    const referenceUris = [...signatureStructure.referenceUris];
+    const invalidResult: XmlVerificationResult = {
+      valid: false,
+      signatureCount,
+      referenceUris,
+    };
+    if (!signatureStructure.valid) {
+      return invalidResult;
     }
 
-    const indexedById = indexElementsById(document);
-    let valid = true;
-    const referenceUris: Array<string> = [];
+    const verificationMetadata: Array<SignatureVerificationMetadata> = [];
+    let metadataValid = true;
+    let requiredReferenceTransformsValid = true;
 
-    for (let index = 0; index < signatureElements.length; index += 1) {
-      const signatureElement = signatureElements[index];
-      if (signatureElement === undefined) {
-        continue;
-      }
-
-      const references = collectSignatureReferences(signatureElement);
-      referenceUris.push(...references);
-      const hasInvalidReference = references.some((uri) =>
-        isTargetAmbiguousOrHidden(uri, indexedById, signatureElements),
+    for (const signatureElement of signatureElements) {
+      const signedInfos = directElementsByName(
+        signatureElement,
+        XMLDSIG_NAMESPACE,
+        "SignedInfo",
+        1,
       );
-      if (hasInvalidReference || references.length === 0) {
-        valid = false;
+      const signedInfo = signedInfos?.[0];
+      if (signedInfos === undefined || signedInfos.length !== 1 || signedInfo === undefined) {
+        metadataValid = false;
         continue;
       }
+      const referenceElements = directElementsByName(
+        signedInfo,
+        XMLDSIG_NAMESPACE,
+        "Reference",
+        Number.MAX_SAFE_INTEGER,
+      );
+      if (referenceElements === undefined || referenceElements.length === 0) {
+        metadataValid = false;
+        continue;
+      }
+      if (
+        referenceElements.some((referenceElement) =>
+          isTargetAmbiguousOrHidden(
+            referenceElement.getAttribute("URI") ?? "",
+            indexedById,
+            signatureElementSet,
+          ),
+        )
+      ) {
+        metadataValid = false;
+        continue;
+      }
+      if (
+        input.requiredReference !== undefined &&
+        referenceElements.some(
+          (referenceElement) =>
+            referenceElement.getAttribute("URI") === input.requiredReference?.uri &&
+            !hasSafeRequiredReferenceTransforms(referenceElement),
+        )
+      ) {
+        requiredReferenceTransformsValid = false;
+      }
 
-      const hash = inferSignatureHashAlgorithm(signatureElement, signatureHashFallback);
+      const hash = inferSignatureHashAlgorithm(
+        signedInfo,
+        referenceElements,
+        signatureHashFallback,
+      );
       if (hash === undefined) {
-        valid = false;
+        metadataValid = false;
         continue;
       }
+      verificationMetadata.push({ signatureElement, hash });
+    }
 
+    if (
+      !metadataValid ||
+      !requiredReferenceTransformsValid ||
+      (input.requiredReference !== undefined &&
+        (!isRequiredReferenceAtExpectedLocation(
+          document,
+          input.requiredReference,
+          indexedById,
+          signatureElementSet,
+        ) ||
+          !referenceUris.includes(input.requiredReference.uri))) ||
+      (input.publicKeyDer === undefined && input.trustedCertificateDer === undefined)
+    ) {
+      return invalidResult;
+    }
+
+    const SignedXml = yield* xmlRuntime.signedXml();
+    for (const metadata of verificationMetadata) {
       const publicKey =
         input.publicKeyDer !== undefined
-          ? yield* importPublicVerificationKey(xmlRuntime, input.publicKeyDer, hash)
+          ? yield* importPublicVerificationKey(xmlRuntime, input.publicKeyDer, metadata.hash)
           : input.trustedCertificateDer !== undefined
             ? yield* importTrustedCertificateVerificationKey(
                 xmlRuntime,
                 input.trustedCertificateDer,
-                hash,
+                metadata.hash,
               )
             : undefined;
       if (publicKey === undefined) {
-        valid = false;
-        continue;
+        return invalidResult;
       }
-
-      const singleSignatureValid = yield* verifySingleSignature(
+      const valid = yield* verifySingleSignature(
         document,
-        signatureElement,
+        metadata.signatureElement,
         publicKey,
         SignedXml,
       );
-      if (!singleSignatureValid) {
-        valid = false;
+      if (!valid) {
+        return invalidResult;
       }
     }
 
-    if (
-      input.requireReferenceUri !== undefined &&
-      !referenceUris.includes(input.requireReferenceUri)
-    ) {
-      valid = false;
-    }
-
     return {
-      valid,
-      signatureCount: signatureElements.length,
+      valid: true,
+      signatureCount,
       referenceUris,
     };
   });

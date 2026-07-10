@@ -5,18 +5,18 @@ import {
   SignatureKitOperationValue,
 } from "@signature-kit/signatures";
 import { prepareAndSignPdf } from "@signature-kit/pdf/workflow";
-import { Effect, Redacted, Result, Schema } from "effect";
+import { liteParseWorkerBrowserLayer } from "@signature-kit/pdf/liteparse-browser";
+import { Effect, Layer, Redacted, Result, Schema } from "effect";
 import { createSyncStore, useSyncStore } from "./sync-store";
-import {
-  A1CertificateLoadInputSchema,
-  A1SignerInputSchema,
-  type A1CertificateLoadOutcome,
-  type A1CertificateSnapshot,
-  type A1SignerCredentials,
-  type A1SignerInput,
-  type A1SignerRow,
-  type A1SignerRunOutcome,
-  type A1SignerSnapshot,
+import { A1CertificateLoadInputSchema, A1SignerInputSchema } from "./config";
+import type {
+  A1CertificateLoadOutcome,
+  A1CertificateSnapshot,
+  A1SignerCredentials,
+  A1SignerInput,
+  A1SignerRow,
+  A1SignerRunOutcome,
+  A1SignerSnapshot,
 } from "./config";
 import type { A1CertificateProfile } from "@signature-kit/a1/config";
 
@@ -45,14 +45,33 @@ const initialSignerState: A1SignerSnapshot = {
 const certificateStore = createSyncStore<A1CertificateStoreState>(initialCertificateState);
 const signerStore = createSyncStore<A1SignerSnapshot>(initialSignerState);
 
+let certificateOperation = 0;
+let signerOperation = 0;
+
+const updateCertificateState = (
+  operation: number,
+  update: (state: A1CertificateStoreState) => A1CertificateStoreState,
+): void => {
+  if (operation !== certificateOperation) return;
+  certificateStore.setState(update);
+};
+
+const updateSignerState = (
+  operation: number,
+  update: (state: A1SignerSnapshot) => A1SignerSnapshot,
+): void => {
+  if (operation !== signerOperation) return;
+  signerStore.setState(update);
+};
+
 const rowName = (document: A1SignerInput["documents"][number]): string =>
   document.name ?? document.id;
 
 const pendingRows = (documents: A1SignerInput["documents"]): ReadonlyArray<A1SignerRow> =>
   documents.map((document) => ({ id: document.id, name: rowName(document), status: "pending" }));
 
-const replaceRow = (row: A1SignerRow): void => {
-  signerStore.setState((state) => ({
+const replaceRow = (operation: number, row: A1SignerRow): void => {
+  updateSignerState(operation, (state) => ({
     ...state,
     rows: state.rows.map((candidate) => (candidate.id === row.id ? row : candidate)),
   }));
@@ -109,6 +128,7 @@ const resolveA1SignerCredentials = (
 };
 
 export const clearA1Certificate = (): void => {
+  certificateOperation += 1;
   certificateStore.setState(() => initialCertificateState);
 };
 
@@ -117,13 +137,15 @@ export const loadA1Certificate = async (
   // secret-boundary: React hook action accepts a UI password and immediately wraps it in Redacted [allow-string-secret: hook event-action boundary]
   password: string,
 ): Promise<A1CertificateLoadOutcome> => {
-  certificateStore.setState((state) => ({
+  const operation = ++certificateOperation;
+
+  updateCertificateState(operation, (state) => ({
     ...state,
     status: "loading",
+    profile: null,
     error: null,
     credentials: null,
   }));
-
   const program = Schema.decodeUnknownEffect(A1CertificateLoadInputSchema)({ pfx, password }).pipe(
     Effect.mapError(
       (issue) =>
@@ -147,7 +169,7 @@ export const loadA1Certificate = async (
   const result = await Effect.runPromise(Effect.result(program));
 
   if (Result.isFailure(result)) {
-    certificateStore.setState(() => ({
+    updateCertificateState(operation, () => ({
       status: "error",
       profile: null,
       error: result.failure,
@@ -160,7 +182,7 @@ export const loadA1Certificate = async (
     pfx: result.success.credentials.pfx,
     password: Redacted.make(result.success.credentials.password),
   };
-  certificateStore.setState(() => ({
+  updateCertificateState(operation, () => ({
     status: "ready",
     profile: result.success.profile,
     error: null,
@@ -170,6 +192,7 @@ export const loadA1Certificate = async (
 };
 
 export const clearA1Signer = (): void => {
+  signerOperation += 1;
   signerStore.setState(() => initialSignerState);
 };
 
@@ -184,7 +207,9 @@ export const signA1Documents = async (input: A1SignerInput): Promise<A1SignerRun
     return { ok: false, error: busyConflict };
   }
 
-  signerStore.setState(() => ({ ...initialSignerState, busy: true }));
+  const operation = ++signerOperation;
+
+  updateSignerState(operation, () => ({ ...initialSignerState, busy: true }));
 
   const program = Schema.decodeUnknownEffect(A1SignerInputSchema)(input).pipe(
     Effect.mapError(
@@ -200,7 +225,7 @@ export const signA1Documents = async (input: A1SignerInput): Promise<A1SignerRun
     ),
     Effect.tap((valid) =>
       Effect.sync(() =>
-        signerStore.setState((state) => ({ ...state, rows: pendingRows(valid.documents) })),
+        updateSignerState(operation, (state) => ({ ...state, rows: pendingRows(valid.documents) })),
       ),
     ),
     Effect.flatMap((valid) =>
@@ -210,37 +235,40 @@ export const signA1Documents = async (input: A1SignerInput): Promise<A1SignerRun
           return Effect.forEach(valid.documents, (document): Effect.Effect<A1SignerRow> => {
             const name = rowName(document);
             const stampSize = document.stampSize ?? valid.stamp?.stampSize;
-            return Effect.sync(() => replaceRow({ id: document.id, name, status: "signing" })).pipe(
-              Effect.flatMap(
-                () =>
-                  prepareAndSignPdf({
-                    pdf: document.pdf,
-                    documentId: document.id,
-                    ...(document.name === undefined ? {} : { documentName: document.name }),
-                    ...(document.pages === undefined ? {} : { pages: document.pages }),
-                    ...(document.pageTextBoxes === undefined
-                      ? {}
-                      : { pageTextBoxes: document.pageTextBoxes }),
-                    ...(document.stampRects === undefined
-                      ? {}
-                      : { stampRects: document.stampRects }),
-                    ...(document.anchors === undefined ? {} : { anchors: document.anchors }),
-                    ...(stampSize === undefined ? {} : { stampSize }),
-                    ...(valid.stamp?.badge === undefined ? {} : { badge: valid.stamp.badge }),
-                    ...(valid.stamp?.lines === undefined ? {} : { lines: valid.stamp.lines }),
-                    ...(valid.stamp?.inkPng === undefined ? {} : { inkPng: valid.stamp.inkPng }),
-                    ...(valid.stamp?.border === undefined ? {} : { border: valid.stamp.border }),
-                    ...(valid.stamp?.qr === undefined ? {} : { qr: valid.stamp.qr }),
-                    ...(valid.stamp?.rubric === undefined ? {} : { rubric: valid.stamp.rubric }),
-                    signing: valid.signing,
-                  }).pipe(Effect.provide(layer), Effect.result), // effect-boundary: React hook action [allow-provide]
+            return Effect.sync(() =>
+              replaceRow(operation, { id: document.id, name, status: "signing" }),
+            ).pipe(
+              Effect.flatMap(() =>
+                prepareAndSignPdf({
+                  pdf: document.pdf,
+                  documentId: document.id,
+                  ...(document.name === undefined ? {} : { documentName: document.name }),
+                  ...(document.pages === undefined ? {} : { pages: document.pages }),
+                  ...(document.pageTextBoxes === undefined
+                    ? {}
+                    : { pageTextBoxes: document.pageTextBoxes }),
+                  ...(document.stampRects === undefined ? {} : { stampRects: document.stampRects }),
+                  ...(document.anchors === undefined ? {} : { anchors: document.anchors }),
+                  ...(stampSize === undefined ? {} : { stampSize }),
+                  ...(valid.stamp?.badge === undefined ? {} : { badge: valid.stamp.badge }),
+                  ...(valid.stamp?.lines === undefined ? {} : { lines: valid.stamp.lines }),
+                  ...(valid.stamp?.inkPng === undefined ? {} : { inkPng: valid.stamp.inkPng }),
+                  ...(valid.stamp?.border === undefined ? {} : { border: valid.stamp.border }),
+                  ...(valid.stamp?.qr === undefined ? {} : { qr: valid.stamp.qr }),
+                  ...(valid.stamp?.rubric === undefined ? {} : { rubric: valid.stamp.rubric }),
+                  signing: valid.signing,
+                }).pipe(
+                  // effect-boundary: React hook action [allow-provide: per-call signer credentials and browser worker parser]
+                  Effect.provide(Layer.merge(layer, liteParseWorkerBrowserLayer)),
+                  Effect.result,
+                ),
               ),
               Effect.flatMap((result) =>
                 Effect.sync((): A1SignerRow => {
                   const row: A1SignerRow = Result.isSuccess(result)
                     ? { id: document.id, name, status: "signed", signedPdf: result.success }
                     : { id: document.id, name, status: "failed", error: result.failure };
-                  replaceRow(row);
+                  replaceRow(operation, row);
                   return row;
                 }),
               ),
@@ -250,7 +278,7 @@ export const signA1Documents = async (input: A1SignerInput): Promise<A1SignerRun
       ),
     ),
     Effect.ensuring(
-      Effect.sync(() => signerStore.setState((state) => ({ ...state, busy: false }))),
+      Effect.sync(() => updateSignerState(operation, (state) => ({ ...state, busy: false }))),
     ),
   );
 
@@ -258,7 +286,7 @@ export const signA1Documents = async (input: A1SignerInput): Promise<A1SignerRun
   const result = await Effect.runPromise(Effect.result(program));
 
   if (Result.isFailure(result)) {
-    signerStore.setState((state) => ({
+    updateSignerState(operation, (state) => ({
       ...state,
       error: result.failure,
       rows: failingRows(state.rows, result.failure),
@@ -266,7 +294,7 @@ export const signA1Documents = async (input: A1SignerInput): Promise<A1SignerRun
     return { ok: false, error: result.failure };
   }
 
-  signerStore.setState((state) => ({ ...state, error: null }));
+  updateSignerState(operation, (state) => ({ ...state, error: null }));
 
   return { ok: true, rows: result.success };
 };

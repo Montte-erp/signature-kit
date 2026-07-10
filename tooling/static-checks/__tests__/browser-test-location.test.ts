@@ -34,13 +34,18 @@ describe("browser integration test placement", () => {
       .sort();
 
     expect(browserTests).toEqual([
+      "apps/docs/__tests__/auto-sign.browser.test.tsx",
       "apps/docs/__tests__/formal-contract-pdf.browser.test.tsx",
       "apps/docs/__tests__/pdf-page.browser.test.tsx",
+      "apps/docs/__tests__/pdf-signer.browser.test.tsx",
       "apps/docs/registry/default/signature-dialog/signature-dialog.browser.test.tsx",
       "apps/docs/registry/default/signature-dialog/signature-dialog.busy.browser.test.tsx",
+      "apps/docs/registry/default/signature-pdf-viewer/signature-pdf-viewer.browser.test.tsx",
       "formats/pdf/__tests__/pdf-a1.browser.test.ts",
       "formats/react/__tests__/a1.browser.test.tsx",
+      "formats/react/__tests__/a1.race.browser.test.tsx",
       "formats/react/__tests__/browser-pdf.browser.test.tsx",
+      "formats/react/__tests__/sync-store.browser.test.tsx",
       "signers/a1/__tests__/a1.browser.test.ts",
     ]);
   });

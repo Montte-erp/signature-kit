@@ -1,5 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
-import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFString } from "@cantoo/pdf-lib";
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFNumber,
+  PDFString,
+} from "@cantoo/pdf-lib";
 import { Effect, Redacted, Result, Schema } from "effect";
 import { readA1Fixture } from "../../../tooling/testing/fixtures";
 import { a1SignaturesLayer } from "@signature-kit/a1/signer";
@@ -8,11 +16,8 @@ import { verifyPdf } from "@signature-kit/pdf/verify";
 import { extractPdfSignatures, extractPdfSignature, preparePdfByteRange } from "../src/byte-range";
 import { encodeAscii, indexOfByte, indexOfBytes, replaceRange } from "../src/bytes";
 import { stampPdfRubric } from "../src/stamp";
-import {
-  PdfSigningRequestSchema,
-  type PdfCoordinateTuple,
-  type PdfSignatureAnchor,
-} from "../src/config";
+import { PdfSigningRequestSchema } from "../src/config";
+import type { PdfCoordinateTuple, PdfSignatureAnchor } from "../src/config";
 
 const PASSWORD = Redacted.make("changeit");
 const SIGNATURE_POLICY_OID_DER = Uint8Array.of(
@@ -75,11 +80,35 @@ const createPdfWithByteRangeSignature = (
   style: ByteRangeWhitespaceStyle,
 ): Uint8Array => {
   const placeholderRange = renderByteRangeToken([0, 0, 0, 0], style);
-  const base = encodeAscii(
-    `%PDF-1.7
-1 0 obj << /Type /Sig ${placeholderRange} /Contents <${signatureHex}> >>
-%%EOF`,
-  );
+  const render = (byteRangeToken: string): Uint8Array => {
+    const objects: ReadonlyArray<readonly [number, string]> = [
+      [1, "<< /Type /Catalog /Pages 2 0 R /AcroForm 3 0 R >>"],
+      [2, "<< /Type /Pages /Kids [4 0 R] /Count 1 >>"],
+      [3, "<< /Fields [6 0 R] >>"],
+      [4, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>"],
+      [6, "<< /FT /Sig /V 8 0 R >>"],
+      [8, `<< /Type /Sig ${byteRangeToken} /Contents <${signatureHex}> >>`],
+    ];
+    let source = "%PDF-1.7\n";
+    const offsets = new Map<number, number>();
+    for (const [objectNumber, body] of objects) {
+      offsets.set(objectNumber, encodeAscii(source).byteLength);
+      source += `${objectNumber} 0 obj\n${body}\nendobj\n`;
+    }
+    const xrefOffset = encodeAscii(source).byteLength;
+    source += "xref\n0 9\n0000000000 65535 f \n";
+    for (let objectNumber = 1; objectNumber < 9; objectNumber += 1) {
+      const offset = offsets.get(objectNumber);
+      source +=
+        offset === undefined
+          ? "0000000000 00000 f \n"
+          : `${String(offset).padStart(10, "0")} 00000 n \n`;
+    }
+    return encodeAscii(
+      `${source}trailer\n<< /Size 9 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`,
+    );
+  };
+  const base = render(placeholderRange);
   const byteRangeStart = indexOfBytes(base, encodeAscii("/ByteRange"), 0);
   const byteRangeEnd = indexOfByte(base, 0x5d, byteRangeStart);
   const contentsLabel = indexOfBytes(base, encodeAscii("/Contents"), byteRangeStart);
@@ -551,6 +580,7 @@ ${"x".repeat(1000)}
         hashAlgorithm: "sha512",
         timestamp: {
           tsaUrl: "https://timestamp.valid.com.br",
+          trustedRoots: [new Uint8Array([0x01])],
           hashAlgorithm: "sha256",
           timeoutMillis: 5000,
         },
@@ -660,13 +690,31 @@ ${"x".repeat(1000)}
         appearance: { pageIndex: 0, widgetRect: [10, 20, 110, 60] },
       }).pipe(Effect.provide(a1SignaturesLayer({ pfx, password: PASSWORD })));
       const verification = yield* verifyPdf({ pdf: signed });
+      const metadata = yield* Effect.promise(async () => {
+        const pdfDoc = await PDFDocument.load(signed);
+        const acroForm = pdfDoc.catalog.lookupMaybe(PDFName.of("AcroForm"), PDFDict);
+        const fields = acroForm?.lookupMaybe(PDFName.of("Fields"), PDFArray);
+        const field =
+          fields === undefined ? undefined : pdfDoc.context.lookupMaybe(fields.get(0), PDFDict);
+        const signature = field?.lookupMaybe(PDFName.of("V"), PDFDict);
+        return {
+          reason: signature?.lookupMaybe(PDFName.of("Reason"), PDFHexString)?.decodeText(),
+          name: signature?.lookupMaybe(PDFName.of("Name"), PDFHexString)?.decodeText(),
+          location: signature?.lookupMaybe(PDFName.of("Location"), PDFHexString)?.decodeText(),
+          contactInfo: signature
+            ?.lookupMaybe(PDFName.of("ContactInfo"), PDFHexString)
+            ?.decodeText(),
+        };
+      });
       const text = latin1.decode(signed);
 
       expect(verification.valid).toBe(true);
-      expect(text).toContain("Approval");
-      expect(text).toContain("Empresa CNPJ:12345678000195");
-      expect(text).toContain("Office");
-      expect(text).toContain("test@example.com");
+      expect(metadata).toStrictEqual({
+        reason: "Approval",
+        name: "Empresa CNPJ:12345678000195",
+        location: "Office",
+        contactInfo: "test@example.com",
+      });
       expect(text).toContain("/SubFilter /adbe.pkcs7.detached");
       expect(text).toContain("/ByteRange");
     }),

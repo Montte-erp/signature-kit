@@ -1,4 +1,5 @@
-import { ErrorMessageLocaleSchema, type ErrorMessageLocale } from "@signature-kit/i18n";
+import { ErrorMessageLocaleSchema } from "@signature-kit/i18n";
+import type { ErrorMessageLocale } from "@signature-kit/i18n";
 import type { SignatureAlgorithm } from "@signature-kit/signatures";
 import { SignatureAlgorithmSchema } from "@signature-kit/signatures";
 import { Match, Schema } from "effect";
@@ -104,10 +105,22 @@ export const xmlHashAlgorithmFromSignatureAlgorithm = (
     Match.exhaustive,
   );
 
+export const XmlReferencePathSegmentSchema = Schema.Struct({
+  localName: Schema.NonEmptyString,
+  namespaceUri: Schema.NullOr(Schema.String),
+});
+export type XmlReferencePathSegment = (typeof XmlReferencePathSegmentSchema)["Type"];
+
+export const XmlRequiredReferenceSchema = Schema.Struct({
+  uri: Schema.NonEmptyString,
+  path: Schema.NonEmptyArray(XmlReferencePathSegmentSchema),
+});
+export type XmlRequiredReference = (typeof XmlRequiredReferenceSchema)["Type"];
+
 export const XmlSigningRequestSchema = Schema.Struct({
   xml: Schema.String,
   algorithm: Schema.optional(SignatureAlgorithmSchema),
-  referenceId: Schema.optional(Schema.String),
+  referenceId: Schema.optional(Schema.NonEmptyString),
   signatureId: Schema.optional(Schema.String),
   signingTime: Schema.optional(Schema.Date),
   canonicalization: Schema.optional(XmlCanonicalizationSchema),
@@ -117,8 +130,16 @@ export const XmlVerificationRequestSchema = Schema.Struct({
   algorithm: Schema.optional(SignatureAlgorithmSchema),
   publicKeyDer: Schema.optional(Schema.Uint8Array),
   trustedCertificateDer: Schema.optional(Schema.Uint8Array),
-  requireReferenceUri: Schema.optional(Schema.String),
-});
+  requiredReference: Schema.optional(XmlRequiredReferenceSchema),
+}).check(
+  Schema.makeFilter((request) => {
+    const hasPublicKey = request.publicKeyDer !== undefined;
+    const hasTrustedCertificate = request.trustedCertificateDer !== undefined;
+    return hasPublicKey === hasTrustedCertificate
+      ? "Provide exactly one verification key source."
+      : undefined;
+  }),
+);
 export type XmlSigningRequest = (typeof XmlSigningRequestSchema)["Type"];
 
 export type XmlVerificationRequest = (typeof XmlVerificationRequestSchema)["Type"];

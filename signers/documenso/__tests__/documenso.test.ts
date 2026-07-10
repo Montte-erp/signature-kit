@@ -16,9 +16,8 @@ import {
   deleteDocumensoSignatureRequest,
   getDocumensoSignatureRequest,
   listDocumensoSignatureRequests,
-  type DocumensoEnvelopeProps,
-  type DocumensoProviderOptions,
 } from "../src/index";
+import type { DocumensoEnvelopeProps, DocumensoProviderOptions } from "../src/index";
 
 const config = loadFlaggedConfig(
   "SIGNATURE_KIT_LIVE_REMOTE_SIGNERS",

@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import {
   addPdfSignatureField,
   createPdfSignatureBuilderStateFromTemplate,
@@ -8,14 +8,15 @@ import {
   pdfSignatureFieldsForPage,
   removePdfSignatureField,
   replacePdfSignatureField,
-  type PdfSignatureFieldsByPage,
   validatePdfSignatureTemplate,
 } from "./builder";
+import type { PdfSignatureFieldsByPage } from "./builder";
 import {
   PdfError,
   PdfErrorCodeValue,
   PdfOperationValue,
   PdfSchemaNameValue,
+  PdfSignatureBestGuessPlacementInputSchema,
   PdfSignatureAutoPlacementPageValue,
   PdfSignaturePlacementAnchorValue,
 } from "./config";
@@ -53,7 +54,7 @@ export type PdfSignatureBuilderStore = {
   ) => Effect.Effect<PdfSignatureTemplate, PdfError>;
   readonly setDraft: (
     draft: PdfSignatureFieldDraft | undefined,
-  ) => Effect.Effect<PdfSignatureBuilderState, never>;
+  ) => Effect.Effect<PdfSignatureBuilderState, PdfError>;
   readonly selectField: (
     fieldId: string | undefined,
   ) => Effect.Effect<PdfSignatureBuilderState, never>;
@@ -104,6 +105,14 @@ const selectedFieldStillExists = (
     ? selectedFieldId
     : undefined;
 
+const draftRoleStillExists = (
+  template: PdfSignatureTemplate,
+  draft: PdfSignatureFieldDraft | undefined,
+): PdfSignatureFieldDraft | undefined =>
+  draft === undefined || template.roles.some((role) => role.id === draft.roleId)
+    ? draft
+    : undefined;
+
 const placeOrReplaceField = (
   template: PdfSignatureTemplate,
   placement: PdfSignatureFieldPlacement,
@@ -148,7 +157,7 @@ export const createPdfSignatureBuilderStore = (
             builderState(
               template,
               selectedFieldStillExists(template, snapshot.selectedFieldId),
-              snapshot.draft,
+              draftRoleStillExists(template, snapshot.draft),
             ),
           );
         }),
@@ -172,17 +181,15 @@ export const createPdfSignatureBuilderStore = (
 
   return {
     getSnapshot: current,
+    subscribe,
     fieldsForPage: (documentId, pageIndex) =>
       pdfSignatureFieldsForPage(stateCell.current.fieldsByPage, documentId, pageIndex),
-    subscribe,
     setState: commitState,
     setTemplate: (template) => commitTemplate(() => validatePdfSignatureTemplate(template)),
     setDraft: (draft) =>
-      Effect.sync(() => {
+      Effect.suspend(() => {
         const snapshot = current();
-        const next = builderState(snapshot.template, snapshot.selectedFieldId, draft);
-        publish(next);
-        return next;
+        return commitState(builderState(snapshot.template, snapshot.selectedFieldId, draft));
       }),
     selectField: (fieldId) =>
       Effect.sync(() => {
@@ -221,68 +228,78 @@ export const pdfSignatureBuilderSelectors = {
 
 export const bestGuessPdfSignatureFieldPlacement = (
   input: PdfSignatureBestGuessPlacementInput,
-): Effect.Effect<PdfSignatureFieldPlacement, PdfError> => {
-  if (input.page !== undefined && input.pageIndex !== undefined) {
-    return Effect.fail(
-      new PdfError({
-        code: PdfErrorCodeValue.invalidBuilderInput,
-        retryable: false,
-        operation: PdfOperationValue.autoPlaceField,
-        schemaName: PdfSchemaNameValue.pdfSignatureAutoPlacementInput,
-        reason: "Best-guess placement accepts either page or pageIndex, not both.",
-      }),
-    );
-  }
+): Effect.Effect<PdfSignatureFieldPlacement, PdfError> =>
+  Schema.decodeUnknownEffect(PdfSignatureBestGuessPlacementInputSchema)(input).pipe(
+    Effect.mapError(
+      (issue) =>
+        new PdfError({
+          code: PdfErrorCodeValue.invalidBuilderInput,
+          retryable: false,
+          operation: PdfOperationValue.autoPlaceField,
+          schemaName: PdfSchemaNameValue.pdfSignatureBestGuessPlacementInput,
+          issueMessage: String(issue),
+          reason: "Best-guess placement input does not match the builder schema.",
+        }),
+    ),
+    Effect.flatMap((valid) =>
+      validatePdfSignatureTemplate(valid.template).pipe(
+        Effect.flatMap((template) => {
+          if (valid.page !== undefined && valid.pageIndex !== undefined) {
+            return Effect.fail(
+              new PdfError({
+                code: PdfErrorCodeValue.invalidBuilderInput,
+                retryable: false,
+                operation: PdfOperationValue.autoPlaceField,
+                schemaName: PdfSchemaNameValue.pdfSignatureBestGuessPlacementInput,
+                reason: "Best-guess placement accepts either page or pageIndex, not both.",
+              }),
+            );
+          }
 
-  const document = input.template.documents.find((candidate) => candidate.id === input.documentId);
-  if (document === undefined) {
-    return Effect.fail(
-      new PdfError({
-        code: PdfErrorCodeValue.unknownDocument,
-        retryable: false,
-        operation: PdfOperationValue.autoPlaceField,
-        reason: `Best-guess placement references an unknown document ${input.documentId}.`,
-      }),
-    );
-  }
+          const document = template.documents.find(
+            (candidate) => candidate.id === valid.documentId,
+          );
+          if (document === undefined) {
+            return Effect.fail(
+              new PdfError({
+                code: PdfErrorCodeValue.unknownDocument,
+                retryable: false,
+                operation: PdfOperationValue.autoPlaceField,
+                reason: `Best-guess placement references an unknown document ${valid.documentId}.`,
+              }),
+            );
+          }
 
-  const pageIndex =
-    input.pageIndex ??
-    (input.page === PdfSignatureAutoPlacementPageValue.first ? 0 : document.pages.length - 1);
-  const page = document.pages.find((candidate) => candidate.index === pageIndex);
-  if (page === undefined) {
-    return Effect.fail(
-      new PdfError({
-        code: PdfErrorCodeValue.noAvailablePlacement,
-        retryable: false,
-        operation: PdfOperationValue.autoPlaceField,
-        reason: `Best-guess placement found no page ${pageIndex} on document ${document.id}.`,
-      }),
-    );
-  }
+          const page =
+            valid.pageIndex === undefined
+              ? valid.page === PdfSignatureAutoPlacementPageValue.first
+                ? document.pages[0]
+                : document.pages[document.pages.length - 1]
+              : document.pages.find((candidate) => candidate.index === valid.pageIndex);
+          if (page === undefined) {
+            return Effect.fail(
+              new PdfError({
+                code: PdfErrorCodeValue.noAvailablePlacement,
+                retryable: false,
+                operation: PdfOperationValue.autoPlaceField,
+                reason: `Best-guess placement found no selected page on document ${document.id}.`,
+              }),
+            );
+          }
 
-  const margin = input.margin ?? 48;
-  if (margin < 0) {
-    return Effect.fail(
-      new PdfError({
-        code: PdfErrorCodeValue.invalidBuilderInput,
-        retryable: false,
-        operation: PdfOperationValue.autoPlaceField,
-        schemaName: PdfSchemaNameValue.pdfSignatureAutoPlacementInput,
-        reason: "Best-guess placement margin must be non-negative.",
-      }),
-    );
-  }
-
-  return Effect.succeed({
-    documentId: input.documentId,
-    pageIndex: page.index,
-    x: Math.max(input.draft.width / 2, page.width - margin - input.draft.width / 2),
-    y: Math.max(input.draft.height / 2, page.height - margin - input.draft.height / 2),
-    draft: input.draft,
-    anchor: PdfSignaturePlacementAnchorValue.center,
-  });
-};
+          const margin = valid.margin ?? 48;
+          return Effect.succeed({
+            documentId: valid.documentId,
+            pageIndex: page.index,
+            x: Math.max(valid.draft.width / 2, page.width - margin - valid.draft.width / 2),
+            y: Math.max(valid.draft.height / 2, page.height - margin - valid.draft.height / 2),
+            draft: valid.draft,
+            anchor: PdfSignaturePlacementAnchorValue.center,
+          });
+        }),
+      ),
+    ),
+  );
 
 export type PdfSignaturePlacementQueueItem = {
   readonly id: string;
@@ -355,13 +372,18 @@ export const placePdfSignatureFieldsBatch = (
   callbacks: PdfSignaturePlacementBatchCallbacks = {},
 ): Effect.Effect<ReadonlyArray<PdfSignaturePlacementBatchResult>, never> =>
   Effect.forEach(items, (item, index) =>
-    Effect.sync(() => callbacks.onItemStarted?.(item, index, items.length)).pipe(
+    Effect.exit(Effect.sync(() => callbacks.onItemStarted?.(item, index, items.length))).pipe(
+      Effect.asVoid,
       Effect.flatMap(() => placePdfSignatureQueueItem(item)),
       Effect.tap((result) =>
-        Effect.sync(() => callbacks.onItemSettled?.(result, index, items.length)),
+        Effect.exit(Effect.sync(() => callbacks.onItemSettled?.(result, index, items.length))).pipe(
+          Effect.asVoid,
+        ),
       ),
-      Effect.tap(
-        (result) => callbacks.yieldAfterItem?.(result, index, items.length) ?? Effect.void,
+      Effect.tap((result) =>
+        Effect.suspend(
+          () => callbacks.yieldAfterItem?.(result, index, items.length) ?? Effect.void,
+        ).pipe(Effect.exit, Effect.asVoid),
       ),
     ),
   );

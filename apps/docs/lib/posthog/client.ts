@@ -11,8 +11,7 @@ import {
 const POSTHOG_PROJECT_TOKEN = process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
 const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";
 
-const POSTHOG_CONFIGURED =
-  POSTHOG_PROJECT_TOKEN !== undefined && POSTHOG_PROJECT_TOKEN.length > 0;
+const POSTHOG_CONFIGURED = POSTHOG_PROJECT_TOKEN !== undefined && POSTHOG_PROJECT_TOKEN.length > 0;
 
 const enrichEvent = (event: CaptureResult | null): CaptureResult | null => {
   if (event === null) return null;

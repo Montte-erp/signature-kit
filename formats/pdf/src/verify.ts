@@ -1,15 +1,33 @@
 import type { CmsError } from "@signature-kit/cms/config";
 import { verifyDetachedSignedData } from "@signature-kit/cms/verify";
-import { Effect } from "effect";
-import { extractPdfSignatureAtOffset, findPdfByteRangeOffsets } from "./byte-range";
-import { PdfError } from "./config";
+import { Effect, Schema } from "effect";
+import { forEachPdfSignature } from "./byte-range";
+import {
+  PdfError,
+  PdfErrorCodeValue,
+  PdfOperationValue,
+  PdfSchemaNameValue,
+  PdfVerificationRequestSchema,
+} from "./config";
 import type { PdfVerificationRequest, PdfVerificationResult } from "./config";
 
 export const verifyPdf = (
   input: PdfVerificationRequest,
 ): Effect.Effect<PdfVerificationResult, PdfError | CmsError> =>
   Effect.gen(function* () {
-    const offsets = yield* findPdfByteRangeOffsets(input.pdf);
+    const request = yield* Schema.decodeUnknownEffect(PdfVerificationRequestSchema)(input).pipe(
+      Effect.mapError(
+        (issue) =>
+          new PdfError({
+            code: PdfErrorCodeValue.invalidBuilderInput,
+            retryable: false,
+            operation: PdfOperationValue.verify,
+            schemaName: PdfSchemaNameValue.pdfVerificationRequest,
+            reason: "PDF verification request failed schema validation.",
+            issueMessage: String(issue),
+          }),
+      ),
+    );
 
     let coverageValid = true;
     let cryptoValid = true;
@@ -17,34 +35,36 @@ export const verifyPdf = (
     let revocationStatus: PdfVerificationResult["revocationStatus"] = "checked";
     let signerSerialNumber: PdfVerificationResult["signerSerialNumber"] = null;
     let byteRange: PdfVerificationResult["byteRange"] = [0, 0, 0, 0];
-    let index = 0;
+    let signatureCount = 0;
+    yield* forEachPdfSignature(request.pdf, (extracted, index, total) =>
+      Effect.gen(function* () {
+        signatureCount += 1;
+        const isNewest = index === total - 1;
+        if (!extracted.startsAtZero) coverageValid = false;
+        if (isNewest) {
+          if (!extracted.coversFileEnd) coverageValid = false;
+          byteRange = extracted.byteRange;
+        }
+        const cmsResult = yield* verifyDetachedSignedData({
+          cms: extracted.signature,
+          content: extracted.signedData,
+          trustedRoots: request.trustedRoots,
+        });
+        if (!cmsResult.valid) cryptoValid = false;
+        if (!cmsResult.chainValid) chainValid = false;
+        if (cmsResult.revocationStatus === "not_checked") revocationStatus = "not_checked";
+        signerSerialNumber = cmsResult.signerSerialNumber;
+      }),
+    );
 
-    for (const offset of offsets) {
-      index += 1;
-      const extracted = yield* extractPdfSignatureAtOffset(input.pdf, offset, offsets.length);
-      if (!extracted.startsAtZero) coverageValid = false;
-      if (index === offsets.length) {
-        if (!extracted.coversFileEnd) coverageValid = false;
-        byteRange = extracted.byteRange;
-      }
-      const cmsResult = yield* verifyDetachedSignedData({
-        cms: extracted.signature,
-        content: extracted.signedData,
-        trustedRoots: input.trustedRoots,
-      });
-      if (!cmsResult.valid) cryptoValid = false;
-      if (!cmsResult.chainValid) chainValid = false;
-      if (cmsResult.revocationStatus === "not_checked") revocationStatus = "not_checked";
-      signerSerialNumber = cmsResult.signerSerialNumber;
-    }
-
-    const valid = cryptoValid && coverageValid && (input.trustedRoots === undefined || chainValid);
+    const valid =
+      cryptoValid && coverageValid && (request.trustedRoots === undefined || chainValid);
 
     return {
       valid,
       chainValid,
       revocationStatus,
-      signatureCount: offsets.length,
+      signatureCount,
       byteRange,
       signerSerialNumber,
     };

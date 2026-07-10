@@ -18,6 +18,11 @@ export const SignatureHttpBodySchema = Schema.Union([
 ]);
 export type SignatureHttpBody = (typeof SignatureHttpBodySchema)["Type"];
 
+const SignatureHttpTimeoutMillisSchema = Schema.Number.check(
+  Schema.isFinite(),
+  Schema.isGreaterThanOrEqualTo(0),
+);
+
 export const SignatureHttpRequestSchema = Schema.Struct({
   method: SignatureHttpMethodSchema,
   url: Schema.NonEmptyString,
@@ -26,9 +31,19 @@ export const SignatureHttpRequestSchema = Schema.Struct({
   diagnosticUrl: Schema.optional(Schema.NonEmptyString),
   body: Schema.optional(SignatureHttpBodySchema),
   acceptedStatuses: Schema.optional(Schema.Array(Schema.Number)),
-  timeoutMillis: Schema.optional(Schema.Number),
+  timeoutMillis: Schema.optional(SignatureHttpTimeoutMillisSchema),
 });
 export type SignatureHttpRequest = (typeof SignatureHttpRequestSchema)["Type"];
+
+export const SignatureHttpJsonResponseSchema = <Body extends Schema.Top>(body: Body) =>
+  Schema.Struct({
+    status: Schema.Number,
+    body,
+  });
+export type SignatureHttpJsonResponse<A> = Schema.Struct.Type<{
+  readonly status: typeof Schema.Number;
+  readonly body: Schema.Schema<A>;
+}>;
 
 const diagnosticRequestUrl = (request: SignatureHttpRequest): string =>
   request.diagnosticUrl ?? request.url;
@@ -38,6 +53,11 @@ const isRetryableMethod = (method: SignatureHttpMethod): boolean =>
 
 export type SignatureHttpClientService = {
   readonly requestJson: <A>(
+    request: SignatureHttpRequest,
+    schema: Schema.ConstraintDecoder<A>,
+    schemaName: string,
+  ) => Effect.Effect<A, SignatureKitError>;
+  readonly requestJsonResponse: <A extends SignatureHttpJsonResponse<unknown>>(
     request: SignatureHttpRequest,
     schema: Schema.ConstraintDecoder<A>,
     schemaName: string,
@@ -75,11 +95,16 @@ const retryAfterEpochSeconds = (response: Response): number | undefined => {
       return reset < nowSeconds ? nowSeconds : reset;
     }
   }
-  const retryAfter = Number(response.headers.get("retry-after"));
-  if (Number.isFinite(retryAfter) && retryAfter > 0) {
-    return nowSeconds + retryAfter;
+  const retryAfter = response.headers.get("retry-after");
+  if (retryAfter === null || retryAfter.length === 0) return undefined;
+  const retryAfterSeconds = Number(retryAfter);
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
+    return nowSeconds + retryAfterSeconds;
   }
-  return undefined;
+  const retryAfterDateMillis = Date.parse(retryAfter);
+  return Number.isFinite(retryAfterDateMillis)
+    ? Math.max(nowSeconds, Math.floor(retryAfterDateMillis / 1000))
+    : undefined;
 };
 
 const RequestAbortSchema = Schema.Struct({
@@ -147,6 +172,7 @@ const transport = <A>(
 ): Effect.Effect<TransportResponse<A>, SignatureKitError> =>
   Effect.suspend(() => {
     let response: Response | undefined;
+    let statusResponse: Response | undefined;
     let bodyFailureReason = `Failed to read ${request.method} ${diagnosticRequestUrl(request)} response body.`;
     return Effect.tryPromise({
       try: (signal): Promise<TransportResult<A>> => {
@@ -172,6 +198,7 @@ const transport = <A>(
                 body: await readAcceptedBody(nextResponse),
               };
             }
+            statusResponse = nextResponse;
             return {
               _tag: "HttpStatus",
               response: nextResponse,
@@ -190,28 +217,41 @@ const transport = <A>(
           },
         );
       },
-      catch: () =>
-        new SignatureKitError({
+      catch: () => {
+        const resetAt =
+          statusResponse === undefined ? undefined : retryAfterEpochSeconds(statusResponse);
+        return new SignatureKitError({
           code: SignatureKitErrorCodeValue.http,
-          retryable: isRetryableMethod(request.method),
+          retryable:
+            statusResponse === undefined
+              ? isRetryableMethod(request.method)
+              : isRetryableStatus(request.method, statusResponse.status),
           provider: request.provider,
           operation: SignatureKitOperationValue.httpRequest,
           ...(response === undefined ? {} : { status: response.status }),
+          ...(resetAt === undefined ? {} : { retryAfterEpochSeconds: resetAt }),
           reason:
             response === undefined
               ? `Failed to call ${request.method} ${diagnosticRequestUrl(request)}.`
               : bodyFailureReason,
-        }),
+        });
+      },
     }).pipe(
       Effect.flatMap((result) => {
         if (Schema.is(RequestAbortSchema)(result)) {
+          const resetAt =
+            statusResponse === undefined ? undefined : retryAfterEpochSeconds(statusResponse);
           return Effect.fail(
             new SignatureKitError({
               code: SignatureKitErrorCodeValue.http,
-              retryable: isRetryableMethod(request.method),
+              retryable:
+                statusResponse === undefined
+                  ? isRetryableMethod(request.method)
+                  : isRetryableStatus(request.method, statusResponse.status),
               provider: request.provider,
               operation: SignatureKitOperationValue.httpRequest,
               ...(response === undefined ? {} : { status: response.status }),
+              ...(resetAt === undefined ? {} : { retryAfterEpochSeconds: resetAt }),
               reason: result.timedOut
                 ? `Request ${request.method} ${diagnosticRequestUrl(request)} timed out after ${request.timeoutMillis} ms.`
                 : `Request ${request.method} ${diagnosticRequestUrl(request)} was aborted.`,
@@ -239,6 +279,51 @@ const transport = <A>(
       }),
     );
   });
+
+const JsonUnknownSchema = Schema.fromJsonString(Schema.Unknown);
+
+const decodeJsonEnvelope = <A extends SignatureHttpJsonResponse<unknown>>(
+  request: SignatureHttpRequest,
+  response: Response,
+  body: string,
+  schema: Schema.ConstraintDecoder<A>,
+  schemaName: string,
+): Effect.Effect<A, SignatureKitError> =>
+  Schema.decodeUnknownEffect(JsonUnknownSchema)(body).pipe(
+    Effect.mapError(
+      (issue) =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.responseShape,
+          retryable: false,
+          provider: request.provider,
+          operation: SignatureKitOperationValue.httpDecode,
+          status: response.status,
+          schemaName,
+          reason: `Failed to decode ${request.method} ${diagnosticRequestUrl(request)} JSON response.`,
+          issueMessage: String(issue),
+        }),
+    ),
+    Effect.flatMap((decodedBody) =>
+      Schema.decodeUnknownEffect(schema)({
+        status: response.status,
+        body: decodedBody,
+      }).pipe(
+        Effect.mapError(
+          (issue) =>
+            new SignatureKitError({
+              code: SignatureKitErrorCodeValue.responseShape,
+              retryable: false,
+              provider: request.provider,
+              operation: SignatureKitOperationValue.httpDecode,
+              status: response.status,
+              schemaName,
+              reason: `Failed to decode ${request.method} ${diagnosticRequestUrl(request)} JSON response.`,
+              issueMessage: String(issue),
+            }),
+        ),
+      ),
+    ),
+  );
 
 export const signatureHttpClientLive: Layer.Layer<SignatureHttpClient> = Layer.succeed(
   SignatureHttpClient,
@@ -281,6 +366,34 @@ export const signatureHttpClientLive: Layer.Layer<SignatureHttpClient> = Layer.s
                     }),
                 ),
               ),
+            ),
+          ),
+        ),
+      ),
+    requestJsonResponse: <A extends SignatureHttpJsonResponse<unknown>>(
+      request: SignatureHttpRequest,
+      schema: Schema.ConstraintDecoder<A>,
+      schemaName: string,
+    ) =>
+      Schema.decodeUnknownEffect(SignatureHttpRequestSchema)(request).pipe(
+        Effect.mapError(
+          (issue) =>
+            new SignatureKitError({
+              code: SignatureKitErrorCodeValue.invalidInput,
+              retryable: false,
+              operation: SignatureKitOperationValue.schemaDecode,
+              schemaName: "SignatureHttpRequest",
+              issueMessage: String(issue),
+            }),
+        ),
+        Effect.flatMap((valid) =>
+          transport(
+            valid,
+            (response) => response.text(),
+            `Failed to read ${valid.method} ${diagnosticRequestUrl(valid)} response body.`,
+          ).pipe(
+            Effect.flatMap(({ response, body }) =>
+              decodeJsonEnvelope(valid, response, body, schema, schemaName),
             ),
           ),
         ),

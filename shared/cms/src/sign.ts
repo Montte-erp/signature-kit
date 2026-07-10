@@ -3,7 +3,6 @@ import { Effect, Schema } from "effect";
 import * as pkijs from "pkijs";
 import { buildSignedAttributes } from "./attributes";
 import {
-  type CreateDetachedSignedDataInput,
   CreateDetachedSignedDataInputSchema,
   CmsError,
   CmsErrorCodeValue,
@@ -11,6 +10,7 @@ import {
   CmsOperationValue,
   webCryptoHashName,
 } from "./config";
+import type { CreateDetachedSignedDataInput } from "./config";
 import { digest, toArrayBuffer, toBufferSource } from "./engine";
 import { requestTimestamp } from "./timestamp";
 
@@ -42,6 +42,16 @@ export const createDetachedSignedData = (
         }),
     });
 
+    const embeddedCertificateDer = yield* Effect.try({
+      try: () => new Uint8Array(certificate.toSchema().toBER(false)),
+      catch: () =>
+        new CmsError({
+          code: CmsErrorCodeValue.encodeError,
+          reason: "Failed to serialize the signer certificate for CMS embedding.",
+          operation: CmsOperationValue.encode,
+        }),
+    });
+
     const chain = yield* Effect.try({
       try: () => (valid.chainDer ?? []).map((der) => pkijs.Certificate.fromBER(toArrayBuffer(der))),
       catch: () =>
@@ -53,7 +63,7 @@ export const createDetachedSignedData = (
     });
 
     const [messageDigest, certificateSha256] = yield* Effect.all(
-      [digest(hashAlgorithm, valid.content), digest("sha256", valid.certificateDer)],
+      [digest(hashAlgorithm, valid.content), digest("sha256", embeddedCertificateDer)],
       { concurrency: "unbounded" },
     );
 
@@ -122,6 +132,7 @@ export const createDetachedSignedData = (
       const tokenDer = yield* requestTimestamp({
         data: signatureValue,
         tsaUrl: valid.timestamp.tsaUrl,
+        trustedRoots: valid.timestamp.trustedRoots,
         hashAlgorithm: valid.timestamp.hashAlgorithm ?? "sha256",
         timeoutMillis: valid.timestamp.timeoutMillis,
       });

@@ -1,4 +1,5 @@
-import { decode, encode, oidString, type Asn1Error, type Asn1Node } from "@signature-kit/asn1";
+import { decode, encode, oidString } from "@signature-kit/asn1";
+import type { Asn1Error, Asn1Node } from "@signature-kit/asn1";
 import type { CryptoError } from "@signature-kit/crypto/config";
 import { derToPem } from "@signature-kit/crypto/pem";
 import { parsePkcs12 } from "@signature-kit/crypto/pkcs12";
@@ -10,11 +11,10 @@ import {
   SignatureKitError,
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
-  type BrazilianFields,
-  type Certificate,
-  type SignerIdentity,
 } from "@signature-kit/signatures";
-import { Effect, Redacted, Schema } from "effect";
+import type { BrazilianFields, Certificate, SignerIdentity } from "@signature-kit/signatures";
+import type { Redacted } from "effect";
+import { Effect, Schema } from "effect";
 
 const OID_COMMON_NAME = "2.5.4.3";
 const OID_COUNTRY = "2.5.4.6";
@@ -240,14 +240,37 @@ const extractCnpj = (raw: string): string | null => {
 };
 
 const extractCpf = (raw: string): string | null => {
-  const labelled = raw.match(/CPF[:\s=]+(\d{11})/i);
-  return labelled?.[1] ?? null;
+  const labelled = raw.match(/(?:^|[^A-Za-z0-9])CPF[:\s=]+([\d./-]+)(?=$|[,\s])/i);
+  const digits = labelled?.[1]?.replace(/\D/g, "") ?? null;
+  return digits !== null && digits.length === 11 ? digits : null;
 };
 
 const utf16BeDecoder = new TextDecoder("utf-16be");
+
+const decodeUniversalString = (bytes: Uint8Array): string => {
+  let decoded = "";
+  let offset = 0;
+  while (offset + 3 < bytes.length) {
+    const codePoint =
+      (bytes[offset] ?? 0) * 0x1000000 +
+      (bytes[offset + 1] ?? 0) * 0x10000 +
+      (bytes[offset + 2] ?? 0) * 0x100 +
+      (bytes[offset + 3] ?? 0);
+    decoded +=
+      codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)
+        ? "\uFFFD"
+        : String.fromCodePoint(codePoint);
+    offset += 4;
+  }
+  return offset === bytes.length ? decoded : `${decoded}\uFFFD`;
+};
+
 const decodeDirectoryValue = (valueNode: Asn1Node): string => {
   if (valueNode.tag === 0x1e && valueNode.kind === "primitive") {
     return valueNode.bytes.length === 0 ? "" : utf16BeDecoder.decode(valueNode.bytes);
+  }
+  if (valueNode.tag === 0x1c && valueNode.kind === "primitive") {
+    return decodeUniversalString(valueNode.bytes);
   }
   return valueNode.kind === "primitive" ? decodeText(valueNode.bytes) : "";
 };
@@ -299,11 +322,17 @@ const parseName = (
         if (atav.kind !== "constructed" || atav.children.length < 2) continue;
         const oidNode = atav.children[0];
         const valueNode = atav.children[1];
-        if (oidNode === undefined || oidNode.kind !== "primitive") continue;
-        if (valueNode === undefined) continue;
+        if (
+          oidNode === undefined ||
+          oidNode.kind !== "primitive" ||
+          oidNode.tag !== 0x06 ||
+          valueNode === undefined
+        ) {
+          continue;
+        }
         const oid = yield* oidString(oidNode);
-        const short = oidToShortName(oid);
-        if (short !== null) result[short] = decodeDirectoryValue(valueNode);
+        const key = oidToShortName(oid) ?? oid;
+        result[key] = decodeDirectoryValue(valueNode);
       }
     }
     return result;
@@ -346,6 +375,10 @@ const parseTimeWithZone = (text: string, yearDigits: 2 | 4): Date | null => {
     return null;
   }
 
+  if (month < 1 || month > 12 || day < 1 || hour > 23 || minute > 59 || second > 59) {
+    return null;
+  }
+
   const year =
     yearDigits === 2
       ? (() => {
@@ -354,6 +387,15 @@ const parseTimeWithZone = (text: string, yearDigits: 2 | 4): Date | null => {
         })()
       : toNumber(yearRaw);
   if (year === null) return null;
+  const maxDay =
+    month === 2
+      ? year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+        ? 29
+        : 28
+      : month === 4 || month === 6 || month === 9 || month === 11
+        ? 30
+        : 31;
+  if (day > maxDay) return null;
 
   let offsetMinutes = 0;
   if (zoneRaw !== undefined && zoneRaw !== "" && zoneRaw !== "Z") {
@@ -362,7 +404,13 @@ const parseTimeWithZone = (text: string, yearDigits: 2 | 4): Date | null => {
     const zoneMinutesText = zoneRaw.substring(3, 5);
     const zoneHours = toNumber(zoneHoursText);
     const zoneMin = toNumber(zoneMinutesText);
-    if (zoneHours === null || zoneMin === null || (zoneSign !== "+" && zoneSign !== "-")) {
+    if (
+      zoneHours === null ||
+      zoneMin === null ||
+      zoneHours > 23 ||
+      zoneMin > 59 ||
+      (zoneSign !== "+" && zoneSign !== "-")
+    ) {
       return null;
     }
     const zoneTotal = zoneHours * 60 + zoneMin;
@@ -457,6 +505,38 @@ const parseOtherName = (
     return `${label}=${normalized === "" ? value : normalized}`;
   });
 
+const formatIpAddress = (bytes: Uint8Array): string | null => {
+  if (bytes.length === 4) return bytes.join(".");
+  if (bytes.length !== 16) return null;
+
+  const groups: number[] = [];
+  for (let offset = 0; offset < bytes.length; offset += 2) {
+    groups.push((bytes[offset] ?? 0) * 0x100 + (bytes[offset + 1] ?? 0));
+  }
+
+  let longestZeroStart = -1;
+  let longestZeroLength = 0;
+  let zeroRunStart = -1;
+  for (let index = 0; index < groups.length; index++) {
+    if (groups[index] === 0) {
+      if (zeroRunStart === -1) zeroRunStart = index;
+      const zeroRunLength = index - zeroRunStart + 1;
+      if (zeroRunLength > longestZeroLength) {
+        longestZeroStart = zeroRunStart;
+        longestZeroLength = zeroRunLength;
+      }
+    } else {
+      zeroRunStart = -1;
+    }
+  }
+
+  const formattedGroups = groups.map((group) => group.toString(16));
+  if (longestZeroLength < 2) return formattedGroups.join(":");
+  const before = formattedGroups.slice(0, longestZeroStart).join(":");
+  const after = formattedGroups.slice(longestZeroStart + longestZeroLength).join(":");
+  return `${before}::${after}`;
+};
+
 const parseGeneralName = (
   node: Asn1Node,
 ): Effect.Effect<string | null, SignatureKitError | Asn1Error> =>
@@ -466,6 +546,8 @@ const parseGeneralName = (
     }
     if (node.tag === 0) return yield* parseOtherName(node);
     if (node.kind === "primitive") {
+      if (node.tag === 7) return formatIpAddress(node.bytes);
+      if (node.tag === 8) return yield* oidString(node);
       const value = decodeText(node.bytes);
       if (value === "") return null;
       if (node.tag === 1) return `email=${value}`;
@@ -474,7 +556,9 @@ const parseGeneralName = (
       return value;
     }
     if (node.tag === 4) {
-      const raw = formatDN(yield* parseName(node));
+      const nameNode = node.children[0];
+      if (nameNode === undefined) return null;
+      const raw = formatDN(yield* parseName(nameNode));
       return raw === "" ? null : raw;
     }
     return null;
@@ -563,17 +647,31 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
 
     const issuerNode = tbs[idx];
     idx++;
-    if (issuerNode === undefined) {
+    if (
+      issuerNode === undefined ||
+      issuerNode.kind !== "constructed" ||
+      issuerNode.children.length === 0
+    ) {
       return yield* Effect.fail(
         new SignatureKitError({
           code: SignatureKitErrorCodeValue.x509ParseFailed,
           retryable: false,
-          reason: "Missing issuer.",
+          reason: "Missing or invalid issuer.",
           operation: SignatureKitOperationValue.x509Parse,
         }),
       );
     }
     const issuer = yield* parseName(issuerNode);
+    if (formatDN(issuer) === "") {
+      return yield* Effect.fail(
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.x509ParseFailed,
+          retryable: false,
+          reason: "Missing or invalid issuer.",
+          operation: SignatureKitOperationValue.x509Parse,
+        }),
+      );
+    }
 
     const validityNode = tbs[idx];
     idx++;

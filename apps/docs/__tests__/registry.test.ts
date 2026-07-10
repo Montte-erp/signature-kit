@@ -8,12 +8,10 @@ import { describe, expect, it } from "vitest";
 const RegistryCatalogItemSchema = Schema.Struct({
   dependencies: Schema.optional(Schema.Array(Schema.String)),
 });
-type RegistryCatalogItem = (typeof RegistryCatalogItemSchema)["Type"];
 
 const PackageJsonSchema = Schema.Struct({
   dependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
 });
-type PackageJson = (typeof PackageJsonSchema)["Type"];
 
 type ImportDeclarationSummary = {
   specifier: string;
@@ -22,7 +20,10 @@ type ImportDeclarationSummary = {
 
 const docsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-const componentPath = resolve(docsRoot, "registry/default/signature-pdf-viewer/signature-pdf-viewer.tsx");
+const componentPath = resolve(
+  docsRoot,
+  "registry/default/signature-pdf-viewer/signature-pdf-viewer.tsx",
+);
 const itemPath = resolve(docsRoot, "public/r/signature-pdf-viewer.json");
 const packagePath = resolve(docsRoot, "package.json");
 const buildRegistryPath = resolve(docsRoot, "scripts/build-registry.ts");
@@ -95,7 +96,8 @@ const extractImports = (source: string): ReadonlyArray<ImportDeclarationSummary>
 
 const normalizeText = (expression: ts.Expression | undefined): string | undefined => {
   if (expression === undefined) return undefined;
-  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text;
+  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression))
+    return expression.text;
   return undefined;
 };
 
@@ -126,7 +128,13 @@ const unwrapExpression = (node: ts.Expression): ts.Expression => {
 };
 
 const extractBuildRegistryDependencies = (source: string): ReadonlyArray<string> => {
-  const sourceFile = ts.createSourceFile("build-registry.ts", source, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS);
+  const sourceFile = ts.createSourceFile(
+    "build-registry.ts",
+    source,
+    ts.ScriptTarget.ESNext,
+    true,
+    ts.ScriptKind.TS,
+  );
 
   for (const statement of sourceFile.statements) {
     if (!ts.isVariableStatement(statement)) continue;
@@ -139,7 +147,7 @@ const extractBuildRegistryDependencies = (source: string): ReadonlyArray<string>
       if (!ts.isObjectLiteralExpression(initializer)) continue;
 
       const items = extractObjectProperty(initializer, "items");
-      if (!ts.isArrayLiteralExpression(items)) continue;
+      if (items === undefined || !ts.isArrayLiteralExpression(items)) continue;
 
       for (const item of items.elements) {
         if (!ts.isObjectLiteralExpression(item)) continue;
@@ -148,7 +156,11 @@ const extractBuildRegistryDependencies = (source: string): ReadonlyArray<string>
         if (name !== "signature-pdf-viewer") continue;
 
         const dependenciesExpression = extractObjectProperty(item, "dependencies");
-        if (!ts.isArrayLiteralExpression(dependenciesExpression)) return [];
+        if (
+          dependenciesExpression === undefined ||
+          !ts.isArrayLiteralExpression(dependenciesExpression)
+        )
+          return [];
 
         const deps: string[] = [];
         for (const dep of dependenciesExpression.elements) {
@@ -173,7 +185,9 @@ describe("registry dependency assertions for signature-pdf-viewer", () => {
     expect(reactPdfImport, "signature-pdf-viewer must import from react-pdf").toBeDefined();
     if (reactPdfImport === undefined) return;
 
-    expect(reactPdfImport.namedImports.includes("pdfjs"), "pdfjs must come from react-pdf").toBe(true);
+    expect(reactPdfImport.namedImports.includes("pdfjs"), "pdfjs must come from react-pdf").toBe(
+      true,
+    );
     expect(
       imports.some(
         (entry) => entry.specifier === "pdfjs-dist" || entry.specifier.startsWith("pdfjs-dist/"),
@@ -212,10 +226,12 @@ describe("registry dependency assertions for signature-pdf-viewer", () => {
     expect(declaredDependencies).toEqual(importedPackages);
 
     const effectVersion = packageJson.dependencies?.effect;
-    expect(effectVersion, "apps/docs must declare effect in package dependencies").toBeTypeOf("string");
+    expect(effectVersion, "apps/docs must declare effect in package dependencies").toBeTypeOf(
+      "string",
+    );
 
-    const effectEntry = (item.dependencies ?? []).find((dependency) =>
-      dependencyPackageName(dependency) === "effect",
+    const effectEntry = (item.dependencies ?? []).find(
+      (dependency) => dependencyPackageName(dependency) === "effect",
     );
     expect(effectEntry, "registry metadata must include effect").toBeDefined();
     if (effectVersion === "workspace:*") {
@@ -226,14 +242,19 @@ describe("registry dependency assertions for signature-pdf-viewer", () => {
   });
 
   it("build-registry script keeps signature-pdf-viewer effect pinned", async () => {
-    const [scriptRaw, packageRaw] = await Promise.all([readFile(buildRegistryPath, "utf8"), readFile(packagePath, "utf8")]);
+    const [scriptRaw, packageRaw] = await Promise.all([
+      readFile(buildRegistryPath, "utf8"),
+      readFile(packagePath, "utf8"),
+    ]);
     const packageJson = await Effect.runPromise(
       Schema.decodeUnknownEffect(PackageJsonSchema)(JSON.parse(packageRaw)),
     );
     const scriptDependencies = extractBuildRegistryDependencies(scriptRaw);
     const effectVersion = packageJson.dependencies?.effect;
 
-    expect(effectVersion, "apps/docs must declare effect in package dependencies").toBeTypeOf("string");
+    expect(effectVersion, "apps/docs must declare effect in package dependencies").toBeTypeOf(
+      "string",
+    );
     const effectDep = scriptDependencies.find(
       (dependency) => dependencyPackageName(dependency) === "effect",
     );

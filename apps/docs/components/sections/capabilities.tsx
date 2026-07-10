@@ -16,7 +16,6 @@ import { m } from "@/paraglide/messages";
 
 import { Container, Section, SectionHeading } from "./_shared";
 
-
 interface Capability {
   title: () => string;
   description: () => string;
@@ -76,11 +75,7 @@ export function Capabilities() {
     <Section>
       <Container>
         <FadeIn>
-          <SectionHeading
-            eyebrow={m.cap_eyebrow()}
-            title={m.cap_title()}
-            lead={m.cap_lead()}
-          />
+          <SectionHeading eyebrow={m.cap_eyebrow()} title={m.cap_title()} lead={m.cap_lead()} />
         </FadeIn>
 
         <div className="mt-10 grid gap-4 sm:grid-cols-2">

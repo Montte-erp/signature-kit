@@ -11,14 +11,12 @@ import {
 import { daysUntilExpiry, parseCertificate, toSignerIdentity } from "@signature-kit/certificates";
 import { pemToDer } from "@signature-kit/crypto/pem";
 import { Clock, Effect, Layer, Match, Redacted, Schema } from "effect";
-import {
-  A1RemoteFetchSchema,
-  A1RemoteSourceSchema,
-  A1SignerOptionsSchema,
-  type A1CertificateProfile,
-  type A1RemoteFetch,
-  type A1RemoteSource,
-  type A1SignerOptions,
+import { A1RemoteFetchSchema, A1RemoteSourceSchema, A1SignerOptionsSchema } from "./config";
+import type {
+  A1CertificateProfile,
+  A1RemoteFetch,
+  A1RemoteSource,
+  A1SignerOptions,
 } from "./config";
 
 const RSA_ALGORITHM_NAME = "RSASSA-PKCS1-v1_5";

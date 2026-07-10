@@ -1,5 +1,6 @@
 import * as React from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { createRoot } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import { describe, expect, it, afterEach } from "vitest";
 import { clearA1Certificate, clearA1Signer, useA1Signer } from "@signature-kit/react/a1";
 import type { A1SignerHook } from "@signature-kit/react/a1";

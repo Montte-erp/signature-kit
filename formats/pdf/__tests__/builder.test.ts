@@ -2,6 +2,7 @@ import { PDFDocument } from "@cantoo/pdf-lib";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Result, Schema } from "effect";
 import {
+  autoPlacePdfSignatureField,
   addPdfSignatureField,
   createPdfSignatureBuilderStateFromTemplate,
   createPdfSignatureTemplate,
@@ -9,21 +10,20 @@ import {
   pdfSignatureAppearanceFromField,
   placePdfSignatureField,
   validatePdfSignatureTemplate,
-} from "@signature-kit/pdf/builder";
+} from "../src/builder";
 import {
   createPdfSignatureBuilderStateFromBytes,
   createPdfSignatureTemplateFromBytes,
   loadPdfSignatureDocument,
   readPdfBlobBytes,
   signPdfSignatureBatch,
-} from "@signature-kit/pdf/workflow";
+} from "../src/workflow";
 import {
   PdfSigningInputSchema,
   PdfErrorCodeValue,
   PdfSignatureFieldTypeSchema,
-  type PdfSignatureTemplate,
-  type PdfSignatureTemplateInput,
-} from "@signature-kit/pdf/config";
+} from "../src/config";
+import type { PdfSignatureTemplate, PdfSignatureTemplateInput } from "../src/config";
 import { signaturesLayer } from "@signature-kit/signatures";
 import type { SignerAdapter } from "@signature-kit/signatures";
 
@@ -166,7 +166,11 @@ describe("PDF signature builder", () => {
         reason: "Licitei A1 browser signing",
         hashAlgorithm: "sha256",
         policy: "pades-icp-brasil",
-        timestamp: { tsaUrl: "https://tsa.example.test", timeoutMillis: 10_000 },
+        timestamp: {
+          tsaUrl: "https://tsa.example.test",
+          trustedRoots: [new Uint8Array([0x01])],
+          timeoutMillis: 10_000,
+        },
       });
 
       expect(decoded.policy).toBe("pades-icp-brasil");
@@ -201,6 +205,92 @@ describe("PDF signature builder", () => {
         height: 36,
       });
     }),
+  );
+
+  it.effect(
+    "clamps finite negative pointer coordinates and rejects invalid numeric placement input",
+    () =>
+      Effect.gen(function* () {
+        const template = yield* createPdfSignatureTemplate(templateInput());
+        const clamped = yield* placePdfSignatureField(template, {
+          documentId: "document-1",
+          pageIndex: 0,
+          x: -12,
+          y: -8,
+          draft: {
+            id: "negative-pointer",
+            type: "signature",
+            roleId: "signer-1",
+            width: 144,
+            height: 36,
+          },
+        });
+
+        expect(clamped.fields[0]?.rect).toMatchObject({ x: 0, y: 0 });
+
+        const invalidManualPlacements = [
+          { pageIndex: -1, x: 0, y: 0, width: 144, height: 36 },
+          { pageIndex: 0.5, x: 0, y: 0, width: 144, height: 36 },
+          { pageIndex: 0, x: Number.POSITIVE_INFINITY, y: 0, width: 144, height: 36 },
+          { pageIndex: 0, x: 0, y: Number.NaN, width: 144, height: 36 },
+          { pageIndex: 0, x: 0, y: 0, width: 0, height: 36 },
+          { pageIndex: 0, x: 0, y: 0, width: 144, height: -1 },
+        ];
+        for (const placement of invalidManualPlacements) {
+          const result = yield* Effect.result(
+            pdfSignatureFieldFromPlacement({
+              documentId: "document-1",
+              pageIndex: placement.pageIndex,
+              x: placement.x,
+              y: placement.y,
+              draft: {
+                id: "invalid-manual",
+                type: "signature",
+                roleId: "signer-1",
+                width: placement.width,
+                height: placement.height,
+              },
+            }),
+          );
+
+          expect(Result.isFailure(result)).toBe(true);
+          if (Result.isFailure(result)) {
+            expect(result.failure.code).toBe(PdfErrorCodeValue.invalidBuilderInput);
+          }
+        }
+
+        const invalidAutoPlacements = [
+          { pageIndex: -1, margin: 0, gap: 0 },
+          { pageIndex: 0.5, margin: 0, gap: 0 },
+          { pageIndex: 0, margin: -1, gap: 0 },
+          { pageIndex: 0, margin: Number.NaN, gap: 0 },
+          { pageIndex: 0, margin: 0, gap: -1 },
+          { pageIndex: 0, margin: 0, gap: Number.POSITIVE_INFINITY },
+        ];
+        for (const placement of invalidAutoPlacements) {
+          const result = yield* Effect.result(
+            autoPlacePdfSignatureField(template, {
+              documentId: "document-1",
+              pageIndex: placement.pageIndex,
+              slot: "top-left",
+              margin: placement.margin,
+              gap: placement.gap,
+              draft: {
+                id: "invalid-auto",
+                type: "signature",
+                roleId: "signer-1",
+                width: 144,
+                height: 36,
+              },
+            }),
+          );
+
+          expect(Result.isFailure(result)).toBe(true);
+          if (Result.isFailure(result)) {
+            expect(result.failure.code).toBe(PdfErrorCodeValue.invalidBuilderInput);
+          }
+        }
+      }),
   );
 
   it.effect("rejects fields outside the declared page", () =>

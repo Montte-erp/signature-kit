@@ -115,6 +115,36 @@ describe("workspace layer checks", () => {
     });
   });
 
+  it("checks app imports through package subpaths without requiring project references", async () => {
+    const root = await createTempWorkspace();
+    await writePackage(
+      root,
+      "shared/crypto",
+      "@signature-kit/crypto",
+      {},
+      [],
+      "export const pem = true;\n",
+    );
+    await mkdir(join(root, "apps/docs/app"), { recursive: true });
+    await writeJson(join(root, "apps/docs/package.json"), {
+      name: "@signature-kit/docs",
+      version: "0.0.0",
+      private: true,
+      type: "module",
+      dependencies: {},
+    });
+    await writeFile(
+      join(root, "apps/docs/app/page.ts"),
+      "import { pem } from '@signature-kit/crypto/pem';\nexport const value = pem;\n",
+    );
+
+    expect(collectWorkspaceLayerDiagnostics(root)).toContainEqual({
+      path: "apps/docs/app/page.ts",
+      message:
+        "@signature-kit/docs imports @signature-kit/crypto without declaring it in package.json.",
+    });
+  });
+
   it("requires package dependencies and tsconfig references to stay aligned", async () => {
     const root = await createTempWorkspace();
     await writePackage(

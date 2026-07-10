@@ -1,41 +1,46 @@
 import {
   PDFArray,
   PDFDocument,
+  PDFHexString,
   PDFName,
   PDFNumber,
-  PDFString,
   StandardFonts,
+  concatTransformationMatrix,
+  popGraphicsState,
+  pushGraphicsState,
   rgb,
-  type PDFFont,
-  type PDFPage,
-  type PDFImage,
-  type RGB,
 } from "@cantoo/pdf-lib";
+import type { PDFFont, PDFPage, PDFImage, RGB } from "@cantoo/pdf-lib";
 import qrcode from "qrcode-generator";
 import { Effect, Schema } from "effect";
+import { inflateZlibBounded } from "./byte-range";
 import {
-  type PdfCoordinateTuple,
-  type PdfLiteParseResult,
-  type PdfRubricInitialsTheme,
-  type PdfRubricPageStampInput,
-  type PdfRubricStamp,
-  type PdfSignatureBadge,
-  type PdfSignatureBadgeFooterSegment,
-  type PdfSignatureBadgeRowItem,
-  type PdfSignatureBadgeTheme,
-  type PdfSignaturePage,
-  type PdfSignatureRect,
-  type PdfStampSize,
-  type PdfTextBox,
-  type PdfVisibleStampQr,
-  type PdfVisibleStampInput,
   PdfError,
   PdfErrorCodeValue,
   PdfOperationValue,
   PdfRubricPageStampInputSchema,
   PdfRubricStampSchema,
   PdfSchemaNameValue,
-  PdfVisibleStampInputSchema,
+  PdfSignatureBadgeSchema,
+  PdfVisibleStampQrSchema,
+  PdfSignatureRectSchema,
+} from "./config";
+import type {
+  PdfCoordinateTuple,
+  PdfLiteParseResult,
+  PdfRubricInitialsTheme,
+  PdfRubricPageStampInput,
+  PdfRubricStamp,
+  PdfSignatureBadge,
+  PdfSignatureBadgeFooterSegment,
+  PdfSignatureBadgeRowItem,
+  PdfSignatureBadgeTheme,
+  PdfSignaturePage,
+  PdfSignatureRect,
+  PdfStampSize,
+  PdfTextBox,
+  PdfVisibleStampQr,
+  PdfVisibleStampInput,
 } from "./config";
 import { hasPdfByteRange } from "./byte-range";
 import { clampCoordinate } from "./placement";
@@ -51,6 +56,31 @@ const RUBRIC_INITIALS_DEFAULT_INK = "#1D4ED8";
 const PORTUGUESE_NAME_CONNECTORS = ["de", "da", "do", "dos", "das", "e"];
 const QR_QUIET_ZONE_MODULES = 4;
 const QR_TEXT_GAP_PT = 6;
+const MAX_PNG_INPUT_BYTES = 16 * 1024 * 1024;
+const MAX_PNG_PIXELS = 16 * 1024 * 1024;
+const MAX_PNG_DECOMPRESSED_BYTES = 64 * 1024 * 1024;
+const MAX_PNG_CHUNKS = 4096;
+type PngSignature = readonly [number, number, number, number, number, number, number, number];
+type PngChunkType = readonly [number, number, number, number];
+type PngAdam7Pass = readonly [startX: number, startY: number, stepX: number, stepY: number];
+
+const PNG_SIGNATURE: PngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
+const PNG_IHDR_END = 33;
+const PNG_IHDR_TYPE: PngChunkType = [73, 72, 68, 82];
+const PNG_IDAT_TYPE: PngChunkType = [73, 68, 65, 84];
+const PNG_IEND_TYPE: PngChunkType = [73, 69, 78, 68];
+const PNG_ACTL_TYPE: PngChunkType = [97, 99, 84, 76];
+const PNG_FCTL_TYPE: PngChunkType = [102, 99, 84, 76];
+const PNG_FDAT_TYPE: PngChunkType = [102, 100, 65, 84];
+const PNG_ADAM7_PASSES: readonly PngAdam7Pass[] = [
+  [0, 0, 8, 8],
+  [4, 0, 8, 8],
+  [0, 4, 4, 8],
+  [2, 0, 4, 4],
+  [0, 2, 2, 4],
+  [1, 0, 2, 2],
+  [0, 1, 1, 2],
+];
 
 type QrMatrix = {
   readonly moduleCount: number;
@@ -470,6 +500,47 @@ const drawBadgePadlock = (page: PDFPage, rect: PdfSignatureBadgeLayoutRect, colo
   );
 };
 
+const truncateBadgeTextToWidth = (
+  text: string,
+  font: PDFFont,
+  size: number,
+  maxWidth: number,
+): string => {
+  if (maxWidth <= 0) return "";
+  if (font.widthOfTextAtSize(text, size) <= maxWidth) return text;
+  const suffix = "...";
+  const suffixWidth = font.widthOfTextAtSize(suffix, size);
+  if (suffixWidth > maxWidth) return "";
+  const characters = Array.from(text);
+  let low = 0;
+  let high = characters.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (
+      font.widthOfTextAtSize(characters.slice(0, middle).join(""), size) <=
+      maxWidth - suffixWidth
+    ) {
+      low = middle;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return `${characters.slice(0, low).join("")}${suffix}`;
+};
+
+const footerLineSegmentAtSize = (
+  segment: PdfSignatureBadgeFooterSegment,
+  font: PDFFont,
+  size: number,
+  maxWidth: number,
+): FooterLineSegment => {
+  const text = truncateBadgeTextToWidth(segment.text, font, size, maxWidth);
+  return {
+    segment: text === segment.text ? segment : { ...segment, text },
+    width: font.widthOfTextAtSize(text, size),
+  };
+};
+
 const footerLinesAtSize = (
   footer: ReadonlyArray<PdfSignatureBadgeFooterSegment>,
   font: PDFFont,
@@ -481,13 +552,10 @@ const footerLinesAtSize = (
   let current: Array<FooterLineSegment> = [];
   let currentWidth = 0;
   for (const segment of footer) {
-    const measured: FooterLineSegment = {
-      segment,
-      width: font.widthOfTextAtSize(segment.text, size),
-    };
+    const measured = footerLineSegmentAtSize(segment, font, size, maxWidth);
     const gap = current.length === 0 ? 0 : separatorWidth;
     const projected = currentWidth + gap + measured.width;
-    if (current.length > 0 && projected > maxWidth && lines.length === 0) {
+    if (current.length > 0 && projected > maxWidth) {
       lines.push(current);
       current = [measured];
       currentWidth = measured.width;
@@ -613,17 +681,21 @@ const badgeHeaderLayout = (
   textWidth: number,
   boldFont: PDFFont,
 ): PdfSignatureBadgeHeaderLayout => {
-  const lockSize = headerSize * 0.86;
-  const gap = Math.max(1.8, headerSize * 0.22);
+  const availableWidth = Math.max(0, textWidth);
+  const lockSize = Math.min(headerSize * 0.86, availableWidth);
+  const gap =
+    lockSize === 0
+      ? 0
+      : Math.min(Math.max(1.8, headerSize * 0.22), Math.max(0, availableWidth - lockSize));
   const textX = textLeft + lockSize + gap;
-  const textActualWidth = boldFont.widthOfTextAtSize(badge.header.text, headerSize);
-  const textRect = textRunLayout(
+  const text = truncateBadgeTextToWidth(
     badge.header.text,
-    textX,
-    baseline,
-    Math.min(textActualWidth, Math.max(0, textWidth - lockSize - gap)),
+    boldFont,
     headerSize,
+    Math.max(0, availableWidth - lockSize - gap),
   );
+  const textWidthAtSize = boldFont.widthOfTextAtSize(text, headerSize);
+  const textRect = textRunLayout(text, textX, baseline, textWidthAtSize, headerSize);
   const padlock = {
     x: textLeft,
     y: baseline + headerSize * 0.05,
@@ -634,7 +706,7 @@ const badgeHeaderLayout = (
     rect: {
       x: textLeft,
       y: baseline,
-      width: Math.min(textWidth, lockSize + gap + textRect.rect.width),
+      width: lockSize + gap + textRect.rect.width,
       height: headerSize,
     },
     baseline,
@@ -654,6 +726,7 @@ const badgeRowsLayout = (
   regularFont: PDFFont,
 ): ReadonlyArray<PdfSignatureBadgeRowLayout> => {
   const rowLayouts: Array<PdfSignatureBadgeRowLayout> = [];
+  const textRight = textLeft + Math.max(0, textWidth);
   let baseline = firstBaseline;
   for (const row of rows) {
     let cursor = textLeft;
@@ -663,22 +736,34 @@ const badgeRowsLayout = (
       if (pair !== undefined) {
         let separator: PdfSignatureBadgeTextRunLayout | undefined;
         if (index > 0) {
-          const separatorWidth = regularFont.widthOfTextAtSize(BADGE_FOOTER_SEPARATOR, rowSize);
-          separator = textRunLayout(
+          const text = truncateBadgeTextToWidth(
             BADGE_FOOTER_SEPARATOR,
-            cursor,
-            baseline,
-            separatorWidth,
+            regularFont,
             rowSize,
+            Math.max(0, textRight - cursor),
           );
-          cursor += separatorWidth;
+          const width = regularFont.widthOfTextAtSize(text, rowSize);
+          separator =
+            text.length === 0 ? undefined : textRunLayout(text, cursor, baseline, width, rowSize);
+          cursor += width;
         }
-        const label = `${pair.label}: `;
+        const label = truncateBadgeTextToWidth(
+          `${pair.label}: `,
+          boldFont,
+          rowSize,
+          Math.max(0, textRight - cursor),
+        );
         const labelWidth = boldFont.widthOfTextAtSize(label, rowSize);
         const labelRun = textRunLayout(label, cursor, baseline, labelWidth, rowSize);
         cursor += labelWidth;
-        const valueWidth = regularFont.widthOfTextAtSize(pair.value, rowSize);
-        const valueRun = textRunLayout(pair.value, cursor, baseline, valueWidth, rowSize);
+        const value = truncateBadgeTextToWidth(
+          pair.value,
+          regularFont,
+          rowSize,
+          Math.max(0, textRight - cursor),
+        );
+        const valueWidth = regularFont.widthOfTextAtSize(value, rowSize);
+        const valueRun = textRunLayout(value, cursor, baseline, valueWidth, rowSize);
         cursor += valueWidth;
         items.push({ separator, label: labelRun, value: valueRun });
       }
@@ -687,7 +772,7 @@ const badgeRowsLayout = (
       rect: {
         x: textLeft,
         y: baseline,
-        width: Math.min(Math.max(0, cursor - textLeft), textWidth),
+        width: Math.max(0, cursor - textLeft),
         height: rowSize,
       },
       baseline,
@@ -961,7 +1046,7 @@ const addUriLinkAnnotation = (
     A: {
       Type: "Action",
       S: "URI",
-      URI: PDFString.of(uri),
+      URI: PDFHexString.fromText(uri),
     },
   });
   const annotationRef = pdfDoc.context.register(annotation);
@@ -1030,6 +1115,7 @@ const drawBadgeFooter = (
   layout: PdfSignatureBadgeLayout,
   regularFont: PDFFont,
   theme: ResolvedBadgeTheme,
+  pageCoordinateSystem: PdfVisiblePageCoordinateSystem,
 ): void => {
   if (layout.separator !== undefined) {
     page.drawLine({
@@ -1059,13 +1145,17 @@ const drawBadgeFooter = (
         });
       }
       if (item.annotation !== undefined && item.segment.link !== undefined) {
+        const [left, bottom, right, top] = pdfCoordinateTupleFromVisibleBottomLeftRect(
+          item.annotation,
+          pageCoordinateSystem,
+        );
         addUriLinkAnnotation(
           pdfDoc,
           page,
-          item.annotation.x,
-          item.annotation.y,
-          item.annotation.width,
-          item.annotation.height,
+          left,
+          bottom,
+          right - left,
+          top - bottom,
           item.segment.link,
         );
       }
@@ -1081,6 +1171,7 @@ const drawSignatureBadge = (
   regularFont: PDFFont,
   boldFont: PDFFont,
   qr: QrMatrix | undefined,
+  pageCoordinateSystem: PdfVisiblePageCoordinateSystem,
 ): void => {
   const theme = resolveBadgeTheme(badge.theme);
   page.drawSvgPath(
@@ -1099,15 +1190,182 @@ const drawSignatureBadge = (
   drawBadgePadlock(page, layout.header.padlock, theme.headerColor);
   drawBadgeTextRun(page, layout.header.text, boldFont, theme.headerColor);
   drawBadgeRows(page, layout, boldFont, regularFont, theme);
-  drawBadgeFooter(pdfDoc, page, layout, regularFont, theme);
+  drawBadgeFooter(pdfDoc, page, layout, regularFont, theme, pageCoordinateSystem);
+};
+
+export type PdfVisiblePageRect = {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+};
+
+type PdfVisiblePageCoordinateSystem = {
+  readonly cropBox: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
+  readonly rotation: 0 | 90 | 180 | 270;
+  readonly width: number;
+  readonly height: number;
+  readonly matrix: readonly [number, number, number, number, number, number];
+};
+
+const normalizedPageRotation = (page: PDFPage): 0 | 90 | 180 | 270 => {
+  const angle = ((page.getRotation().angle % 360) + 360) % 360;
+  if (angle === 90) return 90;
+  if (angle === 180) return 180;
+  if (angle === 270) return 270;
+  return 0;
+};
+
+const visiblePageCoordinateSystem = (page: PDFPage): PdfVisiblePageCoordinateSystem => {
+  const cropBox = page.getCropBox();
+  const rotation = normalizedPageRotation(page);
+  if (rotation === 90) {
+    return {
+      cropBox,
+      rotation,
+      width: cropBox.height,
+      height: cropBox.width,
+      matrix: [0, 1, -1, 0, cropBox.x + cropBox.width, cropBox.y],
+    };
+  }
+  if (rotation === 180) {
+    return {
+      cropBox,
+      rotation,
+      width: cropBox.width,
+      height: cropBox.height,
+      matrix: [-1, 0, 0, -1, cropBox.x + cropBox.width, cropBox.y + cropBox.height],
+    };
+  }
+  if (rotation === 270) {
+    return {
+      cropBox,
+      rotation,
+      width: cropBox.height,
+      height: cropBox.width,
+      matrix: [0, -1, 1, 0, cropBox.x, cropBox.y + cropBox.height],
+    };
+  }
+  return {
+    cropBox,
+    rotation,
+    width: cropBox.width,
+    height: cropBox.height,
+    matrix: [1, 0, 0, 1, cropBox.x, cropBox.y],
+  };
+};
+
+export const visiblePdfPageSize = (
+  page: PDFPage,
+): { readonly width: number; readonly height: number } => {
+  const { width, height } = visiblePageCoordinateSystem(page);
+  return { width, height };
+};
+
+const isIdentityPageCoordinateSystem = (
+  coordinateSystem: PdfVisiblePageCoordinateSystem,
+): boolean =>
+  coordinateSystem.matrix[0] === 1 &&
+  coordinateSystem.matrix[1] === 0 &&
+  coordinateSystem.matrix[2] === 0 &&
+  coordinateSystem.matrix[3] === 1 &&
+  coordinateSystem.matrix[4] === 0 &&
+  coordinateSystem.matrix[5] === 0;
+
+const pdfCoordinateTupleFromVisibleBottomLeftRect = (
+  rect: PdfVisiblePageRect,
+  coordinateSystem: PdfVisiblePageCoordinateSystem,
+): PdfCoordinateTuple => {
+  const { x, y, width, height } = rect;
+  const cropBox = coordinateSystem.cropBox;
+  switch (coordinateSystem.rotation) {
+    case 90:
+      return [
+        cropBox.x + cropBox.width - y - height,
+        cropBox.y + x,
+        cropBox.x + cropBox.width - y,
+        cropBox.y + x + width,
+      ];
+    case 180:
+      return [
+        cropBox.x + cropBox.width - x - width,
+        cropBox.y + cropBox.height - y - height,
+        cropBox.x + cropBox.width - x,
+        cropBox.y + cropBox.height - y,
+      ];
+    case 270:
+      return [
+        cropBox.x + y,
+        cropBox.y + cropBox.height - x - width,
+        cropBox.x + y + height,
+        cropBox.y + cropBox.height - x,
+      ];
+    case 0:
+      return [cropBox.x + x, cropBox.y + y, cropBox.x + x + width, cropBox.y + y + height];
+  }
 };
 
 export const pdfCoordinateTupleFromTopLeftRect = (
   rect: PdfSignatureRect,
-  pageHeight: number,
+  page: number | PDFPage,
 ): PdfCoordinateTuple => {
-  const bottom = pageHeight - rect.y - rect.height;
-  return [rect.x, bottom, rect.x + rect.width, bottom + rect.height];
+  if (typeof page === "number") {
+    const bottom = page - rect.y - rect.height;
+    return [rect.x, bottom, rect.x + rect.width, bottom + rect.height];
+  }
+  const coordinateSystem = visiblePageCoordinateSystem(page);
+  return pdfCoordinateTupleFromVisibleBottomLeftRect(
+    {
+      x: rect.x,
+      y: coordinateSystem.height - rect.y - rect.height,
+      width: rect.width,
+      height: rect.height,
+    },
+    coordinateSystem,
+  );
+};
+
+export const topLeftRectFromPdfCoordinateTuple = (
+  [left, bottom, right, top]: PdfCoordinateTuple,
+  page: PDFPage,
+): PdfVisiblePageRect => {
+  const coordinateSystem = visiblePageCoordinateSystem(page);
+  const cropBox = coordinateSystem.cropBox;
+  switch (coordinateSystem.rotation) {
+    case 90:
+      return {
+        x: bottom - cropBox.y,
+        y: left - cropBox.x,
+        width: top - bottom,
+        height: right - left,
+      };
+    case 180:
+      return {
+        x: cropBox.x + cropBox.width - right,
+        y: bottom - cropBox.y,
+        width: right - left,
+        height: top - bottom,
+      };
+    case 270:
+      return {
+        x: cropBox.y + cropBox.height - top,
+        y: cropBox.x + cropBox.width - right,
+        width: top - bottom,
+        height: right - left,
+      };
+    case 0:
+      return {
+        x: left - cropBox.x,
+        y: cropBox.y + cropBox.height - top,
+        width: right - left,
+        height: top - bottom,
+      };
+  }
 };
 
 export const rubricRectForPage = (
@@ -1164,36 +1422,28 @@ export const rubricPageIndexesExcludingSignature = (
   pageDimensions: ReadonlyArray<PdfSignaturePage>,
   signaturePageIndex: number,
 ): ReadonlyArray<number> =>
-  pageDimensions.flatMap((_page, index) => (index === signaturePageIndex ? [] : [index]));
+  pageDimensions.flatMap((page) => (page.index === signaturePageIndex ? [] : [page.index]));
 
 export const textBoxesFromLiteParseResult = (
   parsed: PdfLiteParseResult,
-  pageCount: number,
-): ReadonlyArray<ReadonlyArray<PdfTextBox>> => {
-  const pages: PdfTextBox[][] = Array.from({ length: pageCount }, () => []);
-  for (const page of parsed.pages) {
-    const target = pages[Math.trunc(page.pageNum) - 1];
-    if (target === undefined) continue;
-    for (const item of page.textItems) {
-      if (
-        item.text.trim().length > 0 &&
-        Number.isFinite(item.x) &&
-        Number.isFinite(item.y) &&
-        Number.isFinite(item.width) &&
-        Number.isFinite(item.height)
-      ) {
-        target.push({
-          x: item.x,
-          y: item.y,
-          width: item.width,
-          height: item.height,
-          text: item.text,
-        });
-      }
-    }
-  }
-  return pages;
-};
+): ReadonlyArray<ReadonlyArray<PdfTextBox>> =>
+  [...parsed.pages]
+    .sort((left, right) => left.pageNum - right.pageNum)
+    .map((page) =>
+      page.textItems.flatMap((item) =>
+        item.text.trim().length === 0
+          ? []
+          : [
+              {
+                x: item.x,
+                y: item.y,
+                width: item.width,
+                height: item.height,
+                text: item.text,
+              },
+            ],
+      ),
+    );
 
 type PdfVisibleSignatureTarget = {
   readonly pageIndex: number;
@@ -1201,8 +1451,83 @@ type PdfVisibleSignatureTarget = {
 };
 
 type PdfVisibleSignatureBatch = Omit<PdfVisibleStampInput, "pageIndex" | "rect"> & {
-  readonly stamps: ReadonlyArray<PdfVisibleSignatureTarget>;
+  readonly stamps: readonly [PdfVisibleSignatureTarget, ...PdfVisibleSignatureTarget[]];
 };
+
+const PdfVisibleSignatureTargetSchema = Schema.Struct({
+  pageIndex: Schema.Number,
+  rect: PdfSignatureRectSchema,
+}).check(
+  Schema.makeFilter((target) =>
+    target.pageIndex !== target.rect.pageIndex
+      ? {
+          path: ["pageIndex"],
+          issue: "Visible stamp pageIndex must match rect.pageIndex.",
+        }
+      : undefined,
+  ),
+);
+
+const PdfVisibleSignatureBatchSchema = Schema.Struct({
+  pdf: Schema.Uint8Array,
+  stamps: Schema.NonEmptyArray(PdfVisibleSignatureTargetSchema),
+  inkPng: Schema.optional(Schema.Uint8Array),
+  lines: Schema.optional(Schema.Array(Schema.String)),
+  badge: Schema.optional(PdfSignatureBadgeSchema),
+  border: Schema.optional(Schema.Boolean),
+  qr: Schema.optional(PdfVisibleStampQrSchema),
+}).check(
+  Schema.makeFilter((input) => {
+    if (
+      input.badge !== undefined &&
+      (input.lines !== undefined ||
+        input.inkPng !== undefined ||
+        input.qr !== undefined ||
+        input.border !== undefined)
+    ) {
+      return {
+        path: ["badge"],
+        issue: "Visible stamp badge cannot be combined with lines, inkPng, qr, or border.",
+      };
+    }
+    if (
+      input.badge === undefined &&
+      input.lines === undefined &&
+      input.inkPng === undefined &&
+      input.qr === undefined
+    ) {
+      return {
+        path: ["lines"],
+        issue: "Visible stamp requires lines, a badge, inkPng, or qr.",
+      };
+    }
+    return undefined;
+  }),
+);
+
+type PdfRubricTarget =
+  | {
+      readonly coordinateSpace: "pdf";
+      readonly pages: PdfRubricStamp["pages"];
+      readonly rect: PdfCoordinateTuple;
+    }
+  | {
+      readonly coordinateSpace: "visible";
+      readonly pageIndex: number;
+      readonly rect: PdfVisiblePageRect;
+    };
+
+type ResolvedPdfRubricTarget =
+  | {
+      readonly coordinateSpace: "pdf";
+      readonly pageIndex: number;
+      readonly rect: PdfCoordinateTuple;
+    }
+  | {
+      readonly coordinateSpace: "visible";
+      readonly pageIndex: number;
+      readonly rect: PdfVisiblePageRect;
+    };
 
 const visibleSignatureSaveOptions = (
   forIncrementalUpdate: boolean,
@@ -1217,13 +1542,454 @@ const visibleSignatureSaveOptions = (
 const isPageOutOfRange = (pageIndex: number, pageCount: number): boolean =>
   !Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= pageCount;
 
+const hasValidVisibleRect = (rect: PdfVisiblePageRect): boolean =>
+  [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) &&
+  rect.x >= 0 &&
+  rect.y >= 0 &&
+  rect.width > 0 &&
+  rect.height > 0;
+
+const visibleRectFitsPage = (rect: PdfVisiblePageRect, page: PDFPage): boolean => {
+  if (!hasValidVisibleRect(rect)) return false;
+  const { width, height } = visiblePdfPageSize(page);
+  return (
+    rect.width <= width &&
+    rect.height <= height &&
+    rect.x <= width - rect.width &&
+    rect.y <= height - rect.height
+  );
+};
+
+const hasValidPdfCoordinateTuple = ([left, bottom, right, top]: PdfCoordinateTuple): boolean =>
+  [left, bottom, right, top].every(Number.isFinite) && left < right && bottom < top;
+
+const pdfCoordinateTupleFitsPage = (rect: PdfCoordinateTuple, page: PDFPage): boolean => {
+  if (!hasValidPdfCoordinateTuple(rect)) return false;
+  const [left, bottom, right, top] = rect;
+  const { cropBox } = visiblePageCoordinateSystem(page);
+  return (
+    left >= cropBox.x &&
+    bottom >= cropBox.y &&
+    right <= cropBox.x + cropBox.width &&
+    top <= cropBox.y + cropBox.height
+  );
+};
+
+const pushVisiblePageCoordinateSystem = (
+  page: PDFPage,
+  coordinateSystem: PdfVisiblePageCoordinateSystem,
+): boolean => {
+  const transformed = !isIdentityPageCoordinateSystem(coordinateSystem);
+  if (transformed) {
+    page.pushOperators(pushGraphicsState(), concatTransformationMatrix(...coordinateSystem.matrix));
+  }
+  return transformed;
+};
+
+const popVisiblePageCoordinateSystem = (page: PDFPage, transformed: boolean): void => {
+  if (transformed) page.pushOperators(popGraphicsState());
+};
+
 const hasPositiveQrDrawingArea = (rect: PdfSignatureRect): boolean =>
   rect.width - PAD * 2 > 0 && rect.height - PAD * 2 > 0;
+
+const pngUint32At = (png: Uint8Array, offset: number): number =>
+  (png[offset] ?? 0) * 0x1000000 +
+  (png[offset + 1] ?? 0) * 0x10000 +
+  (png[offset + 2] ?? 0) * 0x100 +
+  (png[offset + 3] ?? 0);
+
+type PngPreflight = {
+  readonly idat: Uint8Array;
+  readonly inflatedByteLength: number;
+};
+
+const pngChunkTypeAt = (png: Uint8Array, offset: number, type: ReadonlyArray<number>): boolean =>
+  type.every((byte, index) => png[offset + index] === byte);
+
+const pngChannels = (colorType: number, bitDepth: number): number | undefined => {
+  switch (colorType) {
+    case 0:
+      return bitDepth === 1 || bitDepth === 2 || bitDepth === 4 || bitDepth === 8 || bitDepth === 16
+        ? 1
+        : undefined;
+    case 2:
+      return bitDepth === 8 || bitDepth === 16 ? 3 : undefined;
+    case 3:
+      return bitDepth === 1 || bitDepth === 2 || bitDepth === 4 || bitDepth === 8 ? 1 : undefined;
+    case 4:
+      return bitDepth === 8 || bitDepth === 16 ? 2 : undefined;
+    case 6:
+      return bitDepth === 8 || bitDepth === 16 ? 4 : undefined;
+    default:
+      return undefined;
+  }
+};
+
+const pngPassExtent = (length: number, start: number, step: number): number =>
+  length <= start ? 0 : Math.ceil((length - start) / step);
+
+const pngFilteredPassByteLength = (
+  width: number,
+  height: number,
+  bitsPerPixel: number,
+): number | undefined => {
+  if (width === 0 || height === 0) return 0;
+  const rowByteLength = Math.ceil((width * bitsPerPixel) / 8);
+  const byteLength = (rowByteLength + 1) * height;
+  return Number.isSafeInteger(byteLength) ? byteLength : undefined;
+};
+
+const pngExpectedInflatedByteLength = (
+  width: number,
+  height: number,
+  bitsPerPixel: number,
+  interlace: number,
+): number | undefined => {
+  if (interlace === 0) return pngFilteredPassByteLength(width, height, bitsPerPixel);
+  let total = 0;
+  for (const [startX, startY, stepX, stepY] of PNG_ADAM7_PASSES) {
+    const passByteLength = pngFilteredPassByteLength(
+      pngPassExtent(width, startX, stepX),
+      pngPassExtent(height, startY, stepY),
+      bitsPerPixel,
+    );
+    if (passByteLength === undefined || total > MAX_PNG_DECOMPRESSED_BYTES - passByteLength) {
+      return undefined;
+    }
+    total += passByteLength;
+  }
+  return total;
+};
+
+const pngIdatBytes = (
+  chunks: ReadonlyArray<Uint8Array>,
+  byteLength: number,
+): Uint8Array | undefined => {
+  const first = chunks[0];
+  if (first === undefined) return undefined;
+  if (chunks.length === 1) return first;
+  const idat = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    idat.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return idat;
+};
+
+const pngPreflight = (png: Uint8Array): PngPreflight | undefined => {
+  if (png.byteLength < PNG_IHDR_END || png.byteLength > MAX_PNG_INPUT_BYTES) return undefined;
+  if (!PNG_SIGNATURE.every((byte, index) => png[index] === byte)) return undefined;
+  if (png[8] !== 0 || png[9] !== 0 || png[10] !== 0 || png[11] !== 13) return undefined;
+  if (!pngChunkTypeAt(png, 12, PNG_IHDR_TYPE)) return undefined;
+  const width = pngUint32At(png, 16);
+  const height = pngUint32At(png, 20);
+  const bitDepth = png[24];
+  const colorType = png[25];
+  const compression = png[26];
+  const filter = png[27];
+  const interlace = png[28];
+  const channels =
+    bitDepth === undefined || colorType === undefined
+      ? undefined
+      : pngChannels(colorType, bitDepth);
+  if (
+    bitDepth === undefined ||
+    width === 0 ||
+    height === 0 ||
+    width > Math.floor(MAX_PNG_PIXELS / height) ||
+    channels === undefined ||
+    compression !== 0 ||
+    filter !== 0 ||
+    (interlace !== 0 && interlace !== 1)
+  ) {
+    return undefined;
+  }
+  const inflatedByteLength = pngExpectedInflatedByteLength(
+    width,
+    height,
+    channels * bitDepth,
+    interlace,
+  );
+  if (inflatedByteLength === undefined || inflatedByteLength > MAX_PNG_DECOMPRESSED_BYTES) {
+    return undefined;
+  }
+  const chunks: Uint8Array[] = [];
+  let idatByteLength = 0;
+  let chunkCount = 0;
+  let offset = PNG_IHDR_END;
+  while (offset < png.byteLength) {
+    if (chunkCount >= MAX_PNG_CHUNKS || offset + 12 > png.byteLength) return undefined;
+    const byteLength = pngUint32At(png, offset);
+    const dataStart = offset + 8;
+    const nextOffset = dataStart + byteLength + 4;
+    if (nextOffset > png.byteLength) return undefined;
+    const chunkTypeOffset = offset + 4;
+    if (
+      pngChunkTypeAt(png, chunkTypeOffset, PNG_ACTL_TYPE) ||
+      pngChunkTypeAt(png, chunkTypeOffset, PNG_FCTL_TYPE) ||
+      pngChunkTypeAt(png, chunkTypeOffset, PNG_FDAT_TYPE)
+    ) {
+      return undefined;
+    }
+    if (pngChunkTypeAt(png, offset + 4, PNG_IDAT_TYPE)) {
+      if (chunks.length >= MAX_PNG_CHUNKS || byteLength > MAX_PNG_INPUT_BYTES - idatByteLength) {
+        return undefined;
+      }
+      idatByteLength += byteLength;
+      chunks.push(png.subarray(dataStart, dataStart + byteLength));
+    }
+    if (pngChunkTypeAt(png, offset + 4, PNG_IEND_TYPE)) {
+      if (byteLength !== 0 || nextOffset !== png.byteLength) return undefined;
+      const idat = pngIdatBytes(chunks, idatByteLength);
+      return idat === undefined ? undefined : { idat, inflatedByteLength };
+    }
+    chunkCount += 1;
+    offset = nextOffset;
+  }
+  return undefined;
+};
+
+const hasSafePng = (png: Uint8Array): Effect.Effect<boolean> => {
+  const preflight = pngPreflight(png);
+  if (preflight === undefined) return Effect.succeed(false);
+  return inflateZlibBounded(preflight.idat, preflight.inflatedByteLength).pipe(
+    Effect.map((inflated) => inflated.byteLength === preflight.inflatedByteLength),
+    Effect.catch(() => Effect.succeed(false)),
+  );
+};
+
+const hasConflictingRubricModes = (stamp: Omit<PdfRubricStamp, "rect" | "pages">): boolean =>
+  stamp.initials !== undefined && (stamp.imagePng !== undefined || (stamp.lines?.length ?? 0) > 0);
+
+const hasDrawableRubricContent = (stamp: Omit<PdfRubricStamp, "rect" | "pages">): boolean =>
+  (stamp.border ?? true) ||
+  stamp.imagePng !== undefined ||
+  stamp.initials !== undefined ||
+  (stamp.lines?.length ?? 0) > 0;
+
+const drawRubric = (
+  page: PDFPage,
+  font: PDFFont,
+  image: PDFImage | undefined,
+  stamp: Omit<PdfRubricStamp, "rect" | "pages">,
+  left: number,
+  bottom: number,
+  width: number,
+  height: number,
+): void => {
+  if (stamp.border ?? true) {
+    page.drawRectangle({
+      x: left,
+      y: bottom,
+      width,
+      height,
+      borderColor: FRAME,
+      borderWidth: 0.6,
+    });
+  }
+  if (stamp.initials !== undefined) {
+    drawInitialsRubric(
+      page,
+      font,
+      left,
+      bottom,
+      width,
+      height,
+      stamp.initials,
+      stamp.initialsTheme,
+    );
+    return;
+  }
+  drawInkPngTextColumn({
+    page,
+    font,
+    image,
+    lines: stamp.lines ?? [],
+    x: left,
+    y: bottom,
+    width,
+    height,
+    textColor: INK,
+    imageHeightRatioWithLines: 0.58,
+    minTextSize: 4.5,
+    textSizeOffset: 1,
+    textPadding: PAD,
+    leading: "fixed",
+    separator: false,
+  });
+};
+
+const resolveRubricTargets = (
+  targets: ReadonlyArray<PdfRubricTarget>,
+  pages: ReadonlyArray<PDFPage>,
+): ReadonlyArray<ResolvedPdfRubricTarget> =>
+  targets.flatMap((target) => {
+    if (target.coordinateSpace === "visible") return [target];
+    const pageIndexes =
+      target.pages === undefined || target.pages === "all"
+        ? pages.map((_page, index) => index)
+        : target.pages;
+    return pageIndexes.map(
+      (pageIndex): ResolvedPdfRubricTarget => ({
+        coordinateSpace: "pdf",
+        pageIndex,
+        rect: target.rect,
+      }),
+    );
+  });
+
+const stampPdfRubricTargets = (
+  pdf: Uint8Array,
+  stamp: Omit<PdfRubricStamp, "rect" | "pages">,
+  targets: ReadonlyArray<PdfRubricTarget>,
+  forIncrementalUpdate: boolean,
+): Effect.Effect<Uint8Array, PdfError> => {
+  if (hasConflictingRubricModes(stamp)) {
+    return Effect.fail(
+      new PdfError({
+        code: PdfErrorCodeValue.stampFailed,
+        retryable: false,
+        operation: PdfOperationValue.stamp,
+        reason: "Initials rubrics cannot be combined with image or line content.",
+      }),
+    );
+  }
+  if (targets.length === 0 || !hasDrawableRubricContent(stamp)) return Effect.succeed(pdf);
+  const invalidTarget = targets.find((target) =>
+    target.coordinateSpace === "pdf"
+      ? !hasValidPdfCoordinateTuple(target.rect)
+      : !hasValidVisibleRect(target.rect),
+  );
+  if (invalidTarget !== undefined) {
+    return Effect.fail(
+      new PdfError({
+        code: PdfErrorCodeValue.stampFailed,
+        retryable: false,
+        operation: PdfOperationValue.stamp,
+        reason:
+          invalidTarget.coordinateSpace === "pdf"
+            ? "Rubric stamp rect must contain finite, ordered coordinates."
+            : "Visible rubric rect must contain finite, positive coordinates.",
+      }),
+    );
+  }
+
+  return Effect.gen(function* () {
+    const imagePng = stamp.imagePng;
+    if (imagePng !== undefined && !(yield* hasSafePng(imagePng))) {
+      return yield* Effect.fail(
+        new PdfError({
+          code: PdfErrorCodeValue.stampFailed,
+          retryable: false,
+          operation: PdfOperationValue.stamp,
+          reason: "PNG image exceeds supported input or decoded pixel limits.",
+        }),
+      );
+    }
+    return yield* Effect.tryPromise({
+      try: () =>
+        PDFDocument.load(pdf, forIncrementalUpdate ? { forIncrementalUpdate: true } : undefined),
+      catch: () =>
+        new PdfError({
+          code: PdfErrorCodeValue.stampFailed,
+          retryable: false,
+          operation: PdfOperationValue.stamp,
+          reason: "Failed to load the PDF for rubric stamping.",
+        }),
+    }).pipe(
+      Effect.flatMap((pdfDoc) => {
+        const pages = pdfDoc.getPages();
+        const resolvedTargets = resolveRubricTargets(targets, pages);
+        if (resolvedTargets.length === 0) return Effect.succeed(pdf);
+        const invalidPage = resolvedTargets.find((target) =>
+          isPageOutOfRange(target.pageIndex, pages.length),
+        );
+        if (invalidPage !== undefined) {
+          return Effect.fail(
+            new PdfError({
+              code: PdfErrorCodeValue.stampFailed,
+              retryable: false,
+              operation: PdfOperationValue.stamp,
+              reason: `Rubric page index ${invalidPage.pageIndex} is out of range (document has ${pages.length} pages).`,
+            }),
+          );
+        }
+        const outOfBoundsTarget = resolvedTargets.find((target) => {
+          const page = pages[target.pageIndex];
+          if (page === undefined) return true;
+          return target.coordinateSpace === "pdf"
+            ? !pdfCoordinateTupleFitsPage(target.rect, page)
+            : !visibleRectFitsPage(target.rect, page);
+        });
+        if (outOfBoundsTarget !== undefined) {
+          return Effect.fail(
+            new PdfError({
+              code: PdfErrorCodeValue.stampFailed,
+              retryable: false,
+              operation: PdfOperationValue.stamp,
+              reason:
+                outOfBoundsTarget.coordinateSpace === "pdf"
+                  ? `Rubric stamp rect is outside the visible CropBox on page ${outOfBoundsTarget.pageIndex}.`
+                  : `Visible rubric rect is outside page ${outOfBoundsTarget.pageIndex}.`,
+            }),
+          );
+        }
+
+        return Effect.tryPromise({
+          try: async () => {
+            const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+            const image =
+              stamp.imagePng === undefined ? undefined : await pdfDoc.embedPng(stamp.imagePng);
+
+            for (const target of resolvedTargets) {
+              const page = pages[target.pageIndex];
+              if (page === undefined) continue;
+              if (target.coordinateSpace === "pdf") {
+                const [left, bottom, right, top] = target.rect;
+                drawRubric(page, font, image, stamp, left, bottom, right - left, top - bottom);
+                continue;
+              }
+              const coordinateSystem = visiblePageCoordinateSystem(page);
+              const bottom = coordinateSystem.height - target.rect.y - target.rect.height;
+              const transformed = pushVisiblePageCoordinateSystem(page, coordinateSystem);
+              drawRubric(
+                page,
+                font,
+                image,
+                stamp,
+                target.rect.x,
+                bottom,
+                target.rect.width,
+                target.rect.height,
+              );
+              popVisiblePageCoordinateSystem(page, transformed);
+            }
+
+            const saved = await pdfDoc.save({
+              useObjectStreams: false,
+              ...(forIncrementalUpdate ? { updateFieldAppearances: false } : {}),
+            });
+            return new Uint8Array(saved);
+          },
+          catch: () =>
+            new PdfError({
+              code: PdfErrorCodeValue.stampFailed,
+              retryable: false,
+              operation: PdfOperationValue.stamp,
+              reason: "Failed to draw the rubric stamp.",
+            }),
+        });
+      }),
+    );
+  });
+};
 
 export const stampPdfRubric = (
   pdf: Uint8Array,
   stamp: PdfRubricStamp,
-  forIncrementalUpdate = false,
+  forIncrementalUpdate = hasPdfByteRange(pdf),
 ): Effect.Effect<Uint8Array, PdfError> =>
   Schema.decodeUnknownEffect(PdfRubricStampSchema)(stamp).pipe(
     Effect.mapError(
@@ -1238,141 +2004,35 @@ export const stampPdfRubric = (
         }),
     ),
     Effect.flatMap((valid) => {
-      const [left, bottom, right, top] = valid.rect;
-      const width = right - left;
-      const height = top - bottom;
-      if (!(width > 0) || !(height > 0)) {
+      if (hasConflictingRubricModes(valid)) {
         return Effect.fail(
           new PdfError({
             code: PdfErrorCodeValue.stampFailed,
             retryable: false,
             operation: PdfOperationValue.stamp,
-            reason: "Rubric stamp rect must have positive width and height.",
+            reason: "Initials rubrics cannot be combined with image or line content.",
           }),
         );
       }
-      const lines = valid.lines ?? [];
-      const border = valid.border ?? true;
-
-      return Effect.tryPromise({
-        try: () =>
-          PDFDocument.load(pdf, forIncrementalUpdate ? { forIncrementalUpdate: true } : undefined),
-        catch: () =>
-          new PdfError({
-            code: PdfErrorCodeValue.stampFailed,
-            retryable: false,
-            operation: PdfOperationValue.stamp,
-            reason: "Failed to load the PDF for rubric stamping.",
-          }),
-      }).pipe(
-        Effect.flatMap((pdfDoc) => {
-          const pages = pdfDoc.getPages();
-          const targets =
-            valid.pages === undefined || valid.pages === "all"
-              ? pages.map((_page, index) => index)
-              : valid.pages;
-          const invalidPage = targets.find((index) => isPageOutOfRange(index, pages.length));
-          if (invalidPage !== undefined) {
-            return Effect.fail(
-              new PdfError({
-                code: PdfErrorCodeValue.stampFailed,
-                retryable: false,
-                operation: PdfOperationValue.stamp,
-                reason: `Rubric page index ${invalidPage} is out of range (document has ${pages.length} pages).`,
-              }),
-            );
-          }
-
-          return Effect.tryPromise({
-            try: async () => {
-              const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-              const image =
-                valid.imagePng === undefined ? undefined : await pdfDoc.embedPng(valid.imagePng);
-
-              for (const index of targets) {
-                const page = pages[index];
-                if (page === undefined) continue;
-
-                if (border) {
-                  page.drawRectangle({
-                    x: left,
-                    y: bottom,
-                    width,
-                    height,
-                    borderColor: FRAME,
-                    borderWidth: 0.6,
-                  });
-                }
-
-                if (valid.initials !== undefined) {
-                  drawInitialsRubric(
-                    page,
-                    font,
-                    left,
-                    bottom,
-                    width,
-                    height,
-                    valid.initials,
-                    valid.initialsTheme,
-                  );
-                  continue;
-                }
-
-                drawInkPngTextColumn({
-                  page,
-                  font,
-                  image,
-                  lines,
-                  x: left,
-                  y: bottom,
-                  width,
-                  height,
-                  textColor: INK,
-                  imageHeightRatioWithLines: 0.58,
-                  minTextSize: 4.5,
-                  textSizeOffset: 1,
-                  textPadding: PAD,
-                  leading: "fixed",
-                  separator: false,
-                });
-              }
-
-              const saved = await pdfDoc.save({
-                useObjectStreams: false,
-                ...(forIncrementalUpdate ? { updateFieldAppearances: false } : {}),
-              });
-              return new Uint8Array(saved);
-            },
-            catch: () =>
-              new PdfError({
-                code: PdfErrorCodeValue.stampFailed,
-                retryable: false,
-                operation: PdfOperationValue.stamp,
-                reason: "Failed to draw the rubric stamp.",
-              }),
-          });
-        }),
+      if (
+        (Array.isArray(valid.pages) && valid.pages.length === 0) ||
+        !hasDrawableRubricContent(valid)
+      ) {
+        return Effect.succeed(pdf);
+      }
+      return stampPdfRubricTargets(
+        pdf,
+        valid,
+        [{ coordinateSpace: "pdf", pages: valid.pages, rect: valid.rect }],
+        forIncrementalUpdate,
       );
     }),
   );
-
 export const stampPdfVisibleSignatures = (
   input: PdfVisibleSignatureBatch,
   forIncrementalUpdate: boolean,
 ): Effect.Effect<Uint8Array, PdfError> => {
-  const first = input.stamps[0];
-  if (first === undefined) return Effect.succeed(input.pdf);
-
-  return Schema.decodeUnknownEffect(PdfVisibleStampInputSchema)({
-    pdf: input.pdf,
-    pageIndex: first.pageIndex,
-    rect: first.rect,
-    ...(input.lines === undefined ? {} : { lines: input.lines }),
-    ...(input.badge === undefined ? {} : { badge: input.badge }),
-    ...(input.inkPng === undefined ? {} : { inkPng: input.inkPng }),
-    ...(input.border === undefined ? {} : { border: input.border }),
-    ...(input.qr === undefined ? {} : { qr: input.qr }),
-  }).pipe(
+  return Schema.decodeUnknownEffect(PdfVisibleSignatureBatchSchema)(input).pipe(
     Effect.mapError(
       (issue) =>
         new PdfError({
@@ -1385,171 +2045,211 @@ export const stampPdfVisibleSignatures = (
         }),
     ),
     Effect.flatMap((valid) =>
-      Effect.tryPromise({
-        try: () =>
-          PDFDocument.load(
-            input.pdf,
-            forIncrementalUpdate ? { forIncrementalUpdate: true } : undefined,
-          ),
-        catch: () =>
-          new PdfError({
-            code: PdfErrorCodeValue.stampFailed,
-            retryable: false,
-            operation: PdfOperationValue.stamp,
-            reason: "Failed to load the PDF for visible signature stamping.",
-          }),
-      }).pipe(
-        Effect.flatMap((pdfDoc) => {
-          const pages = pdfDoc.getPages();
-          const invalidPage = input.stamps.find((stamp) =>
-            isPageOutOfRange(stamp.pageIndex, pages.length),
+      Effect.gen(function* () {
+        if (
+          valid.border === false &&
+          valid.badge === undefined &&
+          valid.inkPng === undefined &&
+          valid.qr === undefined &&
+          (valid.lines?.length ?? 0) === 0
+        ) {
+          return valid.pdf;
+        }
+        const inkPng = valid.badge === undefined ? valid.inkPng : undefined;
+        if (inkPng !== undefined && !(yield* hasSafePng(inkPng))) {
+          return yield* Effect.fail(
+            new PdfError({
+              code: PdfErrorCodeValue.stampFailed,
+              retryable: false,
+              operation: PdfOperationValue.stamp,
+              reason: "PNG image exceeds supported input or decoded pixel limits.",
+            }),
           );
-          if (invalidPage !== undefined) {
-            return Effect.fail(
-              new PdfError({
-                code: PdfErrorCodeValue.stampFailed,
-                retryable: false,
-                operation: PdfOperationValue.stamp,
-                reason: `Visible stamp page index ${invalidPage.pageIndex} is out of range.`,
-              }),
-            );
-          }
-
-          const lines = valid.lines ?? [];
-          const border = valid.border ?? true;
-          const badge = valid.badge;
-          const qr = badge === undefined ? valid.qr : badge.qr;
-          const invalidQrStamp =
-            badge === undefined && qr !== undefined
-              ? input.stamps.find((stamp) => !hasPositiveQrDrawingArea(stamp.rect))
-              : undefined;
-          if (invalidQrStamp !== undefined) {
-            return Effect.fail(
-              new PdfError({
-                code: PdfErrorCodeValue.stampFailed,
-                retryable: false,
-                operation: PdfOperationValue.stamp,
-                reason: "Visible stamp QR code requires a positive drawing area.",
-              }),
-            );
-          }
-
-          const qrEffect: Effect.Effect<QrMatrix | undefined, PdfError> =
-            qr === undefined ? Effect.succeed(undefined) : encodeVisibleStampQr(qr);
-
-          return qrEffect.pipe(
-            Effect.flatMap((qrMatrix) =>
-              Effect.tryPromise({
-                try: async () => {
-                  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-                  const boldFont =
-                    badge === undefined
-                      ? undefined
-                      : await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-                  const inkImage =
-                    badge !== undefined || valid.inkPng === undefined
-                      ? undefined
-                      : await pdfDoc.embedPng(valid.inkPng);
-
-                  for (const stamp of input.stamps) {
-                    const page = pages[stamp.pageIndex];
-                    if (page === undefined) continue;
-                    const { x, y, width, height } = stamp.rect;
-                    const bottom = page.getSize().height - y - height;
-
-                    if (badge !== undefined) {
-                      const layout = layoutPdfSignatureBadge(
-                        badge,
-                        { x, y: bottom, width, height },
-                        font,
-                        boldFont ?? font,
-                      );
-                      drawSignatureBadge(
-                        pdfDoc,
-                        page,
-                        badge,
-                        layout,
-                        font,
-                        boldFont ?? font,
-                        qrMatrix,
-                      );
-                    } else {
-                      if (border) {
-                        page.drawRectangle({
-                          x,
-                          y: bottom,
-                          width,
-                          height,
-                          borderColor: FRAME,
-                          borderWidth: 0.6,
-                        });
-                      }
-
-                      if (qrMatrix === undefined) {
-                        drawInkPngTextColumn({
-                          page,
-                          font,
-                          image: inkImage,
-                          lines,
-                          x,
-                          y: bottom,
-                          width,
-                          height,
-                          textColor: border === false ? rgb(0.25, 0.25, 0.25) : INK,
-                          imageHeightRatioWithLines: 0.58,
-                          minTextSize: 4.5,
-                          textSizeOffset: 1,
-                          textPadding: PAD,
-                          leading: "fixed",
-                          separator: border === false,
-                        });
-                      } else {
-                        const qrSide = Math.min(height - PAD * 2, width - PAD * 2);
-                        const qrX = x + PAD;
-                        const qrY = bottom + (height - qrSide) / 2;
-                        drawVisibleStampQrMatrix(page, qrMatrix, qrX, qrY, qrSide);
-
-                        const textLeft = qrX + qrSide + QR_TEXT_GAP_PT;
-                        const textRight = x + width - PAD;
-                        const textWidth = Math.max(0, textRight - textLeft);
-                        drawInkPngTextColumn({
-                          page,
-                          font,
-                          image: inkImage,
-                          lines,
-                          x: textLeft,
-                          y: bottom,
-                          width: textWidth,
-                          height,
-                          textColor: border === false ? rgb(0.25, 0.25, 0.25) : INK,
-                          imageHeightRatioWithLines: 0.35,
-                          minTextSize: 3.5,
-                          textSizeOffset: 0.75,
-                          textPadding: 0,
-                          leading: "proportional",
-                          separator: border === false,
-                        });
-                      }
-                    }
-                  }
-
-                  const saved = await pdfDoc.save(
-                    visibleSignatureSaveOptions(forIncrementalUpdate),
-                  );
-                  return new Uint8Array(saved);
-                },
-                catch: () =>
-                  new PdfError({
-                    code: PdfErrorCodeValue.stampFailed,
-                    retryable: false,
-                    operation: PdfOperationValue.stamp,
-                    reason: "Failed to draw the visible signature stamp.",
-                  }),
-              }),
+        }
+        return yield* Effect.tryPromise({
+          try: () =>
+            PDFDocument.load(
+              valid.pdf,
+              forIncrementalUpdate ? { forIncrementalUpdate: true } : undefined,
             ),
-          );
-        }),
-      ),
+          catch: () =>
+            new PdfError({
+              code: PdfErrorCodeValue.stampFailed,
+              retryable: false,
+              operation: PdfOperationValue.stamp,
+              reason: "Failed to load the PDF for visible signature stamping.",
+            }),
+        }).pipe(
+          Effect.flatMap((pdfDoc) => {
+            const pages = pdfDoc.getPages();
+            const invalidPage = valid.stamps.find((stamp) =>
+              isPageOutOfRange(stamp.pageIndex, pages.length),
+            );
+            if (invalidPage !== undefined) {
+              return Effect.fail(
+                new PdfError({
+                  code: PdfErrorCodeValue.stampFailed,
+                  retryable: false,
+                  operation: PdfOperationValue.stamp,
+                  reason: `Visible stamp page index ${invalidPage.pageIndex} is out of range.`,
+                }),
+              );
+            }
+            const invalidRect = valid.stamps.find((stamp) => {
+              const page = pages[stamp.pageIndex];
+              return page === undefined || !visibleRectFitsPage(stamp.rect, page);
+            });
+            if (invalidRect !== undefined) {
+              return Effect.fail(
+                new PdfError({
+                  code: PdfErrorCodeValue.stampFailed,
+                  retryable: false,
+                  operation: PdfOperationValue.stamp,
+                  reason: `Visible stamp rect is outside page ${invalidRect.pageIndex}.`,
+                }),
+              );
+            }
+
+            const lines = valid.lines ?? [];
+            const border = valid.border ?? true;
+            const badge = valid.badge;
+            const qr = badge === undefined ? valid.qr : badge.qr;
+            const invalidQrStamp =
+              badge === undefined && qr !== undefined
+                ? valid.stamps.find((stamp) => !hasPositiveQrDrawingArea(stamp.rect))
+                : undefined;
+            if (invalidQrStamp !== undefined) {
+              return Effect.fail(
+                new PdfError({
+                  code: PdfErrorCodeValue.stampFailed,
+                  retryable: false,
+                  operation: PdfOperationValue.stamp,
+                  reason: "Visible stamp QR code requires a positive drawing area.",
+                }),
+              );
+            }
+
+            const qrEffect: Effect.Effect<QrMatrix | undefined, PdfError> =
+              qr === undefined ? Effect.succeed(undefined) : encodeVisibleStampQr(qr);
+
+            return qrEffect.pipe(
+              Effect.flatMap((qrMatrix) =>
+                Effect.tryPromise({
+                  try: async () => {
+                    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+                    const boldFont =
+                      badge === undefined
+                        ? undefined
+                        : await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+                    const inkImage =
+                      badge !== undefined || valid.inkPng === undefined
+                        ? undefined
+                        : await pdfDoc.embedPng(valid.inkPng);
+
+                    for (const stamp of valid.stamps) {
+                      const page = pages[stamp.pageIndex];
+                      if (page === undefined) continue;
+                      const { x, y, width, height } = stamp.rect;
+                      const coordinateSystem = visiblePageCoordinateSystem(page);
+                      const bottom = coordinateSystem.height - y - height;
+                      const transformed = pushVisiblePageCoordinateSystem(page, coordinateSystem);
+
+                      if (badge !== undefined) {
+                        const layout = layoutPdfSignatureBadge(
+                          badge,
+                          { x, y: bottom, width, height },
+                          font,
+                          boldFont ?? font,
+                        );
+                        drawSignatureBadge(
+                          pdfDoc,
+                          page,
+                          badge,
+                          layout,
+                          font,
+                          boldFont ?? font,
+                          qrMatrix,
+                          coordinateSystem,
+                        );
+                      } else {
+                        if (border) {
+                          page.drawRectangle({
+                            x,
+                            y: bottom,
+                            width,
+                            height,
+                            borderColor: FRAME,
+                            borderWidth: 0.6,
+                          });
+                        }
+
+                        if (qrMatrix === undefined) {
+                          drawInkPngTextColumn({
+                            page,
+                            font,
+                            image: inkImage,
+                            lines,
+                            x,
+                            y: bottom,
+                            width,
+                            height,
+                            textColor: border === false ? rgb(0.25, 0.25, 0.25) : INK,
+                            imageHeightRatioWithLines: 0.58,
+                            minTextSize: 4.5,
+                            textSizeOffset: 1,
+                            textPadding: PAD,
+                            leading: "fixed",
+                            separator: border === false,
+                          });
+                        } else {
+                          const qrSide = Math.min(height - PAD * 2, width - PAD * 2);
+                          const qrX = x + PAD;
+                          const qrY = bottom + (height - qrSide) / 2;
+                          drawVisibleStampQrMatrix(page, qrMatrix, qrX, qrY, qrSide);
+
+                          const textLeft = qrX + qrSide + QR_TEXT_GAP_PT;
+                          const textRight = x + width - PAD;
+                          const textWidth = Math.max(0, textRight - textLeft);
+                          drawInkPngTextColumn({
+                            page,
+                            font,
+                            image: inkImage,
+                            lines,
+                            x: textLeft,
+                            y: bottom,
+                            width: textWidth,
+                            height,
+                            textColor: border === false ? rgb(0.25, 0.25, 0.25) : INK,
+                            imageHeightRatioWithLines: 0.35,
+                            minTextSize: 3.5,
+                            textSizeOffset: 0.75,
+                            textPadding: 0,
+                            leading: "proportional",
+                            separator: border === false,
+                          });
+                        }
+                      }
+                      popVisiblePageCoordinateSystem(page, transformed);
+                    }
+
+                    const saved = await pdfDoc.save(
+                      visibleSignatureSaveOptions(forIncrementalUpdate),
+                    );
+                    return new Uint8Array(saved);
+                  },
+                  catch: () =>
+                    new PdfError({
+                      code: PdfErrorCodeValue.stampFailed,
+                      retryable: false,
+                      operation: PdfOperationValue.stamp,
+                      reason: "Failed to draw the visible signature stamp.",
+                    }),
+                }),
+              ),
+            );
+          }),
+        );
+      }),
     ),
   );
 };
@@ -1572,7 +2272,7 @@ export const stampPdfVisibleSignature = (
 
 export const stampPdfRubricOnPages = (
   input: PdfRubricPageStampInput,
-  forIncrementalUpdate = false,
+  forIncrementalUpdate = hasPdfByteRange(input.pdf),
 ): Effect.Effect<Uint8Array, PdfError> =>
   Schema.decodeUnknownEffect(PdfRubricPageStampInputSchema)(input).pipe(
     Effect.mapError(
@@ -1586,49 +2286,55 @@ export const stampPdfRubricOnPages = (
           issueMessage: String(issue),
         }),
     ),
-    Effect.flatMap((valid) =>
-      Effect.gen(function* () {
-        const groups = new Map<string, { rect: PdfCoordinateTuple; pages: number[] }>();
-        for (const pageIndex of valid.pages) {
-          const page = valid.pageDimensions[pageIndex];
-          if (page === undefined) {
-            return yield* Effect.fail(
-              new PdfError({
-                code: PdfErrorCodeValue.stampFailed,
-                retryable: false,
-                operation: PdfOperationValue.stamp,
-                reason: `Rubric page index ${pageIndex} has no page dimensions.`,
-              }),
-            );
-          }
-          const textBoxes = valid.pageTextBoxes?.[pageIndex] ?? [];
-          const rect = pdfCoordinateTupleFromTopLeftRect(
-            rubricRectForPage(page, textBoxes),
-            page.height,
+    Effect.flatMap((valid) => {
+      if (hasConflictingRubricModes(valid)) {
+        return Effect.fail(
+          new PdfError({
+            code: PdfErrorCodeValue.stampFailed,
+            retryable: false,
+            operation: PdfOperationValue.stamp,
+            reason: "Initials rubrics cannot be combined with image or line content.",
+          }),
+        );
+      }
+      if (valid.pages.length === 0 || !hasDrawableRubricContent(valid)) {
+        return Effect.succeed(valid.pdf);
+      }
+      const pageDimensions = new Map<number, PdfSignaturePage>();
+      for (const page of valid.pageDimensions) {
+        if (pageDimensions.has(page.index)) {
+          return Effect.fail(
+            new PdfError({
+              code: PdfErrorCodeValue.stampFailed,
+              retryable: false,
+              operation: PdfOperationValue.stamp,
+              reason: `Rubric page metadata has duplicate index ${page.index}.`,
+            }),
           );
-          const key = rect.join(":");
-          const group = groups.get(key) ?? { rect, pages: [] };
-          group.pages.push(pageIndex);
-          groups.set(key, group);
         }
+        pageDimensions.set(page.index, page);
+      }
 
-        let pdf = valid.pdf;
-        for (const group of groups.values()) {
-          pdf = yield* stampPdfRubric(
-            pdf,
-            {
-              rect: group.rect,
-              pages: group.pages,
-              ...(valid.lines === undefined ? {} : { lines: valid.lines }),
-              ...(valid.imagePng === undefined ? {} : { imagePng: valid.imagePng }),
-              ...(valid.initials === undefined ? {} : { initials: valid.initials }),
-              ...(valid.initialsTheme === undefined ? {} : { initialsTheme: valid.initialsTheme }),
-              ...(valid.border === undefined ? {} : { border: valid.border }),
-            },
-            forIncrementalUpdate,
+      const targets: PdfRubricTarget[] = [];
+      for (const pageIndex of valid.pages) {
+        const page = pageDimensions.get(pageIndex);
+        if (page === undefined) {
+          return Effect.fail(
+            new PdfError({
+              code: PdfErrorCodeValue.stampFailed,
+              retryable: false,
+              operation: PdfOperationValue.stamp,
+              reason: `Rubric page index ${pageIndex} has no page dimensions.`,
+            }),
           );
         }
-        return pdf;
-      }),
-    ),
+        const textBoxes = valid.pageTextBoxes?.[pageIndex] ?? [];
+        targets.push({
+          coordinateSpace: "visible",
+          pageIndex,
+          rect: rubricRectForPage(page, textBoxes),
+        });
+      }
+      return stampPdfRubricTargets(valid.pdf, valid, targets, forIncrementalUpdate);
+    }),
   );

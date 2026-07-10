@@ -9,12 +9,7 @@ import { PdfSigner } from "@/components/pdf-signer-islands";
 import { Container, Section, SectionHeading } from "@/components/sections/_shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { parseLocale } from "@/lib/locale";
 import { absoluteUrl, OG_LOCALE, SITE_NAME } from "@/lib/site";
 import { setServerLocale } from "@/lib/server-locale";
@@ -149,10 +144,7 @@ export default async function AssineDocumentosGratisPage({ params }: PortugueseS
       <Section>
         <Container className="pt-20 pb-14 text-center sm:pt-24 sm:pb-16">
           <FadeIn>
-            <Badge
-              variant="outline"
-              className="px-3 py-1 font-mono text-xs text-muted-foreground"
-            >
+            <Badge variant="outline" className="px-3 py-1 font-mono text-xs text-muted-foreground">
               Ferramenta grátis
             </Badge>
           </FadeIn>
@@ -163,7 +155,8 @@ export default async function AssineDocumentosGratisPage({ params }: PortugueseS
           </FadeIn>
           <FadeIn delay={0.16}>
             <p className="mx-auto mt-5 max-w-[58ch] text-base leading-relaxed text-pretty text-muted-foreground sm:text-lg">
-              Assinatura PAdES com certificado digital A1, direto no navegador. O PDF não sobe para servidor e a senha não é armazenada.
+              Assinatura PAdES com certificado digital A1, direto no navegador. O PDF não sobe para
+              servidor e a senha não é armazenada.
             </p>
           </FadeIn>
           <FadeIn delay={0.24}>

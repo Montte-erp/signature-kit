@@ -8,7 +8,24 @@ import { hasRequiredSpanCall } from "./observability";
 import { runWorkspaceLayerChecks } from "./layers";
 import { checks } from "./rule-set";
 
-const isImportLine = (line: string): boolean => /^\s*import\b/.test(line);
+export const importDeclarationLineMap = (rawLines: readonly string[]): readonly boolean[] => {
+  let importDeclarationOpen = false;
+  return rawLines.map((rawLine) => {
+    if (!importDeclarationOpen) {
+      importDeclarationOpen = /^\s*import(?:\s+type)?(?:\s|["'{*])/.test(rawLine);
+    }
+
+    const isImportLine = importDeclarationOpen;
+    if (
+      importDeclarationOpen &&
+      (rawLine.includes(";") ||
+        /(?:\bfrom\s*|^\s*import\s*)["'][^"']+["']\s*(?:(?:\/\/.*)?)$/.test(rawLine))
+    ) {
+      importDeclarationOpen = false;
+    }
+    return isImportLine;
+  });
+};
 
 export const runDeclarativeChecks = (): boolean => {
   let failed = runWorkspaceLayerChecks();
@@ -32,10 +49,11 @@ export const runDeclarativeChecks = (): boolean => {
       ? checks.filter((check) => check.message.startsWith("Do not apply Effect/Layer provide"))
       : checks;
 
+    const importLines = importDeclarationLineMap(rawLines);
     for (const [index, rawLine] of rawLines.entries()) {
       const line = lines[index] ?? "";
       const normalizedLine = line.trim();
-      const isImport = isImportLine(normalizedLine);
+      const isImport = importLines[index] === true;
 
       if (!normalizedLine || normalizedLine.startsWith("*") || normalizedLine.startsWith("//")) {
         continue;

@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "test:server": "vitest run __tests__/signature-kit.server.test.ts __tests__/remote-signers.test.ts"
+    "test:server": "vitest run --root ../.. tooling/integration-tests/__tests__/signature-kit.server.test.ts"
   },
   "dependencies": {
     "@effect/vitest": "4.0.0-beta.86",
@@ -18,5 +18,15 @@
     "@signature-kit/zapsign": "^0.3.0",
     "effect": "4.0.0-beta.86",
     "vitest": "^4.0.0"
+  },
+  "nx": {
+    "targets": {
+      "test:server": {
+        "cache": false,
+        "dependsOn": [
+          "^build"
+        ]
+      }
+    }
   }
 }

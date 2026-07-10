@@ -151,10 +151,17 @@ export const IcpBrasilPolicySchema = Schema.Struct({
 });
 export type IcpBrasilPolicy = (typeof IcpBrasilPolicySchema)["Type"];
 
+export const MAX_NATIVE_TIMEOUT_MILLIS = 2 ** 31 - 1;
+export const TimeoutMillisSchema = Schema.Int.pipe(
+  Schema.check(Schema.isBetween({ minimum: 0, maximum: MAX_NATIVE_TIMEOUT_MILLIS })),
+);
+export type TimeoutMillis = (typeof TimeoutMillisSchema)["Type"];
+
 export const TimestampOptionsSchema = Schema.Struct({
   tsaUrl: Schema.NonEmptyString,
+  trustedRoots: Schema.NonEmptyArray(Schema.Uint8Array),
   hashAlgorithm: Schema.optional(CmsHashAlgorithmSchema),
-  timeoutMillis: Schema.optional(Schema.Number),
+  timeoutMillis: Schema.optional(TimeoutMillisSchema),
 });
 export type TimestampOptions = (typeof TimestampOptionsSchema)["Type"];
 

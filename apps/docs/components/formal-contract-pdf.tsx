@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  Document,
-  Page,
-  StyleSheet,
-  Text,
-  View,
-  pdf,
-} from "@react-pdf/renderer";
-
+import { Document, Page, StyleSheet, Text, View, pdf } from "@react-pdf/renderer";
 
 const PAGE_W = 595.28;
 const PAGE_H = 841.89;
@@ -199,7 +191,15 @@ const styles = StyleSheet.create({
   },
 });
 
-const Identification = ({ name, document, role }: { name: string; document: string; role: string }) => (
+const Identification = ({
+  name,
+  document,
+  role,
+}: {
+  name: string;
+  document: string;
+  role: string;
+}) => (
   <>
     <Text style={styles.partyName}>{name}</Text>
     <Text style={styles.partyDoc}>{document}</Text>
@@ -222,7 +222,11 @@ function SignatureLineVariant({ signed }: { signed?: SignedMark }) {
         )}
       </View>
       <View style={styles.line} />
-      <Identification name={signed?.name ?? PARTY_NAME} document={PARTY_DOCUMENT} role="CONTRATANTE" />
+      <Identification
+        name={signed?.name ?? PARTY_NAME}
+        document={PARTY_DOCUMENT}
+        role="CONTRATANTE"
+      />
       {signed ? <SignedStamp date={signed.date} /> : null}
     </View>
   );
@@ -257,7 +261,11 @@ function SignatureWitnessedVariant({ signed }: { signed?: SignedMark }) {
           {signed ? <Text style={styles.markName}>{signed.name}</Text> : null}
         </View>
         <View style={styles.line} />
-        <Identification name={signed?.name ?? PARTY_NAME} document={PARTY_DOCUMENT} role="CONTRATANTE" />
+        <Identification
+          name={signed?.name ?? PARTY_NAME}
+          document={PARTY_DOCUMENT}
+          role="CONTRATANTE"
+        />
       </View>
       <View style={styles.col}>
         <View style={styles.markBand}>
@@ -286,7 +294,11 @@ function SignatureInitialsVariant({ signed }: { signed?: SignedMark }) {
           )}
         </View>
         <View style={styles.line} />
-        <Identification name={signed?.name ?? PARTY_NAME} document={PARTY_DOCUMENT} role="CONTRATANTE" />
+        <Identification
+          name={signed?.name ?? PARTY_NAME}
+          document={PARTY_DOCUMENT}
+          role="CONTRATANTE"
+        />
       </View>
     </View>
   );

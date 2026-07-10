@@ -8,14 +8,7 @@ import { setServerLocale } from "@/lib/server-locale";
 import { OG_LOCALE, SITE_NAME, absoluteUrl } from "@/lib/site";
 import { blogPostPath, readingMinutes, sortedPosts } from "@/lib/blog";
 import { parseLocale, type Lang } from "@/lib/locale";
-import {
-  Card,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-
+import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 
 const COPY = {
   "en-US": {
@@ -126,9 +119,7 @@ export function generateStaticParams() {
   return i18n.languages.map((lang) => ({ lang }));
 }
 
-export async function generateMetadata({
-  params,
-}: PageProps<"/[lang]/blog">): Promise<Metadata> {
+export async function generateMetadata({ params }: PageProps<"/[lang]/blog">): Promise<Metadata> {
   const { lang } = await params;
   const locale = parseLocale(lang);
   if (locale === undefined) notFound();

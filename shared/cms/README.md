@@ -18,12 +18,21 @@ bun add @signature-kit/cms effect
 - `@signature-kit/cms/sign` — `createDetachedSignedData`.
 - `@signature-kit/cms/verify` — `verifyDetachedSignedData`.
 
+RFC 3161 signing requires `timestamp.trustedRoots`: a non-empty list of DER-encoded TSA
+trust anchors. Timestamp tokens are accepted only when their CMS signature and certificate
+chain verify against those anchors, the TSA certificate has a critical timestamping-only EKU
+(and signing-capable KeyUsage when present), and its required signed attributes bind the signer
+certificate. SignatureKit does not use an ambient or system trust store.
+
 `IcpBrasilPadesPolicy.adRbV11` is the pinned PA_PAdES_AD_RB_v1_1 policy:
 
 - OID: `2.16.76.1.7.1.11.1.1`
 - Hash algorithm: `sha256`
 - Policy hash: `44fc5816eb2d705d8c8f022a7f93b3fb49edfae1a7b9149ef6fab833e9bb63f8`
 - URI: `http://politicas.icpbrasil.gov.br/PA_PAdES_AD_RB_v1_1.der`
+
+`fetchIcpBrasilPadesPolicy` accepts a downloaded policy only when its encoded hash algorithm
+and hash exactly match this pin.
 
 PAdES AD-RB signatures must not include CMS `signingTime`; the PDF dictionary owns signing time. `@signature-kit/iti` rejects generated signatures that include the prohibited attribute.
 

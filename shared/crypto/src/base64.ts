@@ -42,21 +42,12 @@ export const base64ToBytes = (
         }),
       );
     }
-    if (clean.length % 4 === 1) {
+    const hasPadding = clean.endsWith("=");
+    if (clean.length % 4 === 1 || (hasPadding && clean.length % 4 !== 0)) {
       return yield* Effect.fail(
         new CryptoError({
           code: CryptoErrorCodeValue.invalidFormat,
           reason: "Base64 input has an invalid length.",
-          operation: CryptoOperationValue.base64Decode,
-        }),
-      );
-    }
-    const firstPadding = clean.indexOf("=");
-    if (firstPadding >= 0 && firstPadding < clean.length - (clean.endsWith("==") ? 2 : 1)) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.invalidFormat,
-          reason: "Base64 padding must be at the end.",
           operation: CryptoOperationValue.base64Decode,
         }),
       );

@@ -4,7 +4,6 @@ import { blogPostPath, sortedPosts } from "@/lib/blog";
 import { parseLocale, type Lang } from "@/lib/locale";
 import { captureServerEvent } from "@/lib/posthog/server";
 
-
 export function generateStaticParams() {
   return i18n.languages.map((lang) => ({ lang }));
 }

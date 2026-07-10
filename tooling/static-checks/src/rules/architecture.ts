@@ -1,7 +1,5 @@
 import type { Check, CheckContext } from "../model";
 
-const sourceModulePathPattern =
-  /^(?:core|formats|shared|signers|validators|apps\/docs)\/.*\.[cm]?[tj]sx?$/;
 const alchemyProviderPathPattern = /^signers\/[^/]+\/src\/index\.ts$/;
 
 const hasRetainedAlchemyResource = (source: string): boolean =>
@@ -10,8 +8,6 @@ const hasRetainedAlchemyResource = (source: string): boolean =>
 const hasAlchemyProviderService = (line: string): boolean => /\.Provider\.of\(\{/.test(line);
 
 const lacksProviderDiff = (source: string): boolean => !/\bdiff\s*:/.test(source);
-const hasInlineImportTypeAnnotation = (line: string): boolean =>
-  /(?:[:=]\s*|type\s+[A-Za-z_$][\w$]*\s*=\s*)(?:typeof\s+)?import\(["'][^"']+["']\)\./.test(line);
 
 const isInsideDeleteHandler = (context: CheckContext): boolean => {
   const before = context.lines
@@ -77,9 +73,10 @@ export const architectureChecks: readonly Check[] = [
   },
   {
     message:
-      'Use top-level import type declarations instead of inline import("pkg").Type annotations.',
+      "Remote signer provider layers must use Layer.fresh when composed with per-call credentials.",
     test: (context) =>
-      sourceModulePathPattern.test(context.path) && hasInlineImportTypeAnnotation(context.line),
+      alchemyProviderPathPattern.test(context.path) &&
+      /\bLayer\.provide\(\s*[A-Za-z][A-Za-z0-9]*SignatureRequestProvider\s*\)/.test(context.line),
     ignoreImportLine: false,
   },
 ];

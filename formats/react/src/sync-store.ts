@@ -35,9 +35,12 @@ export const createSyncStore = <State>(initialState: State): SyncStore<State> =>
 export const useSyncStore = <State, Selected>(
   store: SyncStore<State>,
   selector: (state: State) => Selected,
-): Selected =>
-  React.useSyncExternalStore(
+): Selected => {
+  const snapshot = React.useSyncExternalStore(
     store.subscribe,
-    () => selector(store.getSnapshot()),
-    () => selector(store.getSnapshot()),
+    store.getSnapshot,
+    store.getSnapshot,
   );
+
+  return selector(snapshot);
+};

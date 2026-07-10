@@ -5,8 +5,7 @@ export const removePkcs7Padding = (
   data: Uint8Array,
   blockSize: number,
 ): Effect.Effect<Uint8Array, CryptoError> => {
-  if (data.length === 0) return Effect.succeed(data);
-  const pad = data[data.length - 1]!;
+  const pad = data[data.length - 1] ?? 0;
   if (pad === 0 || pad > blockSize) {
     return Effect.fail(
       new CryptoError({

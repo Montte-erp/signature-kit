@@ -13,7 +13,6 @@ import { OG_LOCALE, SITE_NAME, absoluteUrl } from "@/lib/site";
 import { blogPostPath, readingMinutes } from "@/lib/blog";
 import { parseLocale, type Lang } from "@/lib/locale";
 
-
 const COPY = {
   "en-US": { back: "Back to blog", by: "By", min: "min read" },
   "pt-BR": { back: "Voltar ao blog", by: "Por", min: "min de leitura" },
@@ -30,9 +29,7 @@ function formatDate(date: string, lang: Lang): string {
   });
 }
 
-export default async function BlogPost(
-  props: PageProps<"/[lang]/blog/[slug]">,
-) {
+export default async function BlogPost(props: PageProps<"/[lang]/blog/[slug]">) {
   const { lang, slug } = await props.params;
   const locale = parseLocale(lang);
   if (locale === undefined) notFound();
@@ -108,9 +105,7 @@ export function generateStaticParams() {
   }));
 }
 
-export async function generateMetadata(
-  props: PageProps<"/[lang]/blog/[slug]">,
-): Promise<Metadata> {
+export async function generateMetadata(props: PageProps<"/[lang]/blog/[slug]">): Promise<Metadata> {
   const { lang, slug } = await props.params;
   const locale = parseLocale(lang);
   if (locale === undefined) notFound();

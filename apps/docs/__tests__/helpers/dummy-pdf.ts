@@ -1,6 +1,5 @@
 import { PDFDocument, StandardFonts, rgb } from "@cantoo/pdf-lib";
 
-
 export const A4: PageSize = { width: 595.28, height: 841.89 };
 export const LETTER: PageSize = { width: 612, height: 792 };
 export const LEGAL: PageSize = { width: 612, height: 1008 };
@@ -16,20 +15,19 @@ export interface DummyPdfOptions {
   readonly label?: string;
 }
 
-const sizeForPage = (
-  size: DummyPdfOptions["size"],
-  index: number,
-): PageSize => {
+const isPageSizeArray = (
+  size: PageSize | ReadonlyArray<PageSize>,
+): size is ReadonlyArray<PageSize> => Array.isArray(size);
+
+const sizeForPage = (size: DummyPdfOptions["size"], index: number): PageSize => {
   if (size === undefined) return A4;
-  if (Array.isArray(size)) {
+  if (isPageSizeArray(size)) {
     return size[Math.min(index, size.length - 1)] ?? A4;
   }
   return size;
 };
 
-export async function makeDummyPdf(
-  options: DummyPdfOptions = {},
-): Promise<Uint8Array> {
+export async function makeDummyPdf(options: DummyPdfOptions = {}): Promise<Uint8Array> {
   const pageCount = Math.max(1, options.pages ?? 1);
   const doc = await PDFDocument.create();
   doc.setTitle(options.label ?? "Dummy PDF");
@@ -54,16 +52,13 @@ export async function makeDummyPdf(
       color: rgb(0.4, 0.4, 0.4),
     });
     for (let line = 0; line < 6; line++) {
-      page.drawText(
-        "Lorem ipsum dolor sit amet, consectetur adipiscing elit sed do.",
-        {
-          x: 48,
-          y: height - 130 - line * 16,
-          size: 10,
-          font,
-          color: rgb(0.2, 0.2, 0.2),
-        },
-      );
+      page.drawText("Lorem ipsum dolor sit amet, consectetur adipiscing elit sed do.", {
+        x: 48,
+        y: height - 130 - line * 16,
+        size: 10,
+        font,
+        color: rgb(0.2, 0.2, 0.2),
+      });
     }
   }
 
@@ -84,17 +79,11 @@ export interface BuiltDummyDoc {
   readonly bytes: Uint8Array;
 }
 
-export async function makeDummyDocs(
-  count: number,
-): Promise<ReadonlyArray<BuiltDummyDoc>> {
+export async function makeDummyDocs(count: number): Promise<ReadonlyArray<BuiltDummyDoc>> {
   const specs: DummyDocSpec[] = Array.from({ length: count }, (_, i) => {
     const pages = (i % 5) + 1;
     const size =
-      i % 4 === 0
-        ? [A4, LETTER, LEGAL, A4, LETTER].slice(0, pages)
-        : i % 3 === 0
-          ? LETTER
-          : A4;
+      i % 4 === 0 ? [A4, LETTER, LEGAL, A4, LETTER].slice(0, pages) : i % 3 === 0 ? LETTER : A4;
     return { id: `dummy-${i}`, name: `Dummy document ${i + 1}`, pages, size };
   });
 

@@ -65,6 +65,20 @@
       ]
     },
     {
+      "name": "shared-sources-must-not-import-core",
+      "description": "Shared packages are lower-level support and cannot import core product packages.",
+      "paths": ["shared/*/src/**/*.ts", "shared/*/src/**/*.tsx"],
+      "must": [
+        {
+          "name": "forbid-certificates",
+          "mustNot": { "importFrom": "@signature-kit/certificates" }
+        },
+        { "name": "forbid-http", "mustNot": { "importFrom": "@signature-kit/http" } },
+        { "name": "forbid-i18n", "mustNot": { "importFrom": "@signature-kit/i18n" } },
+        { "name": "forbid-signatures", "mustNot": { "importFrom": "@signature-kit/signatures" } }
+      ]
+    },
+    {
       "name": "non-validator-sources-must-not-import-validator",
       "description": "Validators are leaf product surfaces and cannot be imported by non-validator sources.",
       "paths": [
@@ -110,6 +124,16 @@
       "description": "Signer packages are self-contained and cannot import another signer package.",
       "paths": ["signers/*/src/**/*.ts", "!signers/zapsign/src/**/*.ts"],
       "mustNot": { "importFrom": "@signature-kit/zapsign" }
+    },
+    {
+      "name": "signer-sources-must-not-import-formats",
+      "description": "Signer adapters cannot depend on PDF, React, or XML document mutation packages.",
+      "paths": ["signers/*/src/**/*.ts", "signers/*/src/**/*.tsx"],
+      "must": [
+        { "name": "forbid-pdf", "mustNot": { "importFrom": "@signature-kit/pdf" } },
+        { "name": "forbid-react", "mustNot": { "importFrom": "@signature-kit/react" } },
+        { "name": "forbid-xml", "mustNot": { "importFrom": "@signature-kit/xml" } }
+      ]
     },
     {
       "name": "remote-signer-index-surface",

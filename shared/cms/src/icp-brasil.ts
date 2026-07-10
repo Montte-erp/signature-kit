@@ -1,15 +1,10 @@
 import { bytesOf, childrenOf, decode, oidString } from "@signature-kit/asn1";
-import { Duration, Effect, Schema } from "effect";
-import {
-  type CmsHashAlgorithm,
-  type IcpBrasilPolicy,
-  CmsError,
-  CmsErrorCodeValue,
-  CmsOperationValue,
-} from "./config";
+import { Effect, Schema } from "effect";
+import { CmsError, CmsErrorCodeValue, CmsOperationValue, TimeoutMillisSchema } from "./config";
+import type { CmsHashAlgorithm, IcpBrasilPolicy } from "./config";
 
 const FetchIcpBrasilPadesPolicyOptionsSchema = Schema.Struct({
-  timeoutMillis: Schema.optional(Schema.Number),
+  timeoutMillis: Schema.optional(TimeoutMillisSchema),
 });
 type FetchIcpBrasilPadesPolicyOptions = (typeof FetchIcpBrasilPadesPolicyOptionsSchema)["Type"];
 
@@ -48,12 +43,24 @@ const ICP_BRASIL_AD_RB_V11_POLICY_HASH = Uint8Array.of(
   0xf8,
 );
 
+const ICP_BRASIL_AD_RB_V11_POLICY_OID = "2.16.76.1.7.1.11.1.1";
+const ICP_BRASIL_AD_RB_V11_POLICY_HASH_ALGORITHM: CmsHashAlgorithm = "sha256";
+const ICP_BRASIL_AD_RB_V11_POLICY_URI = "http://politicas.icpbrasil.gov.br/PA_PAdES_AD_RB_v1_1.der";
+
+const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean => {
+  if (left.byteLength !== right.byteLength) return false;
+  for (let index = 0; index < left.byteLength; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+};
+
 export const IcpBrasilPadesPolicy: { readonly adRbV11: IcpBrasilPolicy } = {
   adRbV11: {
-    policyOid: "2.16.76.1.7.1.11.1.1",
-    policyHash: ICP_BRASIL_AD_RB_V11_POLICY_HASH,
-    policyHashAlgorithm: "sha256",
-    policyUri: "http://politicas.icpbrasil.gov.br/PA_PAdES_AD_RB_v1_1.der",
+    policyOid: ICP_BRASIL_AD_RB_V11_POLICY_OID,
+    policyHash: Uint8Array.from(ICP_BRASIL_AD_RB_V11_POLICY_HASH),
+    policyHashAlgorithm: ICP_BRASIL_AD_RB_V11_POLICY_HASH_ALGORITHM,
+    policyUri: ICP_BRASIL_AD_RB_V11_POLICY_URI,
   },
 };
 
@@ -115,10 +122,10 @@ export const parseIcpBrasilPadesPolicy = (
     const policyHash = yield* bytesOf(policyHashNode);
 
     return {
-      policyOid: IcpBrasilPadesPolicy.adRbV11.policyOid,
+      policyOid: ICP_BRASIL_AD_RB_V11_POLICY_OID,
       policyHash,
       policyHashAlgorithm,
-      policyUri: IcpBrasilPadesPolicy.adRbV11.policyUri,
+      policyUri: ICP_BRASIL_AD_RB_V11_POLICY_URI,
     };
   }).pipe(
     Effect.mapError((error) =>
@@ -131,6 +138,94 @@ export const parseIcpBrasilPadesPolicy = (
         : error,
     ),
   );
+
+type PolicyRequestAbort = {
+  readonly _tag: "PolicyRequestAbort";
+  readonly timedOut: boolean;
+};
+
+type PolicyDownload =
+  | PolicyRequestAbort
+  | {
+      readonly _tag: "PolicyHttpFailure";
+      readonly status: number;
+    }
+  | {
+      readonly _tag: "PolicyHttpSuccess";
+      readonly policyDer: Uint8Array;
+    };
+
+type PolicyAbortHandle = {
+  readonly signal: AbortSignal;
+  readonly promise: Promise<PolicyRequestAbort>;
+  readonly cancel: () => void;
+  readonly clear: () => void;
+};
+
+const startPolicyAbort = (timeoutMillis: number, signal: AbortSignal): PolicyAbortHandle => {
+  const controller = new AbortController();
+  const pending = Promise.withResolvers<PolicyRequestAbort>();
+  const cancel = (): void => {
+    if (!controller.signal.aborted) controller.abort(signal.reason);
+  };
+  const abort = (timedOut: boolean): void => {
+    cancel();
+    pending.resolve({ _tag: "PolicyRequestAbort", timedOut });
+  };
+  const timeoutId = setTimeout(() => abort(true), timeoutMillis);
+  const abortFromSignal = (): void => abort(false);
+  if (signal.aborted) abortFromSignal();
+  else signal.addEventListener("abort", abortFromSignal, { once: true });
+  return {
+    signal: controller.signal,
+    promise: pending.promise,
+    cancel,
+    clear: () => {
+      clearTimeout(timeoutId);
+      signal.removeEventListener("abort", abortFromSignal);
+    },
+  };
+};
+
+const downloadIcpBrasilPadesPolicy = (
+  timeoutMillis: number | undefined,
+): Effect.Effect<PolicyDownload, CmsError> =>
+  Effect.tryPromise({
+    try: (signal): Promise<PolicyDownload> => {
+      const abort = startPolicyAbort(timeoutMillis ?? DEFAULT_POLICY_TIMEOUT_MILLIS, signal);
+      const request = fetch(ICP_BRASIL_AD_RB_V11_POLICY_URI, { signal: abort.signal }).then(
+        async (response): Promise<PolicyDownload> => {
+          if (!response.ok) {
+            abort.cancel();
+            return {
+              _tag: "PolicyHttpFailure",
+              status: response.status,
+            };
+          }
+          return {
+            _tag: "PolicyHttpSuccess",
+            policyDer: new Uint8Array(await response.arrayBuffer()),
+          };
+        },
+      );
+      return Promise.race([abort.promise, request]).then(
+        (result) => {
+          abort.clear();
+          return result;
+        },
+        (error) => {
+          abort.clear();
+          return Promise.reject(error);
+        },
+      );
+    },
+    catch: () =>
+      new CmsError({
+        code: CmsErrorCodeValue.policyError,
+        reason: "Failed to download the ICP-Brasil PAdES AD-RB policy.",
+        operation: CmsOperationValue.policy,
+      }),
+  });
 
 export const fetchIcpBrasilPadesPolicy = (
   options?: FetchIcpBrasilPadesPolicyOptions,
@@ -148,29 +243,20 @@ export const fetchIcpBrasilPadesPolicy = (
           }),
       ),
     );
-    const response = yield* Effect.tryPromise({
-      try: (signal) => fetch(IcpBrasilPadesPolicy.adRbV11.policyUri, { signal }),
-      catch: () =>
+    const response = yield* downloadIcpBrasilPadesPolicy(valid.timeoutMillis);
+    if (response._tag === "PolicyRequestAbort") {
+      return yield* Effect.fail(
         new CmsError({
           code: CmsErrorCodeValue.policyError,
-          reason: "Failed to download the ICP-Brasil PAdES AD-RB policy.",
+          reason: response.timedOut
+            ? "Timed out downloading the ICP-Brasil PAdES AD-RB policy."
+            : "ICP-Brasil PAdES AD-RB policy download was aborted.",
           operation: CmsOperationValue.policy,
         }),
-    }).pipe(
-      Effect.timeoutOrElse({
-        duration: Duration.millis(valid.timeoutMillis ?? DEFAULT_POLICY_TIMEOUT_MILLIS),
-        orElse: () =>
-          Effect.fail(
-            new CmsError({
-              code: CmsErrorCodeValue.policyError,
-              reason: "Timed out downloading the ICP-Brasil PAdES AD-RB policy.",
-              operation: CmsOperationValue.policy,
-            }),
-          ),
-      }),
-    );
+      );
+    }
 
-    if (!response.ok) {
+    if (response._tag === "PolicyHttpFailure") {
       return yield* Effect.fail(
         new CmsError({
           code: CmsErrorCodeValue.policyError,
@@ -180,15 +266,18 @@ export const fetchIcpBrasilPadesPolicy = (
       );
     }
 
-    const policyDer = yield* Effect.tryPromise({
-      try: () => response.arrayBuffer(),
-      catch: () =>
+    const policy = yield* parseIcpBrasilPadesPolicy(response.policyDer);
+    if (
+      policy.policyHashAlgorithm !== ICP_BRASIL_AD_RB_V11_POLICY_HASH_ALGORITHM ||
+      !bytesEqual(policy.policyHash, ICP_BRASIL_AD_RB_V11_POLICY_HASH)
+    ) {
+      return yield* Effect.fail(
         new CmsError({
           code: CmsErrorCodeValue.policyError,
-          reason: "Failed to read the ICP-Brasil PAdES AD-RB policy response.",
+          reason: "Downloaded ICP-Brasil PAdES AD-RB policy does not match the pinned policy hash.",
           operation: CmsOperationValue.policy,
         }),
-    });
-    const policy = yield* parseIcpBrasilPadesPolicy(new Uint8Array(policyDer));
+      );
+    }
     return policy;
   });

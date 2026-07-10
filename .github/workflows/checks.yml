@@ -1,0 +1,89 @@
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Build, check, and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Derive affected SHAs
+        id: nx-shas
+        uses: nrwl/nx-set-shas@v4
+        with:
+          main-branch-name: main
+          set-environment-variables-for-job: false
+
+      - name: Run global checks
+        run: |
+          bun run check:konsistent
+          bun run check:static
+          bun run typecheck:test
+          bun run typecheck:docs
+
+      - name: Run affected public package tasks
+        env:
+          NX_BASE: ${{ steps.nx-shas.outputs.base }}
+          NX_HEAD: ${{ steps.nx-shas.outputs.head }}
+        run: bunx nx affected -t build,typecheck,test --exclude='*,!tag:npm:public' --base="$NX_BASE" --head="$NX_HEAD" --outputStyle=static
+
+      - name: Run full non-browser suite
+        run: bun run build && bun run test
+
+      - name: Run server integration tests
+        run: bunx nx run @tooling/integration-tests:test:server --outputStyle=static
+
+  browser:
+    name: Browser integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Build packages
+        run: bun run build
+
+      - name: Run browser integration tests
+        run: bun run test:integration:browser

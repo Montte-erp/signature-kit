@@ -1,8 +1,10 @@
 import { describe, expect, it } from "@effect/vitest";
+import { vi } from "vitest";
 import { Buffer } from "node:buffer";
-import { SignatureHttpClient, signatureHttpClientLive } from "@signature-kit/http";
+import { SignatureHttpClient, signatureHttpClientLive } from "../src/http";
 import { Effect, Result, Schema } from "effect";
-import { localHttpServer, type LocalResponse } from "../../../tooling/testing/local-http";
+import { localHttpServer } from "../../../tooling/testing/local-http";
+import type { LocalResponse } from "../../../tooling/testing/local-http";
 
 const JsonResponseSchema = Schema.Struct({
   ok: Schema.Boolean,
@@ -68,6 +70,17 @@ const startServer = () => {
         headers: {
           "Content-Type": "text/plain",
           ...(reset === null ? {} : { "x-ratelimit-reset": reset }),
+        },
+        body: "rate limited",
+      };
+    }
+    if (request.pathname === "/retry-after") {
+      const retryAfter = request.query.get("retryAfter");
+      return {
+        status: 429,
+        headers: {
+          "Content-Type": "text/plain",
+          ...(retryAfter === null ? {} : { "Retry-After": retryAfter }),
         },
         body: "rate limited",
       };
@@ -222,6 +235,124 @@ describe("SignatureHttpClient", () => {
           expect(result.failure.code).toBe("signature-kit.HTTP");
           expect(result.failure.status).toBe(429);
           expect(result.failure.retryAfterEpochSeconds).toBeUndefined();
+        }
+      }
+    }),
+  );
+  it.effect("preserves HTTP-date Retry-After headers as retry epochs", () =>
+    Effect.gen(function* () {
+      const local = yield* startServer();
+      const requestStartedAt = Math.floor(Date.now() / 1000);
+      const retryAfter = new Date((requestStartedAt + 60) * 1000).toUTCString();
+      const result = yield* Effect.result(
+        SignatureHttpClient.use((http) =>
+          http.requestJson(
+            {
+              method: "GET",
+              url: `${local.baseUrl}/retry-after?retryAfter=${encodeURIComponent(retryAfter)}`,
+            },
+            JsonResponseSchema,
+            "JsonResponse",
+          ),
+        ).pipe(Effect.provide(signatureHttpClientLive)),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe("signature-kit.HTTP");
+        expect(result.failure.status).toBe(429);
+        expect(result.failure.retryAfterEpochSeconds).toBe(requestStartedAt + 60);
+      }
+    }),
+  );
+
+  it.effect("preserves zero Retry-After delta seconds as a retry epoch", () =>
+    Effect.gen(function* () {
+      const local = yield* startServer();
+      const requestStartedAt = Math.floor(Date.now() / 1000);
+      const result = yield* Effect.result(
+        SignatureHttpClient.use((http) =>
+          http.requestJson(
+            { method: "GET", url: `${local.baseUrl}/retry-after?retryAfter=0` },
+            JsonResponseSchema,
+            "JsonResponse",
+          ),
+        ).pipe(Effect.provide(signatureHttpClientLive)),
+      );
+      const requestFinishedAt = Math.floor(Date.now() / 1000);
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe("signature-kit.HTTP");
+        expect(result.failure.status).toBe(429);
+        expect(result.failure.retryAfterEpochSeconds).toBeGreaterThanOrEqual(requestStartedAt);
+        expect(result.failure.retryAfterEpochSeconds).toBeLessThanOrEqual(requestFinishedAt);
+      }
+    }),
+  );
+
+  it.effect("preserves rate-limit metadata when response body consumption fails", () =>
+    Effect.gen(function* () {
+      vi.stubGlobal("fetch", () =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start: (controller) => {
+                controller.error(new Error("response body read failed"));
+              },
+            }),
+            {
+              status: 429,
+              headers: { "Retry-After": "120" },
+            },
+          ),
+        ),
+      );
+      const requestStartedAt = Math.floor(Date.now() / 1000);
+      const result = yield* Effect.result(
+        SignatureHttpClient.use((http) =>
+          http.requestJson(
+            { method: "POST", url: "https://provider.example.test/rate-limited" },
+            JsonResponseSchema,
+            "JsonResponse",
+          ),
+        ).pipe(Effect.provide(signatureHttpClientLive)),
+      );
+      const requestFinishedAt = Math.floor(Date.now() / 1000);
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe("signature-kit.HTTP");
+        expect(result.failure.status).toBe(429);
+        expect(result.failure.retryable).toBe(true);
+        expect(result.failure.retryAfterEpochSeconds).toBeGreaterThanOrEqual(
+          requestStartedAt + 120,
+        );
+        expect(result.failure.retryAfterEpochSeconds).toBeLessThanOrEqual(requestFinishedAt + 121);
+      }
+    }).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllGlobals()))),
+  );
+
+  it.effect("rejects non-finite and negative request timeouts", () =>
+    Effect.gen(function* () {
+      const invalidTimeouts = [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1];
+
+      for (const timeoutMillis of invalidTimeouts) {
+        const result = yield* Effect.result(
+          SignatureHttpClient.use((http) =>
+            http.requestJson(
+              { method: "GET", url: "not a URL", timeoutMillis },
+              JsonResponseSchema,
+              "JsonResponse",
+            ),
+          ).pipe(Effect.provide(signatureHttpClientLive)),
+        );
+
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure.code).toBe("signature-kit.INVALID_INPUT");
+          expect(result.failure.retryable).toBe(false);
+          expect(result.failure.schemaName).toBe("SignatureHttpRequest");
         }
       }
     }),

@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-
 interface SectionProps {
   children: ReactNode;
   className?: string;
@@ -23,11 +22,7 @@ interface ContainerProps {
 }
 
 export function Container({ children, className }: ContainerProps) {
-  return (
-    <div className={cn("mx-auto max-w-6xl px-6 py-12 sm:py-16", className)}>
-      {children}
-    </div>
-  );
+  return <div className={cn("mx-auto max-w-6xl px-6 py-12 sm:py-16", className)}>{children}</div>;
 }
 
 interface EyebrowProps {
@@ -36,11 +31,7 @@ interface EyebrowProps {
 }
 
 export function Eyebrow({ children, className }: EyebrowProps) {
-  return (
-    <p className={cn("font-mono text-xs text-muted-foreground", className)}>
-      {children}
-    </p>
-  );
+  return <p className={cn("font-mono text-xs text-muted-foreground", className)}>{children}</p>;
 }
 
 interface SectionHeadingProps {
@@ -50,12 +41,7 @@ interface SectionHeadingProps {
   className?: string;
 }
 
-export function SectionHeading({
-  eyebrow,
-  title,
-  lead,
-  className,
-}: SectionHeadingProps) {
+export function SectionHeading({ eyebrow, title, lead, className }: SectionHeadingProps) {
   return (
     <div className={cn("max-w-3xl", className)}>
       {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}

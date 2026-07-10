@@ -34,6 +34,8 @@ import type {
   PdfSignatureTemplateInput,
 } from "./config";
 
+const MAX_STACKED_AUTO_PLACEMENT_CANDIDATES = 100_000;
+
 const fieldPageKey = (documentId: string, pageIndex: number): string =>
   `${documentId}:${pageIndex}`;
 
@@ -66,6 +68,15 @@ const hasDuplicateId = (items: readonly { readonly id: string }[]): boolean => {
   for (const item of items) {
     if (seen.has(item.id)) return true;
     seen.add(item.id);
+  }
+  return false;
+};
+
+const hasDuplicatePageIndex = (pages: readonly PdfSignaturePage[]): boolean => {
+  const seen = new Set<number>();
+  for (const page of pages) {
+    if (seen.has(page.index)) return true;
+    seen.add(page.index);
   }
   return false;
 };
@@ -212,21 +223,50 @@ const stackedAutoPlacementRect = (
   fields: readonly PdfSignatureField[],
   direction: PdfSignatureAutoPlacementStackDirection,
   gap: number,
-  attempt: number,
 ): Effect.Effect<PdfSignatureRect, PdfError> => {
-  const candidate = offsetAutoPlacementRect(baseRect, direction, gap, attempt);
-  if (!rectFitsPage(candidate, page)) {
-    return Effect.fail(
-      new PdfError({
-        code: PdfErrorCodeValue.noAvailablePlacement,
-        retryable: false,
-        operation: PdfOperationValue.autoPlaceField,
-        reason: `No automatic signature slot fits page ${page.index} without leaving its bounds.`,
-      }),
-    );
+  for (let attempt = 0; attempt < MAX_STACKED_AUTO_PLACEMENT_CANDIDATES; attempt += 1) {
+    const candidate = offsetAutoPlacementRect(baseRect, direction, gap, attempt);
+    if (!rectFitsPage(candidate, page)) {
+      return Effect.fail(
+        new PdfError({
+          code: PdfErrorCodeValue.noAvailablePlacement,
+          retryable: false,
+          operation: PdfOperationValue.autoPlaceField,
+          reason: `No automatic signature slot fits page ${page.index} without leaving its bounds.`,
+        }),
+      );
+    }
+    if (!rectCollidesWithFields(candidate, fields)) return Effect.succeed(candidate);
+
+    const nextCandidate = offsetAutoPlacementRect(baseRect, direction, gap, attempt + 1);
+    const advances =
+      direction === PdfSignatureAutoPlacementStackDirectionValue.up
+        ? nextCandidate.y < candidate.y
+        : direction === PdfSignatureAutoPlacementStackDirectionValue.down
+          ? nextCandidate.y > candidate.y
+          : direction === PdfSignatureAutoPlacementStackDirectionValue.left
+            ? nextCandidate.x < candidate.x
+            : nextCandidate.x > candidate.x;
+    if (!advances) {
+      return Effect.fail(
+        new PdfError({
+          code: PdfErrorCodeValue.noAvailablePlacement,
+          retryable: false,
+          operation: PdfOperationValue.autoPlaceField,
+          reason: "Automatic stacked placement cannot advance at the selected precision.",
+        }),
+      );
+    }
   }
-  if (!rectCollidesWithFields(candidate, fields)) return Effect.succeed(candidate);
-  return stackedAutoPlacementRect(baseRect, page, fields, direction, gap, attempt + 1);
+
+  return Effect.fail(
+    new PdfError({
+      code: PdfErrorCodeValue.noAvailablePlacement,
+      retryable: false,
+      operation: PdfOperationValue.autoPlaceField,
+      reason: `Automatic stacked placement exceeded its candidate limit on page ${page.index}.`,
+    }),
+  );
 };
 
 const selectAutoPlacementPage = (
@@ -384,6 +424,16 @@ export const validatePdfSignatureTemplate = (
           }),
         );
       }
+      if (template.documents.some((document) => hasDuplicatePageIndex(document.pages))) {
+        return Effect.fail(
+          new PdfError({
+            code: PdfErrorCodeValue.duplicateId,
+            retryable: false,
+            operation: PdfOperationValue.validateTemplate,
+            reason: "PDF signature page indexes must be unique within each document.",
+          }),
+        );
+      }
       return Effect.forEach(template.fields, (field) => validateFieldPlacement(template, field), {
         discard: true,
       }).pipe(Effect.as(template));
@@ -423,6 +473,17 @@ const builderStateFromTemplate = (
         retryable: false,
         operation: PdfOperationValue.createBuilderState,
         reason: `Selected field ${selectedFieldId} does not exist on template ${template.id}.`,
+      }),
+    );
+  }
+
+  if (draft !== undefined && !template.roles.some((role) => role.id === draft.roleId)) {
+    return Effect.fail(
+      new PdfError({
+        code: PdfErrorCodeValue.unknownRole,
+        retryable: false,
+        operation: PdfOperationValue.createBuilderState,
+        reason: `Draft signature field references role ${draft.roleId} that does not exist on template ${template.id}.`,
       }),
     );
   }
@@ -547,18 +608,23 @@ export const autoPlacePdfSignatureField = (
           const gap = valid.gap ?? 0;
           const collision = valid.collision ?? PdfSignatureAutoPlacementCollisionValue.fail;
 
-          if (valid.draft.width <= 0 || valid.draft.height <= 0) {
+          if (
+            !Number.isFinite(valid.draft.width) ||
+            !Number.isFinite(valid.draft.height) ||
+            valid.draft.width <= 0 ||
+            valid.draft.height <= 0
+          ) {
             return Effect.fail(
               new PdfError({
                 code: PdfErrorCodeValue.invalidBuilderInput,
                 retryable: false,
                 operation: PdfOperationValue.autoPlaceField,
                 schemaName: PdfSchemaNameValue.pdfSignatureAutoPlacementInput,
-                reason: "Automatic placement draft must have positive width and height.",
+                reason: "Automatic placement draft must have finite positive width and height.",
               }),
             );
           }
-          if (margin < 0 || gap < 0) {
+          if (!Number.isFinite(margin) || !Number.isFinite(gap) || margin < 0 || gap < 0) {
             return Effect.fail(
               new PdfError({
                 code: PdfErrorCodeValue.invalidBuilderInput,
@@ -638,7 +704,7 @@ export const autoPlacePdfSignatureField = (
               const rectEffect =
                 collision === PdfSignatureAutoPlacementCollisionValue.stack &&
                 valid.stackDirection !== undefined
-                  ? stackedAutoPlacementRect(baseRect, page, fields, valid.stackDirection, gap, 0)
+                  ? stackedAutoPlacementRect(baseRect, page, fields, valid.stackDirection, gap)
                   : rectCollidesWithFields(baseRect, fields)
                     ? Effect.fail(
                         new PdfError({

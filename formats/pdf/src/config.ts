@@ -1,4 +1,5 @@
-import { ErrorMessageLocaleSchema, type ErrorMessageLocale } from "@signature-kit/i18n";
+import { ErrorMessageLocaleSchema } from "@signature-kit/i18n";
+import type { ErrorMessageLocale } from "@signature-kit/i18n";
 import { Schema } from "effect";
 import {
   CmsError,
@@ -10,6 +11,17 @@ import {
 import { SignatureKitError } from "@signature-kit/signatures";
 
 const nonEmptyString: Schema.ConstraintDecoder<string> = Schema.NonEmptyString;
+const finiteNumber = Schema.Number.check(Schema.isFinite());
+const nonNegativeInteger = Schema.Number.check(
+  Schema.isFinite(),
+  Schema.isInt(),
+  Schema.isGreaterThanOrEqualTo(0),
+);
+const nonNegativeFiniteNumber = Schema.Number.check(
+  Schema.isFinite(),
+  Schema.isGreaterThanOrEqualTo(0),
+);
+const positiveFiniteNumber = Schema.Number.check(Schema.isFinite(), Schema.isGreaterThan(0));
 
 export const PdfErrorCodeSchema = Schema.Literals([
   "pdf.INVALID_PDF",
@@ -170,6 +182,8 @@ export const PdfSchemaNameSchema = Schema.Literals([
   "PdfTextAnchorSearchInput",
   "PdfPrepareAndSignInput",
   "PdfRubricStamp",
+  "PdfSignatureBestGuessPlacementInput",
+  "PdfVerificationRequest",
   "PdfMergeDocuments",
 ]);
 export type PdfSchemaName = (typeof PdfSchemaNameSchema)["Type"];
@@ -192,6 +206,8 @@ export const PdfSchemaNameValue = {
   pdfTextAnchorSearchInput: "PdfTextAnchorSearchInput",
   pdfPrepareAndSignInput: "PdfPrepareAndSignInput",
   pdfRubricStamp: "PdfRubricStamp",
+  pdfSignatureBestGuessPlacementInput: "PdfSignatureBestGuessPlacementInput",
+  pdfVerificationRequest: "PdfVerificationRequest",
   pdfMergeDocuments: "PdfMergeDocuments",
 } satisfies Record<string, PdfSchemaName>;
 
@@ -209,10 +225,10 @@ export class PdfError extends Schema.TaggedErrorClass<PdfError>()("PdfError", {
 }
 
 export const PdfCoordinateTupleSchema = Schema.Tuple([
-  Schema.Number,
-  Schema.Number,
-  Schema.Number,
-  Schema.Number,
+  finiteNumber,
+  finiteNumber,
+  finiteNumber,
+  finiteNumber,
 ]);
 export type PdfCoordinateTuple = (typeof PdfCoordinateTupleSchema)["Type"];
 
@@ -243,33 +259,165 @@ export const PdfRubricStampSchema = Schema.Struct({
 export type PdfRubricStamp = (typeof PdfRubricStampSchema)["Type"];
 
 export const PdfTextBoxSchema = Schema.Struct({
-  x: Schema.Number,
-  y: Schema.Number,
-  width: Schema.Number,
-  height: Schema.Number,
+  x: finiteNumber,
+  y: finiteNumber,
+  width: positiveFiniteNumber,
+  height: positiveFiniteNumber,
   text: Schema.optional(Schema.String),
 });
 export type PdfTextBox = (typeof PdfTextBoxSchema)["Type"];
 
+export const MAX_PDF_LITEPARSE_PAGE_COUNT = 10_000;
+export const MAX_PDF_LITEPARSE_TEXT_ITEMS_PER_PAGE = 10_000;
+export const MAX_PDF_LITEPARSE_TEXT_ITEMS = 100_000;
+export const MAX_PDF_LITEPARSE_TEXT_ITEM_CHARACTERS = 16 * 1024;
+export const MAX_PDF_LITEPARSE_TEXT_UTF8_BYTES = 4 * 1024 * 1024;
+
+const utf8ByteLengthAtMost = (value: string, maximum: number): number | undefined => {
+  let byteLength = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x80) {
+      byteLength += 1;
+    } else if (code < 0x800) {
+      byteLength += 2;
+    } else if (
+      code >= 0xd800 &&
+      code <= 0xdbff &&
+      index + 1 < value.length &&
+      value.charCodeAt(index + 1) >= 0xdc00 &&
+      value.charCodeAt(index + 1) <= 0xdfff
+    ) {
+      byteLength += 4;
+      index += 1;
+    } else {
+      byteLength += 3;
+    }
+    if (byteLength > maximum) return undefined;
+  }
+  return byteLength;
+};
+
 export const PdfLiteParseTextItemSchema = Schema.Struct({
-  text: Schema.String,
-  x: Schema.Number,
-  y: Schema.Number,
-  width: Schema.Number,
-  height: Schema.Number,
+  text: Schema.String.check(Schema.isMaxLength(MAX_PDF_LITEPARSE_TEXT_ITEM_CHARACTERS)),
+  x: finiteNumber,
+  y: finiteNumber,
+  width: positiveFiniteNumber,
+  height: positiveFiniteNumber,
 });
 export type PdfLiteParseTextItem = (typeof PdfLiteParseTextItemSchema)["Type"];
 
 export const PdfLiteParsePageSchema = Schema.Struct({
-  pageNum: Schema.Number,
-  textItems: Schema.Array(PdfLiteParseTextItemSchema),
+  pageNum: Schema.Number.check(Schema.isFinite(), Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+  textItems: Schema.Array(PdfLiteParseTextItemSchema).check(
+    Schema.isMaxLength(MAX_PDF_LITEPARSE_TEXT_ITEMS_PER_PAGE),
+  ),
 });
 export type PdfLiteParsePage = (typeof PdfLiteParsePageSchema)["Type"];
 
 export const PdfLiteParseResultSchema = Schema.Struct({
-  pages: Schema.Array(PdfLiteParsePageSchema),
+  pages: Schema.Array(PdfLiteParsePageSchema).check(
+    Schema.isMaxLength(MAX_PDF_LITEPARSE_PAGE_COUNT),
+  ),
 });
 export type PdfLiteParseResult = (typeof PdfLiteParseResultSchema)["Type"];
+
+export const hasBoundedPdfLiteParseResult = (result: unknown, pageCount: number): boolean => {
+  if (
+    !Number.isInteger(pageCount) ||
+    pageCount < 0 ||
+    pageCount > MAX_PDF_LITEPARSE_PAGE_COUNT ||
+    typeof result !== "object" ||
+    result === null ||
+    Array.isArray(result) ||
+    !("pages" in result) ||
+    !Array.isArray(result.pages) ||
+    result.pages.length !== pageCount ||
+    result.pages.length > MAX_PDF_LITEPARSE_PAGE_COUNT
+  ) {
+    return false;
+  }
+  let remainingTextItems = MAX_PDF_LITEPARSE_TEXT_ITEMS;
+  let remainingTextUtf8Bytes = MAX_PDF_LITEPARSE_TEXT_UTF8_BYTES;
+  for (const page of result.pages) {
+    if (
+      typeof page !== "object" ||
+      page === null ||
+      Array.isArray(page) ||
+      !("textItems" in page) ||
+      !Array.isArray(page.textItems) ||
+      page.textItems.length > MAX_PDF_LITEPARSE_TEXT_ITEMS_PER_PAGE ||
+      page.textItems.length > remainingTextItems
+    ) {
+      return false;
+    }
+    remainingTextItems -= page.textItems.length;
+    for (const item of page.textItems) {
+      if (
+        typeof item !== "object" ||
+        item === null ||
+        Array.isArray(item) ||
+        !("text" in item) ||
+        typeof item.text !== "string" ||
+        item.text.length > MAX_PDF_LITEPARSE_TEXT_ITEM_CHARACTERS
+      ) {
+        return false;
+      }
+      const textUtf8Bytes = utf8ByteLengthAtMost(item.text, remainingTextUtf8Bytes);
+      if (textUtf8Bytes === undefined) return false;
+      remainingTextUtf8Bytes -= textUtf8Bytes;
+    }
+  }
+  return true;
+};
+
+export const PdfLiteParseResultSchemaForPageCount = (pageCount: number) =>
+  PdfLiteParseResultSchema.check(
+    Schema.makeFilter((result) => {
+      if (result.pages.length !== pageCount) {
+        return {
+          path: ["pages"],
+          issue: `LiteParse returned ${result.pages.length} pages for ${pageCount} requested pages.`,
+        };
+      }
+      const pageNumbers = new Set<number>();
+      let totalTextItems = 0;
+      let remainingTextUtf8Bytes = MAX_PDF_LITEPARSE_TEXT_UTF8_BYTES;
+      for (const page of result.pages) {
+        totalTextItems += page.textItems.length;
+        if (totalTextItems > MAX_PDF_LITEPARSE_TEXT_ITEMS) {
+          return {
+            path: ["pages"],
+            issue: `LiteParse returned more than ${MAX_PDF_LITEPARSE_TEXT_ITEMS} text items.`,
+          };
+        }
+        for (const item of page.textItems) {
+          const textUtf8Bytes = utf8ByteLengthAtMost(item.text, remainingTextUtf8Bytes);
+          if (textUtf8Bytes === undefined) {
+            return {
+              path: ["pages"],
+              issue: `LiteParse returned more than ${MAX_PDF_LITEPARSE_TEXT_UTF8_BYTES} UTF-8 text bytes.`,
+            };
+          }
+          remainingTextUtf8Bytes -= textUtf8Bytes;
+        }
+        if (page.pageNum > pageCount) {
+          return {
+            path: ["pages"],
+            issue: `LiteParse returned page ${page.pageNum} outside the requested range.`,
+          };
+        }
+        if (pageNumbers.has(page.pageNum)) {
+          return {
+            path: ["pages"],
+            issue: `LiteParse returned duplicate page ${page.pageNum}.`,
+          };
+        }
+        pageNumbers.add(page.pageNum);
+      }
+      return undefined;
+    }),
+  );
 
 export const PdfSignatureAnchorSchema = Schema.Literals([
   "bottom-left",
@@ -307,7 +455,16 @@ export const PdfAutoSignaturePlacementSchema = Schema.Struct({
   height: Schema.optional(Schema.Number),
   margin: Schema.optional(Schema.Number),
   gap: Schema.optional(Schema.Number),
-});
+}).check(
+  Schema.makeFilter((input) =>
+    input.page !== undefined && input.pageIndex !== undefined
+      ? {
+          path: ["page"],
+          issue: "Automatic signature placement accepts either page or pageIndex, not both.",
+        }
+      : undefined,
+  ),
+);
 
 export const PdfSignaturePlacementSchema = Schema.Union([
   PdfInvisibleSignaturePlacementSchema,
@@ -320,11 +477,38 @@ export const PdfSignatureAppearanceSchema = Schema.Struct({
   pageIndex: Schema.optional(Schema.Number),
   widgetRect: Schema.optional(PdfCoordinateTupleSchema),
   placement: Schema.optional(PdfSignaturePlacementSchema),
-});
+}).check(
+  Schema.makeFilter((input) => {
+    if (input.widgetRect !== undefined && input.placement !== undefined) {
+      return {
+        path: ["widgetRect"],
+        issue: "Signature appearance accepts either widgetRect or placement, not both.",
+      };
+    }
+    if (
+      input.pageIndex !== undefined &&
+      input.placement !== undefined &&
+      (input.placement.pageIndex !== undefined ||
+        (input.placement.kind === "auto" && input.placement.page !== undefined))
+    ) {
+      return {
+        path: ["pageIndex"],
+        issue: "Signature appearance accepts exactly one page selector.",
+      };
+    }
+    return undefined;
+  }),
+);
 export type PdfSignatureAppearance = (typeof PdfSignatureAppearanceSchema)["Type"];
 
 export const PdfSignaturePolicySchema = Schema.Literals(["pades-ades", "pades-icp-brasil"]);
 export type PdfSignaturePolicy = (typeof PdfSignaturePolicySchema)["Type"];
+
+export const MAX_PDF_SIGNATURE_BYTES = 16 * 1024 * 1024;
+export const PdfSignatureByteLengthSchema = Schema.Int.pipe(
+  Schema.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(MAX_PDF_SIGNATURE_BYTES)),
+);
+export type PdfSignatureByteLength = (typeof PdfSignatureByteLengthSchema)["Type"];
 
 export const PdfSigningRequestSchema = Schema.Struct({
   pdf: Schema.Uint8Array,
@@ -332,8 +516,8 @@ export const PdfSigningRequestSchema = Schema.Struct({
   contactInfo: Schema.optional(Schema.String),
   name: Schema.optional(Schema.String),
   location: Schema.optional(Schema.String),
-  signingTime: Schema.optional(Schema.Date),
-  signatureLength: Schema.optional(Schema.Number),
+  signingTime: Schema.optional(Schema.DateValid),
+  signatureLength: Schema.optional(PdfSignatureByteLengthSchema),
   hashAlgorithm: Schema.optional(CmsHashAlgorithmSchema),
   policy: Schema.optional(PdfSignaturePolicySchema),
   icpBrasil: Schema.optional(IcpBrasilPolicySchema),
@@ -416,18 +600,18 @@ export const PdfSignatureAutoPlacementStackDirectionValue = {
 } satisfies Record<string, PdfSignatureAutoPlacementStackDirection>;
 
 export const PdfSignatureRectSchema = Schema.Struct({
-  pageIndex: Schema.Number,
-  x: Schema.Number,
-  y: Schema.Number,
-  width: Schema.Number,
-  height: Schema.Number,
+  pageIndex: nonNegativeInteger,
+  x: nonNegativeFiniteNumber,
+  y: nonNegativeFiniteNumber,
+  width: positiveFiniteNumber,
+  height: positiveFiniteNumber,
 });
 export type PdfSignatureRect = (typeof PdfSignatureRectSchema)["Type"];
 
 export const PdfSignaturePageSchema = Schema.Struct({
-  index: Schema.Number,
-  width: Schema.Number,
-  height: Schema.Number,
+  index: nonNegativeInteger,
+  width: positiveFiniteNumber,
+  height: positiveFiniteNumber,
   label: Schema.optional(Schema.String),
 });
 export type PdfSignaturePage = (typeof PdfSignaturePageSchema)["Type"];
@@ -442,8 +626,8 @@ export const PdfTextAnchorPlacementSchema = Schema.Literals(["above", "below"]);
 export type PdfTextAnchorPlacement = (typeof PdfTextAnchorPlacementSchema)["Type"];
 
 export const PdfStampSizeSchema = Schema.Struct({
-  width: Schema.Number,
-  height: Schema.Number,
+  width: positiveFiniteNumber,
+  height: positiveFiniteNumber,
 });
 export type PdfStampSize = (typeof PdfStampSizeSchema)["Type"];
 export const DEFAULT_PDF_ANCHOR_STAMP_SIZE: PdfStampSize = { width: 180, height: 54 };
@@ -456,6 +640,39 @@ export const pdfTextAnchorMatchersFromProps = (
   ...anchorDigits.filter((digits) => digits.length > 0).map((digits) => ({ digits })),
 ];
 
+const pdfTextAnchorPageIdentityIssue = (
+  pages: ReadonlyArray<PdfSignaturePage>,
+  textBoxes: ReadonlyArray<ReadonlyArray<PdfTextBox>>,
+) => {
+  const pageIndexes = new Set<number>();
+  let greatestPageIndex = -1;
+  for (const page of pages) {
+    if (pageIndexes.has(page.index)) {
+      return {
+        path: ["pages"],
+        issue: `Text-anchor pages declare duplicate page index ${page.index}.`,
+      };
+    }
+    pageIndexes.add(page.index);
+    greatestPageIndex = Math.max(greatestPageIndex, page.index);
+  }
+  if (textBoxes.length !== greatestPageIndex + 1) {
+    return {
+      path: ["textBoxes"],
+      issue: "Text-anchor textBoxes must cover exactly the declared page-index range.",
+    };
+  }
+  for (const [pageIndex, boxes] of textBoxes.entries()) {
+    if (!pageIndexes.has(pageIndex) && boxes.length > 0) {
+      return {
+        path: ["textBoxes", pageIndex],
+        issue: `Text-anchor textBoxes reference undeclared page ${pageIndex}.`,
+      };
+    }
+  }
+  return undefined;
+};
+
 export const PdfTextAnchorSearchInputSchema = Schema.Struct({
   pdf: Schema.optional(Schema.Uint8Array),
   pages: Schema.optional(Schema.Array(PdfSignaturePageSchema)),
@@ -463,11 +680,17 @@ export const PdfTextAnchorSearchInputSchema = Schema.Struct({
   matchers: Schema.Array(PdfTextAnchorMatcherSchema),
   stampSize: PdfStampSizeSchema,
   placement: Schema.optional(PdfTextAnchorPlacementSchema),
-  offset: Schema.optional(Schema.Number),
-});
+  offset: Schema.optional(finiteNumber),
+}).check(
+  Schema.makeFilter((input) =>
+    input.pages !== undefined && input.textBoxes !== undefined
+      ? pdfTextAnchorPageIdentityIssue(input.pages, input.textBoxes)
+      : undefined,
+  ),
+);
 export type PdfTextAnchorSearchInput = (typeof PdfTextAnchorSearchInputSchema)["Type"];
 
-export const PdfMergeDocumentsSchema = Schema.Array(Schema.Uint8Array);
+export const PdfMergeDocumentsSchema = Schema.NonEmptyArray(Schema.Uint8Array);
 export type PdfMergeDocuments = (typeof PdfMergeDocumentsSchema)["Type"];
 
 export const PdfVisibleStampQrSchema = Schema.Struct({
@@ -498,7 +721,6 @@ export const PdfSignatureBadgeFooterSegmentSchema = Schema.Struct({
   link: Schema.optional(nonEmptyString),
 });
 export type PdfSignatureBadgeFooterSegment = (typeof PdfSignatureBadgeFooterSegmentSchema)["Type"];
-
 export const PdfSignatureBadgeSchema = Schema.Struct({
   header: Schema.Struct({ text: nonEmptyString }),
   rows: Schema.Array(Schema.Array(PdfSignatureBadgeRowItemSchema)),
@@ -519,8 +741,17 @@ export const PdfVisibleStampInputSchema = Schema.Struct({
   qr: Schema.optional(PdfVisibleStampQrSchema),
 }).check(
   Schema.makeFilter((input) => {
-    if (input.badge !== undefined && input.lines !== undefined) {
-      return { path: ["badge"], issue: "Visible stamp badge and lines are mutually exclusive." };
+    if (
+      input.badge !== undefined &&
+      (input.lines !== undefined ||
+        input.inkPng !== undefined ||
+        input.qr !== undefined ||
+        input.border !== undefined)
+    ) {
+      return {
+        path: ["badge"],
+        issue: "Visible stamp badge cannot be combined with lines, inkPng, qr, or border.",
+      };
     }
     if (
       input.badge === undefined &&
@@ -588,8 +819,8 @@ export const PdfSignatureFieldDraftSchema = Schema.Struct({
   id: nonEmptyString,
   type: PdfSignatureFieldTypeSchema,
   roleId: nonEmptyString,
-  width: Schema.Number,
-  height: Schema.Number,
+  width: positiveFiniteNumber,
+  height: positiveFiniteNumber,
   label: Schema.optional(Schema.String),
   required: Schema.optional(Schema.Boolean),
 });
@@ -615,9 +846,9 @@ export type PdfSignatureTemplateInput = (typeof PdfSignatureTemplateInputSchema)
 
 export const PdfSignatureFieldPlacementSchema = Schema.Struct({
   documentId: nonEmptyString,
-  pageIndex: Schema.Number,
-  x: Schema.Number,
-  y: Schema.Number,
+  pageIndex: nonNegativeInteger,
+  x: finiteNumber,
+  y: finiteNumber,
   draft: PdfSignatureFieldDraftSchema,
   anchor: Schema.optional(PdfSignaturePlacementAnchorSchema),
 });
@@ -627,10 +858,10 @@ export const PdfSignatureAutoPlacementInputSchema = Schema.Struct({
   documentId: nonEmptyString,
   draft: PdfSignatureFieldDraftSchema,
   page: Schema.optional(PdfSignatureAutoPlacementPageSchema),
-  pageIndex: Schema.optional(Schema.Number),
+  pageIndex: Schema.optional(nonNegativeInteger),
   slot: PdfSignatureAutoPlacementSlotSchema,
-  margin: Schema.optional(Schema.Number),
-  gap: Schema.optional(Schema.Number),
+  margin: Schema.optional(nonNegativeFiniteNumber),
+  gap: Schema.optional(nonNegativeFiniteNumber),
   collision: Schema.optional(PdfSignatureAutoPlacementCollisionSchema),
   stackDirection: Schema.optional(PdfSignatureAutoPlacementStackDirectionSchema),
 });
@@ -669,19 +900,19 @@ export const PdfTemplateInputSchema = Schema.Struct({
 export type PdfTemplateInput = (typeof PdfTemplateInputSchema)["Type"];
 
 export const PdfSignaturePlacementInputSchema = Schema.Struct({
-  pageIndex: Schema.Number,
-  x: Schema.Number,
-  y: Schema.Number,
+  pageIndex: nonNegativeInteger,
+  x: finiteNumber,
+  y: finiteNumber,
   anchor: Schema.optional(PdfSignaturePlacementAnchorSchema),
 });
 export type PdfSignaturePlacementInput = (typeof PdfSignaturePlacementInputSchema)["Type"];
 
 export const PdfSignatureAutoPlacementRequestSchema = Schema.Struct({
   page: Schema.optional(PdfSignatureAutoPlacementPageSchema),
-  pageIndex: Schema.optional(Schema.Number),
+  pageIndex: Schema.optional(nonNegativeInteger),
   slot: PdfSignatureAutoPlacementSlotSchema,
-  margin: Schema.optional(Schema.Number),
-  gap: Schema.optional(Schema.Number),
+  margin: Schema.optional(nonNegativeFiniteNumber),
+  gap: Schema.optional(nonNegativeFiniteNumber),
   collision: Schema.optional(PdfSignatureAutoPlacementCollisionSchema),
   stackDirection: Schema.optional(PdfSignatureAutoPlacementStackDirectionSchema),
 });
@@ -692,9 +923,9 @@ export const PdfSignatureBestGuessPlacementInputSchema = Schema.Struct({
   template: PdfSignatureTemplateSchema,
   documentId: nonEmptyString,
   draft: PdfSignatureFieldDraftSchema,
-  margin: Schema.optional(Schema.Number),
+  margin: Schema.optional(nonNegativeFiniteNumber),
   page: Schema.optional(PdfSignatureAutoPlacementPageSchema),
-  pageIndex: Schema.optional(Schema.Number),
+  pageIndex: Schema.optional(nonNegativeInteger),
 });
 export type PdfSignatureBestGuessPlacementInput =
   (typeof PdfSignatureBestGuessPlacementInputSchema)["Type"];
@@ -745,8 +976,8 @@ export const PdfSigningInputSchema = Schema.Struct({
   contactInfo: Schema.optional(Schema.String),
   name: Schema.optional(Schema.String),
   location: Schema.optional(Schema.String),
-  signingTime: Schema.optional(Schema.Date),
-  signatureLength: Schema.optional(Schema.Number),
+  signingTime: Schema.optional(Schema.DateValid),
+  signatureLength: Schema.optional(PdfSignatureByteLengthSchema),
   hashAlgorithm: Schema.optional(CmsHashAlgorithmSchema),
   policy: Schema.optional(PdfSignaturePolicySchema),
   icpBrasil: Schema.optional(IcpBrasilPolicySchema),
@@ -770,8 +1001,8 @@ export const PdfSigningBatchSigningOptionsSchema = Schema.Struct({
   contactInfo: Schema.optional(Schema.String),
   name: Schema.optional(Schema.String),
   location: Schema.optional(Schema.String),
-  signingTime: Schema.optional(Schema.Date),
-  signatureLength: Schema.optional(Schema.Number),
+  signingTime: Schema.optional(Schema.DateValid),
+  signatureLength: Schema.optional(PdfSignatureByteLengthSchema),
   hashAlgorithm: Schema.optional(CmsHashAlgorithmSchema),
   policy: Schema.optional(PdfSignaturePolicySchema),
   icpBrasil: Schema.optional(IcpBrasilPolicySchema),
@@ -811,7 +1042,7 @@ export const PdfPrepareAndSignAnchorsSchema = Schema.Struct({
   matchers: Schema.Array(PdfTextAnchorMatcherSchema),
   stampSize: PdfStampSizeSchema,
   placement: Schema.optional(PdfTextAnchorPlacementSchema),
-  offset: Schema.optional(Schema.Number),
+  offset: Schema.optional(finiteNumber),
 });
 export type PdfPrepareAndSignAnchors = (typeof PdfPrepareAndSignAnchorsSchema)["Type"];
 

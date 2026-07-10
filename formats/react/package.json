@@ -33,9 +33,9 @@
   },
   "scripts": {
     "build": "tsc -b tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit --tsBuildInfoFile .cache/typecheck.tsbuildinfo",
     "test": "vitest run --root ../.. formats/react/__tests__/a1.test.ts",
-    "test:browser": "vitest run --root ../.. --config tooling/vitest/browser.config.ts formats/react/__tests__/browser-pdf.browser.test.tsx"
+    "test:browser": "vitest run --root ../.. --config tooling/vitest/browser.config.ts formats/react/__tests__/a1.browser.test.tsx formats/react/__tests__/a1.race.browser.test.tsx formats/react/__tests__/browser-pdf.browser.test.tsx formats/react/__tests__/sync-store.browser.test.tsx"
   },
   "dependencies": {
     "@signature-kit/a1": "^0.3.0",

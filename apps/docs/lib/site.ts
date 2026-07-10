@@ -1,8 +1,9 @@
 import type { Lang } from "@/lib/locale";
 
-export const SITE_URL = (
-  process.env.NEXT_PUBLIC_SITE_URL ?? "https://signaturekit.dev"
-).replace(/\/+$/, "");
+export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://signaturekit.dev").replace(
+  /\/+$/,
+  "",
+);
 
 export const SITE_NAME = "SignatureKit";
 

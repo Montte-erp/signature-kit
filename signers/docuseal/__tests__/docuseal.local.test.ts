@@ -1,15 +1,16 @@
 import { describe, expect, it } from "@effect/vitest";
-import { SignatureKitErrorCodeValue, type SignatureKitError } from "@signature-kit/signatures";
-import { signatureHttpClientLive, type SignatureHttpClient } from "@signature-kit/http";
+import { SignatureKitErrorCodeValue } from "@signature-kit/signatures";
+import type { SignatureKitError } from "@signature-kit/signatures";
+import { signatureHttpClientLive } from "@signature-kit/http";
+import type { SignatureHttpClient } from "@signature-kit/http";
 import * as Provider from "alchemy/Provider";
 import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import {
   expectProviderListResult,
   jsonBody,
   localHttpServer,
-  type LocalRequest,
-  type LocalResponse,
 } from "../../../tooling/testing/local-http";
+import type { LocalRequest, LocalResponse } from "../../../tooling/testing/local-http";
 import { Effect, Redacted, Result } from "effect";
 import {
   DocuSealSignatureRequest,
@@ -18,9 +19,11 @@ import {
   downloadDocuSealSignedDocument,
   getDocuSealSignatureRequest,
   listDocuSealSignatureRequests,
-  type DocuSealProviderOptions,
-  type DocuSealSubmissionProps,
-  type DocuSealSubmissionState,
+} from "../src/index";
+import type {
+  DocuSealProviderOptions,
+  DocuSealSubmissionProps,
+  DocuSealSubmissionState,
 } from "../src/index";
 
 const API_KEY = "docuseal-local-token";

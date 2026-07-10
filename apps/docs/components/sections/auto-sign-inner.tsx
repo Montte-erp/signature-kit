@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import type { Locale } from "@/lib/locale";
 import { captureDocsEvent } from "@/lib/posthog/client";
 import { createSyncStore, useSyncStore } from "@signature-kit/react/sync-store";
 import { m } from "@/paraglide/messages";
@@ -87,10 +88,9 @@ type DocPhase = "queued" | "generating" | "ready" | "signing" | "signed";
 
 type AutoDoc = {
   readonly id: string;
-  readonly name: string;
-  readonly variantLabel: string;
   readonly pdfBytes?: Uint8Array;
   readonly signed?: boolean;
+  readonly outputLocale?: Locale;
 };
 
 type PdfDocumentLoadLifecycle = {
@@ -143,73 +143,122 @@ type AutoState = {
   readonly busy: boolean;
 };
 
-type QueueItem = { readonly id: string; readonly name: string; readonly mode: "prepare" | "sign" };
+type QueueItem = {
+  readonly id: string;
+  readonly mode: "prepare" | "sign";
+  readonly outputLocale: Locale;
+};
 const statusEntry = (id: string, phase: DocPhase): readonly [string, DocPhase] => [id, phase];
 
 const initialState = (): AutoState => ({
-  docs: DEMO_DOCS.map((d) => ({ id: d.id, name: d.name(), variantLabel: d.variantLabel() })),
+  docs: DEMO_DOCS.map((d) => ({ id: d.id })),
   status: Object.fromEntries(DEMO_DOCS.map((d) => statusEntry(d.id, "queued"))),
   activeIndex: 0,
   busy: false,
 });
 
 const store = createSyncStore<AutoState>(initialState());
+let queueGeneration = 0;
 
-const setPhase = (id: string, phase: DocPhase): void =>
+const ownsGeneration = (generation: number): boolean => queueGeneration === generation;
+
+const setPhase = (id: string, phase: DocPhase, generation: number): void => {
+  if (!ownsGeneration(generation)) return;
   store.setState((s) => ({ ...s, status: { ...s.status, [id]: phase } }));
+};
 
-const patchDoc = (id: string, patch: Partial<AutoDoc>): void =>
+const patchDoc = (id: string, patch: Partial<AutoDoc>, generation: number): void => {
+  if (!ownsGeneration(generation)) return;
   store.setState((s) => ({
     ...s,
     docs: s.docs.map((d) => (d.id === id ? { ...d, ...patch } : d)),
   }));
+};
 
 const focusDoc = (index: number): void => store.setState((s) => ({ ...s, activeIndex: index }));
 
-const queueItemDemo = (item: QueueItem) => DEMO_DOCS.find((d) => d.id === item.id);
+const demoDoc = (id: string) => DEMO_DOCS.find((d) => d.id === id);
 
-const renderQueueItem = (item: QueueItem): Effect.Effect<void> =>
+const renderQueueItem = (item: QueueItem, generation: number): Effect.Effect<void> =>
   Effect.gen(function* () {
+    if (!ownsGeneration(generation) || getLocale() !== item.outputLocale) return;
+    const demo = demoDoc(item.id);
+    if (demo === undefined) return;
     focusDoc(DEMO_DOCS.findIndex((d) => d.id === item.id));
-    const demo = queueItemDemo(item);
-    const paragraphs = demo?.paragraphs ?? [];
-    const variant: SignatureVariant = demo?.variant ?? "line";
+    const paragraphs = demo.paragraphs;
+    const variant: SignatureVariant = demo.variant;
+    const title = demo.name();
 
     if (item.mode === "prepare") {
-      setPhase(item.id, "generating");
+      setPhase(item.id, "generating", generation);
       const bytes = yield* Effect.promise(() =>
-        generateFormalContractPdf({ title: item.name, paragraphs, variant }),
+        generateFormalContractPdf({ title, paragraphs, variant }),
       );
-      patchDoc(item.id, { pdfBytes: bytes, signed: false });
-      setPhase(item.id, "ready");
+      if (!ownsGeneration(generation) || getLocale() !== item.outputLocale) return;
+      patchDoc(
+        item.id,
+        { pdfBytes: bytes, signed: false, outputLocale: item.outputLocale },
+        generation,
+      );
+      setPhase(item.id, "ready", generation);
       return;
     }
 
-    setPhase(item.id, "signing");
-    const signed: SignedMark = { ...SIGNER, date: new Date().toLocaleString(getLocale()) };
+    setPhase(item.id, "signing", generation);
+    const signed: SignedMark = {
+      ...SIGNER,
+      date: new Date().toLocaleString(item.outputLocale),
+    };
     const bytes = yield* Effect.promise(() =>
-      generateFormalContractPdf({
-        title: item.name,
-        paragraphs,
-        variant,
-        signed,
-      }),
+      generateFormalContractPdf({ title, paragraphs, variant, signed }),
     );
-    patchDoc(item.id, { pdfBytes: bytes, signed: true });
-    setPhase(item.id, "signed");
+    if (!ownsGeneration(generation) || getLocale() !== item.outputLocale) return;
+    patchDoc(
+      item.id,
+      { pdfBytes: bytes, signed: true, outputLocale: item.outputLocale },
+      generation,
+    );
+    setPhase(item.id, "signed", generation);
   });
 
-const runQueueItems = (items: ReadonlyArray<QueueItem>): Effect.Effect<void> =>
-  store.getSnapshot().busy
-    ? Effect.void
-    : Effect.sync(() => store.setState((s) => ({ ...s, busy: true }))).pipe(
-        Effect.flatMap(() => Effect.forEach(items, renderQueueItem, { discard: true })),
-        Effect.ensuring(Effect.sync(() => store.setState((s) => ({ ...s, busy: false })))),
-      );
+const runQueueItems = (items: ReadonlyArray<QueueItem>, generation: number): Effect.Effect<void> =>
+  Effect.forEach(items, (item) => renderQueueItem(item, generation), { discard: true }).pipe(
+    Effect.ensuring(
+      Effect.sync(() => {
+        if (!ownsGeneration(generation)) return;
+        store.setState((s) => ({ ...s, busy: false }));
+      }),
+    ),
+  );
 
-void Effect.runPromiseExit(
-  runQueueItems(DEMO_DOCS.map((demo) => ({ id: demo.id, name: demo.name(), mode: "prepare" }))),
-);
+const startQueue = (mode: QueueItem["mode"], outputLocale: Locale): void => {
+  const generation = ++queueGeneration;
+  store.setState((s) => ({ ...initialState(), activeIndex: s.activeIndex, busy: true }));
+  void Effect.runPromiseExit(
+    runQueueItems(
+      DEMO_DOCS.map((demo) => ({ id: demo.id, mode, outputLocale })),
+      generation,
+    ),
+  );
+};
+
+const ensurePrepared = (locale: Locale): void => {
+  const state = store.getSnapshot();
+  const isPrepared = DEMO_DOCS.every((demo) => {
+    const doc = state.docs.find((candidate) => candidate.id === demo.id);
+    const phase = state.status[demo.id];
+    return doc?.outputLocale === locale && (phase === "ready" || phase === "signed");
+  });
+
+  if (isPrepared) return;
+  startQueue("prepare", locale);
+};
+
+const invalidatePreparation = (generation: number): void => {
+  if (!ownsGeneration(generation)) return;
+  queueGeneration += 1;
+  store.setState((s) => ({ ...initialState(), activeIndex: s.activeIndex }));
+};
 
 const go = (to: number): void => {
   const n = DEMO_DOCS.length;
@@ -221,19 +270,7 @@ const autoSign = (): void => {
   captureDocsEvent("auto_sign_demo_started", {
     document_count: DEMO_DOCS.length,
   });
-  store.setState((s) => ({
-    ...s,
-    docs: s.docs.map((d) => ({ ...d, signed: false })),
-    status: Object.fromEntries(
-      DEMO_DOCS.map((d) => {
-        const prepared = s.docs.find((x) => x.id === d.id)?.pdfBytes;
-        return statusEntry(d.id, prepared ? "ready" : "queued");
-      }),
-    ),
-  }));
-  void Effect.runPromiseExit(
-    runQueueItems(DEMO_DOCS.map((demo) => ({ id: demo.id, name: demo.name(), mode: "sign" }))),
-  );
+  startQueue("sign", getLocale());
 };
 
 const resetDemo = (): void => {
@@ -241,14 +278,12 @@ const resetDemo = (): void => {
   captureDocsEvent("auto_sign_demo_reset", {
     document_count: DEMO_DOCS.length,
   });
-  store.setState(() => initialState());
-  void Effect.runPromiseExit(
-    runQueueItems(DEMO_DOCS.map((demo) => ({ id: demo.id, name: demo.name(), mode: "prepare" }))),
-  );
+  startQueue("prepare", getLocale());
 };
 
 function downloadDoc(doc: AutoDoc): void {
-  if (!doc.pdfBytes) return;
+  const demo = demoDoc(doc.id);
+  if (demo === undefined || !doc.pdfBytes || doc.outputLocale !== getLocale()) return;
   captureDocsEvent("auto_sign_demo_downloaded", {
     document_id: doc.id,
     signed: doc.signed ?? false,
@@ -258,9 +293,9 @@ function downloadDoc(doc: AutoDoc): void {
   );
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${doc.name}.pdf`;
+  a.download = `${demo.name()}.pdf`;
   a.click();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function DocBadge({ phase }: { phase: DocPhase | undefined }) {
@@ -297,9 +332,17 @@ function DocBadge({ phase }: { phase: DocPhase | undefined }) {
   return null;
 }
 
-function AutoDocCanvas({ doc }: { doc: AutoDoc }) {
+function AutoDocCanvas({
+  doc,
+  phase,
+  isOutputCurrent,
+}: {
+  doc: AutoDoc;
+  phase: DocPhase | undefined;
+  isOutputCurrent: boolean;
+}) {
   const [pdfDoc, setPdfDoc] = React.useState<PdfDocumentProxy | null>(null);
-  const bytes = doc.pdfBytes;
+  const bytes = isOutputCurrent ? doc.pdfBytes : undefined;
   const mountPdf = React.useCallback(
     (node: HTMLDivElement | null) => {
       if (node === null || bytes === undefined) return;
@@ -337,7 +380,7 @@ function AutoDocCanvas({ doc }: { doc: AutoDoc }) {
       className="flex aspect-[595/842] w-full items-center justify-center gap-2 rounded-md border border-border bg-muted/30 text-xs text-muted-foreground"
     >
       <Loader2 className="size-4 animate-spin" />
-      {m.autosign_doc_generating()}…
+      {phase === "queued" ? m.autosign_doc_queued() : m.autosign_doc_generating()}…
     </div>
   );
 }
@@ -347,30 +390,42 @@ export function AutoSignInner() {
   const status = useSyncStore(store, (s) => s.status);
   const activeIndex = useSyncStore(store, (s) => s.activeIndex);
   const busy = useSyncStore(store, (s) => s.busy);
+  const locale = getLocale();
+  const mountDemo = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node === null) return;
+      ensurePrepared(locale);
+      return () => invalidatePreparation(queueGeneration);
+    },
+    [locale],
+  );
 
-  const allSigned = DEMO_DOCS.every((d) => status[d.id] === "signed");
+  const allSigned = docs.every((doc) => doc.outputLocale === locale && status[doc.id] === "signed");
   const count = docs.length;
   const activeDoc = docs[activeIndex] ?? docs[0];
+  const activeDemo = activeDoc === undefined ? undefined : demoDoc(activeDoc.id);
+  const activeOutputCurrent = activeDoc?.outputLocale === locale;
+  const activePhase = activeDoc && activeOutputCurrent ? status[activeDoc.id] : "queued";
 
   return (
-    <div className="mt-10 grid gap-6 lg:grid-cols-[1fr_22rem]">
+    <div ref={mountDemo} className="mt-10 grid gap-6 lg:grid-cols-[1fr_22rem]">
       <Card className="overflow-hidden p-0 shadow-none">
         <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
           <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
-            {activeDoc?.name}
+            {activeDemo?.name()}
           </span>
-          {activeDoc?.variantLabel ? (
+          {activeDemo !== undefined ? (
             <Badge
               variant="outline"
               className="hidden shrink-0 font-mono text-[10px] font-normal text-muted-foreground sm:inline-flex"
             >
-              {activeDoc.variantLabel}
+              {activeDemo.variantLabel()}
             </Badge>
           ) : null}
           <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/70">
             {activeIndex + 1} / {count}
           </span>
-          {activeDoc?.signed ? (
+          {activeDoc?.signed && activeOutputCurrent ? (
             <Button
               type="button"
               variant="ghost"
@@ -404,7 +459,14 @@ export function AutoSignInner() {
           </Button>
         </div>
         <div className="bg-muted/30 p-4">
-          {activeDoc ? <AutoDocCanvas key={activeDoc.id} doc={activeDoc} /> : null}
+          {activeDoc ? (
+            <AutoDocCanvas
+              key={activeDoc.id}
+              doc={activeDoc}
+              phase={activePhase}
+              isOutputCurrent={activeOutputCurrent}
+            />
+          ) : null}
         </div>
       </Card>
 
@@ -425,31 +487,36 @@ export function AutoSignInner() {
         </div>
 
         <ul className="flex flex-col gap-1.5">
-          {docs.map((d, i) => (
-            <li key={d.id}>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => go(i)}
-                aria-pressed={i === activeIndex}
-                className={cn(
-                  "h-auto w-full justify-start gap-2 rounded-md border px-2.5 py-2 text-left text-xs font-normal",
-                  i === activeIndex
-                    ? "border-foreground/30 bg-muted/40"
-                    : "border-border hover:bg-muted/30",
-                )}
-              >
-                <PenLine className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                  <span className="w-full truncate text-foreground">{d.name}</span>
-                  <span className="w-full truncate text-[10px] font-normal text-muted-foreground">
-                    {d.variantLabel}
+          {docs.map((d, i) => {
+            const demo = demoDoc(d.id);
+            if (demo === undefined) return null;
+
+            return (
+              <li key={d.id}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => go(i)}
+                  aria-pressed={i === activeIndex}
+                  className={cn(
+                    "h-auto w-full justify-start gap-2 rounded-md border px-2.5 py-2 text-left text-xs font-normal",
+                    i === activeIndex
+                      ? "border-foreground/30 bg-muted/40"
+                      : "border-border hover:bg-muted/30",
+                  )}
+                >
+                  <PenLine className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                    <span className="w-full truncate text-foreground">{demo.name()}</span>
+                    <span className="w-full truncate text-[10px] font-normal text-muted-foreground">
+                      {demo.variantLabel()}
+                    </span>
                   </span>
-                </span>
-                <DocBadge phase={status[d.id]} />
-              </Button>
-            </li>
-          ))}
+                  <DocBadge phase={d.outputLocale === locale ? status[d.id] : "queued"} />
+                </Button>
+              </li>
+            );
+          })}
         </ul>
 
         <p className="text-xs leading-relaxed text-muted-foreground" aria-live="polite">

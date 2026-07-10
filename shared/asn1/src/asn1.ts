@@ -83,6 +83,7 @@ const CLASS_BITS: Record<Asn1Class, number> = {
   context: 0x80,
   private: 0xc0,
 };
+const MAX_HIGH_TAG_NUMBER = 0x7fffffff;
 
 type Tlv = { readonly node: Asn1Node; readonly next: number };
 
@@ -133,6 +134,7 @@ const decodeTlv = (data: Uint8Array, start: number): Effect.Effect<Tlv, Asn1Erro
     if (lowBits === 0x1f) {
       tag = 0;
       let byte = 0x80;
+      let firstTagByte = true;
       while ((byte & 0x80) !== 0) {
         if (offset >= data.length)
           return yield* Effect.fail(
@@ -143,8 +145,31 @@ const decodeTlv = (data: Uint8Array, start: number): Effect.Effect<Tlv, Asn1Erro
           );
         byte = data[offset]!;
         offset++;
-        tag = (tag << 7) | (byte & 0x7f);
+        const tagPart = byte & 0x7f;
+        if (firstTagByte && tagPart === 0)
+          return yield* Effect.fail(
+            new Asn1Error({
+              code: Asn1ErrorCodeValue.decodeError,
+              reason: "Non-minimal high-tag encoding",
+            }),
+          );
+        if (tag > Math.floor((MAX_HIGH_TAG_NUMBER - tagPart) / 128))
+          return yield* Effect.fail(
+            new Asn1Error({
+              code: Asn1ErrorCodeValue.decodeError,
+              reason: "Tag number exceeds supported range",
+            }),
+          );
+        tag = tag * 128 + tagPart;
+        firstTagByte = false;
       }
+      if (tag < 31)
+        return yield* Effect.fail(
+          new Asn1Error({
+            code: Asn1ErrorCodeValue.decodeError,
+            reason: "Non-minimal high-tag encoding",
+          }),
+        );
     } else {
       tag = lowBits;
     }
@@ -184,10 +209,24 @@ const decodeTlv = (data: Uint8Array, start: number): Effect.Effect<Tlv, Asn1Erro
           }),
         );
       }
+      if (data[offset] === 0)
+        return yield* Effect.fail(
+          new Asn1Error({
+            code: Asn1ErrorCodeValue.decodeError,
+            reason: "Non-minimal length encoding",
+          }),
+        );
       for (let i = 0; i < numLengthBytes; i++) {
         length = length * 256 + data[offset]!;
         offset++;
       }
+      if (length < 128)
+        return yield* Effect.fail(
+          new Asn1Error({
+            code: Asn1ErrorCodeValue.decodeError,
+            reason: "Non-minimal length encoding",
+          }),
+        );
       if (length > data.length)
         return yield* Effect.fail(
           new Asn1Error({
@@ -243,6 +282,13 @@ const decodeTlv = (data: Uint8Array, start: number): Effect.Effect<Tlv, Asn1Erro
       let childOffset = offset;
       while (childOffset < endOffset) {
         const child = yield* decodeTlv(data, childOffset);
+        if (child.next > endOffset)
+          return yield* Effect.fail(
+            new Asn1Error({
+              code: Asn1ErrorCodeValue.decodeError,
+              reason: "Child TLV exceeds definite-length parent boundary",
+            }),
+          );
         children.push(child.node);
         childOffset = child.next;
       }

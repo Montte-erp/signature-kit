@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  SIGNATURE_VARIANTS,
-  generateFormalContractPdf,
-} from "../components/formal-contract-pdf";
+import { SIGNATURE_VARIANTS, generateFormalContractPdf } from "../components/formal-contract-pdf";
 import { isPdf } from "./helpers/dummy-pdf";
-
 
 const PARAGRAPHS = [
   "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
@@ -33,22 +29,18 @@ if (typeof document === "undefined") {
       30000,
     );
 
-    it(
-      "renders a SIGNED contract in Chromium",
-      async () => {
-        const bytes = await generateFormalContractPdf({
-          title: "Procuração assinada",
-          paragraphs: PARAGRAPHS,
-          variant: "field",
-          signed: {
-            name: "Maria A. Costa",
-            document: "CPF/CNPJ: 000.000.000-00",
-            date: "26/06/2026 13:30",
-          },
-        });
-        expect(isPdf(bytes)).toBe(true);
-      },
-      30000,
-    );
+    it("renders a SIGNED contract in Chromium", async () => {
+      const bytes = await generateFormalContractPdf({
+        title: "Procuração assinada",
+        paragraphs: PARAGRAPHS,
+        variant: "field",
+        signed: {
+          name: "Maria A. Costa",
+          document: "CPF/CNPJ: 000.000.000-00",
+          date: "26/06/2026 13:30",
+        },
+      });
+      expect(isPdf(bytes)).toBe(true);
+    }, 30000);
   });
 }

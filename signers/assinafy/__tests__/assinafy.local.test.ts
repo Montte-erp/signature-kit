@@ -10,17 +10,19 @@ import {
   downloadAssinafySignedDocument,
   getAssinafySignatureRequest,
   listAssinafySignatureRequests,
-  type AssinafyProviderOptions,
-  type AssinafySignatureRequestProps,
-  type AssinafySignatureRequestState,
+} from "../src/index";
+import type {
+  AssinafyProviderOptions,
+  AssinafySignatureRequestProps,
+  AssinafySignatureRequestState,
 } from "../src/index";
 import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import {
   expectProviderListResult,
   jsonBody,
   localHttpServer,
-  type LocalResponse,
 } from "../../../tooling/testing/local-http";
+import type { LocalResponse } from "../../../tooling/testing/local-http";
 
 const API_KEY = "local-assinafy-api-key";
 const ACCOUNT_ID = "account-local";

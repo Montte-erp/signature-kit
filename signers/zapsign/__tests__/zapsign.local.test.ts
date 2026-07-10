@@ -7,19 +7,17 @@ import {
   expectProviderListResult,
   jsonBody,
   localHttpServer,
-  type LocalRequest,
-  type LocalResponse,
 } from "../../../tooling/testing/local-http";
+import type { LocalRequest, LocalResponse } from "../../../tooling/testing/local-http";
 import {
   ZapSignSignatureRequest,
-  type ZapSignDocumentProps,
-  type ZapSignProviderOptions,
   providers as zapSignProviders,
   downloadZapSignSignedDocument,
   deleteZapSignSignatureRequest,
   getZapSignSignatureRequest,
   listZapSignSignatureRequests,
 } from "../src/index";
+import type { ZapSignDocumentProps, ZapSignProviderOptions } from "../src/index";
 
 const base64Pdf = Buffer.from(
   "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n1 0 obj\n<< /Type /Catalog >>\nendobj\n",

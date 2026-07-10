@@ -9,10 +9,10 @@
     "dev": "bun run paraglide && bun run registry:build && next dev --hostname 0.0.0.0 --port ${PORT:-3001}",
     "registry:build": "bun run scripts/build-registry.ts",
     "clean:generated-comments": "bun run scripts/clean-generated-comments.ts",
-    "build": "bun run --cwd ../.. build --force && bun run paraglide && bun run registry:build && next build",
+    "build": "bun run paraglide && bun run registry:build && next build",
     "start": "next start --hostname 0.0.0.0 --port ${PORT:-3001}",
     "postinstall": "fumadocs-mdx && bun run clean:generated-comments && paraglide-js compile --project ./project.inlang --outdir ./paraglide --strategy baseLocale",
-    "types:check": "fumadocs-mdx && next typegen && bun run clean:generated-comments && bun run paraglide && bun run registry:build && tsc --noEmit"
+    "types:check": "fumadocs-mdx && next typegen && bun run clean:generated-comments && bun run paraglide && bun run registry:build && bun ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@cantoo/pdf-lib": "2.7.1",
@@ -24,12 +24,17 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@react-pdf/renderer": "4.5.1",
     "@signature-kit/a1": "^0.3.0",
+    "@signature-kit/assinafy": "^0.3.0",
+    "@signature-kit/clicksign": "^0.3.0",
     "@signature-kit/cms": "^0.2.1",
+    "@signature-kit/documenso": "^0.3.0",
+    "@signature-kit/docuseal": "^0.3.0",
     "@signature-kit/http": "^0.1.0",
     "@signature-kit/i18n": "^0.1.0",
     "@signature-kit/pdf": "^0.3.0",
     "@signature-kit/react": "^0.1.0",
     "@signature-kit/signatures": "^0.1.0",
+    "@signature-kit/zapsign": "^0.3.0",
     "@tanstack/react-form": "0.11.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -58,6 +63,33 @@
     "@types/react-dom": "^19.2.3",
     "postcss": "^8.5.15",
     "tailwindcss": "^4.3.1",
-    "typescript": "latest"
+    "typescript": "6.0.3"
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "cache": false,
+        "outputs": [
+          "{projectRoot}/.next",
+          "{projectRoot}/.source",
+          "{projectRoot}/paraglide",
+          "{projectRoot}/public/r",
+          "{projectRoot}/next-env.d.ts"
+        ]
+      },
+      "types:check": {
+        "cache": false,
+        "dependsOn": [
+          "^build"
+        ],
+        "outputs": [
+          "{projectRoot}/.next/types",
+          "{projectRoot}/.source",
+          "{projectRoot}/paraglide",
+          "{projectRoot}/public/r",
+          "{projectRoot}/next-env.d.ts"
+        ]
+      }
+    }
   }
 }

@@ -49,7 +49,7 @@ describe("generated comment cleaner", () => {
     const sourceConfigPath = join(root, ".source/source.config.mjs");
     const nextEnvPath = join(root, "next-env.d.ts");
     const nextEnvReferences =
-      "/// <reference types=\"next\" />\n/// <reference types=\"next/image-types/global\" />\n";
+      '/// <reference types="next" />\n/// <reference types="next/image-types/global" />\n';
     await writeFile(sourceConfigPath, `${sourceGeneratedComment}export const source = true;\n`);
     await writeFile(nextEnvPath, `${nextEnvReferences}${nextGeneratedComment}`);
 

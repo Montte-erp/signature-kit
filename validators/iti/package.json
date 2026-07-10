@@ -25,20 +25,23 @@
   },
   "scripts": {
     "build": "tsc -b tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit --tsBuildInfoFile .cache/typecheck.tsbuildinfo",
     "test": "vitest run"
   },
   "dependencies": {
+    "@peculiar/asn1-ess": "2.8.0",
+    "@peculiar/asn1-schema": "2.8.0",
     "@signature-kit/cms": "^0.2.1",
     "@signature-kit/http": "^0.1.0",
     "@signature-kit/pdf": "^0.3.0",
     "@signature-kit/signatures": "^0.1.0",
-    "effect": "4.0.0-beta.86"
+    "asn1js": "3.0.10",
+    "effect": "4.0.0-beta.86",
+    "pkijs": "3.4.0"
   },
   "devDependencies": {
     "@cantoo/pdf-lib": "2.7.1",
-    "asn1js": "3.0.10",
-    "pkijs": "3.4.0"
+    "@signature-kit/a1": "^0.3.0"
   },
   "nx": {
     "targets": {

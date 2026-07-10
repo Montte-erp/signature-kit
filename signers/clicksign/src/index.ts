@@ -724,7 +724,7 @@ class ClicksignProviders extends Provider.ProviderCollection<ClicksignProviders>
 
 export const providers = (options: ClicksignProviderOptions) =>
   Layer.effect(ClicksignProviders, Provider.collection([ClicksignSignatureRequest])).pipe(
-    Layer.provide(clicksignSignatureRequestProvider),
+    Layer.provide(Layer.fresh(clicksignSignatureRequestProvider)),
     Layer.provide(clicksignCredentialsLayer(options)),
   );
 
