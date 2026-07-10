@@ -34,28 +34,14 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Derive affected SHAs
-        id: nx-shas
-        uses: nrwl/nx-set-shas@v4
-        with:
-          main-branch-name: main
-          set-environment-variables-for-job: false
+      - name: Build packages
+        run: bun run build
 
-      - name: Run global checks
-        run: |
-          bun run check:konsistent
-          bun run check:static
-          bun run typecheck:test
-          bun run typecheck:docs
+      - name: Run static and type checks
+        run: bun run check
 
-      - name: Run affected public package tasks
-        env:
-          NX_BASE: ${{ steps.nx-shas.outputs.base }}
-          NX_HEAD: ${{ steps.nx-shas.outputs.head }}
-        run: bunx nx affected -t build,typecheck,test --exclude='*,!tag:npm:public' --base="$NX_BASE" --head="$NX_HEAD" --outputStyle=static
-
-      - name: Run full non-browser suite
-        run: bun run build && bun run test
+      - name: Run non-browser tests
+        run: bun run test
 
       - name: Run server integration tests
         run: bunx nx run @tooling/integration-tests:test:server --outputStyle=static
