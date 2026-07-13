@@ -4,12 +4,13 @@
     "composite": false,
     "declaration": false,
     "declarationMap": false,
-    "incremental": false,
+    "incremental": true,
     "emitDeclarationOnly": false,
     "jsx": "react-jsx",
     "noEmit": true,
     "rootDir": ".",
-    "types": ["bun"]
+    "types": ["bun"],
+    "tsBuildInfoFile": ".cache/test-typecheck.tsbuildinfo"
   },
   "include": [
     "core/**/__tests__/**/*.ts",

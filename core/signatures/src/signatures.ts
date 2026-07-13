@@ -1,4 +1,3 @@
-import type { ErrorMessageLocale } from "@signature-kit/i18n";
 import { Context, Effect, Layer, Schema } from "effect";
 import type { Redacted } from "effect";
 
@@ -173,6 +172,9 @@ export const SignatureKitErrorCodeValue = {
   unknown: "signature-kit.UNKNOWN",
 } satisfies Record<string, SignatureKitErrorCode>;
 
+export const SignatureKitErrorMessageLocaleSchema = Schema.Literals(["en-US", "pt-BR"]);
+export type SignatureKitErrorMessageLocale = (typeof SignatureKitErrorMessageLocaleSchema)["Type"];
+
 export const signatureKitErrorMessages = {
   "en-US": {
     "signature-kit.EMPTY_FILE": "Certificate file is empty (0 bytes).",
@@ -223,7 +225,7 @@ export const signatureKitErrorMessages = {
     "signature-kit.UNSUPPORTED_OPERATION": "Operação não suportada.",
     "signature-kit.UNKNOWN": "Falha desconhecida do SignatureKit.",
   },
-} satisfies Record<ErrorMessageLocale, Record<SignatureKitErrorCode, string>>;
+} satisfies Record<SignatureKitErrorMessageLocale, Record<SignatureKitErrorCode, string>>;
 
 export const SignatureKitErrorCatalogEntrySchema = Schema.Struct({
   code: SignatureKitErrorCodeSchema,
@@ -258,17 +260,9 @@ const signatureKitErrorCatalogEntry = (
 export const signatureKitErrorCatalog: readonly SignatureKitErrorCatalogEntry[] =
   SignatureKitErrorCodeSchema.literals.map(signatureKitErrorCatalogEntry);
 
-export const SignatureKitOperationSchema = Schema.Literals([
-  "pkcs12.parse",
-  "x509.parse",
-  "crypto.digest",
-  "crypto.import",
-  "crypto.sign",
-  "crypto.verify",
-  "schema.decode",
-  "http.request",
-  "http.decode",
-]);
+export const SignatureKitOperationSchema: Schema.ConstraintDecoder<string> = Schema.String.check(
+  Schema.isPattern(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/),
+);
 export type SignatureKitOperation = (typeof SignatureKitOperationSchema)["Type"];
 export const SignatureKitOperationValue = {
   pkcs12Parse: "pkcs12.parse",
@@ -288,7 +282,7 @@ export class SignatureKitError extends Schema.TaggedErrorClass<SignatureKitError
     code: SignatureKitErrorCodeSchema,
     retryable: Schema.Boolean,
     reason: Schema.optional(Schema.String),
-    operation: Schema.optional(Schema.String),
+    operation: Schema.optional(SignatureKitOperationSchema),
     schemaName: Schema.optional(Schema.String),
     issueMessage: Schema.optional(Schema.String),
     provider: Schema.optional(Schema.String),

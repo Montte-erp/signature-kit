@@ -8,16 +8,16 @@ import {
   oidString,
 } from "@signature-kit/asn1";
 import { Effect, Redacted } from "effect";
-import { CryptoError, CryptoErrorCodeValue, CryptoOperationValue } from "./config";
-import type { Pkcs12Result } from "./config";
-import { createHmac, hmac } from "./primitives/hmac";
-import type { HmacHashAlgorithm } from "./primitives/hmac";
-import { sha1 } from "./primitives/sha1";
-import { sha256 } from "./primitives/sha256";
-import { sha384, sha512 } from "./primitives/sha512";
-import { aesCbcDecrypt } from "./primitives/aes";
-import { tripleDesCbcDecrypt } from "./primitives/des";
-import { rc2CbcDecrypt } from "./primitives/rc2";
+import { CryptoError, CryptoErrorCodeValue, CryptoOperationValue } from "./config.js";
+import type { Pkcs12Result } from "./config.js";
+import { createHmac, hmac } from "./primitives/hmac.js";
+import type { HmacHashAlgorithm } from "./primitives/hmac.js";
+import { sha1 } from "./primitives/sha1.js";
+import { sha256 } from "./primitives/sha256.js";
+import { sha384, sha512 } from "./primitives/sha512.js";
+import { aesCbcDecrypt } from "./primitives/aes.js";
+import { tripleDesCbcDecrypt } from "./primitives/des.js";
+import { rc2CbcDecrypt } from "./primitives/rc2.js";
 
 const OID_DATA = "1.2.840.113549.1.7.1";
 const OID_ENCRYPTED_DATA = "1.2.840.113549.1.7.6";
@@ -598,18 +598,59 @@ const readLocalKeyId = (
 ): Effect.Effect<string | null, Pkcs12Error> =>
   Effect.gen(function* () {
     const attributesNode = bagFields[2];
-    if (attributesNode === undefined || attributesNode.kind !== "constructed") return null;
+    if (attributesNode === undefined) return null;
+    if (attributesNode.kind !== "constructed") {
+      return yield* Effect.fail(
+        new CryptoError({
+          code: CryptoErrorCodeValue.corruptedFile,
+          reason: "PKCS#12 bag attributes are not constructed.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        }),
+      );
+    }
+    let localKeyId: string | null = null;
+    let hasLocalKeyId = false;
     for (const attribute of attributesNode.children) {
       if (attribute.kind !== "constructed") continue;
       const attrId = yield* oidString(yield* elementAt(attribute.children, 0, "attrId"));
       if (attrId !== OID_LOCAL_KEY_ID) continue;
       const valuesNode = attribute.children[1];
-      if (valuesNode === undefined || valuesNode.kind !== "constructed") continue;
+      if (
+        valuesNode === undefined ||
+        valuesNode.kind !== "constructed" ||
+        valuesNode.children.length !== 1
+      ) {
+        return yield* Effect.fail(
+          new CryptoError({
+            code: CryptoErrorCodeValue.corruptedFile,
+            reason: "PKCS#12 localKeyId attribute must contain one value.",
+            operation: CryptoOperationValue.pkcs12Decode,
+          }),
+        );
+      }
       const valueNode = valuesNode.children[0];
-      if (valueNode === undefined) continue;
-      return bytesToHex(yield* readOctetString(valueNode));
+      if (valueNode === undefined) {
+        return yield* Effect.fail(
+          new CryptoError({
+            code: CryptoErrorCodeValue.corruptedFile,
+            reason: "PKCS#12 localKeyId attribute has no value.",
+            operation: CryptoOperationValue.pkcs12Decode,
+          }),
+        );
+      }
+      if (hasLocalKeyId) {
+        return yield* Effect.fail(
+          new CryptoError({
+            code: CryptoErrorCodeValue.corruptedFile,
+            reason: "PKCS#12 bag contains multiple localKeyId attributes.",
+            operation: CryptoOperationValue.pkcs12Decode,
+          }),
+        );
+      }
+      localKeyId = bytesToHex(yield* readOctetString(valueNode));
+      hasLocalKeyId = true;
     }
-    return null;
+    return localKeyId;
   });
 
 const extractCertFromBag = (
@@ -910,8 +951,7 @@ export const parsePkcs12 = (
       }
     }
 
-    const firstCert = certificates[0];
-    if (firstCert === undefined) {
+    if (certificates.length === 0) {
       return yield* Effect.fail(
         new CryptoError({
           code: CryptoErrorCodeValue.noCertificate,
@@ -920,8 +960,7 @@ export const parsePkcs12 = (
         }),
       );
     }
-    const keyBag = keyBags[0];
-    if (keyBag === undefined) {
+    if (keyBags.length === 0) {
       return yield* Effect.fail(
         new CryptoError({
           code: CryptoErrorCodeValue.noPrivateKey,
@@ -931,30 +970,68 @@ export const parsePkcs12 = (
       );
     }
 
-    const privateKey = yield* decryptShroudedKeyBag(
-      keyBag.data,
-      bmpPassword,
-      passwordBytes,
-      kdfBudget,
-    );
+    const matchingPairs: Array<{
+      readonly key: (typeof keyBags)[number];
+      readonly certificate: (typeof certificates)[number];
+    }> = [];
+    for (const candidateKey of keyBags) {
+      if (candidateKey.localKeyId === null) continue;
+      let match: (typeof certificates)[number] | undefined;
+      let matchCount = 0;
+      for (const candidateCertificate of certificates) {
+        if (candidateCertificate.localKeyId === candidateKey.localKeyId) {
+          match = candidateCertificate;
+          matchCount++;
+        }
+      }
+      if (matchCount === 1 && match !== undefined) {
+        matchingPairs.push({ key: candidateKey, certificate: match });
+      }
+    }
 
-    const endEntity =
-      keyBag.localKeyId === null
-        ? firstCert
-        : certificates.find((entry) => entry.localKeyId === keyBag.localKeyId);
-    if (endEntity === undefined) {
+    let selectedPair: (typeof matchingPairs)[number] | undefined = matchingPairs[0];
+    if (matchingPairs.length !== 1) selectedPair = undefined;
+
+    const onlyKey = keyBags[0];
+    const onlyCertificate = certificates[0];
+    if (
+      selectedPair === undefined &&
+      keyBags.length === 1 &&
+      certificates.length === 1 &&
+      onlyKey !== undefined &&
+      onlyCertificate !== undefined &&
+      (onlyKey.localKeyId === null ||
+        onlyCertificate.localKeyId === null ||
+        onlyKey.localKeyId === onlyCertificate.localKeyId)
+    ) {
+      selectedPair = { key: onlyKey, certificate: onlyCertificate };
+    }
+
+    if (selectedPair === undefined) {
       return yield* Effect.fail(
         new CryptoError({
           code: CryptoErrorCodeValue.corruptedFile,
-          reason: "No certificate matched the private key localKeyId.",
+          reason: "PKCS#12 has no unambiguous private-key/certificate pairing.",
           operation: CryptoOperationValue.pkcs12Decode,
         }),
       );
     }
-    const chain = certificates.filter((entry) => entry !== endEntity).map((entry) => entry.data);
+
+    const selectedKey = selectedPair.key;
+    const selectedCertificate = selectedPair.certificate;
+    const privateKey = yield* decryptShroudedKeyBag(
+      selectedKey.data,
+      bmpPassword,
+      passwordBytes,
+      kdfBudget,
+    );
+    const chain: Uint8Array[] = [];
+    for (const entry of certificates) {
+      if (entry !== selectedCertificate) chain.push(entry.data);
+    }
 
     return {
-      certificate: endEntity.data,
+      certificate: selectedPair.certificate.data,
       privateKey,
       chain,
     } satisfies Pkcs12Result;

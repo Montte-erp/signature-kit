@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { CryptoError, CryptoErrorCodeValue, CryptoOperationValue } from "./config";
-import { base64ToBytes, bytesToBase64 } from "./base64";
+import { CryptoError, CryptoErrorCodeValue, CryptoOperationValue } from "./config.js";
+import { base64ToBytes, bytesToBase64 } from "./base64.js";
 
 const PEM_ENVELOPE =
   /^[\t \r\n]*-----BEGIN ([^\r\n]+)-----\r?\n([\s\S]*?)\r?\n-----END \1-----[\t \r\n]*$/;

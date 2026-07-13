@@ -1,6 +1,21 @@
 import type { Check, CheckContext } from "../model";
 import { allowedEffectProvideSites } from "../config";
 
+const librarySourcePathPattern =
+  /^(?:core|shared|signers|formats|validators)\/[^/]+\/src\/(?!__tests__\/).+\.(?:ts|tsx|js|jsx|mjs|cjs)$/;
+
+const hasForbiddenEffectConstruct = (context: CheckContext): boolean =>
+  /\b(?:Effect\.(?:either|effect)|Either(?:\s*[.(<{\s,}]))/.test(context.line);
+
+const hasKnownDynamicImport = (context: CheckContext): boolean =>
+  librarySourcePathPattern.test(context.path) &&
+  /\bimport\(\s*["'](?:\.{1,2}\/[^"']+|node:[^"']+|effect(?:\/[^"']+)?|@effect\/[^"']+|@signature-kit\/[^"']+)["']\s*\)/.test(
+    context.line,
+  );
+const hasDirectNodeOrPlatformImport = (context: CheckContext): boolean =>
+  librarySourcePathPattern.test(context.path) &&
+  /\b(?:from\s*)?["'](?:node:|@effect\/platform-node(?:\/|["']))/.test(context.rawLine);
+
 const hasLocalEffectRunBoundary = (context: CheckContext): boolean => {
   if (!context.path.startsWith("formats/react/src/") && !context.path.startsWith("apps/docs/")) {
     return false;
@@ -9,6 +24,22 @@ const hasLocalEffectRunBoundary = (context: CheckContext): boolean => {
   const previous = context.rawLines[context.lineNumber - 2] ?? "";
   const boundaryPattern = /\/\/\s*effect-boundary:\s*\S[\s\S]*\[allow-run:\s*[^\]]+\]/;
   return boundaryPattern.test(current) || boundaryPattern.test(previous);
+};
+
+const hasNamedEffectEscape = (context: CheckContext): boolean => {
+  if (!librarySourcePathPattern.test(context.path) || hasLocalEffectRunBoundary(context)) {
+    return false;
+  }
+  if (
+    !/\b(?:runSync|runPromise|runFork|runCallback|decodeUnknownSync|decodeSync|decodeUnknownPromise|decodePromise)\s*\(/.test(
+      context.line,
+    )
+  ) {
+    return false;
+  }
+  return /import\s*\{[\s\S]*\b(?:runSync|runPromise|runFork|runCallback|decodeUnknownSync|decodeSync|decodeUnknownPromise|decodePromise)\b[\s\S]*\}\s*from\s*["']effect(?:\/[^"']+)?["']/.test(
+    context.source,
+  );
 };
 
 const hasEscapedEffectBoundary = (context: CheckContext): boolean =>
@@ -48,6 +79,30 @@ export const effectBoundaryChecks: readonly Check[] = [
     message:
       "Do not escape the Effect error channel with runSync/runPromise/runFork or Schema.decodeUnknownSync.",
     test: hasEscapedEffectBoundary,
+    ignoreImportLine: false,
+  },
+  {
+    message:
+      "Use Effect error channels directly; do not use Effect.either, Effect.effect, or Either in library modules.",
+    test: hasForbiddenEffectConstruct,
+    ignoreImportLine: false,
+  },
+  {
+    message:
+      "Library modules must not dynamically import known dependencies or relative modules; use static imports or an explicit runtime plugin boundary.",
+    test: hasKnownDynamicImport,
+    ignoreImportLine: false,
+  },
+  {
+    message:
+      "Library modules must use portable platform services; direct node or @effect/platform-node imports belong at application or test boundaries.",
+    test: hasDirectNodeOrPlatformImport,
+    ignoreImportLine: false,
+  },
+  {
+    message:
+      "Do not escape the Effect error channel through named run/decode imports; use an Effect boundary with explicit documentation.",
+    test: hasNamedEffectEscape,
     ignoreImportLine: false,
   },
   {

@@ -159,16 +159,22 @@ const exportedImportPath = (value: unknown): string | undefined => {
   return typeof value.import === "string" ? value.import : undefined;
 };
 
+const sourceExtensionsForPath: readonly string[] = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
+
 const sourcePathFromDistImport = (
+  rootDirectory: string,
   packageDirectory: string,
   importPath: string,
 ): string | undefined => {
-  const prefix = "./dist/";
-  const suffix = ".js";
-  if (!importPath.startsWith(prefix) || !importPath.endsWith(suffix)) {
+  const match = /^\.\/dist\/(.+)\.(?:js|mjs|cjs)$/.exec(importPath);
+  if (match === null) {
     return undefined;
   }
-  return `${packageDirectory}/src/${importPath.slice(prefix.length, -suffix.length)}.ts`;
+  const sourceBase = `${packageDirectory}/src/${match[1]}`;
+  const extension = sourceExtensionsForPath.find((candidate) =>
+    existsSync(`${rootDirectory}/${sourceBase}${candidate}`),
+  );
+  return extension === undefined ? `${sourceBase}.ts` : `${sourceBase}${extension}`;
 };
 
 const exportedSourcePaths = (
@@ -185,7 +191,11 @@ const exportedSourcePaths = (
     if (importPath === undefined) {
       return [];
     }
-    const sourcePath = sourcePathFromDistImport(workspacePackage.directory, importPath);
+    const sourcePath = sourcePathFromDistImport(
+      rootDirectory,
+      workspacePackage.directory,
+      importPath,
+    );
     if (sourcePath === undefined) {
       return [];
     }
@@ -217,6 +227,28 @@ const exportPathDiagnostics = (
           },
         ];
   });
+const aliasPathDiagnostics = (
+  rootDirectory: string,
+  workspacePackage: WorkspacePackage,
+  aliases: ReadonlyMap<string, readonly string[]>,
+): readonly WorkspaceLayerDiagnostic[] => {
+  const exportedSpecifiers = new Set(
+    exportedSourcePaths(rootDirectory, workspacePackage).map((entry) => entry.specifier),
+  );
+  return [...aliases].flatMap(([specifier]) => {
+    if (specifier !== workspacePackage.name && !specifier.startsWith(`${workspacePackage.name}/`)) {
+      return [];
+    }
+    return exportedSpecifiers.has(specifier)
+      ? []
+      : [
+          {
+            path: "tooling/typescript/base.json",
+            message: `${specifier} is configured as a path alias but is not exported by ${workspacePackage.name}.`,
+          },
+        ];
+  });
+};
 
 const distJavaScriptFiles = (directory: string): readonly string[] => {
   if (!existsSync(directory) || !statSync(directory).isDirectory()) {
@@ -285,10 +317,10 @@ const sourceFilePaths = (directory: string): readonly string[] => {
 
 const importSpecifiers = (source: string): readonly string[] => {
   const pattern =
-    /\bfrom\s+["']([^"']+)["']|\bimport\(\s*["']([^"']+)["']\s*\)|\brequire\(\s*["']([^"']+)["']\s*\)/g;
+    /(?:^|[\r\n])\s*import\s*["']([^"']+)["']|\bfrom\s+["']([^"']+)["']|\bimport\(\s*["']([^"']+)["']\s*\)|\brequire\(\s*["']([^"']+)["']\s*\)/g;
   const specifiers: string[] = [];
   for (const match of source.matchAll(pattern)) {
-    const specifier = match[1] ?? match[2] ?? match[3];
+    const specifier = match[1] ?? match[2] ?? match[3] ?? match[4];
     if (specifier !== undefined) {
       specifiers.push(specifier);
     }
@@ -304,6 +336,13 @@ const packageForRelativePath = (
     (workspacePackage) =>
       path === workspacePackage.directory || path.startsWith(`${workspacePackage.directory}/`),
   );
+const librarySourcePathPattern =
+  /^(?:core|shared|signers|formats|validators)\/[^/]+\/src\/.+\.(?:ts|tsx|js|jsx|mjs|cjs)$/;
+
+const hasPublishedModuleExtension = (specifier: string): boolean => {
+  const extension = /\.([A-Za-z0-9]+)$/.exec(specifier)?.[1]?.toLowerCase();
+  return extension !== undefined && extension !== "ts" && extension !== "tsx";
+};
 
 const packageDirectories = (rootDirectory: string): readonly string[] =>
   workspaceRoots.flatMap((root) => {
@@ -472,20 +511,27 @@ const relativeImportDiagnostics = (
     return [];
   }
 
+  const diagnostics: WorkspaceLayerDiagnostic[] = [];
+  if (librarySourcePathPattern.test(sourcePath) && !hasPublishedModuleExtension(specifier)) {
+    diagnostics.push({
+      path: sourcePath,
+      message: `${sourcePath} uses extensionless relative import ${specifier}; emitted library modules must use an explicit .js, .mjs, .cjs, .json, or asset extension.`,
+    });
+  }
+
   const resolvedImport = normalizePath(
     relative(rootDirectory, resolve(rootDirectory, dirname(sourcePath), specifier)),
   );
   const importedPackage = packageForRelativePath(packages, resolvedImport);
   if (importedPackage === undefined || importedPackage.name === workspacePackage.name) {
-    return [];
+    return diagnostics;
   }
 
-  return [
-    {
-      path: sourcePath,
-      message: `${workspacePackage.name} reaches into ${importedPackage.name} through a relative import; import the package entry point instead.`,
-    },
-  ];
+  diagnostics.push({
+    path: sourcePath,
+    message: `${workspacePackage.name} reaches into ${importedPackage.name} through a relative import; import the package entry point instead.`,
+  });
+  return diagnostics;
 };
 
 const importDiagnostics = (
@@ -511,6 +557,69 @@ const importDiagnostics = (
     },
   );
 
+const remoteSignerPascalNames: ReadonlyMap<string, string> = new Map([
+  ["docuseal", "DocuSeal"],
+  ["zapsign", "ZapSign"],
+]);
+
+const toPascalCase = (value: string): string =>
+  value
+    .split(/[-_]/)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join("");
+
+const remoteSignerSurfaceDiagnostics = (
+  rootDirectory: string,
+  workspacePackage: WorkspacePackage,
+): readonly WorkspaceLayerDiagnostic[] => {
+  if (workspacePackage.layer !== "signers") {
+    return [];
+  }
+  const packageName = workspacePackage.directory.split("/")[1];
+  if (packageName === undefined || packageName === "a1") {
+    return [];
+  }
+  const sourcePath = `${rootDirectory}/${workspacePackage.directory}/src/index.ts`;
+  if (!existsSync(sourcePath)) {
+    return [
+      {
+        path: normalizePath(relative(rootDirectory, sourcePath)),
+        message: `${workspacePackage.name} remote signer must expose its uniform provider surface from src/index.ts.`,
+      },
+    ];
+  }
+  const source = readFileSync(sourcePath, "utf8");
+  const pascalName = remoteSignerPascalNames.get(packageName) ?? toPascalCase(packageName);
+  const valueExports = [
+    `${pascalName}ProviderId`,
+    `${pascalName}ProviderOptionsSchema`,
+    `${pascalName}SignatureRequest`,
+    "providers",
+    `get${pascalName}SignatureRequest`,
+    `list${pascalName}SignatureRequests`,
+    `delete${pascalName}SignatureRequest`,
+    `download${pascalName}SignedDocument`,
+  ];
+  const typeExports = [`${pascalName}ProviderOptions`, `${pascalName}SignatureRequest`];
+  const hasExport = (name: string, typeOnly: boolean): boolean => {
+    const exportPrefix = typeOnly ? "type\\s+" : "(?:(?:const|function|class|let|var)\\s+)?";
+    return new RegExp(`\\bexport\\s+${exportPrefix}(?:${name}\\b|\\{[^}]*\\b${name}\\b)`, "s").test(
+      source,
+    );
+  };
+  return [...valueExports, ...typeExports].flatMap((name) => {
+    const typeOnly = typeExports.includes(name);
+    return hasExport(name, typeOnly)
+      ? []
+      : [
+          {
+            path: normalizePath(relative(rootDirectory, sourcePath)),
+            message: `${workspacePackage.name} remote signer index must export ${typeOnly ? "type " : ""}${name}.`,
+          },
+        ];
+  });
+};
+
 export const collectWorkspaceLayerDiagnostics = (
   rootDirectory = process.cwd(),
 ): readonly WorkspaceLayerDiagnostic[] => {
@@ -530,7 +639,9 @@ export const collectWorkspaceLayerDiagnostics = (
       ? []
       : [
           ...referenceDiagnostics(workspacePackage, byName, byDirectory),
+          ...remoteSignerSurfaceDiagnostics(rootDirectory, workspacePackage),
           ...exportPathDiagnostics(rootDirectory, workspacePackage, pathAliases),
+          ...aliasPathDiagnostics(rootDirectory, workspacePackage, pathAliases),
           ...distParityDiagnostics(rootDirectory, workspacePackage),
         ]),
     ...importDiagnostics(rootDirectory, workspacePackage, packages, byName),

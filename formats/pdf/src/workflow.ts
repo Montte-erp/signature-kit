@@ -2,9 +2,9 @@ import { PDFDocument, type PDFPage } from "@cantoo/pdf-lib";
 import type { CmsError } from "@signature-kit/cms/config";
 import type { SignatureKitError } from "@signature-kit/signatures";
 import type { Signatures } from "@signature-kit/signatures";
-import { signPdf as signPdfDocument } from "./sign";
-import { findPdfTextAnchors } from "./anchors";
-import type { LiteParseWorkerFactory } from "./liteparse-browser";
+import { signPdf as signPdfDocument } from "./sign.js";
+import { findPdfTextAnchors } from "./anchors.js";
+import type { LiteParseWorkerFactory } from "./liteparse-browser.js";
 import { Effect, Schema } from "effect";
 import {
   autoPlacePdfSignatureField,
@@ -12,7 +12,7 @@ import {
   createPdfSignatureTemplate,
   placePdfSignatureField,
   validatePdfSignatureTemplate,
-} from "./builder";
+} from "./builder.js";
 import {
   PdfDocumentInputSchema,
   PdfDocumentSourceTypeValue,
@@ -25,7 +25,7 @@ import {
   PdfErrorCodeValue,
   PdfOperationValue,
   PdfSchemaNameValue,
-} from "./config";
+} from "./config.js";
 import type {
   PdfDocumentInput,
   PdfCoordinateTuple,
@@ -45,7 +45,7 @@ import type {
   PdfSignatureBuilderState,
   PdfSignatureDocument,
   PdfSignatureTemplate,
-} from "./config";
+} from "./config.js";
 
 import {
   defaultPdfSignatureRect,
@@ -54,8 +54,8 @@ import {
   stampPdfRubricOnPages,
   stampPdfVisibleSignatures,
   visiblePdfPageSize,
-} from "./stamp";
-import { hasPdfByteRange } from "./byte-range";
+} from "./stamp.js";
+import { hasPdfByteRange } from "./byte-range.js";
 
 export type PdfPageLabeler = (pageNumber: number) => string;
 

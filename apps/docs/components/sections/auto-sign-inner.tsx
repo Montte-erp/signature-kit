@@ -95,7 +95,9 @@ type AutoDoc = {
 
 type PdfDocumentLoadLifecycle = {
   active: boolean;
+  disposed: boolean;
   task?: PdfLoadingTask;
+  doc?: PdfDocumentProxy;
 };
 
 const destroyPdfLoadingTask = (task: PdfLoadingTask | undefined): Effect.Effect<void> =>
@@ -114,6 +116,21 @@ const destroyPdfDocument = (doc: PdfDocumentProxy): Effect.Effect<void> =>
         catch: () => "pdf-document-destroy-failed",
       }).pipe(Effect.ignore, Effect.asVoid);
 
+const destroyPdfDocumentLoad = (lifecycle: PdfDocumentLoadLifecycle): Effect.Effect<void> =>
+  Effect.suspend(() => {
+    if (lifecycle.disposed) return Effect.void;
+    lifecycle.disposed = true;
+    lifecycle.active = false;
+    const task = lifecycle.task;
+    const doc = lifecycle.doc;
+    lifecycle.task = undefined;
+    lifecycle.doc = undefined;
+    return Effect.gen(function* () {
+      yield* destroyPdfLoadingTask(task);
+      if (doc !== undefined) yield* destroyPdfDocument(doc);
+    });
+  });
+
 const loadPdfDocumentFromBytes = (
   bytes: Uint8Array,
   lifecycle: PdfDocumentLoadLifecycle,
@@ -124,16 +141,29 @@ const loadPdfDocumentFromBytes = (
       catch: () => "pdfjs-load-failed",
     }).pipe(Effect.orElseSucceed(() => undefined));
     if (pdfjs === undefined || !lifecycle.active) return undefined;
-    const task = pdfjs.getDocument({ data: bytes.slice() });
+    const task = yield* Effect.try({
+      try: () => pdfjs.getDocument({ data: bytes.slice() }),
+      catch: () => "pdf-document-task-failed",
+    }).pipe(Effect.orElseSucceed(() => undefined));
+    if (task === undefined) {
+      yield* destroyPdfDocumentLoad(lifecycle);
+      return undefined;
+    }
     lifecycle.task = task;
     const loaded = yield* Effect.tryPromise({
       try: () => task.promise,
       catch: () => "pdf-load-failed",
     }).pipe(Effect.orElseSucceed(() => undefined));
-    if (loaded === undefined) return undefined;
-    if (lifecycle.active) return loaded;
-    yield* destroyPdfDocument(loaded);
-    return undefined;
+    if (loaded === undefined) {
+      yield* destroyPdfDocumentLoad(lifecycle);
+      return undefined;
+    }
+    if (!lifecycle.active || lifecycle.disposed) {
+      yield* destroyPdfDocument(loaded);
+      return undefined;
+    }
+    lifecycle.doc = loaded;
+    return loaded;
   });
 
 type AutoState = {
@@ -346,7 +376,7 @@ function AutoDocCanvas({
   const mountPdf = React.useCallback(
     (node: HTMLDivElement | null) => {
       if (node === null || bytes === undefined) return;
-      const lifecycle: PdfDocumentLoadLifecycle = { active: true };
+      const lifecycle: PdfDocumentLoadLifecycle = { active: true, disposed: false };
       setPdfDoc(null);
       void Effect.runPromise(loadPdfDocumentFromBytes(bytes, lifecycle)).then((loaded) => {
         if (lifecycle.active && loaded !== undefined) setPdfDoc(loaded);
@@ -354,7 +384,7 @@ function AutoDocCanvas({
       return () => {
         lifecycle.active = false;
         setPdfDoc(null);
-        void Effect.runPromise(destroyPdfLoadingTask(lifecycle.task));
+        void Effect.runPromise(destroyPdfDocumentLoad(lifecycle));
       };
     },
     [bytes],

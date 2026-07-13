@@ -250,4 +250,86 @@ describe("workspace layer checks", () => {
         "shared/crypto/dist/hash.js is committed generated output without a matching source module.",
     });
   });
+  it("parses side-effect imports for package dependency diagnostics", async () => {
+    const root = await createTempWorkspace();
+    await writePackage(
+      root,
+      "shared/dep",
+      "@signature-kit/dep",
+      {},
+      [],
+      "export const dep = true;\n",
+    );
+    await writePackage(
+      root,
+      "core/use",
+      "@signature-kit/use",
+      {},
+      [],
+      'import "@signature-kit/dep";\nexport const use = true;\n',
+    );
+
+    expect(collectWorkspaceLayerDiagnostics(root)).toContainEqual({
+      path: "core/use/src/index.ts",
+      message:
+        "@signature-kit/use imports @signature-kit/dep without declaring it in package.json.",
+    });
+  });
+
+  it("rejects path aliases that do not have a package export", async () => {
+    const root = await createTempWorkspace();
+    await writePackage(
+      root,
+      "shared/crypto",
+      "@signature-kit/crypto",
+      {},
+      [],
+      "export const crypto = true;\n",
+    );
+    await writeFile(join(root, "shared/crypto/src/pem.ts"), "export const pem = true;\n");
+    await writeBaseConfig(root, {
+      "@signature-kit/crypto/pem": ["../../shared/crypto/src/pem.ts"],
+    });
+
+    expect(collectWorkspaceLayerDiagnostics(root)).toContainEqual({
+      path: "tooling/typescript/base.json",
+      message:
+        "@signature-kit/crypto/pem is configured as a path alias but is not exported by @signature-kit/crypto.",
+    });
+  });
+
+  it("requires explicit runtime extensions for library relative imports", async () => {
+    const root = await createTempWorkspace();
+    await writePackage(
+      root,
+      "shared/crypto",
+      "@signature-kit/crypto",
+      {},
+      [],
+      'import "./pem";\nexport const crypto = true;\n',
+    );
+    await writeFile(join(root, "shared/crypto/src/pem.ts"), "export const pem = true;\n");
+
+    expect(collectWorkspaceLayerDiagnostics(root)).toContainEqual({
+      path: "shared/crypto/src/index.ts",
+      message:
+        "shared/crypto/src/index.ts uses extensionless relative import ./pem; emitted library modules must use an explicit .js, .mjs, .cjs, .json, or asset extension.",
+    });
+  });
+  it("requires every remote signer package to expose the uniform index surface", async () => {
+    const root = await createTempWorkspace();
+    await writePackage(
+      root,
+      "signers/new-signer",
+      "@signature-kit/new-signer",
+      {},
+      [],
+      "export const providers = true;\n",
+    );
+
+    expect(collectWorkspaceLayerDiagnostics(root)).toContainEqual({
+      path: "signers/new-signer/src/index.ts",
+      message: "@signature-kit/new-signer remote signer index must export NewSignerProviderId.",
+    });
+  });
 });

@@ -2,7 +2,7 @@
 
 import { Check, Copy } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Effect, Result } from "effect";
 
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,20 @@ export const InstallCommand = ({
   analyticsLocation,
 }: InstallCommandProps) => {
   const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      if (resetTimerRef.current !== null) {
+        window.clearTimeout(resetTimerRef.current);
+        resetTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const handleCopy = async () => {
     const copiedToClipboard = await Effect.runPromise(
@@ -35,12 +49,19 @@ export const InstallCommand = ({
       ),
     );
     if (Result.isSuccess(copiedToClipboard)) {
+      if (!mountedRef.current) return;
       setCopied(true);
       captureDocsEvent("install_command_copied", {
         analytics_location: analyticsLocation,
         command,
       });
-      setTimeout(() => setCopied(false), 1800);
+      if (resetTimerRef.current !== null) {
+        window.clearTimeout(resetTimerRef.current);
+      }
+      resetTimerRef.current = window.setTimeout(() => {
+        resetTimerRef.current = null;
+        if (mountedRef.current) setCopied(false);
+      }, 1800);
     } else {
       captureDocsEvent("install_command_copy_failed", {
         analytics_location: analyticsLocation,

@@ -64,7 +64,7 @@ const hasAllowedSchemaLiteralSource = (line: string): boolean =>
   );
 
 const literalCodeArrayDeclarationPattern =
-  /^\s*(?:const|let|var)\s+([A-Z][A-Z0-9_]*|[A-Za-z_$][\w$]*(?:Code|Codes|Status|Statuses|Reason|Reasons|Event|Events))\b/;
+  /^\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*(?:Code|Codes|Status|Statuses|Reason|Reasons|Event|Events|code|codes|status|statuses|reason|reasons|event|events)|[A-Z][A-Z0-9_]*(?:CODE|CODES|STATUS|STATUSES|REASON|REASONS|EVENT|EVENTS))\b/;
 
 const literalItemPattern = /^(?:"[^"]*"|'[^']*'|`[^`]*`)$/;
 
@@ -77,7 +77,12 @@ const hasLiteralCodeArray = (line: string): boolean => {
     return false;
   }
 
-  const open = line.indexOf("[");
+  const assignment = /=(?!=|>)/.exec(line);
+  const open = assignment === null ? -1 : line.indexOf("[", assignment.index + 1);
+  const arrow = line.indexOf("=>");
+  if (arrow !== -1 && (open === -1 || open < arrow)) {
+    return false;
+  }
   const close = line.lastIndexOf("]");
   if (open === -1 || close <= open + 1) {
     return false;
@@ -118,7 +123,7 @@ export const schemaContractChecks: readonly Check[] = [
   {
     message:
       "List codes/statuses/events with `Schema.Literals(...)`; do not keep raw literal domain arrays.",
-    test: ({ line }) => hasLiteralCodeArray(line),
+    test: ({ rawLine }) => hasLiteralCodeArray(rawLine.trim()),
     ignoreImportLine: false,
   },
 ];

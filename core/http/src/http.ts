@@ -19,8 +19,9 @@ export const SignatureHttpBodySchema = Schema.Union([
 export type SignatureHttpBody = (typeof SignatureHttpBodySchema)["Type"];
 
 const SignatureHttpTimeoutMillisSchema = Schema.Number.check(
-  Schema.isFinite(),
+  Schema.isInt(),
   Schema.isGreaterThanOrEqualTo(0),
+  Schema.isLessThanOrEqualTo(2_147_483_647),
 );
 
 export const SignatureHttpRequestSchema = Schema.Struct({
@@ -46,7 +47,8 @@ export type SignatureHttpJsonResponse<A> = Schema.Struct.Type<{
 }>;
 
 const diagnosticRequestUrl = (request: SignatureHttpRequest): string =>
-  request.diagnosticUrl ?? request.url;
+  request.diagnosticUrl ??
+  request.url.replace(/[?#].*$/, "").replace(/^([a-z][a-z\d+.-]*:\/\/)(?:[^/?#]*@)/i, "$1");
 
 const isRetryableMethod = (method: SignatureHttpMethod): boolean =>
   method === "DELETE" || method === "GET" || method === "PUT";
@@ -143,10 +145,13 @@ const startRequestAbort = (
   signal: AbortSignal,
 ): RequestAbortHandle => {
   const controller = new AbortController();
-  const pending = Promise.withResolvers<RequestAbort>();
+  let resolvePending: (value: RequestAbort) => void = () => undefined;
+  const promise = new Promise<RequestAbort>((resolve) => {
+    resolvePending = resolve;
+  });
   const abort = (timedOut: boolean): void => {
     if (!controller.signal.aborted) controller.abort(signal.reason);
-    pending.resolve({ _tag: "RequestAbort", timedOut });
+    resolvePending({ _tag: "RequestAbort", timedOut });
   };
   const timeout =
     request.timeoutMillis === undefined ? undefined : Duration.millis(request.timeoutMillis);
@@ -157,7 +162,7 @@ const startRequestAbort = (
   else signal.addEventListener("abort", abortFromSignal, { once: true });
   return {
     signal: controller.signal,
-    promise: pending.promise,
+    promise,
     clear: () => {
       clearTimeout(timeoutId);
       signal.removeEventListener("abort", abortFromSignal);
@@ -177,45 +182,40 @@ const transport = <A>(
     return Effect.tryPromise({
       try: (signal): Promise<TransportResult<A>> => {
         const abort = startRequestAbort(request, signal);
-        const requestPromise = fetch(request.url, {
-          method: request.method,
-          signal: abort.signal,
-          ...(request.headers === undefined ? {} : { headers: request.headers }),
-          ...(request.body === undefined ? {} : { body: request.body }),
-        }).then(
-          async (
-            nextResponse,
-          ): Promise<AcceptedTransportResponse<A> | HttpStatusTransportResponse> => {
-            response = nextResponse;
-            if (
-              nextResponse.ok ||
-              (request.acceptedStatuses?.includes(nextResponse.status) ?? false)
-            ) {
-              bodyFailureReason = acceptedBodyFailureReason;
+        const requestPromise = Promise.resolve()
+          .then(() =>
+            fetch(request.url, {
+              method: request.method,
+              signal: abort.signal,
+              ...(request.headers === undefined ? {} : { headers: request.headers }),
+              ...(request.body === undefined ? {} : { body: request.body }),
+            }),
+          )
+          .then(
+            async (
+              nextResponse,
+            ): Promise<AcceptedTransportResponse<A> | HttpStatusTransportResponse> => {
+              response = nextResponse;
+              if (!nextResponse.ok) statusResponse = nextResponse;
+              if (
+                nextResponse.ok ||
+                (request.acceptedStatuses?.includes(nextResponse.status) ?? false)
+              ) {
+                bodyFailureReason = acceptedBodyFailureReason;
+                return {
+                  _tag: "Accepted",
+                  response: nextResponse,
+                  body: await readAcceptedBody(nextResponse),
+                };
+              }
               return {
-                _tag: "Accepted",
+                _tag: "HttpStatus",
                 response: nextResponse,
-                body: await readAcceptedBody(nextResponse),
+                body: await nextResponse.text(),
               };
-            }
-            statusResponse = nextResponse;
-            return {
-              _tag: "HttpStatus",
-              response: nextResponse,
-              body: await nextResponse.text(),
-            };
-          },
-        );
-        return Promise.race([abort.promise, requestPromise]).then(
-          (result) => {
-            abort.clear();
-            return result;
-          },
-          (error) => {
-            abort.clear();
-            return Promise.reject(error);
-          },
-        );
+            },
+          );
+        return Promise.race([abort.promise, requestPromise]).finally(() => abort.clear());
       },
       catch: () => {
         const resetAt =

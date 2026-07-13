@@ -23,6 +23,9 @@ const ZapSignOperation = {
   download: "zapsign.download",
 } satisfies Record<string, string>;
 
+const ZAPSIGN_PAGINATION_CYCLE_REASON =
+  "ZapSign list pagination returned a previously visited URL.";
+
 const base64String: Schema.ConstraintDecoder<string> = Schema.String.check(Schema.isBase64());
 
 export const ZapSignProviderId = "zapsign";
@@ -405,6 +408,11 @@ const resolveZapSignListNextUrl = (
     : null;
 };
 
+type ZapSignListPaginationState = {
+  readonly url: string;
+  readonly visitedUrls: Set<string>;
+};
+
 const listZapSignSignatureRequestsInternal = (
   http: SignatureHttpClientService,
   options: ZapSignProviderOptions,
@@ -413,30 +421,62 @@ const listZapSignSignatureRequestsInternal = (
   const initialUrl = new URL(`${baseUrl}/docs/`);
   initialUrl.searchParams.set("page", "1");
   initialUrl.searchParams.set("include_signers", "true");
+  const initialPaginationUrl = initialUrl.toString();
 
-  return Stream.paginate(initialUrl.toString(), (nextUrl) =>
-    http
-      .requestJson(
-        {
-          provider: PROVIDER,
-          method: "GET",
-          url: nextUrl,
-          headers: {
-            Authorization: bearerAuthorization(options.apiToken),
+  return Stream.paginate(
+    {
+      url: initialPaginationUrl,
+      visitedUrls: new Set([initialPaginationUrl]),
+    },
+    (state) =>
+      http
+        .requestJson(
+          {
+            provider: PROVIDER,
+            method: "GET",
+            url: state.url,
+            headers: {
+              Authorization: bearerAuthorization(options.apiToken),
+            },
           },
-        },
-        ZapSignDocumentsResultSchema,
-        ZapSignSchemaName.documentsResult,
-      )
-      .pipe(
-        Effect.map((page): readonly [ReadonlyArray<ZapSignDocument>, Option.Option<string>] => {
-          const nextUrl = resolveZapSignListNextUrl(baseUrl, page.next);
-          return [
-            page.results.map((item) => toZapSignDocument(baseUrl, item)),
-            nextUrl === null ? Option.none() : Option.some(nextUrl),
-          ];
-        }),
-      ),
+          ZapSignDocumentsResultSchema,
+          ZapSignSchemaName.documentsResult,
+        )
+        .pipe(
+          Effect.flatMap(
+            (
+              page,
+            ): Effect.Effect<
+              readonly [ReadonlyArray<ZapSignDocument>, Option.Option<ZapSignListPaginationState>],
+              SignatureKitError
+            > => {
+              const nextUrl = resolveZapSignListNextUrl(baseUrl, page.next);
+              if (nextUrl !== null && state.visitedUrls.has(nextUrl)) {
+                return Effect.fail(
+                  new SignatureKitError({
+                    code: SignatureKitErrorCodeValue.responseShape,
+                    retryable: false,
+                    provider: PROVIDER,
+                    operation: SignatureKitOperationValue.httpDecode,
+                    reason: ZAPSIGN_PAGINATION_CYCLE_REASON,
+                  }),
+                );
+              }
+
+              const documents = page.results.map((item) => toZapSignDocument(baseUrl, item));
+              if (nextUrl !== null) {
+                state.visitedUrls.add(nextUrl);
+              }
+              const nextState =
+                nextUrl === null
+                  ? Option.none()
+                  : Option.some({ url: nextUrl, visitedUrls: state.visitedUrls });
+              return Effect.succeed<
+                readonly [ReadonlyArray<ZapSignDocument>, Option.Option<ZapSignListPaginationState>]
+              >([documents, nextState]);
+            },
+          ),
+        ),
   ).pipe(Stream.runCollect);
 };
 

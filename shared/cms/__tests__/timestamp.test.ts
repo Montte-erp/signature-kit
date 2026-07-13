@@ -6,6 +6,7 @@ import { Effect, Result, Schema } from "effect";
 import * as pkijs from "pkijs";
 import { vi } from "vitest";
 import { CmsOid, MAX_NATIVE_TIMEOUT_MILLIS, TimestampOptionsSchema } from "../src/config";
+import type { TimestampOptions } from "../src/config";
 import { toArrayBuffer, toBufferSource } from "../src/engine";
 import { requestTimestamp } from "../src/timestamp";
 
@@ -18,14 +19,14 @@ type TimestampSigner = {
 const TSA_TST_INFO_CONTENT_TYPE = "1.2.840.113549.1.9.16.1.4";
 const TSA_TIMESTAMPING_KEY_PURPOSE_OID = "1.3.6.1.5.5.7.3.8";
 
-const invalidTimeoutMillis = [
+const invalidTimeoutMillis: ReadonlyArray<number> = [
   Number.NaN,
   Number.NEGATIVE_INFINITY,
   Number.POSITIVE_INFINITY,
   -1,
   0.5,
   2 ** 31,
-] as const;
+];
 type TsaSignerOptions = {
   readonly keyUsage?: number;
   readonly timestampingEku?: boolean;
@@ -270,8 +271,8 @@ describe("RFC 3161 timestamps", () => {
       const options = {
         tsaUrl: "https://tsa.example.test",
         trustedRoots: [new Uint8Array([0x01])],
-        hashAlgorithm: "sha256" as const,
-      };
+        hashAlgorithm: "sha256",
+      } satisfies TimestampOptions;
 
       for (const timeoutMillis of invalidTimeoutMillis) {
         const result = yield* Effect.result(
@@ -334,6 +335,42 @@ describe("RFC 3161 timestamps", () => {
     ),
   );
 
+  it.effect("clears TSA timers when fetch throws synchronously", () =>
+    Effect.gen(function* () {
+      const signer = yield* Effect.promise(() => testTsaSigner);
+      vi.useFakeTimers();
+      const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+      const removeEventListenerSpy = vi.spyOn(AbortSignal.prototype, "removeEventListener");
+      vi.stubGlobal("fetch", () => {
+        throw new Error("synchronous fetch failure");
+      });
+
+      const result = yield* Effect.result(
+        requestTimestamp({
+          data: new Uint8Array([1, 2, 3]),
+          tsaUrl: "https://tsa.example.test",
+          trustedRoots: [signer.certificateDer],
+          hashAlgorithm: "sha256",
+          timeoutMillis: 1000,
+        }),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) expect(result.failure.code).toBe("cms.TIMESTAMP_ERROR");
+      expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
+      expect(removeEventListenerSpy.mock.calls.some(([event]) => event === "abort")).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          vi.useRealTimers();
+          vi.restoreAllMocks();
+          vi.unstubAllGlobals();
+        }),
+      ),
+    ),
+  );
+
   it.effect("rejects an unsigned RFC 3161 token", () =>
     Effect.gen(function* () {
       const signer = yield* Effect.promise(() => testTsaSigner);
@@ -362,6 +399,40 @@ describe("RFC 3161 timestamps", () => {
 
       expect(Result.isFailure(result)).toBe(true);
       if (Result.isFailure(result)) expect(result.failure.code).toBe("cms.TIMESTAMP_ERROR");
+    }).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllGlobals()))),
+  );
+
+  it.effect("rejects trailing bytes after a TSA response", () =>
+    Effect.gen(function* () {
+      const signer = yield* Effect.promise(() => testTsaSigner);
+      vi.stubGlobal("fetch", async (_request: RequestInfo | URL, init?: RequestInit) => {
+        const body = init?.body;
+        if (body instanceof ArrayBuffer) {
+          const response = await timestampResponse(new Uint8Array(body), signer);
+          const withTrailing = new Uint8Array(response.byteLength + 1);
+          withTrailing.set(response);
+          return new Response(toArrayBuffer(withTrailing), {
+            status: 200,
+            headers: { "content-type": "application/timestamp-reply" },
+          });
+        }
+        return new Response(new Uint8Array(), { status: 400 });
+      });
+
+      const result = yield* Effect.result(
+        requestTimestamp({
+          data: new Uint8Array([1, 2, 3]),
+          tsaUrl: "https://tsa.example.test",
+          trustedRoots: [signer.certificateDer],
+          hashAlgorithm: "sha256",
+        }),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe("cms.TIMESTAMP_ERROR");
+        expect(result.failure.reason).toContain("trailing bytes");
+      }
     }).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllGlobals()))),
   );
 

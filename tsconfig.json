@@ -2,55 +2,55 @@
   "files": [],
   "references": [
     {
-      "path": "shared/asn1"
+      "path": "./shared/asn1"
     },
     {
-      "path": "shared/crypto"
+      "path": "./shared/crypto"
     },
     {
-      "path": "shared/cms"
+      "path": "./shared/cms"
     },
     {
-      "path": "core/signatures"
+      "path": "./core/signatures"
     },
     {
-      "path": "core/http"
+      "path": "./core/http"
     },
     {
-      "path": "core/i18n"
+      "path": "./core/i18n"
     },
     {
-      "path": "core/certificates"
+      "path": "./core/certificates"
     },
     {
-      "path": "signers/a1"
+      "path": "./signers/a1"
     },
     {
-      "path": "signers/clicksign"
+      "path": "./signers/clicksign"
     },
     {
-      "path": "signers/assinafy"
+      "path": "./signers/assinafy"
     },
     {
-      "path": "signers/zapsign"
+      "path": "./signers/zapsign"
     },
     {
-      "path": "signers/docuseal"
+      "path": "./signers/docuseal"
     },
     {
-      "path": "signers/documenso"
+      "path": "./signers/documenso"
     },
     {
-      "path": "formats/xml"
+      "path": "./formats/xml"
     },
     {
-      "path": "formats/pdf"
+      "path": "./formats/pdf"
     },
     {
-      "path": "formats/react"
+      "path": "./formats/react"
     },
     {
-      "path": "validators/iti"
+      "path": "./validators/iti"
     }
   ]
 }

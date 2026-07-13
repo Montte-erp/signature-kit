@@ -1,7 +1,7 @@
 export type DocsAnalyticsRuntime = "client" | "server";
 
 export const DOCS_ANALYTICS_EVENT_PREFIX =
-  process.env.NEXT_PUBLIC_POSTHOG_EVENT_PREFIX ?? "signaturekit_docs";
+  import.meta.env.WAKU_PUBLIC_POSTHOG_EVENT_PREFIX ?? "signaturekit_docs";
 
 export const docsEventName = (event: string): string => `${DOCS_ANALYTICS_EVENT_PREFIX}_${event}`;
 

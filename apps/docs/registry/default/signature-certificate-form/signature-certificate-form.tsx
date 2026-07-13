@@ -2,7 +2,7 @@
 
 import { Loader2 } from "lucide-react";
 import * as React from "react";
-import { useForm } from "@tanstack/react-form";
+import { useForm, useSelector } from "@tanstack/react-form";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -27,11 +27,6 @@ export type SignatureCertificateFormProps = {
   readonly className?: string;
 };
 
-type SignatureCertificateFormValues = {
-  readonly password: string;
-  readonly rememberPassword: boolean;
-};
-
 export function SignatureCertificateForm({
   onConfirm,
   getSavedPassword,
@@ -44,14 +39,14 @@ export function SignatureCertificateForm({
   className,
 }: SignatureCertificateFormProps) {
   const savedPassword = getSavedPassword?.() ?? "";
-  const form = useForm<SignatureCertificateFormValues>({
+  const form = useForm({
     defaultValues: {
       password: savedPassword,
       rememberPassword: defaultRemember || savedPassword.length > 0,
     },
   });
-  const password = form.useStore((state) => state.values.password);
-  const rememberPassword = form.useStore((state) => state.values.rememberPassword);
+  const password = useSelector(form.store, (state) => state.values.password);
+  const rememberPassword = useSelector(form.store, (state) => state.values.rememberPassword);
 
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

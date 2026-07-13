@@ -8,8 +8,8 @@ import {
   docsEventName,
 } from "@/lib/posthog/events";
 
-const POSTHOG_PROJECT_TOKEN = process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN;
-const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";
+const POSTHOG_PROJECT_TOKEN = import.meta.env.WAKU_PUBLIC_POSTHOG_PROJECT_TOKEN;
+const POSTHOG_HOST = import.meta.env.WAKU_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";
 
 const POSTHOG_CONFIGURED = POSTHOG_PROJECT_TOKEN !== undefined && POSTHOG_PROJECT_TOKEN.length > 0;
 

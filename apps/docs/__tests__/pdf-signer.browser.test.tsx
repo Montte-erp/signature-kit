@@ -7,10 +7,51 @@ import { m } from "@/paraglide/messages";
 import { PdfSigner } from "../components/pdf-signer";
 
 type PreparationInput = {
-  readonly documents: ReadonlyArray<{ readonly id: string }>;
+  readonly documents: ReadonlyArray<{
+    readonly id: string;
+    readonly rect?: MockRect;
+    readonly template?: MockTemplate;
+  }>;
 };
 
 type SigningItem = { readonly id: string };
+type MockRect = {
+  readonly height: number;
+  readonly pageIndex: number;
+  readonly width: number;
+  readonly x: number;
+  readonly y: number;
+};
+
+type MockTemplate = {
+  readonly documents: ReadonlyArray<{
+    readonly pages: ReadonlyArray<{
+      readonly height: number;
+      readonly index: number;
+      readonly width: number;
+    }>;
+  }>;
+  readonly fields: ReadonlyArray<{ readonly id: string; readonly rect: MockRect }>;
+};
+
+type MockBuilderState = {
+  readonly template: MockTemplate;
+  readonly selectedFieldId?: string;
+};
+
+type PlacementQueueItem = { readonly id: string };
+
+type PlacementBatchResult = {
+  readonly id: string;
+  readonly ok: true;
+  readonly template: MockTemplate;
+  readonly field: { readonly rect: MockRect };
+};
+
+type PlacementBatchCallbacks = {
+  readonly onItemStarted?: (item: PlacementQueueItem, index: number, total: number) => void;
+  readonly onItemSettled?: (result: PlacementBatchResult, index: number, total: number) => void;
+};
 
 type PreparationResult = {
   readonly item: SigningItem;
@@ -25,24 +66,36 @@ type SigningCallbacks = {
   ): void;
 };
 
-const testRuntime = vi.hoisted(() => ({
-  docDestroy: vi.fn(async () => {}),
-  getDocument: vi.fn(),
-  loadPdfjs: vi.fn(),
-  onPlace: (_fracX: number, _fracY: number) => {},
-  pageRenders: 0,
-  placeBatch: (..._args: unknown[]) => Effect.void,
-  placeField: vi.fn(),
-  prepareBatch: (_input: PreparationInput) => Effect.succeed<ReadonlyArray<PreparationResult>>([]),
-  resolveSigning: () => {},
-  signBatch: (_items: ReadonlyArray<SigningItem>, _callbacks: SigningCallbacks) => Effect.void,
-  signStarted: false,
-  taskDestroy: vi.fn(async () => {}),
-}));
+const testRuntime = vi.hoisted(() => {
+  const initialMarker = (): MockRect | undefined => undefined;
+  const builderStates: Array<{ current: MockBuilderState }> = [];
 
+  return {
+    marker: initialMarker(),
+    builderStates,
+    docDestroy: vi.fn(async () => {}),
+    getDocument: vi.fn(),
+    loadPdfjs: vi.fn(),
+    onPlace: (_fracX: number, _fracY: number) => {},
+    pageRenders: 0,
+    placeBatch: (_items: ReadonlyArray<PlacementQueueItem>, _callbacks: PlacementBatchCallbacks) =>
+      Effect.succeed<ReadonlyArray<PlacementBatchResult>>([]),
+    placeField: vi.fn<() => Effect.Effect<MockTemplate>>(),
+    prepareBatch: (_input: PreparationInput) =>
+      Effect.succeed<ReadonlyArray<PreparationResult>>([]),
+    resolveSigning: () => {},
+    signBatch: (_items: ReadonlyArray<SigningItem>, _callbacks: SigningCallbacks) => Effect.void,
+    signStarted: false,
+    taskDestroy: vi.fn(async () => {}),
+  };
+});
 vi.mock("@/components/pdf-page", () => ({
-  PdfPage: (props: { readonly onPlace: (fracX: number, fracY: number) => void }) => {
+  PdfPage: (props: {
+    readonly marker?: MockRect;
+    readonly onPlace: (fracX: number, fracY: number) => void;
+  }) => {
     testRuntime.pageRenders += 1;
+    testRuntime.marker = props.marker;
     testRuntime.onPlace = props.onPlace;
     return null;
   },
@@ -50,15 +103,33 @@ vi.mock("@/components/pdf-page", () => ({
 }));
 
 vi.mock("@signature-kit/pdf/builder-store", () => ({
-  createPdfSignatureBuilderStore: (state: { readonly template: object }) => ({
-    getSnapshot: () => state,
-    placeField: () => testRuntime.placeField(),
-    selectField: () => Effect.void,
-    subscribe: () => () => {},
-  }),
-  placePdfSignatureFieldsBatch: (...args: unknown[]) => testRuntime.placeBatch(...args),
+  createPdfSignatureBuilderStore: (state: MockBuilderState) => {
+    const cell = { current: state };
+    testRuntime.builderStates.push(cell);
+    return {
+      getSnapshot: () => cell.current,
+      placeField: () =>
+        testRuntime.placeField().pipe(
+          Effect.tap((template) =>
+            Effect.sync(() => {
+              cell.current = { ...cell.current, template };
+            }),
+          ),
+        ),
+      selectField: (fieldId: string | undefined) =>
+        Effect.sync(() => {
+          cell.current = { ...cell.current, selectedFieldId: fieldId };
+          return cell.current;
+        }),
+      subscribe: () => () => {},
+    };
+  },
+  placePdfSignatureFieldsBatch: (
+    items: ReadonlyArray<PlacementQueueItem>,
+    callbacks: PlacementBatchCallbacks,
+  ) => testRuntime.placeBatch(items, callbacks),
   pdfSignatureBuilderSelectors: {
-    template: (state: { readonly template: unknown }) => state.template,
+    template: (state: MockBuilderState) => state.template,
   },
 }));
 
@@ -88,14 +159,11 @@ vi.mock("@signature-kit/a1/signer", () => ({
 
 vi.mock("@/lib/posthog/client", () => ({
   captureDocsEvent: () => {},
+  initDocsPostHog: () => {},
 }));
 
 vi.mock("@/lib/handwriting-font", () => ({
   caveat: { style: { fontFamily: "cursive" } },
-}));
-
-vi.mock("next/image", () => ({
-  default: () => null,
 }));
 
 const rafTick = () => new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
@@ -239,7 +307,8 @@ if (typeof document === "undefined") {
         promise: Promise.resolve({ destroy: testRuntime.docDestroy }),
       });
       testRuntime.loadPdfjs.mockResolvedValue({ getDocument: testRuntime.getDocument });
-      testRuntime.placeBatch = () => Effect.promise(() => pending.promise);
+      testRuntime.placeBatch = () =>
+        Effect.promise<ReadonlyArray<PlacementBatchResult>>(() => pending.promise.then(() => []));
 
       const signer = mountSigner();
       cleanup = signer.cleanup;
@@ -270,11 +339,150 @@ if (typeof document === "undefined") {
       pending.resolve();
       await waitFor(() => !pdfInput.disabled, "document controls to unlock after auto-placement");
     });
+    it("serializes deferred manual placement before auto-placement and signing", async () => {
+      testRuntime.builderStates.length = 0;
+      testRuntime.marker = undefined;
+      testRuntime.docDestroy.mockClear();
+      testRuntime.getDocument.mockClear();
+      testRuntime.placeField.mockReset();
+      const manualRect = { height: 20, pageIndex: 0, width: 60, x: 10, y: 10 };
+      const autoRect = { height: 20, pageIndex: 0, width: 60, x: 30, y: 30 };
+      const manualTemplate: MockTemplate = {
+        documents: [{ pages: [{ height: 100, index: 0, width: 100 }] }],
+        fields: [{ id: "a1-signature", rect: manualRect }],
+      };
+      const autoTemplate: MockTemplate = {
+        documents: [{ pages: [{ height: 100, index: 0, width: 100 }] }],
+        fields: [{ id: "a1-signature", rect: autoRect }],
+      };
+      const manualPlacement = Promise.withResolvers<MockTemplate>();
+      testRuntime.placeField.mockReturnValue(Effect.promise(() => manualPlacement.promise));
+      let autoCalls = 0;
+      testRuntime.placeBatch = (items, callbacks) =>
+        Effect.sync(() => {
+          autoCalls += 1;
+          const results: ReadonlyArray<PlacementBatchResult> = items.map((item) => ({
+            id: item.id,
+            ok: true,
+            template: autoTemplate,
+            field: { rect: autoRect },
+          }));
+          const builderState = testRuntime.builderStates[0];
+          if (builderState !== undefined) {
+            builderState.current = { ...builderState.current, template: autoTemplate };
+          }
+          results.forEach((result, index) => {
+            const item = items[index];
+            if (item === undefined) return;
+            callbacks.onItemStarted?.(item, index, items.length);
+            callbacks.onItemSettled?.(result, index, items.length);
+          });
+          return results;
+        });
+      testRuntime.getDocument.mockReturnValue({
+        destroy: testRuntime.taskDestroy,
+        promise: Promise.resolve({ destroy: testRuntime.docDestroy }),
+      });
+      testRuntime.loadPdfjs.mockResolvedValue({ getDocument: testRuntime.getDocument });
+
+      const signer = mountSigner();
+      cleanup = signer.cleanup;
+      await uploadPdf(signer.container, "race.pdf");
+      await waitFor(() => testRuntime.pageRenders > 0, "the current document canvas to render");
+
+      testRuntime.onPlace(0.25, 0.25);
+      await waitFor(
+        () => testRuntime.placeField.mock.calls.length === 1,
+        "the deferred manual placement to start",
+      );
+      const placeLabels = [1, 2, 3, 4].map((count) => m.signer_place_all({ count }));
+      const placeButton = Array.from(
+        signer.container.querySelectorAll<HTMLButtonElement>("button"),
+      ).find(
+        (button) =>
+          placeLabels.some((label) => button.textContent?.includes(label)) ||
+          button.textContent?.includes(m.signer_place_reposition()),
+      );
+      if (placeButton === undefined) expect.fail("auto-placement button was not rendered");
+      placeButton.click();
+      await rafTick();
+      expect(autoCalls).toBe(0);
+
+      manualPlacement.resolve(manualTemplate);
+      await waitFor(() => autoCalls === 1, "auto-placement to run after manual placement settles");
+      await waitFor(
+        () => !(signer.container.textContent?.includes(m.signer_doc_not_placed()) ?? false),
+        "the placed document state",
+      );
+      await waitFor(() => testRuntime.marker?.x === autoRect.x, "the final document marker");
+
+      let preparedInput: PreparationInput | undefined;
+      testRuntime.prepareBatch = (input) => {
+        preparedInput = input;
+        return Effect.succeed(
+          input.documents.map((document) => ({ item: { id: document.id }, ok: true })),
+        );
+      };
+      const pfxInput = signer.container.querySelector<HTMLInputElement>(
+        'input[accept=".pfx,.p12,application/x-pkcs12"]',
+      );
+      if (pfxInput === null) expect.fail("certificate input was not rendered");
+      Object.defineProperty(pfxInput, "files", {
+        configurable: true,
+        value: [new File([new Uint8Array([1])], "race.pfx")],
+      });
+      pfxInput.dispatchEvent(new Event("change", { bubbles: true }));
+      await waitFor(
+        () =>
+          Array.from(signer.container.querySelectorAll<HTMLButtonElement>("button")).some(
+            (button) => button.textContent?.includes(m.signer_replace_pfx()),
+          ),
+        "the selected certificate",
+      );
+      const password = signer.container.querySelector<HTMLInputElement>('input[type="password"]');
+      if (password === null) expect.fail("certificate password input was not rendered");
+      const passwordValueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      if (passwordValueSetter === undefined) expect.fail("password value setter was not available");
+      passwordValueSetter.call(password, "changeit");
+      password.dispatchEvent(new Event("input", { bubbles: true }));
+      const signLabels = [1, 2, 3, 4].map((count) =>
+        m.signer_sign_button({
+          count,
+          noun: count === 1 ? m.signer_doc_one() : m.signer_doc_many(),
+        }),
+      );
+      const isSignButton = (button: HTMLButtonElement): boolean =>
+        !button.disabled && signLabels.some((label) => button.textContent?.includes(label));
+      await waitFor(
+        () =>
+          Array.from(signer.container.querySelectorAll<HTMLButtonElement>("button")).some(
+            isSignButton,
+          ),
+        "the enabled sign button",
+      );
+      const signButton = Array.from(
+        signer.container.querySelectorAll<HTMLButtonElement>("button"),
+      ).find(isSignButton);
+      if (signButton === undefined) expect.fail("sign button was not rendered");
+      signButton.click();
+      await waitFor(() => preparedInput !== undefined, "the signing preparation input");
+
+      const builderState = testRuntime.builderStates[0];
+      if (builderState === undefined) expect.fail("the builder state was not captured");
+      const preparedDocument = preparedInput?.documents[0];
+      expect(builderState.current.template.fields[0]?.rect).toEqual(autoRect);
+      expect(testRuntime.marker).toEqual(autoRect);
+      expect(preparedDocument?.rect).toEqual(autoRect);
+      expect(preparedDocument?.template?.fields[0]?.rect).toEqual(autoRect);
+    });
 
     it("defers signed download URL revocation until after the click task", async () => {
       testRuntime.docDestroy.mockClear();
       testRuntime.getDocument.mockClear();
-      testRuntime.placeBatch = () => Effect.void;
+      testRuntime.placeBatch = () => Effect.succeed<ReadonlyArray<PlacementBatchResult>>([]);
       testRuntime.placeField.mockReset();
       testRuntime.placeField.mockReturnValue(
         Effect.succeed({
@@ -360,17 +568,24 @@ if (typeof document === "undefined") {
       passwordValueSetter.call(password, "changeit");
       password.dispatchEvent(new Event("input", { bubbles: true }));
 
-      const signLabel = m.signer_sign_button({ count: 1, noun: m.signer_doc_one() });
+      const signLabels = [1, 2, 3, 4].map((count) =>
+        m.signer_sign_button({
+          count,
+          noun: count === 1 ? m.signer_doc_one() : m.signer_doc_many(),
+        }),
+      );
+      const isSignButton = (button: HTMLButtonElement): boolean =>
+        !button.disabled && signLabels.some((label) => button.textContent?.includes(label));
       await waitFor(
         () =>
           Array.from(signer.container.querySelectorAll<HTMLButtonElement>("button")).some(
-            (button) => button.textContent?.includes(signLabel) && !button.disabled,
+            isSignButton,
           ),
         "the enabled sign button",
       );
       const signButton = Array.from(
         signer.container.querySelectorAll<HTMLButtonElement>("button"),
-      ).find((button) => button.textContent?.includes(signLabel) && !button.disabled);
+      ).find(isSignButton);
       if (signButton === undefined) expect.fail("sign button was not rendered");
       signButton.click();
       await waitFor(() => testRuntime.signStarted, "the delayed signing batch to begin");

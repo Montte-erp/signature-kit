@@ -4,7 +4,7 @@ import type { A1CertificateProfile } from "@signature-kit/a1/config";
 import { useA1Certificate } from "@signature-kit/react/a1";
 import { Loader2, UploadCloud } from "lucide-react";
 import * as React from "react";
-import { useForm } from "@tanstack/react-form";
+import { useForm, useSelector } from "@tanstack/react-form";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,11 @@ type CertificateUploadFormValues = {
   readonly password: string;
 };
 
+const certificateUploadFormDefaults: CertificateUploadFormValues = {
+  file: null,
+  password: "",
+};
+
 const formatDate = (date: Date): string =>
   new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(date);
 
@@ -37,11 +42,9 @@ export function CertificateUploadForm({
   className,
 }: CertificateUploadFormProps) {
   const certificate = useA1Certificate();
-  const form = useForm<CertificateUploadFormValues>({
-    defaultValues: { file: null, password: "" },
-  });
-  const file = form.useStore((state) => state.values.file);
-  const password = form.useStore((state) => state.values.password);
+  const form = useForm({ defaultValues: certificateUploadFormDefaults });
+  const file = useSelector(form.store, (state) => state.values.file);
+  const password = useSelector(form.store, (state) => state.values.password);
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

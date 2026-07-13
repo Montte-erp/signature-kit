@@ -1,4 +1,6 @@
-import * as ts from "typescript";
+import * as ts from "typescript/unstable/ast";
+import { API } from "typescript/unstable/async";
+import { createVirtualFileSystem } from "typescript/unstable/fs";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,6 +29,25 @@ const componentPath = resolve(
 const itemPath = resolve(docsRoot, "public/r/signature-pdf-viewer.json");
 const packagePath = resolve(docsRoot, "package.json");
 const buildRegistryPath = resolve(docsRoot, "scripts/build-registry.ts");
+
+const parseSourceFile = async (fileName: string, source: string): Promise<ts.SourceFile> => {
+  const api = new API({
+    cwd: docsRoot,
+    fs: createVirtualFileSystem({ [fileName]: source }),
+  });
+
+  try {
+    const snapshot = await api.updateSnapshot({ openFiles: [fileName] });
+    const project = await snapshot.getDefaultProjectForFile(fileName);
+    if (project === undefined) throw new Error(`No project found for ${fileName}`);
+
+    const sourceFile = await project.program.getSourceFile(fileName);
+    if (sourceFile === undefined) throw new Error(`No source file found for ${fileName}`);
+    return sourceFile;
+  } finally {
+    await api.close();
+  }
+};
 
 const isExternal = (specifier: string): boolean =>
   !specifier.startsWith(".") &&
@@ -60,21 +81,15 @@ const normalizeSorted = (values: ReadonlyArray<string>): ReadonlyArray<string> =
   return Array.from(uniq).sort();
 };
 
-const extractImports = (source: string): ReadonlyArray<ImportDeclarationSummary> => {
-  const sourceFile = ts.createSourceFile(
-    "signature-pdf-viewer.tsx",
-    source,
-    ts.ScriptTarget.ESNext,
-    false,
-    ts.ScriptKind.TSX,
-  );
+const extractImports = async (source: string): Promise<ReadonlyArray<ImportDeclarationSummary>> => {
+  const sourceFile = await parseSourceFile(componentPath, source);
 
   const entries: ImportDeclarationSummary[] = [];
 
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement)) continue;
     const moduleSpecifier = statement.moduleSpecifier;
-    if (!ts.isStringLiteralLike(moduleSpecifier)) continue;
+    if (!ts.isStringLiteralLikeNode(moduleSpecifier)) continue;
 
     const namedImports: string[] = [];
     const named = statement.importClause?.namedBindings;
@@ -122,19 +137,13 @@ const extractObjectProperty = (
 const unwrapExpression = (node: ts.Expression): ts.Expression => {
   if (ts.isSatisfiesExpression(node)) return node.expression;
   if (ts.isAsExpression(node)) return node.expression;
-  if (ts.isTypeAssertionExpression(node)) return node.expression;
+  if (ts.isTypeAssertion(node)) return node.expression;
   if (ts.isParenthesizedExpression(node)) return node.expression;
   return node;
 };
 
-const extractBuildRegistryDependencies = (source: string): ReadonlyArray<string> => {
-  const sourceFile = ts.createSourceFile(
-    "build-registry.ts",
-    source,
-    ts.ScriptTarget.ESNext,
-    true,
-    ts.ScriptKind.TS,
-  );
+const extractBuildRegistryDependencies = async (source: string): Promise<ReadonlyArray<string>> => {
+  const sourceFile = await parseSourceFile(buildRegistryPath, source);
 
   for (const statement of sourceFile.statements) {
     if (!ts.isVariableStatement(statement)) continue;
@@ -179,7 +188,7 @@ const extractBuildRegistryDependencies = (source: string): ReadonlyArray<string>
 describe("registry dependency assertions for signature-pdf-viewer", () => {
   it("imports pdfjs only from react-pdf and not from pdfjs-dist", async () => {
     const source = await readFile(componentPath, "utf8");
-    const imports = extractImports(source);
+    const imports = await extractImports(source);
 
     const reactPdfImport = imports.find((entry) => entry.specifier === "react-pdf");
     expect(reactPdfImport, "signature-pdf-viewer must import from react-pdf").toBeDefined();
@@ -209,7 +218,7 @@ describe("registry dependency assertions for signature-pdf-viewer", () => {
     const packageJson = await Effect.runPromise(
       Schema.decodeUnknownEffect(PackageJsonSchema)(JSON.parse(packageRaw)),
     );
-    const imports = extractImports(sourceRaw);
+    const imports = await extractImports(sourceRaw);
 
     const importedPackages = normalizeSorted(
       imports
@@ -249,7 +258,7 @@ describe("registry dependency assertions for signature-pdf-viewer", () => {
     const packageJson = await Effect.runPromise(
       Schema.decodeUnknownEffect(PackageJsonSchema)(JSON.parse(packageRaw)),
     );
-    const scriptDependencies = extractBuildRegistryDependencies(scriptRaw);
+    const scriptDependencies = await extractBuildRegistryDependencies(scriptRaw);
     const effectVersion = packageJson.dependencies?.effect;
 
     expect(effectVersion, "apps/docs must declare effect in package dependencies").toBeTypeOf(

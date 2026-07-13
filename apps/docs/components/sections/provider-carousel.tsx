@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, ChevronLeft, ChevronRight, Copy } from "lucide-react";
-import { type KeyboardEvent, type ReactNode, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { Effect, Result } from "effect";
 
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +47,20 @@ function ProviderLogo({ src, name }: { src: string; name: string }) {
 export function ProviderCarousel({ items, panels }: ProviderCarouselProps) {
   const [index, setIndex] = useState(0);
   const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      if (resetTimerRef.current !== null) {
+        window.clearTimeout(resetTimerRef.current);
+        resetTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const selectProvider = (nextIndex: number, method: string) => {
     const item = items[nextIndex];
@@ -77,12 +91,19 @@ export function ProviderCarousel({ items, panels }: ProviderCarouselProps) {
       ),
     );
     if (Result.isSuccess(copiedToClipboard)) {
+      if (!mountedRef.current) return;
       setCopied(true);
       captureDocsEvent("provider_snippet_copied", {
         filename: items[index].filename,
         provider: items[index].name,
       });
-      setTimeout(() => setCopied(false), 1800);
+      if (resetTimerRef.current !== null) {
+        window.clearTimeout(resetTimerRef.current);
+      }
+      resetTimerRef.current = window.setTimeout(() => {
+        resetTimerRef.current = null;
+        if (mountedRef.current) setCopied(false);
+      }, 1800);
     } else {
       captureDocsEvent("provider_snippet_copy_failed", {
         filename: items[index].filename,

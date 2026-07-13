@@ -10,11 +10,12 @@ import {
   ItiConformanceReportSchema,
   ItiOperation,
   validatePdfConformance,
-} from "./conformance";
-import type { ItiConformanceOutcome, ItiConformanceReport } from "./conformance";
+} from "./conformance.js";
+import type { ItiConformanceOutcome, ItiConformanceReport } from "./conformance.js";
 
 const ITI_PROVIDER = "iti";
 const ITI_SUBMISSION_URL = "https://validar.iti.gov.br/arquivo";
+const ITI_REMOTE_TIMEOUT_MILLIS = 30_000;
 const DEFAULT_FILE_NAME = "signature-kit.pdf";
 
 export const ItiPdfBytesSourceSchema = Schema.Struct({
@@ -52,8 +53,12 @@ const ITI_REMOTE_STATUS_OUTCOMES: Readonly<Record<string, ItiTrustedRemoteOutcom
 const normalizeRemoteStatus = (status: string): string =>
   status.normalize("NFKC").trim().toLocaleLowerCase("pt-BR");
 
-const parseRemoteStatus = (status: string): ItiTrustedRemoteOutcome | undefined =>
-  ITI_REMOTE_STATUS_OUTCOMES[normalizeRemoteStatus(status)];
+const parseRemoteStatus = (status: string): ItiTrustedRemoteOutcome | undefined => {
+  const normalizedStatus = normalizeRemoteStatus(status);
+  return Object.prototype.hasOwnProperty.call(ITI_REMOTE_STATUS_OUTCOMES, normalizedStatus)
+    ? ITI_REMOTE_STATUS_OUTCOMES[normalizedStatus]
+    : undefined;
+};
 
 const parseItiVerifierReport = (verifierReport: unknown): ItiVerifierReport | undefined =>
   Option.getOrUndefined(Schema.decodeUnknownOption(ItiVerifierReportPayloadSchema)(verifierReport));
@@ -77,8 +82,23 @@ const ItiVerifierReportResponseSchema = Schema.Struct({
   verifierReport: Schema.Unknown,
 });
 
+const ItiSignatureCountSchema = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isGreaterThanOrEqualTo(0),
+);
+
+const ItiPartialSignatureCountsSchema = Schema.Tuple([
+  ItiSignatureCountSchema,
+  ItiSignatureCountSchema,
+]).check(
+  Schema.makeFilter(
+    ([processedSignatureCount, totalSignatureCount]) =>
+      processedSignatureCount <= totalSignatureCount,
+  ),
+);
+
 const ItiPartialValidationResponseSchema = Schema.Struct({
-  qtds: Schema.Tuple([Schema.Number, Schema.Number]),
+  qtds: ItiPartialSignatureCountsSchema,
   json: Schema.Unknown,
 });
 
@@ -116,13 +136,18 @@ export const ItiRemotePartialReportSchema = Schema.Struct({
   validator: Schema.Literal(ItiOperation.remote),
   outcome: Schema.Literal("partial"),
   approved: Schema.Literal(false),
-  processedSignatureCount: Schema.Number,
-  totalSignatureCount: Schema.Number,
+  processedSignatureCount: ItiSignatureCountSchema,
+  totalSignatureCount: ItiSignatureCountSchema,
   conformance: ItiConformanceReportSchema,
   localConformance: ItiConformanceReportSchema,
   rawVerifierReport: Schema.Unknown,
   rawResponse: Schema.Unknown,
-});
+}).check(
+  Schema.makeFilter(
+    ({ processedSignatureCount, totalSignatureCount }) =>
+      processedSignatureCount <= totalSignatureCount,
+  ),
+);
 export type ItiRemotePartialReport = (typeof ItiRemotePartialReportSchema)["Type"];
 
 export const ItiRemoteUntrustedCertificateReportSchema = Schema.Struct({
@@ -162,6 +187,7 @@ const submitToIti = (
         provider: ITI_PROVIDER,
         body: formData,
         acceptedStatuses: [406],
+        timeoutMillis: ITI_REMOTE_TIMEOUT_MILLIS,
         headers: {
           Origin: "https://validar.iti.gov.br",
           Referer: "https://validar.iti.gov.br/",
@@ -246,6 +272,7 @@ export const validatePdfWithIti = (
           method: "GET",
           url: source.url,
           provider: ITI_PROVIDER,
+          timeoutMillis: ITI_REMOTE_TIMEOUT_MILLIS,
         }),
       );
     }

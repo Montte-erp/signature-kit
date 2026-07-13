@@ -189,6 +189,42 @@ describe("CMS detached verification", () => {
     }),
   );
 
+  it.effect("rejects a non-signedData ContentInfo during inspection", () =>
+    Effect.gen(function* () {
+      const fixture = yield* createCmsFixture();
+      const { contentInfo } = parseCms(fixture.cms);
+      contentInfo.contentType = CmsOid.data;
+
+      const inspection = yield* Effect.result(
+        inspectDetachedSignedData({
+          cms: new Uint8Array(contentInfo.toSchema().toBER(false)),
+        }),
+      );
+
+      expect(Result.isFailure(inspection)).toBe(true);
+      if (Result.isFailure(inspection)) {
+        expect(inspection.failure.code).toBe("cms.DECODE_ERROR");
+        expect(inspection.failure.operation).toBe("cms.parse");
+      }
+    }),
+  );
+
+  it.effect("rejects trailing bytes after CMS ContentInfo", () =>
+    Effect.gen(function* () {
+      const fixture = yield* createCmsFixture();
+      const cms = new Uint8Array(fixture.cms.byteLength + 1);
+      cms.set(fixture.cms);
+
+      const inspection = yield* Effect.result(inspectDetachedSignedData({ cms }));
+
+      expect(Result.isFailure(inspection)).toBe(true);
+      if (Result.isFailure(inspection)) {
+        expect(inspection.failure.code).toBe("cms.DECODE_ERROR");
+        expect(inspection.failure.reason).toContain("trailing bytes");
+      }
+    }),
+  );
+
   it.effect("rejects a SignedData whose eContentType is not id-data", () =>
     Effect.gen(function* () {
       const fixture = yield* createCmsFixture();

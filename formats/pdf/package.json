@@ -60,13 +60,11 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -b tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit --tsBuildInfoFile .cache/typecheck.tsbuildinfo",
     "test": "vitest run"
   },
   "dependencies": {
-    "@cantoo/pdf-lib": "2.7.1",
-    "@llamaindex/liteparse-wasm": "^2.4.0",
+    "@cantoo/pdf-lib": "2.7.2",
+    "@llamaindex/liteparse-wasm": "^2.5.1",
     "@signature-kit/cms": "^0.2.1",
     "@signature-kit/i18n": "^0.1.0",
     "@signature-kit/signatures": "^0.1.0",
@@ -77,7 +75,21 @@
     "@signature-kit/a1": "^0.3.0"
   },
   "nx": {
+    "implicitDependencies": [
+      "!@signature-kit/a1"
+    ],
     "targets": {
+      "test": {
+        "dependsOn": [
+          "build",
+          {
+            "projects": [
+              "@signature-kit/a1"
+            ],
+            "target": "build"
+          }
+        ]
+      },
       "npm-pack": {
         "executor": "nx:run-commands",
         "options": {

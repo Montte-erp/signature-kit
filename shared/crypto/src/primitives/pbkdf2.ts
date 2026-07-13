@@ -1,5 +1,5 @@
-import { createHmac, hmac } from "./hmac";
-import type { HmacHashAlgorithm } from "./hmac";
+import { createHmac, hmac } from "./hmac.js";
+import type { HmacHashAlgorithm } from "./hmac.js";
 
 export function pbkdf2(
   prf: HmacHashAlgorithm,
@@ -8,6 +8,16 @@ export function pbkdf2(
   iterations: number,
   dkLen: number,
 ): Uint8Array {
+  if (
+    !Number.isSafeInteger(iterations) ||
+    iterations < 1 ||
+    !Number.isSafeInteger(dkLen) ||
+    dkLen < 1 ||
+    dkLen > 0x7fffffff
+  ) {
+    return new Uint8Array(0);
+  }
+
   const hmacCtx = createHmac(prf, password);
 
   const hLen = hmac(prf, password, new Uint8Array(0)).length;

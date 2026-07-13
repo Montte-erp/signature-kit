@@ -35,6 +35,7 @@ describe("browser integration test placement", () => {
 
     expect(browserTests).toEqual([
       "apps/docs/__tests__/auto-sign.browser.test.tsx",
+      "apps/docs/__tests__/copy-feedback-lifecycle.browser.test.tsx",
       "apps/docs/__tests__/formal-contract-pdf.browser.test.tsx",
       "apps/docs/__tests__/pdf-page.browser.test.tsx",
       "apps/docs/__tests__/pdf-signer.browser.test.tsx",

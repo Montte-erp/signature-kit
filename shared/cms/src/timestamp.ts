@@ -9,8 +9,8 @@ import {
   CmsOperationValue,
   hashAlgorithmOid,
   TimeoutMillisSchema,
-} from "./config";
-import { digest, toArrayBuffer } from "./engine";
+} from "./config.js";
+import { digest, toArrayBuffer } from "./engine.js";
 
 const TSA_CONTENT_TYPE = "application/timestamp-query";
 const TSA_TST_INFO_CONTENT_TYPE = "1.2.840.113549.1.9.16.1.4";
@@ -197,6 +197,18 @@ type TimestampDownload =
       readonly responseBytes: Uint8Array;
     };
 
+type ParsedTimestampResponse =
+  | {
+      readonly _tag: "TsaResponseTrailingBytes";
+    }
+  | {
+      readonly _tag: "TsaResponseParsed";
+      readonly status: number;
+      readonly token: pkijs.ContentInfo | undefined;
+      readonly signed: pkijs.SignedData | undefined;
+      readonly tstInfo: pkijs.TSTInfo | undefined;
+    };
+
 type TimestampAbortHandle = {
   readonly signal: AbortSignal;
   readonly promise: Promise<TimestampRequestAbort>;
@@ -236,24 +248,26 @@ const downloadTimestamp = (
   Effect.tryPromise({
     try: (signal): Promise<TimestampDownload> => {
       const abort = startTimestampAbort(input.timeoutMillis ?? DEFAULT_TIMEOUT_MILLIS, signal);
-      const request = fetch(input.tsaUrl, {
-        method: "POST",
-        headers: { "content-type": TSA_CONTENT_TYPE },
-        body: toArrayBuffer(requestDer),
-        signal: abort.signal,
-      }).then(async (response): Promise<TimestampDownload> => {
-        if (!response.ok) {
-          abort.cancel();
+      const request = Promise.resolve().then(() =>
+        fetch(input.tsaUrl, {
+          method: "POST",
+          headers: { "content-type": TSA_CONTENT_TYPE },
+          body: toArrayBuffer(requestDer),
+          signal: abort.signal,
+        }).then(async (response): Promise<TimestampDownload> => {
+          if (!response.ok) {
+            abort.cancel();
+            return {
+              _tag: "TsaHttpFailure",
+              status: response.status,
+            };
+          }
           return {
-            _tag: "TsaHttpFailure",
-            status: response.status,
+            _tag: "TsaHttpSuccess",
+            responseBytes: new Uint8Array(await response.arrayBuffer()),
           };
-        }
-        return {
-          _tag: "TsaHttpSuccess",
-          responseBytes: new Uint8Array(await response.arrayBuffer()),
-        };
-      });
+        }),
+      );
       return Promise.race([abort.promise, request]).then(
         (result) => {
           abort.clear();
@@ -349,11 +363,17 @@ export const requestTimestamp = (
     const responseBytes = response.responseBytes;
 
     const parsed = yield* Effect.try({
-      try: () => {
-        const tsaResponse = pkijs.TimeStampResp.fromBER(toArrayBuffer(responseBytes));
+      try: (): ParsedTimestampResponse => {
+        const responseDer = toArrayBuffer(responseBytes);
+        const decoded = asn1js.fromBER(responseDer);
+        if (decoded.offset !== responseBytes.byteLength) {
+          return { _tag: "TsaResponseTrailingBytes" };
+        }
+        const tsaResponse = pkijs.TimeStampResp.fromBER(responseDer);
         const token = tsaResponse.timeStampToken;
         if (token === undefined) {
           return {
+            _tag: "TsaResponseParsed",
             status: tsaResponse.status.status,
             token: undefined,
             signed: undefined,
@@ -364,6 +384,7 @@ export const requestTimestamp = (
         const eContent = signed.encapContentInfo.eContent;
         if (eContent === undefined) {
           return {
+            _tag: "TsaResponseParsed",
             status: tsaResponse.status.status,
             token,
             signed,
@@ -374,11 +395,17 @@ export const requestTimestamp = (
           eContent.valueBlock.valueHexView.byteLength === 0
             ? new Uint8Array(eContent.getValue())
             : eContent.valueBlock.valueHexView;
+        const tstInfoDer = toArrayBuffer(eContentBytes);
+        const tstInfoDecoded = asn1js.fromBER(tstInfoDer);
+        if (tstInfoDecoded.offset !== eContentBytes.byteLength) {
+          return { _tag: "TsaResponseTrailingBytes" };
+        }
         return {
+          _tag: "TsaResponseParsed",
           status: tsaResponse.status.status,
           token,
           signed,
-          tstInfo: pkijs.TSTInfo.fromBER(toArrayBuffer(eContentBytes)),
+          tstInfo: pkijs.TSTInfo.fromBER(tstInfoDer),
         };
       },
       catch: () =>
@@ -388,6 +415,16 @@ export const requestTimestamp = (
           operation: CmsOperationValue.timestamp,
         }),
     });
+
+    if (parsed._tag === "TsaResponseTrailingBytes") {
+      return yield* Effect.fail(
+        new CmsError({
+          code: CmsErrorCodeValue.timestampError,
+          reason: "TSA response contains trailing bytes.",
+          operation: CmsOperationValue.timestamp,
+        }),
+      );
+    }
 
     if (
       parsed.status !== pkijs.PKIStatus.granted &&

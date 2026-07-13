@@ -7,14 +7,14 @@ import {
   PdfLiteParseResultSchemaForPageCount,
   PdfOperationValue,
   PdfSchemaNameValue,
-} from "./config";
-import type { PdfTextBox } from "./config";
+} from "./config.js";
+import type { PdfTextBox } from "./config.js";
 import {
   LiteParseWorkerRequestSchema,
   LiteParseWorkerSuccessSchema,
-} from "./liteparse-browser-protocol";
-import type { LiteParseWorkerRequest } from "./liteparse-browser-protocol";
-import { textBoxesFromLiteParseResult } from "./stamp";
+} from "./liteparse-browser-protocol.js";
+import type { LiteParseWorkerRequest } from "./liteparse-browser-protocol.js";
+import { textBoxesFromLiteParseResult } from "./stamp.js";
 
 const LITEPARSE_TIMEOUT_MILLIS = 5000;
 const liteParseTimeoutMillisSchema = Schema.Number.check(

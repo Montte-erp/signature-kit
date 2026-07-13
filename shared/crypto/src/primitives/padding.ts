@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { CryptoError, CryptoErrorCodeValue } from "../config";
+import { CryptoError, CryptoErrorCodeValue } from "../config.js";
 
 export const removePkcs7Padding = (
   data: Uint8Array,

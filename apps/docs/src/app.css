@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "fumadocs-ui/css/shadcn.css";
 @import "fumadocs-ui/css/preset.css";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/geist-mono";
+@import "@fontsource-variable/caveat";
 @source "../components/**/*.{ts,tsx}";
 @source "../content/**/*.{md,mdx}";
 
@@ -79,8 +82,9 @@ figure.shiki {
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-mono);
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+  --font-caveat: "Caveat Variable", cursive;
   --font-heading: var(--font-sans);
 
   --radius-sm: calc(var(--radius) * 0.6);
@@ -173,6 +177,10 @@ figure.shiki {
   body {
     background-color: var(--background);
     color: var(--foreground);
+  }
+  .font-caveat {
+    font-family: var(--font-caveat);
+    font-weight: 600;
   }
 }
 

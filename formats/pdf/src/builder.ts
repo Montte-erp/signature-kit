@@ -1,4 +1,4 @@
-import type { PdfSignatureAppearance } from "./config";
+import type { PdfSignatureAppearance } from "./config.js";
 import { Effect, Schema } from "effect";
 import {
   PdfSignatureAutoPlacementCollisionValue,
@@ -17,7 +17,7 @@ import {
   PdfSignatureRectSchema,
   PdfSignatureTemplateInputSchema,
   PdfSignatureTemplateSchema,
-} from "./config";
+} from "./config.js";
 import type {
   PdfSignatureAutoPlacementInput,
   PdfSignatureAutoPlacementSlot,
@@ -32,7 +32,7 @@ import type {
   PdfSignatureRect,
   PdfSignatureTemplate,
   PdfSignatureTemplateInput,
-} from "./config";
+} from "./config.js";
 
 const MAX_STACKED_AUTO_PLACEMENT_CANDIDATES = 100_000;
 

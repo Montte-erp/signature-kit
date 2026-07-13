@@ -10,14 +10,14 @@ import {
   parseIcpBrasilPadesPolicy,
 } from "../src/icp-brasil";
 
-const invalidTimeoutMillis = [
+const invalidTimeoutMillis: ReadonlyArray<number> = [
   Number.NaN,
   Number.NEGATIVE_INFINITY,
   Number.POSITIVE_INFINITY,
   -1,
   0.5,
   2 ** 31,
-] as const;
+];
 
 const readPolicyFixture = (): Effect.Effect<Uint8Array> =>
   Effect.promise(
@@ -37,6 +37,51 @@ describe("ICP-Brasil PAdES policy", () => {
       expect(policy.policyUri).toBe(IcpBrasilPadesPolicy.adRbV11.policyUri);
       expect(policy.policyHashAlgorithm).toBe(IcpBrasilPadesPolicy.adRbV11.policyHashAlgorithm);
       expect(policy.policyHash).toEqual(IcpBrasilPadesPolicy.adRbV11.policyHash);
+    }),
+  );
+
+  it.effect("rejects ICP-Brasil policies with invalid universal tags", () =>
+    Effect.gen(function* () {
+      const valid = Uint8Array.of(
+        0x30,
+        0x14,
+        0x30,
+        0x0b,
+        0x06,
+        0x09,
+        0x60,
+        0x86,
+        0x48,
+        0x01,
+        0x65,
+        0x03,
+        0x04,
+        0x02,
+        0x01,
+        0x30,
+        0x02,
+        0x05,
+        0x00,
+        0x04,
+        0x01,
+        0x00,
+      );
+      const malformed: ReadonlyArray<{ readonly offset: number; readonly value: number }> = [
+        { offset: 0, value: 0x31 },
+        { offset: 0, value: 0xb0 },
+        { offset: 2, value: 0x31 },
+        { offset: 4, value: 0x04 },
+        { offset: 19, value: 0x03 },
+      ];
+
+      for (const { offset, value } of malformed) {
+        const mutated = Uint8Array.from(valid);
+        mutated[offset] = value;
+        const result = yield* Effect.result(parseIcpBrasilPadesPolicy(mutated));
+
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) expect(result.failure.code).toBe("cms.POLICY_ERROR");
+      }
     }),
   );
 
@@ -95,6 +140,33 @@ describe("ICP-Brasil PAdES policy", () => {
     }).pipe(
       Effect.ensuring(
         Effect.sync(() => {
+          vi.restoreAllMocks();
+          vi.unstubAllGlobals();
+        }),
+      ),
+    ),
+  );
+
+  it.effect("clears policy timers when fetch throws synchronously", () =>
+    Effect.gen(function* () {
+      vi.useFakeTimers();
+      const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+      const removeEventListenerSpy = vi.spyOn(AbortSignal.prototype, "removeEventListener");
+      vi.stubGlobal("fetch", () => {
+        throw new Error("synchronous fetch failure");
+      });
+
+      const result = yield* Effect.result(fetchIcpBrasilPadesPolicy({ timeoutMillis: 1000 }));
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) expect(result.failure.code).toBe("cms.POLICY_ERROR");
+      expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
+      expect(removeEventListenerSpy.mock.calls.some(([event]) => event === "abort")).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          vi.useRealTimers();
           vi.restoreAllMocks();
           vi.unstubAllGlobals();
         }),

@@ -86,6 +86,43 @@ const minimalX509 = (
   return sequence(sequence(...tbs), sequence(), primitive(0x03, new Uint8Array([0x00])));
 };
 
+type X509Tags = Partial<{
+  certificate: number;
+  tbs: number;
+  serial: number;
+  issuer: number;
+  spki: number;
+}>;
+
+const minimalX509WithTags = (tags: X509Tags): Uint8Array => {
+  const issuer = der(
+    tags.issuer ?? 0x30,
+    concatBytes(
+      set(
+        sequence(
+          primitive(0x06, new Uint8Array([0x55, 0x04, 0x03])),
+          primitive(0x0c, text("Issuer")),
+        ),
+      ),
+    ),
+  );
+  const tbs = der(
+    tags.tbs ?? 0x30,
+    concatBytes(
+      primitive(tags.serial ?? 0x02, new Uint8Array([0x01])),
+      sequence(),
+      issuer,
+      validity(time(23, "240101000000Z"), time(23, "250101000000Z")),
+      utf8Name("Subject"),
+      der(tags.spki ?? 0x30, new Uint8Array()),
+    ),
+  );
+  return der(
+    tags.certificate ?? 0x30,
+    concatBytes(tbs, sequence(), primitive(0x03, new Uint8Array([0x00]))),
+  );
+};
+
 const validity = (notBefore: Uint8Array, notAfter: Uint8Array): Uint8Array =>
   sequence(notBefore, notAfter);
 
@@ -240,6 +277,28 @@ describe("certificates", () => {
       expect(Result.isFailure(result)).toBe(true);
       if (Result.isFailure(result)) {
         expect(result.failure.code).toBe("signature-kit.X509_PARSE_FAILED");
+      }
+    }),
+  );
+
+  it.effect("rejects X.509 nodes with non-universal required tags", () =>
+    Effect.gen(function* () {
+      const malformed: ReadonlyArray<readonly [string, Uint8Array]> = [
+        ["certificate tag", minimalX509WithTags({ certificate: 0x31 })],
+        ["certificate class", minimalX509WithTags({ certificate: 0xa0 })],
+        ["tbs tag", minimalX509WithTags({ tbs: 0x31 })],
+        ["tbs class", minimalX509WithTags({ tbs: 0xa0 })],
+        ["serial tag", minimalX509WithTags({ serial: 0x04 })],
+        ["issuer tag", minimalX509WithTags({ issuer: 0x31 })],
+        ["spki tag", minimalX509WithTags({ spki: 0x31 })],
+      ];
+
+      for (const [label, malformedDer] of malformed) {
+        const result = yield* Effect.result(parseX509(malformedDer));
+        expect(Result.isFailure(result), label).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure.code, label).toBe("signature-kit.X509_PARSE_FAILED");
+        }
       }
     }),
   );

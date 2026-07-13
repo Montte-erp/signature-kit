@@ -3,8 +3,8 @@ import { decode, oidString } from "@signature-kit/asn1";
 import type { Asn1Error, Asn1Node } from "@signature-kit/asn1";
 import { Effect, Option, Schema } from "effect";
 import * as pkijs from "pkijs";
-import { CmsError, CmsErrorCodeValue, CmsOid, CmsOperationValue } from "./config";
-import { digest, toArrayBuffer } from "./engine";
+import { CmsError, CmsErrorCodeValue, CmsOid, CmsOperationValue } from "./config.js";
+import { digest, toArrayBuffer } from "./engine.js";
 
 export const CmsSignedAttributeSchema = Schema.Struct({
   type: Schema.NonEmptyString,
@@ -442,15 +442,44 @@ export const inspectDetachedSignedData = (
       ),
     );
 
-    const signed = yield* Effect.try({
+    const contentInfo = yield* Effect.try({
       try: () => {
-        const contentInfo = pkijs.ContentInfo.fromBER(toArrayBuffer(valid.cms));
-        return new pkijs.SignedData({ schema: contentInfo.content });
+        const cmsDer = toArrayBuffer(valid.cms);
+        const decoded = asn1js.fromBER(cmsDer);
+        if (decoded.offset !== valid.cms.byteLength) return undefined;
+        return pkijs.ContentInfo.fromBER(cmsDer);
       },
       catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.decodeError,
           reason: "Failed to parse the CMS ContentInfo.",
+          operation: CmsOperationValue.parse,
+        }),
+    });
+    if (contentInfo === undefined) {
+      return yield* Effect.fail(
+        new CmsError({
+          code: CmsErrorCodeValue.decodeError,
+          reason: "CMS ContentInfo contains trailing bytes.",
+          operation: CmsOperationValue.parse,
+        }),
+      );
+    }
+    if (contentInfo.contentType !== CmsOid.signedData) {
+      return yield* Effect.fail(
+        new CmsError({
+          code: CmsErrorCodeValue.decodeError,
+          reason: "CMS ContentInfo is not signedData.",
+          operation: CmsOperationValue.parse,
+        }),
+      );
+    }
+    const signed = yield* Effect.try({
+      try: () => new pkijs.SignedData({ schema: contentInfo.content }),
+      catch: () =>
+        new CmsError({
+          code: CmsErrorCodeValue.decodeError,
+          reason: "Failed to parse the CMS SignedData.",
           operation: CmsOperationValue.parse,
         }),
     });

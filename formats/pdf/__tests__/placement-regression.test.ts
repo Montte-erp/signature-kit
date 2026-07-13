@@ -11,7 +11,7 @@ import {
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Result, Schema } from "effect";
 import { PdfCoordinateTupleSchema, PdfErrorCodeValue, PdfOperationValue } from "../src/config";
-import type { PdfCoordinateTuple } from "../src/config";
+import type { PdfCoordinateTuple, PdfSignatureAppearance } from "../src/config";
 import { addSignaturePlaceholder } from "../src/placeholder";
 import { resolveSignatureWidgetPlacement } from "../src/placement";
 
@@ -52,7 +52,7 @@ const createHierarchicalSignatureSlots: Effect.Effect<Uint8Array> = Effect.promi
   for (const rect of [
     [20, 20, 140, 60],
     [180, 20, 300, 60],
-  ] as const) {
+  ] satisfies ReadonlyArray<readonly [number, number, number, number]>) {
     const widget = pdfDoc.context.obj({
       Type: "Annot",
       Subtype: "Widget",
@@ -155,7 +155,7 @@ const createMergedSiblingSignatureSlots: Effect.Effect<Uint8Array> = Effect.prom
   for (const rect of [
     [20, 20, 140, 60],
     [180, 20, 300, 60],
-  ] as const) {
+  ] satisfies ReadonlyArray<readonly [number, number, number, number]>) {
     const widget = pdfDoc.context.obj({
       Type: "Annot",
       Subtype: "Widget",
@@ -190,8 +190,7 @@ const hierarchyPlacement = {
     gap: 8,
     anchor: "bottom-right",
   },
-} as const;
-
+} satisfies PdfSignatureAppearance;
 describe("PDF auto-placement geometry", () => {
   it.effect("uses CropBox-relative rotated coordinates for obstacles", () =>
     Effect.gen(function* () {
@@ -206,7 +205,11 @@ describe("PDF auto-placement geometry", () => {
           empty: [110, 110, 140, 150],
           blocked: [140, 110, 170, 150],
         },
-      ] as const;
+      ] satisfies ReadonlyArray<{
+        readonly rotation: number;
+        readonly empty: PdfCoordinateTuple;
+        readonly blocked: PdfCoordinateTuple;
+      }>;
 
       for (const placementCase of cases) {
         const pdfDoc = yield* Effect.promise(() => PDFDocument.create());
@@ -462,7 +465,7 @@ describe("PDF auto-placement geometry", () => {
       for (const placementCase of [
         { obstacleCount: 1_000, expectedFailure: false },
         { obstacleCount: 1_001, expectedFailure: true },
-      ] as const) {
+      ] satisfies ReadonlyArray<{ obstacleCount: number; expectedFailure: boolean }>) {
         const pdfDoc = yield* Effect.promise(() => PDFDocument.create());
         const page = pdfDoc.addPage([1_000, 1]);
         const annotations = PDFArray.withContext(pdfDoc.context);

@@ -15,7 +15,6 @@ function add32(...nums: number[]): number {
 }
 
 export function sha1(data: Uint8Array): Uint8Array {
-  const bitLen = data.length * 8;
   const padLen = data.length % 64 < 56 ? 56 - (data.length % 64) : 120 - (data.length % 64);
   const totalLen = data.length + padLen + 8;
 
@@ -24,8 +23,6 @@ export function sha1(data: Uint8Array): Uint8Array {
   msg[data.length] = 0x80;
 
   const view = new DataView(msg.buffer, msg.byteOffset, msg.byteLength);
-  view.setUint32(totalLen - 8, Math.floor(bitLen / 0x100000000), true);
-  view.setUint32(totalLen - 4, bitLen >>> 0, false);
   const bitLenHi = Math.floor(data.length / 0x20000000) | 0;
   const bitLenLo = (data.length * 8) >>> 0;
   view.setUint32(totalLen - 8, bitLenHi, false);

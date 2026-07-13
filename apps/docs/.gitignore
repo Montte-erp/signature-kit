@@ -10,9 +10,7 @@
 
 # test & build
 /coverage
-/.next/
-/out/
-/build
+/dist/
 *.tsbuildinfo
 
 # misc
@@ -24,4 +22,3 @@
 # others
 .env*.local
 .vercel
-next-env.d.ts

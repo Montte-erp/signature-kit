@@ -1,15 +1,15 @@
 import type { CmsError } from "@signature-kit/cms/config";
 import { verifyDetachedSignedData } from "@signature-kit/cms/verify";
 import { Effect, Schema } from "effect";
-import { forEachPdfSignature } from "./byte-range";
+import { forEachPdfSignature } from "./byte-range.js";
 import {
   PdfError,
   PdfErrorCodeValue,
   PdfOperationValue,
   PdfSchemaNameValue,
   PdfVerificationRequestSchema,
-} from "./config";
-import type { PdfVerificationRequest, PdfVerificationResult } from "./config";
+} from "./config.js";
+import type { PdfVerificationRequest, PdfVerificationResult } from "./config.js";
 
 export const verifyPdf = (
   input: PdfVerificationRequest,

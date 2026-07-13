@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { Effect, Layer } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SignatureKitErrorCodeValue } from "@signature-kit/signatures";
 import {
   clearA1Certificate,
   clearA1Signer,
@@ -122,12 +123,15 @@ if (typeof document === "undefined") {
 } else {
   describe("@signature-kit/react A1 operation ownership", () => {
     let certificateRequests: Array<Deferred<CertificateProfile>> = [];
+    let certificateSignals: Array<AbortSignal> = [];
     let signingRequests: Array<Deferred<Uint8Array>> = [];
+    let signingSignals: Array<AbortSignal> = [];
     let cleanup: (() => void) | null = null;
 
     beforeEach(() => {
       mocks.parseCertificate.mockImplementation(() =>
-        Effect.promise(() => {
+        Effect.promise((signal) => {
+          certificateSignals.push(signal);
           const request = certificateRequests.shift();
           return request === undefined
             ? Promise.reject(new Error("Missing deferred certificate request."))
@@ -136,7 +140,8 @@ if (typeof document === "undefined") {
       );
       mocks.signaturesLayer.mockImplementation(() => Layer.empty);
       mocks.preparePdf.mockImplementation(() =>
-        Effect.promise(() => {
+        Effect.promise((signal) => {
+          signingSignals.push(signal);
           const request = signingRequests.shift();
           return request === undefined
             ? Promise.reject(new Error("Missing deferred signing request."))
@@ -151,7 +156,9 @@ if (typeof document === "undefined") {
       clearA1Certificate();
       clearA1Signer();
       certificateRequests = [];
+      certificateSignals = [];
       signingRequests = [];
+      signingSignals = [];
       mocks.parseCertificate.mockClear();
       mocks.signaturesLayer.mockClear();
       mocks.preparePdf.mockClear();
@@ -166,34 +173,66 @@ if (typeof document === "undefined") {
       const secondLoad = loadA1Certificate(new Uint8Array([2]), "second-password");
 
       await waitFor(() => mocks.parseCertificate.mock.calls.length === 2, "both loads started");
+      await waitFor(() => certificateSignals[0]?.aborted === true, "stale load aborted");
 
       second.resolve(certificateProfile("second"));
       await expect(secondLoad).resolves.toMatchObject({
         ok: true,
         profile: { fingerprint: "second" },
       });
-
       first.resolve(certificateProfile("first"));
+
       await expect(firstLoad).resolves.toMatchObject({
-        ok: true,
-        profile: { fingerprint: "first" },
+        ok: false,
+        error: { code: SignatureKitErrorCodeValue.unsupportedOperation },
       });
 
       expect(getLoadedA1CertificateProfile()?.fingerprint).toBe("second");
     });
 
-    it("keeps a cleared certificate empty after its pending load completes", async () => {
+    it("cancels a cleared certificate load before it completes", async () => {
       const request = defer<CertificateProfile>();
       certificateRequests.push(request);
 
       const load = loadA1Certificate(new Uint8Array([3]), "clear-password");
       await waitFor(() => mocks.parseCertificate.mock.calls.length === 1, "load started");
-
       clearA1Certificate();
+
+      await waitFor(() => certificateSignals[0]?.aborted === true, "certificate load aborted");
       request.resolve(certificateProfile("cleared"));
-      await expect(load).resolves.toMatchObject({ ok: true, profile: { fingerprint: "cleared" } });
+      await expect(load).resolves.toMatchObject({
+        ok: false,
+        error: { code: SignatureKitErrorCodeValue.unsupportedOperation },
+      });
 
       expect(getLoadedA1CertificateProfile()).toBeNull();
+    });
+
+    it("starts a new certificate load after clearing the previous one", async () => {
+      const first = defer<CertificateProfile>();
+      certificateRequests.push(first);
+
+      const firstLoad = loadA1Certificate(new Uint8Array([4]), "first-password");
+      await waitFor(() => mocks.parseCertificate.mock.calls.length === 1, "first load started");
+
+      clearA1Certificate();
+      await waitFor(() => certificateSignals[0]?.aborted === true, "first load aborted");
+      await expect(firstLoad).resolves.toMatchObject({
+        ok: false,
+        error: { code: SignatureKitErrorCodeValue.unsupportedOperation },
+      });
+
+      const second = defer<CertificateProfile>();
+      certificateRequests.push(second);
+      const secondLoad = loadA1Certificate(new Uint8Array([5]), "second-password");
+      await waitFor(() => mocks.parseCertificate.mock.calls.length === 2, "second load started");
+
+      second.resolve(certificateProfile("second-after-clear"));
+      await expect(secondLoad).resolves.toMatchObject({
+        ok: true,
+        profile: { fingerprint: "second-after-clear" },
+      });
+      expect(getLoadedA1CertificateProfile()?.fingerprint).toBe("second-after-clear");
     });
 
     it("clears a prior profile while its replacement load is pending", async () => {
@@ -243,8 +282,12 @@ if (typeof document === "undefined") {
         return signer !== null && !signer.busy && signer.rows.length === 0 && signer.error === null;
       }, "cleared signer state");
 
+      await waitFor(() => signingSignals[0]?.aborted === true, "signing operation aborted");
+      await expect(run).resolves.toMatchObject({
+        ok: false,
+        error: { code: SignatureKitErrorCodeValue.unsupportedOperation },
+      });
       request.resolve(new Uint8Array([1]));
-      await expect(run).resolves.toMatchObject({ ok: true });
       await rafTick();
 
       const signer = currentSigner(probe);
@@ -264,12 +307,16 @@ if (typeof document === "undefined") {
       await waitFor(() => mocks.preparePdf.mock.calls.length === 1, "first signing started");
 
       clearA1Signer();
+      await waitFor(() => signingSignals[0]?.aborted === true, "stale signing operation aborted");
       signingRequests.push(secondRequest);
       const secondRun = currentSigner(probe).sign(signerInput("second-run"));
       await waitFor(() => mocks.preparePdf.mock.calls.length === 2, "second signing started");
 
       firstRequest.resolve(new Uint8Array([1]));
-      await expect(firstRun).resolves.toMatchObject({ ok: true });
+      await expect(firstRun).resolves.toMatchObject({
+        ok: false,
+        error: { code: SignatureKitErrorCodeValue.unsupportedOperation },
+      });
       await rafTick();
 
       const duringSecondRun = currentSigner(probe);

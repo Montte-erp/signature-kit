@@ -1,28 +1,20 @@
 "use client";
 
 import { PenLine } from "lucide-react";
-import dynamic from "next/dynamic";
+import * as React from "react";
 import type { ReactNode } from "react";
+
+import { ClientOnly } from "@/components/client-only";
 
 import { Button } from "@/components/ui/button";
 import { m } from "@/paraglide/messages";
 
-const PdfSignerIsland = dynamic(() => import("./pdf-signer").then((mod) => mod.PdfSigner), {
-  ssr: false,
-  loading: () => <PdfSignerSkeleton />,
-});
+const PdfSignerIsland = React.lazy(() =>
+  import("./pdf-signer").then((mod) => ({ default: mod.PdfSigner })),
+);
 
-const PdfSignerDialogIsland = dynamic(
-  () => import("./pdf-signer").then((mod) => mod.PdfSignerDialog),
-  {
-    ssr: false,
-    loading: () => (
-      <PdfSignerDialogFallback>
-        {m.signer_open()}
-        <PenLine data-icon="inline-end" />
-      </PdfSignerDialogFallback>
-    ),
-  },
+const PdfSignerDialogIsland = React.lazy(() =>
+  import("./pdf-signer").then((mod) => ({ default: mod.PdfSignerDialog })),
 );
 
 type PdfSignerProps = {
@@ -51,11 +43,32 @@ function PdfSignerSkeleton() {
 }
 
 export function PdfSigner(props: PdfSignerProps) {
-  return <PdfSignerIsland {...props} />;
+  return (
+    <ClientOnly fallback={<PdfSignerSkeleton />}>
+      <React.Suspense fallback={<PdfSignerSkeleton />}>
+        <PdfSignerIsland {...props} />
+      </React.Suspense>
+    </ClientOnly>
+  );
 }
 
 export function PdfSignerDialog({ children }: PdfSignerDialogProps) {
-  return <PdfSignerDialogIsland>{children}</PdfSignerDialogIsland>;
+  return (
+    <ClientOnly fallback={<PdfSignerDialogLoading />}>
+      <React.Suspense fallback={<PdfSignerDialogLoading />}>
+        <PdfSignerDialogIsland>{children}</PdfSignerDialogIsland>
+      </React.Suspense>
+    </ClientOnly>
+  );
+}
+
+function PdfSignerDialogLoading() {
+  return (
+    <PdfSignerDialogFallback>
+      {m.signer_open()}
+      <PenLine data-icon="inline-end" />
+    </PdfSignerDialogFallback>
+  );
 }
 
 export function PdfSignerDialogFallback({ children }: PdfSignerDialogProps) {

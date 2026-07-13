@@ -1,18 +1,18 @@
 "use client";
 
 import { useInView } from "motion/react";
-import dynamic from "next/dynamic";
-import { useRef } from "react";
+import * as React from "react";
+
+import { ClientOnly } from "@/components/client-only";
 
 import { FadeIn } from "@/components/fade-in";
 import { m } from "@/paraglide/messages";
 
 import { Container, Section, SectionHeading } from "./_shared";
 
-const AutoSignInner = dynamic(() => import("./auto-sign-inner").then((mod) => mod.AutoSignInner), {
-  ssr: false,
-  loading: () => <AutoSignSkeleton />,
-});
+const AutoSignInner = React.lazy(() =>
+  import("./auto-sign-inner").then((mod) => ({ default: mod.AutoSignInner })),
+);
 
 function AutoSignSkeleton() {
   return (
@@ -32,7 +32,7 @@ function AutoSignSkeleton() {
 }
 
 export function AutoSign() {
-  const bodyRef = useRef<HTMLDivElement>(null);
+  const bodyRef = React.useRef<HTMLDivElement>(null);
   const inView = useInView(bodyRef, { once: true, margin: "400px 0px" });
 
   return (
@@ -46,7 +46,17 @@ export function AutoSign() {
           />
         </FadeIn>
         <FadeIn delay={0.05}>
-          <div ref={bodyRef}>{inView ? <AutoSignInner /> : <AutoSignSkeleton />}</div>
+          <div ref={bodyRef}>
+            {inView ? (
+              <ClientOnly fallback={<AutoSignSkeleton />}>
+                <React.Suspense fallback={<AutoSignSkeleton />}>
+                  <AutoSignInner />
+                </React.Suspense>
+              </ClientOnly>
+            ) : (
+              <AutoSignSkeleton />
+            )}
+          </div>
         </FadeIn>
       </Container>
     </Section>

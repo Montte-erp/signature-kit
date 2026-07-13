@@ -7,6 +7,8 @@ import { normalizeLine } from "./normalize";
 import { hasRequiredSpanCall } from "./observability";
 import { runWorkspaceLayerChecks } from "./layers";
 import { checks } from "./rule-set";
+import { errorHandlingChecks } from "./rules/error-handling";
+import { typeSafetyChecks } from "./rules/type-safety";
 
 export const importDeclarationLineMap = (rawLines: readonly string[]): readonly boolean[] => {
   let importDeclarationOpen = false;
@@ -45,9 +47,14 @@ export const runDeclarativeChecks = (): boolean => {
     }
     const rawLines = source.split(/\r?\n/);
     const lines = rawLines.map(normalizeLine);
-    const activeChecks = file.startsWith("apps/docs/")
-      ? checks.filter((check) => check.message.startsWith("Do not apply Effect/Layer provide"))
-      : checks;
+    const isTestFile = /(?:^|\/)__tests__\/|(?:\.test|\.spec)\.[^./]+$/.test(file);
+    const activeChecks = isTestFile
+      ? checks.filter(
+          (check) => typeSafetyChecks.includes(check) || errorHandlingChecks.includes(check),
+        )
+      : file.startsWith("apps/docs/")
+        ? checks.filter((check) => check.message.startsWith("Do not apply Effect/Layer provide"))
+        : checks;
 
     const importLines = importDeclarationLineMap(rawLines);
     for (const [index, rawLine] of rawLines.entries()) {

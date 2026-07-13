@@ -1,7 +1,7 @@
 import * as asn1js from "asn1js";
 import { Effect, Schema } from "effect";
 import * as pkijs from "pkijs";
-import { buildSignedAttributes } from "./attributes";
+import { buildSignedAttributes } from "./attributes.js";
 import {
   CreateDetachedSignedDataInputSchema,
   CmsError,
@@ -9,10 +9,10 @@ import {
   CmsOid,
   CmsOperationValue,
   webCryptoHashName,
-} from "./config";
-import type { CreateDetachedSignedDataInput } from "./config";
-import { digest, toArrayBuffer, toBufferSource } from "./engine";
-import { requestTimestamp } from "./timestamp";
+} from "./config.js";
+import type { CreateDetachedSignedDataInput } from "./config.js";
+import { digest, toArrayBuffer, toBufferSource } from "./engine.js";
+import { requestTimestamp } from "./timestamp.js";
 
 export const createDetachedSignedData = (
   input: CreateDetachedSignedDataInput,

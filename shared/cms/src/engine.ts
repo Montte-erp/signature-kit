@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { CmsError, CmsErrorCodeValue, CmsOperationValue, webCryptoHashName } from "./config";
-import type { CmsHashAlgorithm } from "./config";
+import { CmsError, CmsErrorCodeValue, CmsOperationValue, webCryptoHashName } from "./config.js";
+import type { CmsHashAlgorithm } from "./config.js";
 
 export const toArrayBuffer = (data: Uint8Array): ArrayBuffer => {
   const copy = new Uint8Array(data.byteLength);

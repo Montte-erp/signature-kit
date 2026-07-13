@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { CryptoError, CryptoErrorCodeValue, CryptoOperationValue } from "../config";
-import { removePkcs7Padding } from "./padding";
+import { CryptoError, CryptoErrorCodeValue, CryptoOperationValue } from "../config.js";
+import { removePkcs7Padding } from "./padding.js";
 
 const PITABLE = new Uint8Array([
   0xd9, 0x78, 0xf9, 0xc4, 0x19, 0xdd, 0xb5, 0xed, 0x28, 0xe9, 0xfd, 0x79, 0x4a, 0xa0, 0xd8, 0x9d,
@@ -138,6 +138,16 @@ export const rc2CbcDecrypt = (
   iv: Uint8Array,
   ciphertext: Uint8Array,
 ): Effect.Effect<Uint8Array, CryptoError> => {
+  if (!Number.isInteger(effectiveBits) || effectiveBits < 1 || effectiveBits > 1024) {
+    return Effect.fail(
+      new CryptoError({
+        code: CryptoErrorCodeValue.cipherError,
+        reason: "RC2: effective bits must be an integer in the range 1..1024.",
+        operation: CryptoOperationValue.cipherRc2,
+      }),
+    );
+  }
+
   if (iv.length !== 8) {
     return Effect.fail(
       new CryptoError({

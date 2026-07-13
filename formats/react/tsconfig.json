@@ -6,13 +6,13 @@
       "path": "../../core/signatures"
     },
     {
+      "path": "../pdf"
+    },
+    {
       "path": "../../shared/cms"
     },
     {
       "path": "../../signers/a1"
-    },
-    {
-      "path": "../../formats/pdf"
     }
   ]
 }

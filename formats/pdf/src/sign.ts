@@ -5,11 +5,16 @@ import { signatures } from "@signature-kit/signatures";
 import type { Signatures } from "@signature-kit/signatures";
 import type { SignatureAlgorithm, SignatureKitError } from "@signature-kit/signatures";
 import { Effect, Match, Schema } from "effect";
-import { PdfError, PdfErrorCodeValue, PdfOperationValue, PdfSigningRequestSchema } from "./config";
-import type { PdfSigningRequest } from "./config";
-import { bytesToHex, encodeAscii, replaceRange } from "./bytes";
-import { preparePdfByteRange } from "./byte-range";
-import { addSignaturePlaceholder } from "./placeholder";
+import {
+  PdfError,
+  PdfErrorCodeValue,
+  PdfOperationValue,
+  PdfSigningRequestSchema,
+} from "./config.js";
+import type { PdfSigningRequest } from "./config.js";
+import { bytesToHex, encodeAscii, replaceRange } from "./bytes.js";
+import { preparePdfByteRange } from "./byte-range.js";
+import { addSignaturePlaceholder } from "./placeholder.js";
 
 const rsaSha1SignatureAlgorithm: SignatureAlgorithm = "rsa-sha1";
 const rsaSha256SignatureAlgorithm: SignatureAlgorithm = "rsa-sha256";

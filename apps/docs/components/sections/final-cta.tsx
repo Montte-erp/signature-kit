@@ -1,5 +1,5 @@
 import { ArrowRight } from "lucide-react";
-import Link from "next/link";
+import { Link } from "fumapress/client";
 
 import { FadeIn } from "@/components/fade-in";
 import { InstallCommand } from "@/components/install-command";

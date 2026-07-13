@@ -19,7 +19,6 @@ const hasTypeAssertion = (line: string): boolean => {
     if (!/^([A-Za-z_$]|\[|\{|<|\()./.test(rest)) {
       continue;
     }
-
     return true;
   }
 

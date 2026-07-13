@@ -7,15 +7,15 @@ import {
   XmlSchemaNameValue,
   XmlVerificationRequestSchema,
   xmlHashAlgorithmFromSignatureAlgorithm,
-} from "./config";
+} from "./config.js";
 import type {
   XmlHashAlgorithm,
   XmlRequiredReference,
   XmlVerificationRequest,
   XmlVerificationResult,
-} from "./config";
-import { XmlRuntime } from "./runtime";
-import type { XmlRuntimeService, XmlRuntimeSignedXmlConstructor } from "./runtime";
+} from "./config.js";
+import { XmlRuntime } from "./runtime.js";
+import type { XmlRuntimeService, XmlRuntimeSignedXmlConstructor } from "./runtime.js";
 
 const XMLDSIG_NAMESPACE = "http://www.w3.org/2000/09/xmldsig#";
 const XML_RSA_ALGORITHM_NAME = "RSASSA-PKCS1-v1_5";

@@ -1,7 +1,14 @@
 import { PDFDocument } from "@cantoo/pdf-lib";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Result, Schema } from "effect";
-import { PdfErrorCodeValue, PdfOperationValue, PdfSignatureAppearanceSchema } from "../src/config";
+import {
+  PdfAutoSignaturePlacementSchema,
+  PdfErrorCodeValue,
+  PdfInvisibleSignaturePlacementSchema,
+  PdfManualSignaturePlacementSchema,
+  PdfOperationValue,
+  PdfSignatureAppearanceSchema,
+} from "../src/config";
 import type {
   PdfCoordinateTuple,
   PdfSignatureAppearance,
@@ -124,6 +131,53 @@ describe("PDF signature appearance page selectors", () => {
         const resolved = yield* resolveSignatureWidgetPlacement(pdfDoc, decoded);
         expect(resolved.pageIndex).toBe(placementCase.expectedPageIndex);
       }
+    }),
+  );
+  it.effect("rejects invalid page indexes at placement schema boundaries", () =>
+    Effect.gen(function* () {
+      const invalidPageIndexes = [
+        -1,
+        0.5,
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+        Number.NEGATIVE_INFINITY,
+        Number.MAX_SAFE_INTEGER + 1,
+      ];
+
+      for (const pageIndex of invalidPageIndexes) {
+        const invisible = yield* Effect.result(
+          Schema.decodeUnknownEffect(PdfInvisibleSignaturePlacementSchema)({
+            kind: "invisible",
+            pageIndex,
+          }),
+        );
+        const manual = yield* Effect.result(
+          Schema.decodeUnknownEffect(PdfManualSignaturePlacementSchema)({
+            kind: "manual",
+            pageIndex,
+            widgetRect: [20, 20, 140, 60],
+          }),
+        );
+        const auto = yield* Effect.result(
+          Schema.decodeUnknownEffect(PdfAutoSignaturePlacementSchema)({
+            kind: "auto",
+            pageIndex,
+          }),
+        );
+        const appearance = yield* Effect.result(
+          Schema.decodeUnknownEffect(PdfSignatureAppearanceSchema)({ pageIndex }),
+        );
+
+        expect(Result.isFailure(invisible)).toBe(true);
+        expect(Result.isFailure(manual)).toBe(true);
+        expect(Result.isFailure(auto)).toBe(true);
+        expect(Result.isFailure(appearance)).toBe(true);
+      }
+
+      const decoded = yield* Schema.decodeUnknownEffect(PdfSignatureAppearanceSchema)({
+        pageIndex: 0,
+      });
+      expect(decoded.pageIndex).toBe(0);
     }),
   );
 });

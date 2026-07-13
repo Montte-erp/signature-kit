@@ -46,6 +46,15 @@ jobs:
       - name: Run server integration tests
         run: bunx nx run @tooling/integration-tests:test:server --outputStyle=static
 
+      - name: Build production site
+        run: bun run site:build
+
+      - name: Pack public npm tarballs
+        run: bun run pack:npm
+
+      - name: Run local performance tests
+        run: bun run test:performance
+
   browser:
     name: Browser integration
     runs-on: ubuntu-latest

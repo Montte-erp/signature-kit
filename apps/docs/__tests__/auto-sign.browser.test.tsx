@@ -1,26 +1,48 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 
-vi.mock("@/lib/posthog/client", () => ({ captureDocsEvent: () => {} }));
+vi.mock("@/lib/posthog/client", () => ({
+  captureDocsEvent: () => {},
+  initDocsPostHog: () => {},
+}));
 
 vi.mock("@/components/formal-contract-pdf", () => ({
   generateFormalContractPdf: vi.fn(async () => new Uint8Array([37, 80, 68, 70])),
 }));
 
+const pdfjsMocks = vi.hoisted(() => {
+  const renderedDocs: Array<{ readonly id?: string }> = [];
+  return {
+    loadPdfjs: vi.fn(),
+    renderedDocs,
+  };
+});
+
 vi.mock("@/components/pdf-page", () => ({
-  PdfPage: () => null,
-  loadPdfjs: async () => ({
-    getDocument: () => ({
-      promise: Promise.resolve({ destroy: () => Promise.resolve() }),
-      destroy: () => Promise.resolve(),
-    }),
-  }),
+  PdfPage: ({ doc }: { doc: { readonly id?: string } }) => {
+    pdfjsMocks.renderedDocs.push(doc);
+    return null;
+  },
+  loadPdfjs: pdfjsMocks.loadPdfjs,
 }));
 
 import { LocaleProvider } from "../components/locale-provider";
 import { generateFormalContractPdf } from "../components/formal-contract-pdf";
 import { AutoSignInner } from "../components/sections/auto-sign-inner";
+
+beforeEach(() => {
+  pdfjsMocks.loadPdfjs.mockReset();
+  pdfjsMocks.renderedDocs.length = 0;
+  pdfjsMocks.loadPdfjs.mockImplementation(async () => ({
+    getDocument: () => ({
+      promise: Promise.resolve({ destroy: () => Promise.resolve() }),
+      destroy: () => Promise.resolve(),
+    }),
+  }));
+  vi.mocked(generateFormalContractPdf).mockReset();
+  vi.mocked(generateFormalContractPdf).mockResolvedValue(new Uint8Array([37, 80, 68, 70]));
+});
 
 const rafTick = () => new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
 
@@ -36,6 +58,40 @@ async function waitForFrames(
   return Promise.reject(new Error(`Timed out waiting for: ${label}`));
 }
 
+type PdfDestroy = Mock<() => Promise<void>>;
+
+type DeferredPdfDocument = {
+  readonly id: string;
+  readonly destroy: PdfDestroy;
+};
+
+type DeferredPdfLoad = {
+  readonly doc: DeferredPdfDocument;
+  readonly task: {
+    readonly promise: Promise<DeferredPdfDocument>;
+    readonly destroy: PdfDestroy;
+  };
+  readonly resolve: (doc: DeferredPdfDocument) => void;
+  readonly reject: (reason?: unknown) => void;
+};
+
+const makeDeferredPdfLoad = (id: string): DeferredPdfLoad => {
+  let resolve: (doc: DeferredPdfDocument) => void = () => {};
+  let reject: (reason?: unknown) => void = () => {};
+  const promise = new Promise<DeferredPdfDocument>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  const doc = {
+    id,
+    destroy: vi.fn(async () => {}),
+  };
+  const task = {
+    promise,
+    destroy: vi.fn(async () => {}),
+  };
+  return { doc, task, resolve, reject };
+};
 if (typeof document === "undefined") {
   describe.skip("AutoSignInner locale navigation (browser)", () => {
     it("runs only through apps/docs/vitest.browser.config.ts", () => {});
@@ -353,6 +409,115 @@ if (typeof document === "undefined") {
         expect(generatePdf).toHaveBeenCalledTimes(5);
         expect(generatePdf.mock.calls[0]?.[0].title).toBe("Service agreement");
         expect(generatePdf.mock.calls[1]?.[0].title).toBe("Contrato de prestação de serviços");
+      } finally {
+        root.unmount();
+        container.remove();
+      }
+    });
+    it("destroys stale and active PDF lifecycles exactly once", async () => {
+      let loadId = 0;
+      const pendingLoads: Array<DeferredPdfLoad> = [];
+      pdfjsMocks.loadPdfjs.mockImplementation(async () => ({
+        getDocument: () => {
+          const load = makeDeferredPdfLoad(`pdf-${++loadId}`);
+          pendingLoads.push(load);
+          return load.task;
+        },
+      }));
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+
+      try {
+        root.render(
+          <LocaleProvider locale="en-US">
+            <AutoSignInner />
+          </LocaleProvider>,
+        );
+        await waitForFrames(() => pendingLoads.length === 1, "the English PDF load task");
+
+        const staleLoad = pendingLoads[0];
+        if (staleLoad === undefined) {
+          expect.fail("missing English PDF load task");
+        }
+
+        root.render(
+          <LocaleProvider locale="pt-BR">
+            <AutoSignInner />
+          </LocaleProvider>,
+        );
+        await waitForFrames(() => pendingLoads.length === 2, "the Portuguese PDF load task");
+        expect(staleLoad.task.destroy).toHaveBeenCalledTimes(1);
+
+        staleLoad.resolve(staleLoad.doc);
+        await waitForFrames(
+          () => staleLoad.doc.destroy.mock.calls.length === 1,
+          "the stale PDF document cleanup",
+        );
+        expect(pdfjsMocks.renderedDocs).not.toContain(staleLoad.doc);
+
+        const activeLoad = pendingLoads[1];
+        if (activeLoad === undefined) {
+          expect.fail("missing Portuguese PDF load task");
+        }
+        activeLoad.resolve(activeLoad.doc);
+        await waitForFrames(
+          () => pdfjsMocks.renderedDocs.includes(activeLoad.doc),
+          "the active PDF document",
+        );
+
+        root.unmount();
+        await waitForFrames(
+          () =>
+            activeLoad.task.destroy.mock.calls.length === 1 &&
+            activeLoad.doc.destroy.mock.calls.length === 1,
+          "the active PDF lifecycle cleanup",
+        );
+        expect(staleLoad.task.destroy).toHaveBeenCalledTimes(1);
+        expect(staleLoad.doc.destroy).toHaveBeenCalledTimes(1);
+        expect(activeLoad.task.destroy).toHaveBeenCalledTimes(1);
+        expect(activeLoad.doc.destroy).toHaveBeenCalledTimes(1);
+      } finally {
+        root.unmount();
+        container.remove();
+      }
+    });
+
+    it("destroys a failed PDF loading task once", async () => {
+      const pendingLoads: Array<DeferredPdfLoad> = [];
+      pdfjsMocks.loadPdfjs.mockImplementation(async () => ({
+        getDocument: () => {
+          const load = makeDeferredPdfLoad("failed");
+          pendingLoads.push(load);
+          return load.task;
+        },
+      }));
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+
+      try {
+        root.render(
+          <LocaleProvider locale="en-US">
+            <AutoSignInner />
+          </LocaleProvider>,
+        );
+        await waitForFrames(() => pendingLoads.length === 1, "the failed PDF load task");
+        const failedLoad = pendingLoads[0];
+        if (failedLoad === undefined) {
+          expect.fail("missing failed PDF load task");
+        }
+        failedLoad.reject(new Error("load failed"));
+        await waitForFrames(
+          () => failedLoad.task.destroy.mock.calls.length === 1,
+          "the failed PDF task cleanup",
+        );
+        expect(failedLoad.doc.destroy).not.toHaveBeenCalled();
+
+        root.unmount();
+        await rafTick();
+        expect(failedLoad.task.destroy).toHaveBeenCalledTimes(1);
+        expect(failedLoad.doc.destroy).not.toHaveBeenCalled();
       } finally {
         root.unmount();
         container.remove();

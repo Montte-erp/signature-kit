@@ -24,8 +24,6 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -b tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit --tsBuildInfoFile .cache/typecheck.tsbuildinfo",
     "test": "vitest run"
   },
   "dependencies": {
@@ -40,11 +38,25 @@
     "pkijs": "3.4.0"
   },
   "devDependencies": {
-    "@cantoo/pdf-lib": "2.7.1",
+    "@cantoo/pdf-lib": "2.7.2",
     "@signature-kit/a1": "^0.3.0"
   },
   "nx": {
+    "implicitDependencies": [
+      "!@signature-kit/a1"
+    ],
     "targets": {
+      "test": {
+        "dependsOn": [
+          "build",
+          {
+            "projects": [
+              "@signature-kit/a1"
+            ],
+            "target": "build"
+          }
+        ]
+      },
       "npm-pack": {
         "executor": "nx:run-commands",
         "options": {

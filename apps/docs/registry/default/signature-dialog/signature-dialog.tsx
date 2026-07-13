@@ -15,7 +15,8 @@ import {
 import { SignatureKitErrorCodeValue, signatureKitErrorMessages } from "@signature-kit/signatures";
 import { CheckCircle2, Download, Loader2, PenLine } from "lucide-react";
 import * as React from "react";
-import { useForm } from "@tanstack/react-form";
+import { Effect } from "effect";
+import { useForm, useSelector } from "@tanstack/react-form";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,11 +63,6 @@ export type SignatureDialogProps = {
   readonly className?: string;
 };
 
-type SignatureDialogFormValues = {
-  readonly password: string;
-  readonly rememberPassword: boolean;
-};
-
 type SignatureDialogActionState =
   | { readonly status: "idle" }
   | { readonly status: "running" }
@@ -74,6 +70,17 @@ type SignatureDialogActionState =
 
 const catalogs = [pdfErrorMessages, cmsErrorMessages, signatureKitErrorMessages];
 const emptyAnchorValues: ReadonlyArray<string> = [];
+
+type SignatureDialogRun = {
+  readonly id: number;
+  readonly controller: AbortController;
+};
+
+type SignatureDialogExecution =
+  | { readonly status: "cancelled" }
+  | { readonly status: "needs-password" }
+  | { readonly status: "completed" }
+  | { readonly status: "failed"; readonly error: unknown };
 
 const withAnchorFallback = (
   document: SignatureDialogDocument,
@@ -111,19 +118,48 @@ export function SignatureDialog({
   className,
 }: SignatureDialogProps) {
   const signer = useA1Signer();
+  const clearSigner = signer.clear;
   const [open, setOpen] = React.useState(false);
   const [needsPassword, setNeedsPassword] = React.useState(false);
   const [actionState, setActionState] = React.useState<SignatureDialogActionState>({
     status: "idle",
   });
+  const mounted = React.useRef(true);
+  const nextRunId = React.useRef(0);
+  const activeRun = React.useRef<SignatureDialogRun | null>(null);
   const lastSignedRows = signedRows(signer.rows);
   const firstPdfUrl = usePdfObjectUrl(lastSignedRows[0]?.signedPdf ?? null);
-  const form = useForm<SignatureDialogFormValues>({
+  const form = useForm({
     defaultValues: { password: "", rememberPassword: false },
   });
-  const password = form.useStore((state) => state.values.password);
-  const rememberPassword = form.useStore((state) => state.values.rememberPassword);
+  const password = useSelector(form.store, (state) => state.values.password);
+  const rememberPassword = useSelector(form.store, (state) => state.values.rememberPassword);
 
+  React.useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      const run = activeRun.current;
+      if (run !== null) {
+        run.controller.abort();
+        activeRun.current = null;
+        clearSigner();
+      }
+    };
+  }, [clearSigner]);
+
+  const isOwner = (run: SignatureDialogRun): boolean =>
+    mounted.current && activeRun.current === run && !run.controller.signal.aborted;
+
+  const cancelRun = (): boolean => {
+    const run = activeRun.current;
+    if (run === null) return false;
+    if (mounted.current) setActionState({ status: "idle" });
+    run.controller.abort();
+    activeRun.current = null;
+    clearSigner();
+    return true;
+  };
   const formatRowError = (row: A1SignerRow): string =>
     row.status === "failed" ? errorMessage(row.error, { locale, catalogs }) : "";
   const signerError = signer.error === null ? "" : errorMessage(signer.error, { locale, catalogs });
@@ -133,74 +169,134 @@ export function SignatureDialog({
   const actionRunning = actionState.status === "running";
   const actionFailed = actionState.status === "failed";
 
-  const recoverFromWrongPassword = async () => {
-    setNeedsPassword(true);
-    const outcomes = await Promise.allSettled([onWrongPassword?.(), onSavePassword?.(null)]);
-    const rejectedOutcome = outcomes.find((outcome) => outcome.status === "rejected");
-    if (rejectedOutcome?.status === "rejected") throw rejectedOutcome.reason;
-  };
-
-  const run = async (
-    passwordToUse: string | undefined,
-    passwordToSave: string | null | undefined,
-  ) => {
+  const run = (passwordToUse: string | undefined, passwordToSave: string | null | undefined) => {
+    if (!cancelRun()) clearSigner();
+    const currentRun: SignatureDialogRun = {
+      id: nextRunId.current + 1,
+      controller: new AbortController(),
+    };
+    nextRunId.current = currentRun.id;
+    activeRun.current = currentRun;
     setActionState({ status: "running" });
 
-    try {
-      if (passwordToSave !== undefined) await onSavePassword?.(passwordToSave);
+    const program = Effect.result(
+      Effect.tryPromise<SignatureDialogExecution, unknown>({
+        try: async (signal) => {
+          if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
 
-      const resolvedPassword = passwordToUse ?? getSavedPassword?.() ?? "";
-      if (resolvedPassword.length === 0) {
-        setNeedsPassword(true);
-        setActionState({ status: "idle" });
-        return;
-      }
+          if (passwordToSave !== undefined) {
+            await Promise.resolve(onSavePassword?.(passwordToSave));
+            if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
+          }
 
-      const matchers = pdfTextAnchorMatchersFromProps(anchorTokens, anchorDigits);
-      const anchorSize = anchorStampSize ?? stamp?.stampSize ?? DEFAULT_PDF_ANCHOR_STAMP_SIZE;
-      const documents = (await buildDocuments()).map((document) =>
-        withAnchorFallback(document, matchers, anchorSize),
-      );
-      const result = await signer.sign({
-        documents,
-        credentials: { pfx, password: resolvedPassword },
-        signing,
-        ...(stamp === undefined ? {} : { stamp }),
-      });
-      if (!result.ok) {
-        if (result.error.code === SignatureKitErrorCodeValue.wrongPassword) {
-          await recoverFromWrongPassword();
+          const resolvedPassword = passwordToUse ?? getSavedPassword?.() ?? "";
+          if (resolvedPassword.length === 0) {
+            if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
+            return { status: "needs-password" };
+          }
+
+          const matchers = pdfTextAnchorMatchersFromProps(anchorTokens, anchorDigits);
+          const anchorSize = anchorStampSize ?? stamp?.stampSize ?? DEFAULT_PDF_ANCHOR_STAMP_SIZE;
+          const documents = (await buildDocuments()).map((document) =>
+            withAnchorFallback(document, matchers, anchorSize),
+          );
+          if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
+
+          const result = await signer.sign({
+            documents,
+            credentials: { pfx, password: resolvedPassword },
+            signing,
+            ...(stamp === undefined ? {} : { stamp }),
+          });
+          if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
+
+          if (!result.ok) {
+            if (result.error.code !== SignatureKitErrorCodeValue.wrongPassword) {
+              return { status: "completed" };
+            }
+
+            const outcomes = await Promise.allSettled([
+              onWrongPassword?.(),
+              onSavePassword?.(null),
+            ]);
+            if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
+            const rejectedOutcome = outcomes.find(
+              (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected",
+            );
+            return rejectedOutcome === undefined
+              ? { status: "needs-password" }
+              : { status: "failed", error: rejectedOutcome.reason };
+          }
+
+          if (result.rows.some(isWrongPasswordRow)) {
+            const outcomes = await Promise.allSettled([
+              onWrongPassword?.(),
+              onSavePassword?.(null),
+            ]);
+            if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
+            const rejectedOutcome = outcomes.find(
+              (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected",
+            );
+            return rejectedOutcome === undefined
+              ? { status: "needs-password" }
+              : { status: "failed", error: rejectedOutcome.reason };
+          }
+
+          const signed = signedRows(result.rows);
+          if (signed.length > 0) {
+            if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
+            await Promise.resolve(onSigned(signed));
+            if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
+          }
+          return { status: "completed" };
+        },
+        catch: (error) => error,
+      }),
+    );
+
+    void Effect.runPromise(Effect.exit(program), { signal: currentRun.controller.signal }).then(
+      (exit) => {
+        if (!isOwner(currentRun)) return;
+        activeRun.current = null;
+        if (exit._tag === "Failure") {
+          setActionState({ status: "failed", error: exit.cause });
+          return;
+        }
+
+        if (exit.value._tag === "Failure") {
+          setActionState({ status: "failed", error: exit.value.failure });
+          return;
+        }
+
+        if (exit.value.success.status === "needs-password") setNeedsPassword(true);
+        if (exit.value.success.status === "failed") {
+          setNeedsPassword(true);
+          setActionState({ status: "failed", error: exit.value.success.error });
+          return;
         }
         setActionState({ status: "idle" });
-        return;
-      }
+      },
+      () => undefined,
+    );
+  };
 
-      if (result.rows.some(isWrongPasswordRow)) {
-        await recoverFromWrongPassword();
-        setActionState({ status: "idle" });
-        return;
-      }
-
-      const signed = signedRows(result.rows);
-      if (signed.length > 0) await onSigned(signed);
-      setActionState({ status: "idle" });
-    } catch (error) {
-      setActionState({ status: "failed", error });
-    }
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) cancelRun();
+    setOpen(nextOpen);
   };
 
   const start = () => {
     setNeedsPassword(false);
-    void run(undefined, undefined);
+    run(undefined, undefined);
   };
 
   const submitPassword = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    void run(password, rememberPassword ? password : null);
+    run(password, rememberPassword ? password : null);
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button
           type="button"
@@ -224,54 +320,49 @@ export function SignatureDialog({
         ) : null}
 
         {needsPassword ? (
-          <form.Provider>
-            <form className="grid gap-4" onSubmit={submitPassword}>
-              <input
-                type="text"
-                autoComplete="username"
-                value=""
-                readOnly
-                tabIndex={-1}
-                aria-hidden="true"
-                className="sr-only"
-              />
-              <form.Field name="password">
-                {(field) => (
-                  <div className="grid gap-2">
-                    <Label htmlFor="signature-dialog-password">Certificate password</Label>
-                    <Input
-                      id="signature-dialog-password"
-                      type="password"
-                      data-ph-no-autocapture
-                      data-analytics-sensitive
-                      autoComplete="current-password"
-                      value={field.state.value}
-                      onBlur={field.handleBlur}
-                      onChange={(event) => field.handleChange(event.currentTarget.value)}
-                    />
-                  </div>
-                )}
-              </form.Field>
-              <form.Field name="rememberPassword">
-                {(field) => (
-                  <Label className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
-                    <Checkbox
-                      checked={field.state.value}
-                      onCheckedChange={(checked) => field.handleChange(checked === true)}
-                    />
-                    Remember password in this app
-                  </Label>
-                )}
-              </form.Field>
-              <Button
-                type="submit"
-                disabled={signer.busy || actionRunning || password.length === 0}
-              >
-                {signer.busy ? <Loader2 aria-hidden className="size-4 animate-spin" /> : null}
-                {submitLabel}
-              </Button>
-            </form>
-          </form.Provider>
+          <form className="grid gap-4" onSubmit={submitPassword}>
+            <input
+              type="text"
+              autoComplete="username"
+              value=""
+              readOnly
+              tabIndex={-1}
+              aria-hidden="true"
+              className="sr-only"
+            />
+            <form.Field name="password">
+              {(field) => (
+                <div className="grid gap-2">
+                  <Label htmlFor="signature-dialog-password">Certificate password</Label>
+                  <Input
+                    id="signature-dialog-password"
+                    type="password"
+                    data-ph-no-autocapture
+                    data-analytics-sensitive
+                    autoComplete="current-password"
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => field.handleChange(event.currentTarget.value)}
+                  />
+                </div>
+              )}
+            </form.Field>
+            <form.Field name="rememberPassword">
+              {(field) => (
+                <Label className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
+                  <Checkbox
+                    checked={field.state.value}
+                    onCheckedChange={(checked) => field.handleChange(checked === true)}
+                  />
+                  Remember password in this app
+                </Label>
+              )}
+            </form.Field>
+            <Button type="submit" disabled={signer.busy || actionRunning || password.length === 0}>
+              {signer.busy ? <Loader2 aria-hidden className="size-4 animate-spin" /> : null}
+              {submitLabel}
+            </Button>
+          </form>
         ) : null}
 
         <div data-slot="signature-dialog-progress" className="grid gap-2">
@@ -315,7 +406,7 @@ export function SignatureDialog({
         ) : null}
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+          <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
             Close
           </Button>
         </DialogFooter>

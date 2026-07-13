@@ -1,5 +1,5 @@
 import type { SVGProps } from "react";
-import Link from "next/link";
+import { Link } from "fumapress/client";
 
 import { Logo } from "@/components/logo";
 import { MontteLogo } from "@/components/brand/montte-logo";

@@ -34,8 +34,6 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -b tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit --tsBuildInfoFile .cache/typecheck.tsbuildinfo",
     "test": "vitest run"
   },
   "dependencies": {
@@ -54,7 +52,21 @@
     "xml-crypto": "6.1.2"
   },
   "nx": {
+    "implicitDependencies": [
+      "!@signature-kit/a1"
+    ],
     "targets": {
+      "test": {
+        "dependsOn": [
+          "build",
+          {
+            "projects": [
+              "@signature-kit/a1"
+            ],
+            "target": "build"
+          }
+        ]
+      },
       "npm-pack": {
         "executor": "nx:run-commands",
         "options": {

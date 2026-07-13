@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import { SignatureKitErrorCodeValue } from "@signature-kit/signatures";
 import { signatureHttpClientLive } from "@signature-kit/http";
 import * as Provider from "alchemy/Provider";
 import { Effect, Redacted, Result } from "effect";
@@ -339,6 +340,80 @@ describe("ZapSign local API", () => {
       expect(firstListRequest.query.get("include_signers")).toBe("true");
       expect(secondListRequest.query.get("page")).toBe("2");
       expect(secondListRequest.query.get("include_signers")).toBe("true");
+    }),
+  );
+  it.effect("fails typed error and bounds requests for repeated pagination URLs", () =>
+    Effect.gen(function* () {
+      type PaginationMode = "self" | "cycle";
+      let mode: PaginationMode = "self";
+      let baseUrl = "";
+      const local = yield* localHttpServer(
+        async (request: LocalRequest): Promise<LocalResponse> => {
+          if (request.method !== "GET" || request.pathname !== "/docs/") {
+            return { status: 404, body: "not found" };
+          }
+
+          const page = request.query.get("page") ?? "1";
+          if (page === "1") {
+            const next =
+              mode === "self"
+                ? `${baseUrl}/docs/?page=1&include_signers=true`
+                : `${baseUrl}/docs/?page=2&include_signers=true`;
+            return {
+              status: 200,
+              body: JSON.stringify({ next, results: [] }),
+            };
+          }
+
+          if (page === "2" && mode === "cycle") {
+            return {
+              status: 200,
+              body: JSON.stringify({
+                next: `${baseUrl}/docs/?page=1&include_signers=true`,
+                results: [],
+              }),
+            };
+          }
+
+          return { status: 404, body: "not found" };
+        },
+      );
+      baseUrl = local.baseUrl;
+
+      const options = {
+        apiToken: Redacted.make("zapsign-local-token"),
+        baseUrl: local.baseUrl,
+      } satisfies ZapSignProviderOptions;
+
+      const selfResult = yield* Effect.result(
+        listZapSignSignatureRequests(options).pipe(Effect.provide(signatureHttpClientLive)),
+      );
+      expect(Result.isFailure(selfResult)).toBe(true);
+      if (Result.isFailure(selfResult)) {
+        expect(selfResult.failure.code).toBe(SignatureKitErrorCodeValue.responseShape);
+        expect(selfResult.failure.provider).toBe("zapsign");
+        expect(selfResult.failure.operation).toBe("http.decode");
+        expect(selfResult.failure.reason).toBe(
+          "ZapSign list pagination returned a previously visited URL.",
+        );
+      }
+      expect(local.requests).toHaveLength(1);
+
+      local.requests.length = 0;
+      mode = "cycle";
+      const cycleResult = yield* Effect.result(
+        listZapSignSignatureRequests(options).pipe(Effect.provide(signatureHttpClientLive)),
+      );
+      expect(Result.isFailure(cycleResult)).toBe(true);
+      if (Result.isFailure(cycleResult)) {
+        expect(cycleResult.failure.code).toBe(SignatureKitErrorCodeValue.responseShape);
+        expect(cycleResult.failure.provider).toBe("zapsign");
+        expect(cycleResult.failure.operation).toBe("http.decode");
+        expect(cycleResult.failure.reason).toBe(
+          "ZapSign list pagination returned a previously visited URL.",
+        );
+      }
+      expect(local.requests).toHaveLength(2);
     }),
   );
 

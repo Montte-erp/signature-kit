@@ -1,7 +1,7 @@
 import { bytesOf, childrenOf, decode, oidString } from "@signature-kit/asn1";
 import { Effect, Schema } from "effect";
-import { CmsError, CmsErrorCodeValue, CmsOperationValue, TimeoutMillisSchema } from "./config";
-import type { CmsHashAlgorithm, IcpBrasilPolicy } from "./config";
+import { CmsError, CmsErrorCodeValue, CmsOperationValue, TimeoutMillisSchema } from "./config.js";
+import type { CmsHashAlgorithm, IcpBrasilPolicy } from "./config.js";
 
 const FetchIcpBrasilPadesPolicyOptionsSchema = Schema.Struct({
   timeoutMillis: Schema.optional(TimeoutMillisSchema),
@@ -92,6 +92,15 @@ export const parseIcpBrasilPadesPolicy = (
 ): Effect.Effect<IcpBrasilPolicy, CmsError> =>
   Effect.gen(function* () {
     const root = yield* decode(policyDer);
+    if (root.kind !== "constructed" || root.class !== "universal" || root.tag !== 0x10) {
+      return yield* Effect.fail(
+        new CmsError({
+          code: CmsErrorCodeValue.policyError,
+          reason: "ICP-Brasil policy DER root is not a universal SEQUENCE.",
+          operation: CmsOperationValue.policy,
+        }),
+      );
+    }
     const policyFields = yield* childrenOf(root);
     const algorithmIdentifier = policyFields[0];
     const policyHashNode = policyFields[2];
@@ -104,6 +113,32 @@ export const parseIcpBrasilPadesPolicy = (
         }),
       );
     }
+    if (
+      algorithmIdentifier.kind !== "constructed" ||
+      algorithmIdentifier.class !== "universal" ||
+      algorithmIdentifier.tag !== 0x10
+    ) {
+      return yield* Effect.fail(
+        new CmsError({
+          code: CmsErrorCodeValue.policyError,
+          reason: "ICP-Brasil policy DER algorithm identifier is not a universal SEQUENCE.",
+          operation: CmsOperationValue.policy,
+        }),
+      );
+    }
+    if (
+      policyHashNode.kind !== "primitive" ||
+      policyHashNode.class !== "universal" ||
+      policyHashNode.tag !== 0x04
+    ) {
+      return yield* Effect.fail(
+        new CmsError({
+          code: CmsErrorCodeValue.policyError,
+          reason: "ICP-Brasil policy DER hash is not a universal OCTET STRING.",
+          operation: CmsOperationValue.policy,
+        }),
+      );
+    }
 
     const algorithmFields = yield* childrenOf(algorithmIdentifier);
     const algorithmOidNode = algorithmFields[0];
@@ -112,6 +147,19 @@ export const parseIcpBrasilPadesPolicy = (
         new CmsError({
           code: CmsErrorCodeValue.policyError,
           reason: "ICP-Brasil policy DER does not contain a hash algorithm OID.",
+          operation: CmsOperationValue.policy,
+        }),
+      );
+    }
+    if (
+      algorithmOidNode.kind !== "primitive" ||
+      algorithmOidNode.class !== "universal" ||
+      algorithmOidNode.tag !== 0x06
+    ) {
+      return yield* Effect.fail(
+        new CmsError({
+          code: CmsErrorCodeValue.policyError,
+          reason: "ICP-Brasil policy DER hash algorithm is not a universal OID.",
           operation: CmsOperationValue.policy,
         }),
       );
@@ -193,20 +241,22 @@ const downloadIcpBrasilPadesPolicy = (
   Effect.tryPromise({
     try: (signal): Promise<PolicyDownload> => {
       const abort = startPolicyAbort(timeoutMillis ?? DEFAULT_POLICY_TIMEOUT_MILLIS, signal);
-      const request = fetch(ICP_BRASIL_AD_RB_V11_POLICY_URI, { signal: abort.signal }).then(
-        async (response): Promise<PolicyDownload> => {
-          if (!response.ok) {
-            abort.cancel();
+      const request = Promise.resolve().then(() =>
+        fetch(ICP_BRASIL_AD_RB_V11_POLICY_URI, { signal: abort.signal }).then(
+          async (response): Promise<PolicyDownload> => {
+            if (!response.ok) {
+              abort.cancel();
+              return {
+                _tag: "PolicyHttpFailure",
+                status: response.status,
+              };
+            }
             return {
-              _tag: "PolicyHttpFailure",
-              status: response.status,
+              _tag: "PolicyHttpSuccess",
+              policyDer: new Uint8Array(await response.arrayBuffer()),
             };
-          }
-          return {
-            _tag: "PolicyHttpSuccess",
-            policyDer: new Uint8Array(await response.arrayBuffer()),
-          };
-        },
+          },
+        ),
       );
       return Promise.race([abort.promise, request]).then(
         (result) => {

@@ -17,10 +17,14 @@ const readSignedFixture = (): Effect.Effect<Uint8Array> =>
       ),
   );
 
-const installItiFetchRedirect = (baseUrl: string): Effect.Effect<void> =>
+const installItiFetchRedirect = (
+  baseUrl: string,
+  observedRequests?: Array<RequestInit>,
+): Effect.Effect<void> =>
   Effect.sync(() => {
     const originalFetch = globalThis.fetch;
     vi.stubGlobal("fetch", (input: string | URL | Request, init?: RequestInit) => {
+      observedRequests?.push(init ?? {});
       if (input === ITI_ENDPOINT) return originalFetch(`${baseUrl}/arquivo`, init);
       return originalFetch(input, init);
     });
@@ -66,6 +70,22 @@ describe("ITI remote hardening", () => {
     }),
   );
 
+  it.effect("fails closed for remote prototype-key statuses", () =>
+    Effect.gen(function* () {
+      for (const status of ["__proto__", "constructor", "toString"]) {
+        const report = yield* validateWithItiResponse(200, {
+          verifierReport: { status },
+        });
+        const decoded = yield* Schema.decodeUnknownEffect(ItiRemoteValidationReportSchema)(report);
+
+        expect(report.approved).toBe(false);
+        expect(report.outcome).toBe("unknown");
+        expect(typeof report.outcome).toBe("string");
+        expect(decoded).toEqual(report);
+      }
+    }),
+  );
+
   it.effect("preserves the ITI 206 partial report while failing closed", () =>
     Effect.gen(function* () {
       const partialPayload = {
@@ -85,6 +105,71 @@ describe("ITI remote hardening", () => {
       expect(report.rawResponse).toEqual(partialPayload);
       expect(report.localConformance.approved).toBe(true);
     }),
+  );
+  it.effect("rejects invalid ITI 206 signature counts at the response boundary", () =>
+    Effect.gen(function* () {
+      const invalidCounts: ReadonlyArray<readonly [number, number]> = [
+        [1.5, 2],
+        [-1, 2],
+        [3, 2],
+        [Number.MAX_SAFE_INTEGER + 1, 2],
+      ];
+
+      for (const qtds of invalidCounts) {
+        const result = yield* Effect.result(
+          validateWithItiResponse(206, { qtds, json: { report: "partial" } }),
+        );
+
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure.code).toBe(SignatureKitErrorCodeValue.responseShape);
+          expect(result.failure.status).toBe(206);
+        }
+      }
+    }),
+  );
+
+  it.effect("rejects partial reports whose counts violate processed<=total", () =>
+    Effect.gen(function* () {
+      const report = yield* validateWithItiResponse(206, {
+        qtds: [1, 2],
+        json: { report: "partial" },
+      });
+      const invalidReport = { ...report, processedSignatureCount: 3 };
+      const result = yield* Effect.result(
+        Schema.decodeUnknownEffect(ItiRemoteValidationReportSchema)(invalidReport),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+    }),
+  );
+
+  it.effect("uses explicit timeouts for both remote GET and POST requests", () =>
+    Effect.gen(function* () {
+      const pdf = yield* readSignedFixture();
+      const observedRequests: Array<RequestInit> = [];
+      const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
+      const local = yield* localHttpServer(async (request) => {
+        if (request.pathname === "/source.pdf") {
+          return { status: 200, headers: { "Content-Type": "application/pdf" }, body: pdf };
+        }
+        return {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ verifierReport: { aprovado: true } }),
+        };
+      });
+      yield* installItiFetchRedirect(local.baseUrl, observedRequests);
+      yield* validatePdfWithIti({ source: { url: `${local.baseUrl}/source.pdf` } }).pipe(
+        Effect.provide(signatureHttpClientLive),
+      );
+      const timeoutCalls = timeoutSpy.mock.calls;
+      timeoutSpy.mockRestore();
+
+      expect(observedRequests).toHaveLength(2);
+      expect(observedRequests.every((request) => request.signal instanceof AbortSignal)).toBe(true);
+      expect(timeoutCalls.filter(([, timeoutMillis]) => timeoutMillis === 30_000)).toHaveLength(2);
+    }).pipe(Effect.ensuring(restoreFetch)),
   );
   it.effect("fails closed when an HTTP status contradicts an approved verifier report", () =>
     Effect.gen(function* () {

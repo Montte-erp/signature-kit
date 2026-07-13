@@ -278,6 +278,51 @@ describe("DocuSeal offline provider", () => {
         }),
     ),
   );
+  it.effect("fails with a typed error when list pagination cycles a cursor", () =>
+    withLocalServer(
+      async (request) => {
+        if (request.pathname === "/submissions" && request.method === "GET") {
+          const after = request.query.get("after");
+          const page =
+            after === null
+              ? { id: "first", next: 4 }
+              : after === "4"
+                ? { id: "second", next: 8 }
+                : { id: "third", next: 4 };
+          return {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              data: [{ id: page.id, status: "draft" }],
+              pagination: { count: 3, next: page.next, prev: null },
+            }),
+          };
+        }
+        return { status: 404, body: "not found" };
+      },
+      (options, requests) =>
+        Effect.gen(function* () {
+          const result = yield* Effect.result(listDocuSealSignatureRequests(options));
+
+          expect(Result.isFailure(result)).toBe(true);
+          if (Result.isFailure(result)) {
+            expect(result.failure.code).toBe(SignatureKitErrorCodeValue.responseShape);
+            expect(result.failure.provider).toBe("docuseal");
+            expect(result.failure.reason).toContain("repeated cursor");
+          }
+
+          const listRequests = requests.filter(
+            (request) => request.pathname === "/submissions" && request.method === "GET",
+          );
+          expect(listRequests).toHaveLength(3);
+          expect(listRequests.map((request) => request.query.get("after"))).toEqual([
+            null,
+            "4",
+            "8",
+          ]);
+        }),
+    ),
+  );
 
   it.effect("delete treats 404 responses as success", () =>
     withLocalServer(

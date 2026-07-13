@@ -1,9 +1,9 @@
 import initLiteParseWasm, { LiteParse } from "@llamaindex/liteparse-wasm";
 import { Schema } from "effect";
 
-import { hasBoundedPdfLiteParseResult, PdfLiteParseResultSchemaForPageCount } from "./config";
-import { LiteParseWorkerRequestSchema } from "./liteparse-browser-protocol";
-import type { LiteParseWorkerRequest } from "./liteparse-browser-protocol";
+import { hasBoundedPdfLiteParseResult, PdfLiteParseResultSchemaForPageCount } from "./config.js";
+import { LiteParseWorkerRequestSchema } from "./liteparse-browser-protocol.js";
+import type { LiteParseWorkerRequest } from "./liteparse-browser-protocol.js";
 
 const isLiteParseWorkerRequest = Schema.is(LiteParseWorkerRequestSchema);
 

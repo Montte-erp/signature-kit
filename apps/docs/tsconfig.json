@@ -2,6 +2,7 @@
   "compilerOptions": {
     "target": "ESNext",
     "lib": ["dom", "dom.iterable", "esnext"],
+    "types": ["vite/client"],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -14,22 +15,49 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
+    "tsBuildInfoFile": ".cache/typecheck.tsbuildinfo",
     "paths": {
-      "@/*": ["./*"],
-      "collections/*": ["./.source/*"]
-    },
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ]
+      "@/*": ["./*"]
+    }
   },
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
-  ],
-  "exclude": ["node_modules", "vitest.browser.config.ts"]
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", "vitest.browser.config.ts"],
+  "references": [
+    {
+      "path": "../../signers/zapsign"
+    },
+    {
+      "path": "../../core/signatures"
+    },
+    {
+      "path": "../../formats/react"
+    },
+    {
+      "path": "../../formats/pdf"
+    },
+    {
+      "path": "../../core/i18n"
+    },
+    {
+      "path": "../../core/http"
+    },
+    {
+      "path": "../../signers/docuseal"
+    },
+    {
+      "path": "../../signers/documenso"
+    },
+    {
+      "path": "../../shared/cms"
+    },
+    {
+      "path": "../../signers/clicksign"
+    },
+    {
+      "path": "../../signers/assinafy"
+    },
+    {
+      "path": "../../signers/a1"
+    }
+  ]
 }

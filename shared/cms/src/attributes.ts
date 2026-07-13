@@ -3,9 +3,9 @@ import { AsnConvert, OctetString } from "@peculiar/asn1-schema";
 import * as asn1js from "asn1js";
 import * as pkijs from "pkijs";
 import { Schema } from "effect";
-import { IcpBrasilPolicySchema, CmsOid, hashAlgorithmOid } from "./config";
-import type { IcpBrasilPolicy } from "./config";
-import { toArrayBuffer } from "./engine";
+import { IcpBrasilPolicySchema, CmsOid, hashAlgorithmOid } from "./config.js";
+import type { IcpBrasilPolicy } from "./config.js";
+import { toArrayBuffer } from "./engine.js";
 
 const contentTypeAttribute = (): pkijs.Attribute =>
   new pkijs.Attribute({
