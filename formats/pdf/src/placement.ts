@@ -1,18 +1,18 @@
 import type { PDFDocument, PDFPage } from "@cantoo/pdf-lib";
 import { PDFArray, PDFDict, PDFName, PDFNumber, type PDFObject } from "@cantoo/pdf-lib";
 import { Effect } from "effect";
-import { PdfError, PdfErrorCodeValue, PdfOperationValue } from "./config";
+import { PdfError, PdfErrorCodeValue, PdfOperationValue } from "./config.js";
 import type {
   PdfCoordinateTuple,
   PdfSignatureAnchor,
   PdfSignatureAppearance,
   PdfSignatureRect,
-} from "./config";
+} from "./config.js";
 import {
   pdfCoordinateTupleFromTopLeftRect,
   topLeftRectFromPdfCoordinateTuple,
   visiblePdfPageSize,
-} from "./stamp";
+} from "./stamp.js";
 
 const DEFAULT_AUTO_WIDTH = 180;
 const DEFAULT_AUTO_HEIGHT = 54;

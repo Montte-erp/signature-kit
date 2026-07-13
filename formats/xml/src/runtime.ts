@@ -11,8 +11,8 @@ import type {
   Signature as XmlDsigSignature,
 } from "xmldsigjs";
 import { setNodeDependencies } from "xml-core";
-import { XmlError, XmlErrorCodeValue, XmlOperationValue } from "./config";
-import type { XmlVerificationKeySource } from "./config";
+import { XmlError, XmlErrorCodeValue, XmlOperationValue } from "./config.js";
+import type { XmlVerificationKeySource } from "./config.js";
 
 declare module "@xmldom/xmldom" {
   interface DOMParser {

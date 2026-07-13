@@ -1,6 +1,6 @@
 import type { Check, CheckContext } from "../model";
 
-const alchemyProviderPathPattern = /^signers\/[^/]+\/src\/index\.ts$/;
+const alchemyProviderPathPattern = /^signers\/(?!a1(?:\/|$))[^/]+\/src\/[^/]+\.tsx?$/;
 
 const hasRetainedAlchemyResource = (source: string): boolean =>
   /defaultRemovalPolicy\s*:\s*["']retain["']/.test(source);

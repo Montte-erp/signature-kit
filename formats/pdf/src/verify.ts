@@ -1,15 +1,15 @@
 import type { CmsError } from "@signature-kit/cms/config";
 import { verifyDetachedSignedData } from "@signature-kit/cms/verify";
 import { Effect, Schema } from "effect";
-import { forEachPdfSignature } from "./byte-range";
+import { forEachPdfSignature, isCompletePdfRevision } from "./byte-range.js";
 import {
   PdfError,
   PdfErrorCodeValue,
   PdfOperationValue,
   PdfSchemaNameValue,
   PdfVerificationRequestSchema,
-} from "./config";
-import type { PdfVerificationRequest, PdfVerificationResult } from "./config";
+} from "./config.js";
+import type { PdfVerificationRequest, PdfVerificationResult } from "./config.js";
 
 export const verifyPdf = (
   input: PdfVerificationRequest,
@@ -41,6 +41,9 @@ export const verifyPdf = (
         signatureCount += 1;
         const isNewest = index === total - 1;
         if (!extracted.startsAtZero) coverageValid = false;
+        const revisionEnd = extracted.byteRange[2] + extracted.byteRange[3];
+        const revisionComplete = yield* isCompletePdfRevision(request.pdf, revisionEnd);
+        if (!revisionComplete) coverageValid = false;
         if (isNewest) {
           if (!extracted.coversFileEnd) coverageValid = false;
           byteRange = extracted.byteRange;

@@ -155,8 +155,8 @@ description: "Sign XML with signXml and validate with verifyXml: enveloped refer
 Every signing failure is a typed `SignatureKitError` on the error channel; XML parsing, canonicalization, and verification failures arrive as `XmlError`. The most common:
 
 <Cards>
-  <Card title="xml.INVALID_INPUT" href="/docs/signing/errors#error-catalog">An invalid signing or verification request — including missing or competing verification trust sources.</Card>
-  <Card title="xml.SIGN_FAILED" href="/docs/signing/errors#error-catalog">The signing operation over the digest could not be completed, including an unresolvable referenceId (no element with that Id).</Card>
+  <Card title="xml.INVALID_INPUT" href="./errors#error-catalog">An invalid signing or verification request — including missing or competing verification trust sources.</Card>
+  <Card title="xml.SIGN_FAILED" href="./errors#error-catalog">The signing operation over the digest could not be completed, including an unresolvable referenceId (no element with that Id).</Card>
 </Cards>
 
 <Callout type="info">
@@ -164,7 +164,7 @@ Every signing failure is a typed `SignatureKitError` on the error channel; XML p
 </Callout>
 
 <Cards>
-  <Card title="xml.VERIFY_FAILED" href="/docs/signing/errors#error-catalog">The verification step itself could not run to completion.</Card>
-  <Card title="xml.SIGNATURE_NOT_FOUND" href="/docs/signing/errors#error-catalog">No `<Signature>` element was found in the document.</Card>
-  <Card title="xml.KEY_IMPORT_FAILED" href="/docs/signing/errors#error-catalog">The provided `publicKeyDer`/`trustedCertificateDer` could not be imported as a verification key.</Card>
+  <Card title="xml.VERIFY_FAILED" href="./errors#error-catalog">The verification step itself could not run to completion.</Card>
+  <Card title="xml.SIGNATURE_NOT_FOUND" href="./errors#error-catalog">No `<Signature>` element was found in the document.</Card>
+  <Card title="xml.KEY_IMPORT_FAILED" href="./errors#error-catalog">The provided `publicKeyDer`/`trustedCertificateDer` could not be imported as a verification key.</Card>
 </Cards>

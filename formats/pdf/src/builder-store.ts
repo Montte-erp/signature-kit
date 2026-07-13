@@ -9,8 +9,8 @@ import {
   removePdfSignatureField,
   replacePdfSignatureField,
   validatePdfSignatureTemplate,
-} from "./builder";
-import type { PdfSignatureFieldsByPage } from "./builder";
+} from "./builder.js";
+import type { PdfSignatureFieldsByPage } from "./builder.js";
 import {
   PdfError,
   PdfErrorCodeValue,
@@ -19,7 +19,7 @@ import {
   PdfSignatureBestGuessPlacementInputSchema,
   PdfSignatureAutoPlacementPageValue,
   PdfSignaturePlacementAnchorValue,
-} from "./config";
+} from "./config.js";
 import type {
   PdfSignatureBestGuessPlacementInput,
   PdfSignatureBuilderState,
@@ -31,7 +31,7 @@ import type {
   PdfSignaturePlacementBatchResult,
   PdfSignaturePlacementBatchSuccess,
   PdfSignatureTemplate,
-} from "./config";
+} from "./config.js";
 type PdfSignatureBuilderListener = () => void;
 type PdfSignatureBuilderUpdater = (
   template: PdfSignatureTemplate,

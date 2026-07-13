@@ -187,13 +187,13 @@ description: "Read the holder identity of an A1 certificate (e-CPF / e-CNPJ), in
 
 Every read failure is a typed `SignatureKitError` in the error channel. The most common when reading certificates:
 
-- [`signature-kit.NO_CERTIFICATE`](/docs/signing/errors#error-catalog) — the loaded material does not contain a certificate.
-- [`signature-kit.X509_PARSE_FAILED`](/docs/signing/errors#error-catalog) — the DER could not be parsed by `parseX509`.
-- [`signature-kit.PEM_EXTRACTION_FAILED`](/docs/signing/errors#error-catalog) — failed to extract the PEM from the certificate.
+- [`signature-kit.NO_CERTIFICATE`](./errors#error-catalog) — the loaded material does not contain a certificate.
+- [`signature-kit.X509_PARSE_FAILED`](./errors#error-catalog) — the DER could not be parsed by `parseX509`.
+- [`signature-kit.PEM_EXTRACTION_FAILED`](./errors#error-catalog) — failed to extract the PEM from the certificate.
 
 ## See also
 
 <Cards>
-  <Card title="The signing boundary" href="/docs/signing/signers">The SignerAdapter that loads the A1 and exposes the signing material.</Card>
-  <Card title="Typed error channel" href="/docs/signing/errors">NO_CERTIFICATE, X509_PARSE_FAILED and the other SignatureKitError.</Card>
+  <Card title="The signing boundary" href="./signers">The SignerAdapter that loads the A1 and exposes the signing material.</Card>
+  <Card title="Typed error channel" href="./errors">NO_CERTIFICATE, X509_PARSE_FAILED and the other SignatureKitError.</Card>
 </Cards>

@@ -128,7 +128,7 @@ if (config === undefined) {
 
             const deletedAgain = yield* deleteById(created.id);
             expect(deletedAgain).toBeUndefined();
-          }).pipe(Effect.ensuring(deleteById(created.id).pipe(Effect.ignore)));
+          }).pipe(Effect.ensuring(deleteById(created.id).pipe(Effect.orDie)));
         }),
       120_000,
     );

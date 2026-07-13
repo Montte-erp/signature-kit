@@ -14,7 +14,7 @@ import {
 } from "@signature-kit/signatures";
 import type { BrazilianFields, Certificate, SignerIdentity } from "@signature-kit/signatures";
 import type { Redacted } from "effect";
-import { Effect, Schema } from "effect";
+import { Effect, Match, Schema } from "effect";
 
 const OID_COMMON_NAME = "2.5.4.3";
 const OID_COUNTRY = "2.5.4.6";
@@ -129,7 +129,19 @@ export const parseCertificate = (
       intermediateCertificates: pkcs12.chain,
       publicKeyDer: x509.publicKeyDer,
       privateKeyPem: keyPem,
-    }).pipe(Effect.orDie);
+    }).pipe(
+      Effect.mapError(
+        (issue) =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.x509ParseFailed,
+            retryable: false,
+            reason: "Invalid parsed X.509 certificate.",
+            operation: SignatureKitOperationValue.schemaDecode,
+            schemaName: "Certificate",
+            issueMessage: String(issue),
+          }),
+      ),
+    );
   });
 
 export const extractBrazilianFields = (
@@ -176,26 +188,25 @@ const certificateBytes = (source: CertificateSource): Uint8Array => {
   return new Uint8Array(source);
 };
 
-const cryptoErrorCode = (error: CryptoError): SignatureKitError["code"] => {
-  switch (error.code) {
-    case "crypto.WRONG_PASSWORD":
-      return SignatureKitErrorCodeValue.wrongPassword;
-    case "crypto.UNSUPPORTED_ALGORITHM":
-      return SignatureKitErrorCodeValue.unsupportedAlgorithm;
-    case "crypto.NO_CERTIFICATE":
-      return SignatureKitErrorCodeValue.noCertificate;
-    case "crypto.NO_PRIVATE_KEY":
-      return SignatureKitErrorCodeValue.noPrivateKey;
-    case "crypto.INVALID_FORMAT":
-      return SignatureKitErrorCodeValue.invalidFormat;
-    case "crypto.DECODE_ERROR":
-    case "crypto.CORRUPTED_FILE":
-    case "crypto.CIPHER_ERROR":
-      return SignatureKitErrorCodeValue.corruptedFile;
-    case "crypto.UNKNOWN":
-      return SignatureKitErrorCodeValue.unknown;
-  }
-};
+const cryptoErrorCode = (error: CryptoError): SignatureKitError["code"] =>
+  Match.value(error.code).pipe(
+    Match.when("crypto.WRONG_PASSWORD", () => SignatureKitErrorCodeValue.wrongPassword),
+    Match.when(
+      "crypto.UNSUPPORTED_ALGORITHM",
+      () => SignatureKitErrorCodeValue.unsupportedAlgorithm,
+    ),
+    Match.when("crypto.NO_CERTIFICATE", () => SignatureKitErrorCodeValue.noCertificate),
+    Match.when("crypto.NO_PRIVATE_KEY", () => SignatureKitErrorCodeValue.noPrivateKey),
+    Match.when("crypto.INVALID_FORMAT", () => SignatureKitErrorCodeValue.invalidFormat),
+    Match.whenOr(
+      "crypto.DECODE_ERROR",
+      "crypto.CORRUPTED_FILE",
+      "crypto.CIPHER_ERROR",
+      () => SignatureKitErrorCodeValue.corruptedFile,
+    ),
+    Match.when("crypto.UNKNOWN", () => SignatureKitErrorCodeValue.unknown),
+    Match.exhaustive,
+  );
 
 const isValidityRangeCurrent = (validity: Certificate["validity"]): boolean => {
   const now = Date.now();
@@ -340,8 +351,8 @@ const parseName = (
 const parseTimeWithZone = (text: string, yearDigits: 2 | 4): Date | null => {
   const utcTimePattern =
     yearDigits === 2
-      ? /^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?(?:\.\d+)?(Z|[+-]\d{4})?$/
-      : /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?(?:\.\d+)?(Z|[+-]\d{4})?$/;
+      ? /^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?(?:\.\d+)?Z$/
+      : /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?(?:\.\d+)?Z$/;
   const match = text.match(utcTimePattern);
   if (match === null) return null;
 
@@ -354,7 +365,6 @@ const parseTimeWithZone = (text: string, yearDigits: 2 | 4): Date | null => {
   const hourRaw = match[4];
   const minuteRaw = match[5];
   const secondRaw = match[6];
-  const zoneRaw = match[7];
 
   if (
     yearRaw === undefined ||
@@ -386,7 +396,13 @@ const parseTimeWithZone = (text: string, yearDigits: 2 | 4): Date | null => {
           return yy === null ? null : yy >= 50 ? 1900 + yy : 2000 + yy;
         })()
       : toNumber(yearRaw);
-  if (year === null) return null;
+  if (
+    year === null ||
+    (yearDigits === 2 && (year < 1950 || year > 2049)) ||
+    (yearDigits === 4 && year < 2050)
+  ) {
+    return null;
+  }
   const maxDay =
     month === 2
       ? year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
@@ -397,32 +413,12 @@ const parseTimeWithZone = (text: string, yearDigits: 2 | 4): Date | null => {
         : 31;
   if (day > maxDay) return null;
 
-  let offsetMinutes = 0;
-  if (zoneRaw !== undefined && zoneRaw !== "" && zoneRaw !== "Z") {
-    const zoneSign = zoneRaw[0];
-    const zoneHoursText = zoneRaw.substring(1, 3);
-    const zoneMinutesText = zoneRaw.substring(3, 5);
-    const zoneHours = toNumber(zoneHoursText);
-    const zoneMin = toNumber(zoneMinutesText);
-    if (
-      zoneHours === null ||
-      zoneMin === null ||
-      zoneHours > 23 ||
-      zoneMin > 59 ||
-      (zoneSign !== "+" && zoneSign !== "-")
-    ) {
-      return null;
-    }
-    const zoneTotal = zoneHours * 60 + zoneMin;
-    offsetMinutes = zoneSign === "+" ? zoneTotal : -zoneTotal;
-  }
-
   const base = Date.UTC(year, month - 1, day, hour, minute, second, 0);
-  return new Date(base - offsetMinutes * 60_000);
+  return new Date(base);
 };
 
 const parseTime = (node: Asn1Node): Effect.Effect<Date, SignatureKitError> => {
-  if (node.kind !== "primitive") {
+  if (node.kind !== "primitive" || node.class !== "universal") {
     return Effect.fail(
       new SignatureKitError({
         code: SignatureKitErrorCodeValue.x509ParseFailed,
@@ -432,7 +428,7 @@ const parseTime = (node: Asn1Node): Effect.Effect<Date, SignatureKitError> => {
       }),
     );
   }
-  const text = decodeText(node.bytes).trim();
+  const text = decodeText(node.bytes);
   const parsed =
     node.tag === 23
       ? parseTimeWithZone(text, 2)
@@ -456,7 +452,7 @@ const parseValidity = (
   node: Asn1Node,
 ): Effect.Effect<{ readonly notBefore: Date; readonly notAfter: Date }, SignatureKitError> =>
   Effect.gen(function* () {
-    if (node.kind !== "constructed" || node.children.length < 2) {
+    if (!isUniversalSequence(node) || node.children.length !== 2) {
       return yield* Effect.fail(
         new SignatureKitError({
           code: SignatureKitErrorCodeValue.x509ParseFailed,
@@ -478,7 +474,19 @@ const parseValidity = (
         }),
       );
     }
-    return { notBefore: yield* parseTime(before), notAfter: yield* parseTime(after) };
+    const notBefore = yield* parseTime(before);
+    const notAfter = yield* parseTime(after);
+    if (notBefore.getTime() > notAfter.getTime()) {
+      return yield* Effect.fail(
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.x509ParseFailed,
+          retryable: false,
+          reason: "Invalid Validity interval.",
+          operation: SignatureKitOperationValue.x509Parse,
+        }),
+      );
+    }
+    return { notBefore, notAfter };
   });
 
 const normalizeIcpOtherName = (oid: string, value: string): string => {
@@ -547,7 +555,15 @@ const parseGeneralName = (
     if (node.tag === 0) return yield* parseOtherName(node);
     if (node.kind === "primitive") {
       if (node.tag === 7) return formatIpAddress(node.bytes);
-      if (node.tag === 8) return yield* oidString(node);
+      if (node.tag === 8) {
+        const oidNode: Asn1Node = {
+          kind: "primitive",
+          class: "universal",
+          tag: 0x06,
+          bytes: node.bytes,
+        };
+        return yield* oidString(oidNode);
+      }
       const value = decodeText(node.bytes);
       if (value === "") return null;
       if (node.tag === 1) return `email=${value}`;
@@ -599,10 +615,15 @@ const nameField = (fields: Record<string, string>, key: string): string | null =
   return value === undefined || value === "" ? null : value;
 };
 
+const isUniversalSequence = (
+  node: Asn1Node,
+): node is Extract<Asn1Node, { readonly kind: "constructed" }> =>
+  node.kind === "constructed" && node.class === "universal" && node.tag === 0x10;
+
 export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKitError> =>
   Effect.gen(function* () {
     const cert = yield* decode(der);
-    if (cert.kind !== "constructed" || cert.children.length < 3) {
+    if (!isUniversalSequence(cert) || cert.children.length < 3) {
       return yield* Effect.fail(
         new SignatureKitError({
           code: SignatureKitErrorCodeValue.x509ParseFailed,
@@ -613,7 +634,7 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
       );
     }
     const tbsCert = cert.children[0];
-    if (tbsCert === undefined || tbsCert.kind !== "constructed") {
+    if (tbsCert === undefined || !isUniversalSequence(tbsCert)) {
       return yield* Effect.fail(
         new SignatureKitError({
           code: SignatureKitErrorCodeValue.x509ParseFailed,
@@ -627,11 +648,39 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
     let idx = 0;
 
     const version = tbs[idx];
-    if (version !== undefined && version.class === "context" && version.tag === 0) idx++;
-
+    if (version !== undefined && version.class === "context" && version.tag === 0) {
+      const versionNode =
+        version.kind === "constructed" && version.children.length === 1
+          ? version.children[0]
+          : undefined;
+      if (
+        versionNode === undefined ||
+        versionNode.kind !== "primitive" ||
+        versionNode.class !== "universal" ||
+        versionNode.tag !== 0x02 ||
+        versionNode.bytes.length !== 1 ||
+        versionNode.bytes[0] === undefined ||
+        versionNode.bytes[0] > 2
+      ) {
+        return yield* Effect.fail(
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.x509ParseFailed,
+            retryable: false,
+            reason: "Invalid TBSCertificate version.",
+            operation: SignatureKitOperationValue.x509Parse,
+          }),
+        );
+      }
+      idx++;
+    }
     const serialNode = tbs[idx];
     idx++;
-    if (serialNode === undefined || serialNode.kind !== "primitive" || serialNode.tag !== 0x02) {
+    if (
+      serialNode === undefined ||
+      serialNode.kind !== "primitive" ||
+      serialNode.class !== "universal" ||
+      serialNode.tag !== 0x02
+    ) {
       return yield* Effect.fail(
         new SignatureKitError({
           code: SignatureKitErrorCodeValue.x509ParseFailed,
@@ -649,7 +698,7 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
     idx++;
     if (
       issuerNode === undefined ||
-      issuerNode.kind !== "constructed" ||
+      !isUniversalSequence(issuerNode) ||
       issuerNode.children.length === 0
     ) {
       return yield* Effect.fail(
@@ -703,7 +752,7 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
 
     const spkiNode = tbs[idx];
     idx++;
-    if (spkiNode === undefined) {
+    if (spkiNode === undefined || !isUniversalSequence(spkiNode)) {
       return yield* Effect.fail(
         new SignatureKitError({
           code: SignatureKitErrorCodeValue.x509ParseFailed,

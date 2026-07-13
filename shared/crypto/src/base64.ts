@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { CryptoError, CryptoErrorCodeValue, CryptoOperationValue } from "./config";
+import { CryptoError, CryptoErrorCodeValue, CryptoOperationValue } from "./config.js";
 
 const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -63,6 +63,18 @@ export const base64ToBytes = (
       const second = base64Value(normalized[offset + 1] ?? "");
       const third = base64Value(normalized[offset + 2] ?? "");
       const fourth = base64Value(normalized[offset + 3] ?? "");
+      if (
+        offset + 4 === normalized.length &&
+        ((padding === 2 && (second & 0x0f) !== 0) || (padding === 1 && (third & 0x03) !== 0))
+      ) {
+        return yield* Effect.fail(
+          new CryptoError({
+            code: CryptoErrorCodeValue.invalidFormat,
+            reason: "Base64 input has non-zero padding bits.",
+            operation: CryptoOperationValue.base64Decode,
+          }),
+        );
+      }
       const chunk = (first << 18) | (second << 12) | (third << 6) | fourth;
 
       if (outputOffset < output.length) {

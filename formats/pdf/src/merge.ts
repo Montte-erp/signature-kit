@@ -7,8 +7,8 @@ import {
   PdfMergeDocumentsSchema,
   PdfOperationValue,
   PdfSchemaNameValue,
-} from "./config";
-import { hasPdfSignatureDictionaryEffect } from "./byte-range";
+} from "./config.js";
+import { hasPdfSignatureDictionaryEffect } from "./byte-range.js";
 
 const stripAcroFormWidgets = (document: PDFDocument): void => {
   for (const page of document.getPages()) {

@@ -11,7 +11,10 @@ const JsonResponseSchema = Schema.Struct({
 });
 
 const startServer = () => {
-  const voidResponseClosed = Promise.withResolvers<void>();
+  let resolveVoidResponseClosed: () => void = () => undefined;
+  const voidResponseClosed = new Promise<void>((resolve) => {
+    resolveVoidResponseClosed = resolve;
+  });
   return localHttpServer(async (request): Promise<LocalResponse> => {
     if (request.pathname === "/json") {
       return {
@@ -37,7 +40,7 @@ const startServer = () => {
         headers: { "Content-Type": "text/plain" },
         body: "ignored",
         keepOpen: true,
-        onClose: () => voidResponseClosed.resolve(),
+        onClose: () => resolveVoidResponseClosed(),
       };
     }
     if (request.pathname === "/multipart") {
@@ -89,7 +92,7 @@ const startServer = () => {
   }).pipe(
     Effect.map((server) => ({
       ...server,
-      voidResponseClosed: voidResponseClosed.promise,
+      voidResponseClosed,
     })),
   );
 };
@@ -312,7 +315,11 @@ describe("SignatureHttpClient", () => {
       const result = yield* Effect.result(
         SignatureHttpClient.use((http) =>
           http.requestJson(
-            { method: "POST", url: "https://provider.example.test/rate-limited" },
+            {
+              method: "POST",
+              url: "https://provider.example.test/rate-limited",
+              acceptedStatuses: [429],
+            },
             JsonResponseSchema,
             "JsonResponse",
           ),
@@ -333,10 +340,64 @@ describe("SignatureHttpClient", () => {
     }).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllGlobals()))),
   );
 
-  it.effect("rejects non-finite and negative request timeouts", () =>
+  it.effect("preserves rate-limit metadata when an accepted response body times out", () =>
     Effect.gen(function* () {
-      const invalidTimeouts = [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1];
+      vi.useFakeTimers();
+      vi.stubGlobal("fetch", () =>
+        Promise.resolve(
+          new Response(new ReadableStream<Uint8Array>({ start: () => undefined }), {
+            status: 429,
+            headers: { "Retry-After": "120" },
+          }),
+        ),
+      );
+      const request = SignatureHttpClient.use((http) =>
+        http.requestJson(
+          {
+            method: "POST",
+            url: "https://provider.example.test/rate-limited",
+            acceptedStatuses: [429],
+            timeoutMillis: 10,
+          },
+          JsonResponseSchema,
+          "JsonResponse",
+        ),
+      ).pipe(Effect.provide(signatureHttpClientLive));
+      const result = yield* Effect.promise(() => {
+        const pending = Effect.runPromise(Effect.result(request));
+        return vi.advanceTimersByTimeAsync(10).then(() => pending);
+      });
 
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe("signature-kit.HTTP");
+        expect(result.failure.status).toBe(429);
+        expect(result.failure.retryable).toBe(true);
+        expect(result.failure.retryAfterEpochSeconds).toBeGreaterThanOrEqual(
+          Math.floor(Date.now() / 1000) + 120,
+        );
+      }
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          vi.useRealTimers();
+          vi.unstubAllGlobals();
+        }),
+      ),
+    ),
+  );
+
+  it.effect("rejects non-finite, fractional, negative, and oversized request timeouts", () =>
+    Effect.gen(function* () {
+      const invalidTimeouts = [
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+        Number.NEGATIVE_INFINITY,
+        -1,
+        1.5,
+        2_147_483_648,
+        Number.MAX_SAFE_INTEGER,
+      ];
       for (const timeoutMillis of invalidTimeouts) {
         const result = yield* Effect.result(
           SignatureHttpClient.use((http) =>
@@ -356,6 +417,38 @@ describe("SignatureHttpClient", () => {
         }
       }
     }),
+  );
+  it.effect("cleans timers and listeners when fetch throws synchronously", () =>
+    Effect.gen(function* () {
+      vi.useFakeTimers();
+      const addEventListener = vi.spyOn(AbortSignal.prototype, "addEventListener");
+      const removeEventListener = vi.spyOn(AbortSignal.prototype, "removeEventListener");
+      vi.stubGlobal("fetch", () => {
+        throw new Error("synchronous fetch failure");
+      });
+      const result = yield* Effect.result(
+        SignatureHttpClient.use((http) =>
+          http.requestJson(
+            { method: "GET", url: "https://provider.example.test/status", timeoutMillis: 100 },
+            JsonResponseSchema,
+            "JsonResponse",
+          ),
+        ).pipe(Effect.provide(signatureHttpClientLive)),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      expect(addEventListener).toHaveBeenCalledWith("abort", expect.any(Function), { once: true });
+      expect(removeEventListener).toHaveBeenCalledWith("abort", expect.any(Function));
+      expect(vi.getTimerCount()).toBe(0);
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          vi.useRealTimers();
+          vi.restoreAllMocks();
+          vi.unstubAllGlobals();
+        }),
+      ),
+    ),
   );
 
   it.effect("times out slow response bodies with request timeout", () =>
@@ -407,6 +500,34 @@ describe("SignatureHttpClient", () => {
         expect(result.failure.reason).not.toContain("clicksign-secret");
       }
     }),
+  );
+  it.effect("redacts default diagnostic URLs", () =>
+    Effect.gen(function* () {
+      vi.stubGlobal("fetch", () => Promise.reject(new Error("network failure")));
+      const result = yield* Effect.result(
+        SignatureHttpClient.use((http) =>
+          http.requestJson(
+            {
+              method: "GET",
+              url: "https://alice:password@provider.example.test/status?access_token=query-secret&other=value#fragment",
+            },
+            JsonResponseSchema,
+            "JsonResponse",
+          ),
+        ).pipe(Effect.provide(signatureHttpClientLive)),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.reason).toContain("https://provider.example.test/status");
+        expect(result.failure.reason).not.toContain("alice");
+        expect(result.failure.reason).not.toContain("password");
+        expect(result.failure.reason).not.toContain("query-secret");
+        expect(result.failure.reason).not.toContain("fragment");
+        expect(result.failure.reason).not.toContain("?");
+        expect(result.failure.reason).not.toContain("#");
+      }
+    }).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllGlobals()))),
   );
 
   it.effect("maps malformed JSON into response-shape errors", () =>

@@ -10,12 +10,9 @@
   "dependencies": {
     "@effect/vitest": "4.0.0-beta.86",
     "@signature-kit/a1": "^0.3.0",
-    "@signature-kit/assinafy": "^0.3.0",
-    "@signature-kit/clicksign": "^0.3.0",
     "@signature-kit/pdf": "^0.3.0",
     "@signature-kit/signatures": "^0.1.0",
     "@signature-kit/xml": "^0.2.1",
-    "@signature-kit/zapsign": "^0.3.0",
     "effect": "4.0.0-beta.86",
     "vitest": "^4.0.0"
   },

@@ -2,7 +2,7 @@
 
 import { ArrowRight } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import Link from "next/link";
+import { Link } from "fumapress/client";
 
 import { InstallCommand } from "@/components/install-command";
 import { Badge } from "@/components/ui/badge";

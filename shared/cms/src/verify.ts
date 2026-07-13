@@ -6,9 +6,9 @@ import {
   CmsErrorCodeValue,
   CmsOid,
   CmsOperationValue,
-} from "./config";
-import type { CmsVerifyResult, VerifyDetachedSignedDataInput } from "./config";
-import { toArrayBuffer } from "./engine";
+} from "./config.js";
+import type { CmsVerifyResult, VerifyDetachedSignedDataInput } from "./config.js";
+import { toArrayBuffer } from "./engine.js";
 
 const isUint8Array = (value: unknown): value is Uint8Array =>
   Object.prototype.toString.call(value) === "[object Uint8Array]";
@@ -89,6 +89,16 @@ export const verifyDetachedSignedData = (
           operation: CmsOperationValue.verify,
         }),
     });
+    if (signed.signerInfos.length !== 1) {
+      return yield* Effect.fail(
+        new CmsError({
+          code: CmsErrorCodeValue.decodeError,
+          reason: "CMS SignedData must contain exactly one SignerInfo.",
+          operation: CmsOperationValue.verify,
+        }),
+      );
+    }
+
     if (signed.encapContentInfo.eContentType !== CmsOid.data) {
       return yield* Effect.fail(
         new CmsError({

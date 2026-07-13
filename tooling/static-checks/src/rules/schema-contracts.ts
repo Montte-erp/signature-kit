@@ -1,124 +1,153 @@
-import type { Check } from "../model";
-import { contractSuffixes, exportContractDeclarationPattern } from "../config";
-import { escapeRegex, isAdapterOrPackageFile, isSignatureRuntimeFile } from "./shared";
+import * as ts from "typescript";
+import type { Check, CheckContext } from "../model";
+import { contractSuffixes } from "../config";
+import { isAdapterOrPackageFile, isSignatureRuntimeFile } from "./shared";
 
-const hasManualSchemaContract = (line: string, path: string, source: string): boolean => {
-  if (!isAdapterOrPackageFile(path) && !isSignatureRuntimeFile(path)) {
+const contractNamePattern = new RegExp(`^[A-Za-z_$][\\w$]*(?:${contractSuffixes.join("|")})$`);
+
+const hasManualSchemaContract = (context: CheckContext): boolean => {
+  if (!isAdapterOrPackageFile(context.path) && !isSignatureRuntimeFile(context.path)) {
     return false;
   }
 
-  const match = exportContractDeclarationPattern.exec(line);
-  if (!match) {
-    return false;
-  }
-
-  const name = match[1] ?? "";
-  const escapedName = escapeRegex(name);
-  if (new RegExp("\\bexport\\s+type\\s+" + escapedName + "\\s*=\\s*Resource\\s*<").test(source)) {
-    return false;
-  }
-
-  const schemaName = name + "Schema";
-  const camelSchemaName = (name[0]?.toLowerCase() ?? "") + name.slice(1) + "Schema";
-  const schemaCandidates = new Set([schemaName, camelSchemaName]);
-  for (const suffix of contractSuffixes) {
-    if (!name.endsWith(suffix)) {
+  for (const statement of context.sourceFile.statements) {
+    if (
+      !(ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) ||
+      !statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ||
+      statement.name === undefined ||
+      !contractNamePattern.test(statement.name.text) ||
+      context.sourceFile.getLineAndCharacterOfPosition(statement.getStart(context.sourceFile))
+        .line !==
+        context.lineNumber - 1
+    ) {
       continue;
     }
 
-    const reduced = name.slice(0, -suffix.length);
-    if (!reduced) {
-      continue;
+    const name = statement.name.text;
+    if (
+      ts.isTypeAliasDeclaration(statement) &&
+      (statement.type.getText(context.sourceFile).includes("Resource<") ||
+        statement.type.getText(context.sourceFile).includes("Schema."))
+    ) {
+      return false;
     }
 
-    schemaCandidates.add(reduced + "Schema");
-    schemaCandidates.add((reduced[0]?.toLowerCase() ?? "") + reduced.slice(1) + "Schema");
-  }
-  const schemaAlternatives = [...schemaCandidates].map(escapeRegex).join("|");
-  const namedSchemaPattern = "\\b(?:const|export\\s+const)\\s+(?:" + schemaAlternatives + ")\\b";
-  const schemaAnnotationPattern =
-    "\\bSchema\\.(?:ConstraintDecoder|Schema)\\s*<\\s*" + escapedName + "\\b";
-  const contextPattern = "\\bContext\\.Reference\\s*<\\s*" + escapedName + "\\s*>";
-  const derivedTypePattern =
-    "\\b(?:export\\s+)?type\\s+" +
-    escapedName +
-    "\\s*=\\s*(?:\\(\\s*)?typeof\\s+(?:" +
-    schemaAlternatives +
-    ')\\s*\\)\\s*\\["Type"\\](?:\\s*\\[\\])?(?:\\s*[&;])?';
+    const schemaCandidates = new Set<string>([
+      `${name}Schema`,
+      `${name[0]?.toLowerCase() ?? ""}${name.slice(1)}Schema`,
+    ]);
+    for (const suffix of contractSuffixes) {
+      if (!name.endsWith(suffix)) {
+        continue;
+      }
+      const reduced = name.slice(0, -suffix.length);
+      if (reduced.length > 0) {
+        schemaCandidates.add(`${reduced}Schema`);
+        schemaCandidates.add(`${reduced[0]?.toLowerCase() ?? ""}${reduced.slice(1)}Schema`);
+      }
+    }
 
-  return !new RegExp(
-    namedSchemaPattern +
-      "|" +
-      schemaAnnotationPattern +
-      "|" +
-      contextPattern +
-      "|" +
-      derivedTypePattern,
-  ).test(source);
+    let hasSchemaBinding = false;
+    const visit = (node: ts.Node): void => {
+      if (hasSchemaBinding) {
+        return;
+      }
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        schemaCandidates.has(node.name.text)
+      ) {
+        const initializer = node.initializer;
+        const annotation = node.type?.getText(context.sourceFile) ?? "";
+        const initializerText = initializer?.getText(context.sourceFile) ?? "";
+        if (
+          annotation.startsWith("Schema.") ||
+          /^Schema\./.test(initializerText) ||
+          initializerText.startsWith("Schema.")
+        ) {
+          hasSchemaBinding = true;
+          return;
+        }
+      }
+      if (ts.isTypeAliasDeclaration(node) && node.name.text === name) {
+        const typeText = node.type.getText(context.sourceFile);
+        if ([...schemaCandidates].some((candidate) => typeText.includes(`typeof ${candidate}`))) {
+          hasSchemaBinding = true;
+          return;
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(context.sourceFile);
+    if (context.source.includes(`Context.Reference<${name}>`)) {
+      hasSchemaBinding = true;
+    }
+    return !hasSchemaBinding;
+  }
+  return false;
 };
-
-const hasAllowedSchemaLiteralSource = (line: string): boolean =>
-  /\bSchema\.Literals\s*\(/.test(line) ||
-  /\b(?:export\s+)?type\s+[A-Za-z_$][\w$]*\s*=\s*\(typeof\s+[A-Za-z_$][\w$]*Schema\)\["Type"\]/.test(
-    line,
-  );
 
 const literalCodeArrayDeclarationPattern =
-  /^\s*(?:const|let|var)\s+([A-Z][A-Z0-9_]*|[A-Za-z_$][\w$]*(?:Code|Codes|Status|Statuses|Reason|Reasons|Event|Events))\b/;
+  /^(?:[A-Za-z_$][\w$]*(?:Code|Codes|Status|Statuses|Reason|Reasons|Event|Events|code|codes|status|statuses|reason|reasons|event|events)|[A-Z][A-Z0-9_]*(?:CODE|CODES|STATUS|STATUSES|REASON|REASONS|EVENT|EVENTS))$/;
 
-const literalItemPattern = /^(?:"[^"]*"|'[^']*'|`[^`]*`)$/;
+const literalCodeArrayLines = new WeakMap<ts.SourceFile, ReadonlySet<number>>();
 
-const hasLiteralCodeArray = (line: string): boolean => {
-  if (hasAllowedSchemaLiteralSource(line)) {
-    return false;
+const getLiteralCodeArrayLines = (sourceFile: ts.SourceFile): ReadonlySet<number> => {
+  const cached = literalCodeArrayLines.get(sourceFile);
+  if (cached !== undefined) {
+    return cached;
   }
-
-  if (!literalCodeArrayDeclarationPattern.test(line)) {
-    return false;
+  const lines = new Set<number>();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) {
+      continue;
+    }
+    for (const declaration of statement.declarationList.declarations) {
+      if (
+        !ts.isIdentifier(declaration.name) ||
+        !literalCodeArrayDeclarationPattern.test(declaration.name.text)
+      ) {
+        continue;
+      }
+      let initializer = declaration.initializer;
+      while (
+        initializer !== undefined &&
+        (ts.isAsExpression(initializer) ||
+          ts.isParenthesizedExpression(initializer) ||
+          ts.isSatisfiesExpression(initializer))
+      ) {
+        initializer = initializer.expression;
+      }
+      if (
+        initializer !== undefined &&
+        ts.isArrayLiteralExpression(initializer) &&
+        initializer.elements.length > 0 &&
+        initializer.elements.every(
+          (element) => ts.isStringLiteral(element) || ts.isNoSubstitutionTemplateLiteral(element),
+        )
+      ) {
+        lines.add(sourceFile.getLineAndCharacterOfPosition(statement.getStart(sourceFile)).line);
+      }
+    }
   }
-
-  const open = line.indexOf("[");
-  const close = line.lastIndexOf("]");
-  if (open === -1 || close <= open + 1) {
-    return false;
-  }
-
-  const body = line.slice(open + 1, close).trim();
-  const values = body
-    .split(",")
-    .map((item) => item.trim())
-    .filter((item) => item !== "");
-
-  if (values.length === 0) {
-    return false;
-  }
-
-  if (
-    !values.every((value) =>
-      literalItemPattern.test(
-        value
-          .replace(/\s+as\s+const$/u, "")
-          .replace(/\s+as\s+(?!const)\w+$/u, "")
-          .trim(),
-      ),
-    )
-  ) {
-    return false;
-  }
-  return true;
+  literalCodeArrayLines.set(sourceFile, lines);
+  return lines;
 };
+
+const hasLiteralCodeArray = (context: CheckContext): boolean =>
+  getLiteralCodeArrayLines(context.sourceFile).has(context.lineNumber - 1);
 
 export const schemaContractChecks: readonly Check[] = [
   {
     message:
       "Use a Schema-derived type for exported config/data contracts in public packages; do not duplicate the shape in a manual interface.",
-    test: ({ line, path, source }) => hasManualSchemaContract(line, path, source),
+    test: hasManualSchemaContract,
     ignoreImportLine: false,
   },
   {
     message:
       "List codes/statuses/events with `Schema.Literals(...)`; do not keep raw literal domain arrays.",
-    test: ({ line }) => hasLiteralCodeArray(line),
+    test: hasLiteralCodeArray,
     ignoreImportLine: false,
   },
 ];

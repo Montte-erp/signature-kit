@@ -6,13 +6,37 @@ description: "Render unsigned and signed PDFs beside the signer, and feed page-c
 `react-pdf` belongs in your app, not in SignatureKit packages. Use it as a preview surface, keep object URLs owned by the action that creates them, and pass the selected rectangle to `prepareAndSignPdf`.
 
 ```tsx title="PdfPreviewIsland.tsx"
-import dynamic from "next/dynamic"
+import type { PdfPreviewProps } from "./PdfPreview"
+import { lazy, Suspense, useSyncExternalStore } from "react"
 
-export const PdfPreviewIsland = dynamic(
-  () => import("./PdfPreview").then((mod) => mod.PdfPreview),
-  { ssr: false },
+const LazyPdfPreview = lazy(() =>
+  import("./PdfPreview").then((module) => ({ default: module.PdfPreview })),
 )
+
+const subscribe = (_onStoreChange: () => void) => () => {}
+const getClientSnapshot = () => true
+const getServerSnapshot = () => false
+
+function useHydrated() {
+  return useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot)
+}
+
+function PdfPreviewFallback() {
+  return <p role="status" aria-live="polite">Loading PDF preview…</p>
+}
+
+export function PdfPreviewIsland(props: PdfPreviewProps) {
+  const hydrated = useHydrated()
+
+  return (
+    <Suspense fallback={<PdfPreviewFallback />}>
+      {hydrated ? <LazyPdfPreview {...props} /> : <PdfPreviewFallback />}
+    </Suspense>
+  )
+}
 ```
+
+`PdfPreviewIsland` is the cross-framework boundary: Waku renders the server snapshot as `false`, so the `lazy` callback (and the `react-pdf`/pdf.js module it loads) is never evaluated during SSR or the initial hydration pass. Once the browser snapshot is `true`, `Suspense` keeps the fallback visible until the client chunk resolves. The same React contract works in other SSR frameworks without a framework-specific dynamic helper.
 
 ```tsx title="PdfPreview.tsx"
 import { type PdfSignaturePage, type PdfSignatureRect } from "@signature-kit/pdf/config"
@@ -21,7 +45,7 @@ import * as React from "react"
 
 const STAMP_SIZE = { width: 180, height: 54 }
 
-type PdfPreviewProps = {
+export type PdfPreviewProps = {
   readonly unsignedPdf: Uint8Array
   readonly pages: Array<PdfSignaturePage>
   readonly sign: (rect: PdfSignatureRect) => Promise<Uint8Array>

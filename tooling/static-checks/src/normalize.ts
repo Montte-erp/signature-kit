@@ -1,29 +1,103 @@
-export const stripQuotedText = (line: string): string =>
-  line
-    .replace(/"([^"\\]|\\.)*"/g, "")
-    .replace(/'([^'\\]|\\.)*'/g, "")
-    .replace(/`([^`\\]|\\.)*`/g, "");
+type LexMode =
+  | "code"
+  | "line-comment"
+  | "block-comment"
+  | "single-quote"
+  | "double-quote"
+  | "template";
 
-export const stripLineComment = (line: string): string => {
-  const delimiter = line.indexOf("//");
-  return delimiter === -1 ? line : line.slice(0, delimiter);
-};
+const lex = (source: string, removeQuotedText: boolean): string => {
+  let mode: LexMode = "code";
+  let escaped = false;
+  let output = "";
 
-export const stripBlockComments = (line: string): string => {
-  let remaining = line;
-  while (true) {
-    const start = remaining.indexOf("/*");
-    if (start === -1) break;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index] ?? "";
+    const next = source[index + 1] ?? "";
 
-    const end = remaining.indexOf("*/", start + 2);
-    remaining =
-      end === -1 ? remaining.slice(0, start) : remaining.slice(0, start) + remaining.slice(end + 2);
+    if (mode === "line-comment") {
+      if (character === "\n" || character === "\r") {
+        mode = "code";
+        output += character;
+      } else {
+        output += " ";
+      }
+      continue;
+    }
+
+    if (mode === "block-comment") {
+      if (character === "*" && next === "/") {
+        mode = "code";
+        output += "  ";
+        index += 1;
+      } else {
+        output += character === "\n" || character === "\r" ? character : " ";
+      }
+      continue;
+    }
+
+    if (mode === "single-quote" || mode === "double-quote" || mode === "template") {
+      if (escaped) {
+        escaped = false;
+        output +=
+          character === "\n" || character === "\r" ? character : removeQuotedText ? " " : character;
+        continue;
+      }
+      if (character === "\\") {
+        escaped = true;
+        output += removeQuotedText ? " " : character;
+        continue;
+      }
+      const closingQuote = mode === "single-quote" ? "'" : mode === "double-quote" ? '"' : "`";
+      if (character === closingQuote) {
+        mode = "code";
+      }
+      output +=
+        character === "\n" || character === "\r" ? character : removeQuotedText ? " " : character;
+      continue;
+    }
+
+    if (character === "/" && next === "/") {
+      mode = "line-comment";
+      output += removeQuotedText ? "  " : "  ";
+      index += 1;
+      continue;
+    }
+    if (character === "/" && next === "*") {
+      mode = "block-comment";
+      output += "  ";
+      index += 1;
+      continue;
+    }
+    if (character === "'") {
+      mode = "single-quote";
+      output += removeQuotedText ? " " : character;
+      continue;
+    }
+    if (character === '"') {
+      mode = "double-quote";
+      output += removeQuotedText ? " " : character;
+      continue;
+    }
+    if (character === "`") {
+      mode = "template";
+      output += removeQuotedText ? " " : character;
+      continue;
+    }
+    output += character;
   }
-  return remaining;
+
+  return output;
 };
 
-export const normalizeLine = (line: string): string =>
-  stripLineComment(stripBlockComments(stripQuotedText(line))).trimEnd();
+export const stripQuotedText = (line: string): string => lex(line, true);
 
-export const stripSourceComments = (source: string): string =>
-  source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+export const stripLineComment = (line: string): string => lex(line, true);
+
+export const stripBlockComments = (line: string): string => lex(line, true);
+
+export const normalizeLine = (line: string): string => lex(line, true).trimEnd();
+
+export const normalizeSource = (source: string): string => lex(source, true);
+
+export const stripSourceComments = (source: string): string => lex(source, false);

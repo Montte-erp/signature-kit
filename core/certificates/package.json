@@ -2,6 +2,10 @@
   "name": "@signature-kit/certificates",
   "version": "0.2.1",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Montte-erp/signature-kit.git"
+  },
   "files": [
     "dist",
     "README.md",
@@ -22,8 +26,6 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -b tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit --tsBuildInfoFile .cache/typecheck.tsbuildinfo",
     "test": "vitest run"
   },
   "dependencies": {
@@ -37,7 +39,7 @@
       "npm-pack": {
         "executor": "nx:run-commands",
         "options": {
-          "command": "npm pack --dry-run --json",
+          "command": "bun pm pack --dry-run",
           "cwd": "{projectRoot}"
         }
       },

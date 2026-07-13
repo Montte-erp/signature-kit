@@ -10,10 +10,15 @@ import {
   type PDFObject,
 } from "@cantoo/pdf-lib";
 import { Effect, Schema } from "effect";
-import { PdfError, PdfErrorCodeValue, PdfOperationValue, PdfSigningRequestSchema } from "./config";
-import type { PdfSigningRequest } from "./config";
-import { resolveSignatureWidgetPlacement } from "./placement";
-import { hasPdfByteRange } from "./byte-range";
+import {
+  PdfError,
+  PdfErrorCodeValue,
+  PdfOperationValue,
+  PdfSigningRequestSchema,
+} from "./config.js";
+import type { PdfSigningRequest } from "./config.js";
+import { resolveSignatureWidgetPlacement } from "./placement.js";
+import { hasPdfByteRange } from "./byte-range.js";
 
 export const DEFAULT_SIGNATURE_LENGTH = 16384;
 export const DEFAULT_ICP_BRASIL_SIGNATURE_LENGTH = 32768;

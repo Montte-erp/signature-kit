@@ -42,14 +42,14 @@ export type DocuSealSubmissionState = (typeof DocuSealSubmissionStateSchema)["Ty
 
 export const DocuSealSubmissionDocumentSchema = Schema.Struct({
   fileName: Schema.NonEmptyString,
-  mimeType: Schema.NonEmptyString,
+  mimeType: Schema.Literal("application/pdf"),
   content: Schema.Uint8Array,
 });
 export type DocuSealSubmissionDocument = (typeof DocuSealSubmissionDocumentSchema)["Type"];
 
 export const DocuSealSubmissionDocumentPropsSchema = Schema.Struct({
   fileName: Schema.NonEmptyString,
-  mimeType: Schema.NonEmptyString,
+  mimeType: Schema.Literal("application/pdf"),
   contentBase64: base64String,
 });
 export type DocuSealSubmissionDocumentProps =
@@ -291,14 +291,6 @@ const docuSealSubmissionListUrl = (baseUrl: string, after?: number): string => {
   return url.toString();
 };
 
-const docuSealSubmissionsNextUrl = (
-  baseUrl: string,
-  pagination: (typeof DocuSealPaginationSchema)["Type"],
-): Option.Option<string> =>
-  pagination.next === null
-    ? Option.none()
-    : Option.some(docuSealSubmissionListUrl(baseUrl, pagination.next));
-
 const DocuSealStatusSchema = Schema.Literals([
   "draft",
   "completed",
@@ -456,8 +448,26 @@ const listSubmissions = (
   options: DocuSealProviderOptions,
   baseUrl: string,
 ): Effect.Effect<DocuSealSubmissionAttributes[], SignatureKitError> =>
-  Stream.paginate(docuSealSubmissionListUrl(baseUrl), (url) =>
-    http
+  Stream.paginate({ after: Option.none<number>(), visited: new Set<number>() }, (state) => {
+    if (Option.isSome(state.after) && state.visited.has(state.after.value)) {
+      return Effect.fail(
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.responseShape,
+          retryable: false,
+          provider: PROVIDER,
+          operation: SignatureKitOperationValue.httpDecode,
+          schemaName: DocuSealSchemaName.submissionsResult,
+          reason: "DocuSeal list pagination returned a repeated cursor.",
+        }),
+      );
+    }
+    const nextVisited = new Set(state.visited);
+    if (Option.isSome(state.after)) nextVisited.add(state.after.value);
+    const url = docuSealSubmissionListUrl(
+      baseUrl,
+      Option.isSome(state.after) ? state.after.value : undefined,
+    );
+    return http
       .requestJson(
         {
           provider: PROVIDER,
@@ -472,13 +482,24 @@ const listSubmissions = (
         Effect.map(
           (
             result,
-          ): readonly [ReadonlyArray<DocuSealSubmissionAttributes>, Option.Option<string>] => [
+          ): readonly [
+            ReadonlyArray<DocuSealSubmissionAttributes>,
+            Option.Option<{
+              readonly after: Option.Option<number>;
+              readonly visited: Set<number>;
+            }>,
+          ] => [
             result.data.map((submission) => toDocuSealSubmissionAttributes(baseUrl, submission)),
-            docuSealSubmissionsNextUrl(baseUrl, result.pagination),
+            result.pagination.next === null
+              ? Option.none()
+              : Option.some({
+                  after: Option.some(result.pagination.next),
+                  visited: nextVisited,
+                }),
           ],
         ),
-      ),
-  ).pipe(Stream.runCollect);
+      );
+  }).pipe(Stream.runCollect);
 
 const fetchSubmission = (
   http: SignatureHttpClientService,

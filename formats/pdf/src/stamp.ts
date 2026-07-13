@@ -13,7 +13,7 @@ import {
 import type { PDFFont, PDFPage, PDFImage, RGB } from "@cantoo/pdf-lib";
 import qrcode from "qrcode-generator";
 import { Effect, Schema } from "effect";
-import { inflateZlibBounded } from "./byte-range";
+import { inflateZlibBounded } from "./byte-range.js";
 import {
   PdfError,
   PdfErrorCodeValue,
@@ -24,7 +24,7 @@ import {
   PdfSignatureBadgeSchema,
   PdfVisibleStampQrSchema,
   PdfSignatureRectSchema,
-} from "./config";
+} from "./config.js";
 import type {
   PdfCoordinateTuple,
   PdfLiteParseResult,
@@ -41,9 +41,9 @@ import type {
   PdfTextBox,
   PdfVisibleStampQr,
   PdfVisibleStampInput,
-} from "./config";
-import { hasPdfByteRange } from "./byte-range";
-import { clampCoordinate } from "./placement";
+} from "./config.js";
+import { hasPdfByteRange } from "./byte-range.js";
+import { clampCoordinate } from "./placement.js";
 const PAD = 3;
 const FRAME = rgb(0.45, 0.45, 0.45);
 const INK = rgb(0.1, 0.1, 0.1);

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import { Effect, Result, Schema } from "effect";
 import {
   SignatureKitError,
   SignatureKitErrorCodeSchema,
@@ -7,6 +8,20 @@ import {
 } from "@signature-kit/signatures";
 
 describe("SignatureKitError catalog", () => {
+  it.effect("rejects unsupported operations through the typed error schema", () =>
+    Effect.gen(function* () {
+      const result = yield* Effect.result(
+        Schema.decodeUnknownEffect(SignatureKitError)({
+          _tag: "SignatureKitError",
+          code: SignatureKitErrorCodeValue.unknown,
+          retryable: false,
+          operation: "arbitrary",
+        }),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+    }),
+  );
   it("keeps exported catalog messages aligned with the tagged error", () => {
     for (const entry of signatureKitErrorCatalog) {
       const defaultError = new SignatureKitError({ code: entry.code, retryable: false });

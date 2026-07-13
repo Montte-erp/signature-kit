@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadA1SignerAdapter, parseA1CertificateProfile } from "@signature-kit/a1/signer";
+import { loadA1SignerAdapter, parseA1CertificateProfile } from "../src/signer";
 import { Effect, Redacted } from "effect";
 
 const PASSWORD = Redacted.make("changeit");

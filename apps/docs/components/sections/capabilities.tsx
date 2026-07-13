@@ -1,5 +1,5 @@
 import { ArrowRight } from "lucide-react";
-import Link from "next/link";
+import { Link } from "fumapress/client";
 
 import { FadeIn } from "@/components/fade-in";
 import {
@@ -83,9 +83,9 @@ export function Capabilities() {
             <FadeIn
               key={capability.docHref}
               delay={0.05 + i * 0.05}
-              className={cn("h-full", capability.wide && "sm:col-span-2")}
+              className={cn("h-full min-w-0", capability.wide && "sm:col-span-2")}
             >
-              <Card className="group flex h-full flex-col gap-0 p-5">
+              <Card className="group flex h-full min-w-0 flex-col gap-0 p-5">
                 <span className="font-mono text-xs text-muted-foreground">
                   {String(i + 1).padStart(2, "0")}
                 </span>
@@ -98,7 +98,7 @@ export function Capabilities() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="mt-auto p-0">
-                  <code className="mt-4 block overflow-x-auto rounded-lg border border-border bg-input/30 px-3 py-2 font-mono text-xs text-muted-foreground">
+                  <code className="mt-4 block max-w-full min-w-0 overflow-x-auto rounded-lg border border-border bg-input/30 px-3 py-2 font-mono text-xs text-muted-foreground">
                     {capability.code}
                   </code>
                 </CardContent>

@@ -1,5 +1,7 @@
 "use client";
 
+import "@/instrumentation-client";
+
 import type { ReactNode } from "react";
 
 import type { Locale } from "@/lib/locale";

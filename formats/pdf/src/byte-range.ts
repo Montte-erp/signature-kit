@@ -9,9 +9,16 @@ import {
 } from "@cantoo/pdf-lib";
 import type { PDFObject } from "@cantoo/pdf-lib";
 import { Effect, Result, Schema } from "effect";
-import { concatBytes, encodeAscii, replaceRange } from "./bytes";
-import { MAX_PDF_SIGNATURE_BYTES, PdfError, PdfErrorCodeValue, PdfOperationValue } from "./config";
-import type { PdfOperation } from "./config";
+import { concatBytes, encodeAscii, replaceRange } from "./bytes.js";
+import {
+  MAX_PDF_SIGNATURE_BYTES,
+  PdfByteRangeSchema,
+  PdfError,
+  PdfErrorCodeValue,
+  PdfOperationValue,
+} from "./config.js";
+import type { PdfOperation } from "./config.js";
+export { PdfByteRangeSchema } from "./config.js";
 
 const LEFT_ANGLE = 0x3c;
 const RIGHT_ANGLE = 0x3e;
@@ -63,21 +70,15 @@ const MAX_TOTAL_CROSS_REFERENCE_ENTRIES = 500_000;
 const MAX_OBJECT_STREAM_BYTES = 16 * 1024 * 1024;
 const MAX_OBJECT_STREAM_OBJECTS = 100_000;
 const MAX_OBJECT_STREAM_RESOLUTIONS = 10_000;
-export const PdfByteRangeSchema = Schema.Tuple([
-  Schema.Number,
-  Schema.Number,
-  Schema.Number,
-  Schema.Number,
-]);
 export type PdfByteRange = (typeof PdfByteRangeSchema)["Type"];
 
 export const PreparedPdfSignatureSchema = Schema.Struct({
   pdf: Schema.Uint8Array,
   byteRange: PdfByteRangeSchema,
   signedData: Schema.Uint8Array,
-  contentsStart: Schema.Number,
-  contentsEnd: Schema.Number,
-  placeholderLength: Schema.Number,
+  contentsStart: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  contentsEnd: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  placeholderLength: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
 });
 export type PreparedPdfSignature = (typeof PreparedPdfSignatureSchema)["Type"];
 

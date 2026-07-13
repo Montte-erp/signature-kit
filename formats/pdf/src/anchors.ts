@@ -1,23 +1,23 @@
 import { PDFDocument } from "@cantoo/pdf-lib";
 import { Effect, Schema } from "effect";
-import { parsePdfTextBoxesBrowser } from "./liteparse-browser";
-import type { LiteParseWorkerFactory } from "./liteparse-browser";
-import { clampCoordinate } from "./placement";
-import { visiblePdfPageSize } from "./stamp";
+import { parsePdfTextBoxesBrowser } from "./liteparse-browser.js";
+import type { LiteParseWorkerFactory } from "./liteparse-browser.js";
+import { clampCoordinate } from "./placement.js";
+import { visiblePdfPageSize } from "./stamp.js";
 import {
   PdfError,
   PdfErrorCodeValue,
   PdfOperationValue,
   PdfSchemaNameValue,
   PdfTextAnchorSearchInputSchema,
-} from "./config";
+} from "./config.js";
 import type {
   PdfSignaturePage,
   PdfSignatureRect,
   PdfTextAnchorMatcher,
   PdfTextAnchorSearchInput,
   PdfTextBox,
-} from "./config";
+} from "./config.js";
 
 const DEFAULT_ANCHOR_OFFSET = 4;
 

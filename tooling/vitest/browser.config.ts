@@ -23,6 +23,7 @@ export default defineConfig({
     },
   },
   test: {
+    include: ["**/*.browser.test.*"],
     deps: {
       optimizer: {
         client: { enabled: false },

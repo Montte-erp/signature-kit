@@ -27,7 +27,7 @@ import type {
 } from "../src/index";
 
 const API_KEY = "docuseal-local-token";
-const sampleContent = new TextEncoder().encode("local docuSeal test payload");
+const sampleContent = new TextEncoder().encode("%PDF-1.4\n% local docuSeal test payload");
 const sampleContentBase64 = Buffer.from(sampleContent).toString("base64");
 
 const submissionPayload: DocuSealSubmissionProps = {
@@ -36,8 +36,8 @@ const submissionPayload: DocuSealSubmissionProps = {
   message: "offline test message",
   documents: [
     {
-      fileName: "document.txt",
-      mimeType: "text/plain",
+      fileName: "document.pdf",
+      mimeType: "application/pdf",
       contentBase64: sampleContentBase64,
     },
   ],
@@ -190,6 +190,44 @@ describe("DocuSeal offline provider", () => {
         }),
     ),
   );
+  it.effect("rejects non-PDF documents before any HTTP request", () =>
+    withLocalServer(
+      async () =>
+        Promise.resolve({
+          status: 500,
+          body: "unexpected request",
+        }),
+      (options, requests) =>
+        Effect.gen(function* () {
+          const validInput = submissionPayload;
+          const invalidInput = JSON.parse(
+            JSON.stringify({
+              ...validInput,
+              documents: [
+                {
+                  ...validInput.documents[0],
+                  mimeType: "text/plain",
+                },
+              ],
+            }),
+          );
+          const result = yield* Effect.result(
+            Effect.gen(function* () {
+              const provider = yield* Provider.findProvider(DocuSealSignatureRequest);
+              return yield* provider.reconcile(
+                reconcileResourceProps("docuseal-offline-invalid-mime", invalidInput),
+              );
+            }).pipe(Effect.provide(docuSealProviders(options))),
+          );
+
+          expect(Result.isFailure(result)).toBe(true);
+          if (Result.isFailure(result)) {
+            expect(result.failure.code).toBe(SignatureKitErrorCodeValue.invalidInput);
+          }
+          expect(requests).toHaveLength(0);
+        }),
+    ),
+  );
 
   it.effect("maps every local state from get and list, and list follows 2-page pagination", () =>
     withLocalServer(
@@ -275,6 +313,51 @@ describe("DocuSeal offline provider", () => {
           );
           expect(getRequests).toHaveLength(STATE_CASES.length);
           expect(requests).toHaveLength(2 + STATE_CASES.length);
+        }),
+    ),
+  );
+  it.effect("fails with a typed error when list pagination cycles a cursor", () =>
+    withLocalServer(
+      async (request) => {
+        if (request.pathname === "/submissions" && request.method === "GET") {
+          const after = request.query.get("after");
+          const page =
+            after === null
+              ? { id: "first", next: 4 }
+              : after === "4"
+                ? { id: "second", next: 8 }
+                : { id: "third", next: 4 };
+          return {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              data: [{ id: page.id, status: "draft" }],
+              pagination: { count: 3, next: page.next, prev: null },
+            }),
+          };
+        }
+        return { status: 404, body: "not found" };
+      },
+      (options, requests) =>
+        Effect.gen(function* () {
+          const result = yield* Effect.result(listDocuSealSignatureRequests(options));
+
+          expect(Result.isFailure(result)).toBe(true);
+          if (Result.isFailure(result)) {
+            expect(result.failure.code).toBe(SignatureKitErrorCodeValue.responseShape);
+            expect(result.failure.provider).toBe("docuseal");
+            expect(result.failure.reason).toContain("repeated cursor");
+          }
+
+          const listRequests = requests.filter(
+            (request) => request.pathname === "/submissions" && request.method === "GET",
+          );
+          expect(listRequests).toHaveLength(3);
+          expect(listRequests.map((request) => request.query.get("after"))).toEqual([
+            null,
+            "4",
+            "8",
+          ]);
         }),
     ),
   );

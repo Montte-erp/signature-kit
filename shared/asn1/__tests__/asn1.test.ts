@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Result } from "effect";
-import { decode, encode } from "../src/asn1";
+import { decode, encode, integerBigInt, oidString } from "../src/asn1";
+import type { Asn1Error } from "../src/asn1";
 
 const expectDecodeError = (bytes: Uint8Array) =>
   Effect.gen(function* () {
@@ -10,6 +11,29 @@ const expectDecodeError = (bytes: Uint8Array) =>
     if (Result.isFailure(outcome)) {
       expect(outcome.failure._tag).toBe("Asn1Error");
       expect(outcome.failure.code).toBe("asn1.DECODE_ERROR");
+    }
+  });
+
+const expectStructureError = <A>(effect: Effect.Effect<A, Asn1Error>) =>
+  Effect.gen(function* () {
+    const outcome = yield* Effect.result(effect);
+
+    expect(Result.isFailure(outcome)).toBe(true);
+    if (Result.isFailure(outcome)) {
+      expect(outcome.failure._tag).toBe("Asn1Error");
+      expect(outcome.failure.code).toBe("asn1.STRUCTURE_ERROR");
+    }
+  });
+
+const expectOidError = (bytes: Uint8Array) =>
+  Effect.gen(function* () {
+    const node = yield* decode(bytes);
+    const outcome = yield* Effect.result(oidString(node));
+
+    expect(Result.isFailure(outcome)).toBe(true);
+    if (Result.isFailure(outcome)) {
+      expect(outcome.failure._tag).toBe("Asn1Error");
+      expect(outcome.failure.code).toBe("asn1.OID_ERROR");
     }
   });
 
@@ -51,6 +75,48 @@ describe("ASN.1 decoder DER hardening", () => {
       yield* assertRoundTrip(Uint8Array.of(0x1f, 0x1f, 0x00));
     }),
   );
+
+  it.effect("requires typed accessors to receive their universal primitive tags", () =>
+    Effect.gen(function* () {
+      const octetString = yield* decode(Uint8Array.of(0x04, 0x01, 0x2a));
+      yield* expectStructureError(oidString(octetString));
+      yield* expectStructureError(integerBigInt(octetString));
+
+      const contextPrimitive = yield* decode(Uint8Array.of(0x80, 0x01, 0x2a));
+      yield* expectStructureError(oidString(contextPrimitive));
+      yield* expectStructureError(integerBigInt(contextPrimitive));
+    }),
+  );
+
+  it.effect("accepts canonical OID VLQ and rejects non-minimal groups", () =>
+    Effect.gen(function* () {
+      const canonical = yield* decode(Uint8Array.of(0x06, 0x03, 0x2a, 0x86, 0x48));
+      expect(yield* oidString(canonical)).toBe("1.2.840");
+      yield* expectOidError(Uint8Array.of(0x06, 0x02, 0x80, 0x2a));
+    }),
+  );
+
+  it.effect("rejects OID VLQ values above the safe integer range", () =>
+    expectOidError(Uint8Array.of(0x06, 0x08, 0x90, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00)),
+  );
+
+  it.effect("rejects nesting before the call stack overflows", () => {
+    const depth = 10_000;
+    const nested = new Uint8Array(depth * 4 + 2);
+    for (let index = 0; index < depth; index++) {
+      nested[index * 2] = 0x30;
+      nested[index * 2 + 1] = 0x80;
+    }
+    const nullOffset = depth * 2;
+    nested[nullOffset] = 0x05;
+    nested[nullOffset + 1] = 0x00;
+    for (let index = 0; index < depth; index++) {
+      const endOffset = nullOffset + 2 + index * 2;
+      nested[endOffset] = 0x00;
+      nested[endOffset + 1] = 0x00;
+    }
+    return expectDecodeError(nested);
+  });
 
   it.effect("continues to decode constructed indefinite-length BER", () =>
     Effect.gen(function* () {

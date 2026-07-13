@@ -1,5 +1,3 @@
-import Image from "next/image";
-
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -28,13 +26,12 @@ export function LogoPill({ brand, className }: { brand: Brand; className?: strin
         className,
       )}
     >
-      <Image
+      <img
         src={brandLogoUrl(brand.domain)}
         alt=""
         aria-hidden
         width={16}
         height={16}
-        unoptimized
         loading="lazy"
         className="size-4 shrink-0 rounded-[3px] object-contain opacity-70 grayscale transition group-hover:opacity-100"
       />

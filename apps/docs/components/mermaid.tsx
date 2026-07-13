@@ -1,7 +1,5 @@
 "use client";
 
-import { Effect } from "effect";
-import mermaid from "mermaid";
 import { useCallback, useId, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 
@@ -33,35 +31,23 @@ const subscribeMermaidTheme = (listener: () => void): (() => void) => {
   return () => observer.disconnect();
 };
 
-const renderMermaidChart = (
+const renderMermaidChart = async (
   id: string,
   chart: string,
   theme: MermaidTheme,
-): Effect.Effect<RenderState> =>
-  Effect.sync(() =>
-    mermaid.initialize({
-      securityLevel: "strict",
-      startOnLoad: false,
-      theme,
-      themeVariables: {
-        fontFamily: "var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif",
-      },
-    }),
-  ).pipe(
-    Effect.flatMap(() =>
-      Effect.tryPromise({
-        try: () => mermaid.render(id, chart),
-        catch: () => "mermaid-render-failed",
-      }),
-    ),
-    Effect.match({
-      onFailure: (): RenderState => ({
-        status: "error",
-        message: "Unable to render Mermaid diagram.",
-      }),
-      onSuccess: (result): RenderState => ({ status: "ready", svg: result.svg }),
-    }),
-  );
+): Promise<RenderState> => {
+  try {
+    // Mermaid is loaded only after a hydrated diagram has a render target.
+    const runtime = await import("./mermaid-runtime");
+    const result = await runtime.renderMermaidChart(id, chart, theme);
+    return { status: "ready", svg: result.svg };
+  } catch {
+    return {
+      status: "error",
+      message: "Unable to render Mermaid diagram.",
+    };
+  }
+};
 
 export function Mermaid({ chart, className }: MermaidProps) {
   const id = `mermaid-${useId().replace(/[^a-zA-Z0-9_-]/g, "-")}`;
@@ -76,7 +62,7 @@ export function Mermaid({ chart, className }: MermaidProps) {
       if (node === null) return;
       const lifecycle: MermaidRenderLifecycle = { active: true };
       setState({ status: "loading" });
-      void Effect.runPromise(renderMermaidChart(id, chart, theme)).then((next) => {
+      void renderMermaidChart(id, chart, theme).then((next) => {
         if (lifecycle.active) setState(next);
       });
       return () => {

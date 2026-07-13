@@ -1,7 +1,7 @@
 import { Schema } from "effect";
-import { sha1 } from "./sha1";
-import { sha256, sha256ProcessBlock, sha256WithState } from "./sha256";
-import { sha384, sha512 } from "./sha512";
+import { sha1 } from "./sha1.js";
+import { sha256, sha256ProcessBlock, sha256WithState } from "./sha256.js";
+import { sha384, sha512 } from "./sha512.js";
 
 export const HmacHashAlgorithmSchema = Schema.Literals(["sha1", "sha256", "sha384", "sha512"]);
 export type HmacHashAlgorithm = (typeof HmacHashAlgorithmSchema)["Type"];

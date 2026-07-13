@@ -1,91 +1,109 @@
-import type { Check } from "../model";
-import { isTaggedErrorName } from "./shared";
-
+import * as ts from "typescript";
+import type { Check, CheckContext } from "../model";
 const hasHttpClientErrorInspector = (line: string): boolean =>
   /\b(?:const|function)\s+(?:isRecord|get[A-Za-z_$][\w$]*Error[A-Za-z_$\w$]*|create[A-Za-z_$][\w$]*Error[A-Za-z_$\w$]*)\b/.test(
     line,
   );
+const runtimeErrorLines = new WeakMap<ts.SourceFile, ReadonlySet<number>>();
+const assertionThrowLines = new WeakMap<ts.SourceFile, ReadonlySet<number>>();
 
-const hasRuntimeErrorHelpers = (line: string): boolean => {
-  const statementKeywords = /\b(try|catch|finally)\b\s*[{(]/g;
-  for (const match of line.matchAll(statementKeywords)) {
-    const start = match.index ?? 0;
-    const before = start > 0 ? line[start - 1] : "";
-    if (before === "." || before === "?") {
-      continue;
+const lineOf = (sourceFile: ts.SourceFile, node: ts.Node): number =>
+  sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line;
+
+const getRuntimeErrorLines = (sourceFile: ts.SourceFile): ReadonlySet<number> => {
+  const cached = runtimeErrorLines.get(sourceFile);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const lines = new Set<number>();
+  const assertions = new Set<number>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isTryStatement(node)) {
+      lines.add(lineOf(sourceFile, node));
     }
-
-    return true;
-  }
-
-  if (
-    /\binstanceof\s+(?:(?:[A-Za-z_$][\w$]*\.)*)(?:Error|DOMException|[A-Za-z_$][\w$]*(?:Error|Failure|Fault|Exception))\b/.test(
-      line,
-    )
-  ) {
-    return true;
-  }
-  const throwNewMatch = /throw\s+new\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?(?:\s*<[^>]+>)?)/g;
-  for (const match of line.matchAll(throwNewMatch)) {
-    const candidate = match[1]?.trim() ?? "";
-    if (!candidate) {
-      continue;
+    if (ts.isThrowStatement(node)) {
+      const line = lineOf(sourceFile, node);
+      lines.add(line);
+      const expression = node.expression;
+      if (
+        expression !== undefined &&
+        ts.isNewExpression(expression) &&
+        ts.isIdentifier(expression.expression) &&
+        expression.expression.text === "Error"
+      ) {
+        assertions.add(line);
+      }
     }
-
-    if (!isTaggedErrorName(candidate)) {
-      return true;
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword &&
+      /(?:^|\.)(?:Error|DOMException|[A-Za-z_$][\w$]*(?:Error|Failure|Fault|Exception))$/.test(
+        node.right.getText(sourceFile),
+      )
+    ) {
+      lines.add(lineOf(sourceFile, node));
     }
-  }
-
-  for (const match of line.matchAll(/\bthrow\b\s+([^;]+)/g)) {
-    const expr = (match[1] ?? "").trim();
-    if (expr !== "" && !/^new\s/.test(expr)) {
-      return true;
-    }
-  }
-
-  if (/\b(isHTTPError|isTimeoutError|HTTPError|TimeoutError)\b(?!\s*:)/.test(line)) {
-    return true;
-  }
-
-  return false;
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  runtimeErrorLines.set(sourceFile, lines);
+  assertionThrowLines.set(sourceFile, assertions);
+  return lines;
 };
 
+const hasRuntimeErrorHelpers = (context: CheckContext): boolean => {
+  const runtimeLines = getRuntimeErrorLines(context.sourceFile);
+  if (runtimeLines.has(context.lineNumber - 1)) {
+    const isTestFile = /(?:^|\/)__tests__\/|(?:\.test|\.spec)\.[^./]+$/.test(context.path);
+    if (!isTestFile || !assertionThrowLines.get(context.sourceFile)?.has(context.lineNumber - 1)) {
+      return true;
+    }
+  }
+  return /\b(?:isHTTPError|isTimeoutError|HTTPError|TimeoutError)\b(?!\s*:)/.test(context.line);
+};
 const hasErrorFactoryOrClassName = (line: string, _path: string, source: string): boolean => {
   if (/TaggedErrorClass/.test(line) || /Schema\.TaggedError/.test(line)) {
     return false;
   }
 
   const declarationMatch =
-    /\b(?:export\s+)?(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)\b/.exec(line);
+    /\b(?:export\s+)?(?:(function|class)\s+([A-Za-z_$][\w$]*)|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=)/.exec(
+      line,
+    );
   if (!declarationMatch) {
     return false;
   }
 
-  const declaration = line.slice(
-    declarationMatch.index,
-    declarationMatch.index + declarationMatch[0].length,
-  );
-  const name = declarationMatch[1] ?? "";
-  if (/(?:Failure|Fault|Error)$/.test(name)) {
-    if (/\bclass\b/.test(declaration) && /TaggedError/i.test(source)) {
-      const start = source.indexOf(line);
-      if (start !== -1) {
-        const tail = source.slice(start, start + line.length + 200);
-        if (/\bTaggedErrorClass\b/.test(tail) || /\bSchema\.TaggedError\b/.test(tail)) {
-          return false;
-        }
-      }
-    }
-
-    return true;
+  const declarationKind = declarationMatch[1];
+  const name = declarationMatch[2] ?? declarationMatch[3] ?? "";
+  if (!/(?:Failure|Fault|Error)$/.test(name)) {
+    return /\b(?:create|make|parse|build|normalize|sanitize|coerce|assert|wrap|unwrap|map)[A-Za-z_$]*(?:Error|Failure|Fault)\b/.test(
+      name,
+    );
   }
 
-  return /\b(?:create|make|parse|build|normalize|sanitize|coerce|assert|wrap|unwrap|map)[A-Za-z_$]*(?:Error|Failure|Fault)\b/.test(
-    name,
-  );
-};
+  if (
+    declarationKind === undefined &&
+    !/^(?:create|make|parse|build|normalize|sanitize|coerce|assert|wrap|unwrap|map)/.test(name)
+  ) {
+    return false;
+  }
+  if (declarationKind === "function" && /^expect[A-Z]/.test(name)) {
+    return false;
+  }
 
+  if (declarationKind === "class" && /TaggedError/i.test(source)) {
+    const start = source.indexOf(line);
+    if (start !== -1) {
+      const tail = source.slice(start, start + line.length + 200);
+      if (/\bTaggedErrorClass\b/.test(tail) || /\bSchema\.TaggedError\b/.test(tail)) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+};
 const hasStringErrorOnlyMapping = (line: string): boolean =>
   /\b(?:reason|cause|message)\s*:\s*String\s*\(\s*(?:error|_error|issue|reason|cause|unknown)\s*\)/.test(
     line,
@@ -108,7 +126,7 @@ export const errorHandlingChecks: readonly Check[] = [
   {
     message:
       "Use a tagged Effect error at the decision point; do not `throw`, `instanceof`, or library `try/catch/finally` (adapt with Effect.try/tryPromise and explicit operation/reason/status metadata).",
-    test: ({ line }) => hasRuntimeErrorHelpers(line),
+    test: hasRuntimeErrorHelpers,
     ignoreImportLine: false,
   },
   {

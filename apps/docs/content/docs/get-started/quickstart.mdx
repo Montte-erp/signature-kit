@@ -90,18 +90,18 @@ description: "Load an A1 certificate, inspect the identity, and sign your first 
 ## Errors you might see
 
 <Callout type="warn" title="Incorrect certificate password">
-  If the `.pfx` password is wrong, the boundary fails with [`signature-kit.WRONG_PASSWORD`](/docs/signing/errors#error-catalog) in the error channel — not an exception. Check the secret before proceeding.
+  If the `.pfx` password is wrong, the boundary fails with [`signature-kit.WRONG_PASSWORD`](../signing/errors#error-catalog) in the error channel — not an exception. Check the secret before proceeding.
 </Callout>
 
-- [`signature-kit.WRONG_PASSWORD`](/docs/signing/errors#error-catalog) — incorrect certificate password.
-- [`signature-kit.SIGN_FAILED`](/docs/signing/errors#error-catalog) — failed to sign the content.
-- [`signature-kit.VERIFY_FAILED`](/docs/signing/errors#error-catalog) — failed to verify the signature.
+- [`signature-kit.WRONG_PASSWORD`](../signing/errors#error-catalog) — incorrect certificate password.
+- [`signature-kit.SIGN_FAILED`](../signing/errors#error-catalog) — failed to sign the content.
+- [`signature-kit.VERIFY_FAILED`](../signing/errors#error-catalog) — failed to verify the signature.
 
 ## Further reading
 
 <Cards>
-  <Card title="The signing boundary" href="/docs/signing/signers">The SignerAdapter: the seam through which the power to sign enters.</Card>
-  <Card title="XML-DSig & PDF/PAdES" href="/docs/signing/xml">Sign NF-e and PAdES PDFs reusing the same A1 boundary.</Card>
-  <Card title="A1 certificates" href="/docs/signing/certificates">PKCS#12, X.509, and ICP-Brasil identity (e-CPF / e-CNPJ).</Card>
-  <Card title="Typed error channel" href="/docs/signing/errors">The SignatureKitError and the catalog of literal codes.</Card>
+  <Card title="The signing boundary" href="../signing/signers">The SignerAdapter: the seam through which the power to sign enters.</Card>
+  <Card title="XML-DSig & PDF/PAdES" href="../signing/xml">Sign NF-e and PAdES PDFs reusing the same A1 boundary.</Card>
+  <Card title="A1 certificates" href="../signing/certificates">PKCS#12, X.509, and ICP-Brasil identity (e-CPF / e-CNPJ).</Card>
+  <Card title="Typed error channel" href="../signing/errors">The SignatureKitError and the catalog of literal codes.</Card>
 </Cards>

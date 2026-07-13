@@ -1,5 +1,6 @@
 "use client";
 
+import { deriveSignerInitials } from "@signature-kit/pdf/stamp";
 import { Document, Page, StyleSheet, Text, View, pdf } from "@react-pdf/renderer";
 
 const PAGE_W = 595.28;
@@ -46,13 +47,6 @@ const PARTY_NAME = "Maria A. Costa";
 const PARTY_DOCUMENT = "CPF/CNPJ: 000.000.000-00";
 const WITNESS_NAME = "Ana R. Lima";
 const WITNESS_DOCUMENT = "CPF: 111.222.333-44";
-
-const initialsOf = (name: string): string =>
-  name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => part[0]!.toUpperCase())
-    .join("");
 
 const styles = StyleSheet.create({
   page: {
@@ -224,7 +218,7 @@ function SignatureLineVariant({ signed }: { signed?: SignedMark }) {
       <View style={styles.line} />
       <Identification
         name={signed?.name ?? PARTY_NAME}
-        document={PARTY_DOCUMENT}
+        document={signed?.document ?? PARTY_DOCUMENT}
         role="CONTRATANTE"
       />
       {signed ? <SignedStamp date={signed.date} /> : null}
@@ -247,7 +241,7 @@ function SignatureFieldVariant({ signed }: { signed?: SignedMark }) {
         )}
       </View>
       <Text style={styles.fieldCaption}>
-        {signed?.name ?? PARTY_NAME} · {PARTY_DOCUMENT}
+        {signed?.name ?? PARTY_NAME} · {signed?.document ?? PARTY_DOCUMENT}
       </Text>
     </View>
   );
@@ -263,7 +257,7 @@ function SignatureWitnessedVariant({ signed }: { signed?: SignedMark }) {
         <View style={styles.line} />
         <Identification
           name={signed?.name ?? PARTY_NAME}
-          document={PARTY_DOCUMENT}
+          document={signed?.document ?? PARTY_DOCUMENT}
           role="CONTRATANTE"
         />
       </View>
@@ -283,7 +277,7 @@ function SignatureInitialsVariant({ signed }: { signed?: SignedMark }) {
     <View style={styles.initialsBlock}>
       <View style={styles.rubricaBox}>
         <Text style={styles.rubricaLabel}>RUBRICA</Text>
-        <Text style={styles.rubricaInk}>{initialsOf(signed?.name ?? PARTY_NAME)}</Text>
+        <Text style={styles.rubricaInk}>{deriveSignerInitials(signed?.name ?? PARTY_NAME)}</Text>
       </View>
       <View style={styles.sigCol}>
         <View style={styles.markBand}>
@@ -296,7 +290,7 @@ function SignatureInitialsVariant({ signed }: { signed?: SignedMark }) {
         <View style={styles.line} />
         <Identification
           name={signed?.name ?? PARTY_NAME}
-          document={PARTY_DOCUMENT}
+          document={signed?.document ?? PARTY_DOCUMENT}
           role="CONTRATANTE"
         />
       </View>
@@ -330,6 +324,15 @@ export interface FormalContractOptions {
   readonly signed?: SignedMark;
 }
 
+const keyedParagraphs = (paragraphs: ReadonlyArray<string>) => {
+  const occurrences: Record<string, number> = {};
+  return paragraphs.map((paragraph) => {
+    const occurrence = (occurrences[paragraph] ?? 0) + 1;
+    occurrences[paragraph] = occurrence;
+    return { key: `${paragraph}:${occurrence}`, paragraph };
+  });
+};
+
 function FormalContract({ title, paragraphs, variant, signed }: FormalContractOptions) {
   return (
     <Document title={title}>
@@ -338,8 +341,8 @@ function FormalContract({ title, paragraphs, variant, signed }: FormalContractOp
         <Text style={styles.meta}>SIGNATUREKIT · DOCUMENTO DEMO</Text>
         <View style={styles.rule} />
 
-        {paragraphs.map((paragraph) => (
-          <Text key={paragraph} style={styles.body}>
+        {keyedParagraphs(paragraphs).map(({ key, paragraph }) => (
+          <Text key={key} style={styles.body}>
             {paragraph}
           </Text>
         ))}

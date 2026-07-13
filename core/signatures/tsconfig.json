@@ -1,9 +1,4 @@
 {
   "extends": "../../tooling/typescript/core.json",
-  "include": ["src/**/*.ts"],
-  "references": [
-    {
-      "path": "../i18n"
-    }
-  ]
+  "include": ["src/**/*.ts"]
 }

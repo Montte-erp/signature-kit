@@ -12,6 +12,7 @@ const hasLocalPlainSecretBoundary = (context: CheckContext): boolean => {
 
 const hasSecretStringInInternalConfig = (context: CheckContext): boolean =>
   !hasLocalPlainSecretBoundary(context) &&
+  !/\bcredentials\s*:/.test(context.line) &&
   /(?:password|secret|token|privatekey|apikey|\bcertificate\b)/i.test(context.line) &&
   /\b(?:Schema\.String|Schema\.NonEmptyString|nonEmptyString|:\s*string)\b/.test(context.line) &&
   !/\bRedacted\b/.test(context.line);

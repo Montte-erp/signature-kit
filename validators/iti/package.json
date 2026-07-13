@@ -2,6 +2,10 @@
   "name": "@signature-kit/iti",
   "version": "0.1.0",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Montte-erp/signature-kit.git"
+  },
   "files": [
     "dist",
     "README.md",
@@ -24,9 +28,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -b tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit --tsBuildInfoFile .cache/typecheck.tsbuildinfo",
-    "test": "vitest run"
+    "test": "vitest run --root ../.. validators/iti/__tests__ --exclude '**/*.integration.test.*' --exclude '**/*.browser.test.*' --exclude '**/*.performance.test.*'"
   },
   "dependencies": {
     "@peculiar/asn1-ess": "2.8.0",
@@ -40,15 +42,29 @@
     "pkijs": "3.4.0"
   },
   "devDependencies": {
-    "@cantoo/pdf-lib": "2.7.1",
+    "@cantoo/pdf-lib": "2.7.2",
     "@signature-kit/a1": "^0.3.0"
   },
   "nx": {
+    "implicitDependencies": [
+      "!@signature-kit/a1"
+    ],
     "targets": {
+      "test": {
+        "dependsOn": [
+          "build",
+          {
+            "projects": [
+              "@signature-kit/a1"
+            ],
+            "target": "build"
+          }
+        ]
+      },
       "npm-pack": {
         "executor": "nx:run-commands",
         "options": {
-          "command": "npm pack --dry-run --json",
+          "command": "bun pm pack --dry-run",
           "cwd": "{projectRoot}"
         }
       },

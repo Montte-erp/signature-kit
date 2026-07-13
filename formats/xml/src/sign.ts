@@ -11,9 +11,9 @@ import {
   XmlSchemaNameValue,
   XmlSigningRequestSchema,
   xmlHashAlgorithmFromSignatureAlgorithm,
-} from "./config";
-import type { XmlCanonicalization, XmlSigningRequest } from "./config";
-import { XmlRuntime } from "./runtime";
+} from "./config.js";
+import type { XmlCanonicalization, XmlSigningRequest } from "./config.js";
+import { XmlRuntime } from "./runtime.js";
 
 const XML_RSA_ALGORITHM_NAME = "RSASSA-PKCS1-v1_5";
 const XML_EXCLUSIVE_CANONICALIZATION_TRANSFORM = "exc-c14n";

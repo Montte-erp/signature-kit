@@ -1,23 +1,26 @@
+import { changelogMetaSchema, changelogPageSchema } from "@fumapress/tegami/schema";
 import { defineConfig, defineDocs } from "fumadocs-mdx/config";
 import { remarkMdxMermaid } from "fumadocs-core/mdx-plugins";
-import { metaSchema, pageSchema } from "fumadocs-core/source/schema";
+import {
+  blogMetaSchema,
+  blogPageSchema,
+  metaSchema,
+  pageSchema,
+} from "fumapress/adapters/mdx/schema";
 
 export const docs = defineDocs({
   dir: "content/docs",
   docs: {
     schema: pageSchema,
-    postprocess: {
-      includeProcessedMarkdown: true,
-    },
   },
   meta: {
     schema: metaSchema,
   },
 });
 
-const blogSchema = pageSchema.extend({
-  date: pageSchema.shape.title,
-  author: pageSchema.shape.title,
+const blogSchema = blogPageSchema.extend({
+  date: changelogPageSchema.shape.date,
+  author: blogPageSchema.shape.title,
 });
 
 export const blog = defineDocs({
@@ -26,7 +29,17 @@ export const blog = defineDocs({
     schema: blogSchema,
   },
   meta: {
-    schema: metaSchema,
+    schema: blogMetaSchema,
+  },
+});
+
+export const changelog = defineDocs({
+  dir: "content/changelog",
+  docs: {
+    schema: changelogPageSchema,
+  },
+  meta: {
+    schema: changelogMetaSchema,
   },
 });
 

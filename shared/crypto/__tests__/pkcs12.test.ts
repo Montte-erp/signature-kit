@@ -396,13 +396,14 @@ const contentInfoData = (data: Uint8Array): Asn1Node =>
 const localKeyIdAttributes = (localKeyId: Uint8Array): Asn1Node =>
   set([sequence([oid(OID_LOCAL_KEY_ID), set([octetString(localKeyId)])])]);
 
-const certificateBag = (localKeyId: Uint8Array): Asn1Node =>
+const certificateBag = (
+  localKeyId: Uint8Array | undefined,
+  certificate: Uint8Array = Uint8Array.of(0x30, 0x00),
+): Asn1Node =>
   sequence([
     oid(OID_CERT_BAG),
-    context(0, [
-      sequence([oid(OID_X509_CERT), context(0, [octetString(Uint8Array.of(0x30, 0x00))])]),
-    ]),
-    localKeyIdAttributes(localKeyId),
+    context(0, [sequence([oid(OID_X509_CERT), context(0, [octetString(certificate)])])]),
+    ...(localKeyId === undefined ? [] : [localKeyIdAttributes(localKeyId)]),
   ]);
 
 type Pbes2Encryption = {
@@ -465,11 +466,11 @@ const encryptedPrivateKeyInfo = (encrypted: Pbes2Encryption, parameterIv: Uint8A
     octetString(encrypted.ciphertext),
   ]);
 
-const keyBag = (privateKeyInfo: Asn1Node, localKeyId: Uint8Array): Asn1Node =>
+const keyBag = (privateKeyInfo: Asn1Node, localKeyId: Uint8Array | undefined): Asn1Node =>
   sequence([
     oid(OID_PKCS8_SHROUDED_KEY_BAG),
     context(0, [privateKeyInfo]),
-    localKeyIdAttributes(localKeyId),
+    ...(localKeyId === undefined ? [] : [localKeyIdAttributes(localKeyId)]),
   ]);
 
 const validPrivateKeyInfo = encode(
@@ -488,6 +489,23 @@ const makeCustomPfx = (
       sequence([
         certificateBag(certificateLocalKeyId),
         keyBag(encryptedPrivateKeyInfo(encrypted, parameterIv ?? encrypted.iv), keyLocalKeyId),
+      ]),
+    );
+    const authenticatedSafe = encode(sequence([contentInfoData(safeContents)]));
+    return encode(sequence([integerNode(3), contentInfoData(authenticatedSafe)]));
+  });
+
+const makeCustomPfxWithCertificateBags = (
+  privateKeyInfo: Uint8Array,
+  certificateBags: readonly Asn1Node[],
+  keyLocalKeyId: Uint8Array | undefined,
+): Effect.Effect<Uint8Array> =>
+  Effect.gen(function* () {
+    const encrypted = yield* encryptPbes2(privateKeyInfo);
+    const safeContents = encode(
+      sequence([
+        ...certificateBags,
+        keyBag(encryptedPrivateKeyInfo(encrypted, encrypted.iv), keyLocalKeyId),
       ]),
     );
     const authenticatedSafe = encode(sequence([contentInfoData(safeContents)]));
@@ -685,4 +703,54 @@ describe("parsePkcs12 hardening", () => {
       if (Result.isFailure(outcome)) expect(outcome.failure.code).toBe("crypto.CORRUPTED_FILE");
     }),
   );
+  it.effect("selects the localKeyId certificate and preserves the remaining chain", () =>
+    Effect.gen(function* () {
+      const chainCertificate = Uint8Array.of(0x30, 0x01, 0xa1);
+      const endEntityCertificate = Uint8Array.of(0x30, 0x01, 0xb2);
+      const pfxDer = yield* makeCustomPfxWithCertificateBags(
+        validPrivateKeyInfo,
+        [
+          certificateBag(Uint8Array.of(0x02), chainCertificate),
+          certificateBag(Uint8Array.of(0x01), endEntityCertificate),
+        ],
+        Uint8Array.of(0x01),
+      );
+      const parsed = yield* parsePkcs12(pfxDer, PASSWORD);
+      expect(parsed.certificate).toEqual(endEntityCertificate);
+      expect(parsed.chain).toEqual([chainCertificate]);
+    }),
+  );
+
+  it.effect("rejects ambiguous certificate selection when localKeyIds are absent", () =>
+    Effect.gen(function* () {
+      const pfxDer = yield* makeCustomPfxWithCertificateBags(
+        validPrivateKeyInfo,
+        [certificateBag(undefined, Uint8Array.of(0x30, 0x01, 0xa1)), certificateBag(undefined)],
+        undefined,
+      );
+      const outcome = yield* Effect.result(parsePkcs12(pfxDer, PASSWORD));
+      expect(Result.isFailure(outcome)).toBe(true);
+      if (Result.isFailure(outcome)) expect(outcome.failure.code).toBe("crypto.CORRUPTED_FILE");
+    }),
+  );
+
+  it("returns no PBKDF2 output for invalid iteration and length parameters", () => {
+    const password = new TextEncoder().encode("password");
+    const salt = Uint8Array.of(0x01, 0x02, 0x03);
+    for (const iterations of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => pbkdf2("sha256", password, salt, iterations, 16)).not.toThrow();
+      expect(pbkdf2("sha256", password, salt, iterations, 16)).toEqual(new Uint8Array(0));
+    }
+    for (const dkLen of [
+      -1,
+      0,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.MAX_SAFE_INTEGER,
+    ]) {
+      expect(() => pbkdf2("sha256", password, salt, 1, dkLen)).not.toThrow();
+      expect(pbkdf2("sha256", password, salt, 1, dkLen)).toEqual(new Uint8Array(0));
+    }
+  });
 });

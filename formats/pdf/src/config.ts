@@ -224,6 +224,13 @@ export class PdfError extends Schema.TaggedErrorClass<PdfError>()("PdfError", {
   }
 }
 
+export const PdfByteRangeSchema = Schema.Tuple([
+  nonNegativeInteger,
+  nonNegativeInteger,
+  nonNegativeInteger,
+  nonNegativeInteger,
+]);
+
 export const PdfCoordinateTupleSchema = Schema.Tuple([
   finiteNumber,
   finiteNumber,
@@ -437,19 +444,19 @@ export type PdfSignaturePlacementPage = (typeof PdfSignaturePlacementPageSchema)
 
 export const PdfInvisibleSignaturePlacementSchema = Schema.Struct({
   kind: Schema.Literals(["invisible"]),
-  pageIndex: Schema.optional(Schema.Number),
+  pageIndex: Schema.optional(nonNegativeInteger),
 });
 
 export const PdfManualSignaturePlacementSchema = Schema.Struct({
   kind: Schema.Literals(["manual"]),
-  pageIndex: Schema.optional(Schema.Number),
+  pageIndex: Schema.optional(nonNegativeInteger),
   widgetRect: PdfCoordinateTupleSchema,
 });
 
 export const PdfAutoSignaturePlacementSchema = Schema.Struct({
   kind: Schema.Literals(["auto"]),
   page: Schema.optional(PdfSignaturePlacementPageSchema),
-  pageIndex: Schema.optional(Schema.Number),
+  pageIndex: Schema.optional(nonNegativeInteger),
   anchor: Schema.optional(PdfSignatureAnchorSchema),
   width: Schema.optional(Schema.Number),
   height: Schema.optional(Schema.Number),
@@ -474,7 +481,7 @@ export const PdfSignaturePlacementSchema = Schema.Union([
 export type PdfSignaturePlacement = (typeof PdfSignaturePlacementSchema)["Type"];
 
 export const PdfSignatureAppearanceSchema = Schema.Struct({
-  pageIndex: Schema.optional(Schema.Number),
+  pageIndex: Schema.optional(nonNegativeInteger),
   widgetRect: Schema.optional(PdfCoordinateTupleSchema),
   placement: Schema.optional(PdfSignaturePlacementSchema),
 }).check(
@@ -1136,8 +1143,8 @@ export const PdfVerificationResultSchema = Schema.Struct({
   valid: Schema.Boolean,
   chainValid: Schema.Boolean,
   revocationStatus: CmsRevocationStatusSchema,
-  signatureCount: Schema.Number,
-  byteRange: PdfCoordinateTupleSchema,
+  signatureCount: nonNegativeInteger,
+  byteRange: PdfByteRangeSchema,
   signerSerialNumber: Schema.NullOr(Schema.String),
 });
 export type PdfVerificationResult = (typeof PdfVerificationResultSchema)["Type"];

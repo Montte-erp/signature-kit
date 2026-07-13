@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { parseCertificate } from "@signature-kit/certificates";
-import { loadA1SignerAdapter, parseA1CertificateProfile } from "@signature-kit/a1/signer";
+import { loadA1SignerAdapter, parseA1CertificateProfile } from "../src/signer";
 import { Effect, Redacted } from "effect";
 import { TestClock } from "effect/testing";
 import { readA1Fixture } from "../../../tooling/testing/fixtures";

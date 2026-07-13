@@ -14,12 +14,12 @@ export const checkedExtensions: Record<string, true> = {
 
 export const skippedSegments: Record<string, true> = {
   ".next": true,
-  __tests__: true,
   dist: true,
   node_modules: true,
   outputs: true,
 };
 export const skippedSuffixes: readonly string[] = [".d.ts", ".tsbuildinfo", "README.md"];
+
 export const roots = [
   "core",
   "signers",

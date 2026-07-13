@@ -7,8 +7,9 @@ import {
 import { prepareAndSignPdf } from "@signature-kit/pdf/workflow";
 import { liteParseWorkerBrowserLayer } from "@signature-kit/pdf/liteparse-browser";
 import { Effect, Layer, Redacted, Result, Schema } from "effect";
-import { createSyncStore, useSyncStore } from "./sync-store";
-import { A1CertificateLoadInputSchema, A1SignerInputSchema } from "./config";
+import type { Result as EffectResult } from "effect/Result";
+import { createSyncStore, useSyncStore } from "./sync-store.js";
+import { A1CertificateLoadInputSchema, A1SignerInputSchema } from "./config.js";
 import type {
   A1CertificateLoadOutcome,
   A1CertificateSnapshot,
@@ -17,7 +18,7 @@ import type {
   A1SignerRow,
   A1SignerRunOutcome,
   A1SignerSnapshot,
-} from "./config";
+} from "./config.js";
 import type { A1CertificateProfile } from "@signature-kit/a1/config";
 
 type A1CertificateCredentials = {
@@ -44,6 +45,30 @@ const initialSignerState: A1SignerSnapshot = {
 
 const certificateStore = createSyncStore<A1CertificateStoreState>(initialCertificateState);
 const signerStore = createSyncStore<A1SignerSnapshot>(initialSignerState);
+type OperationInterruptor = () => void;
+
+let certificateInterruptor: OperationInterruptor | null = null;
+let signerInterruptor: OperationInterruptor | null = null;
+
+const interruptedOperationError = (): SignatureKitError =>
+  new SignatureKitError({
+    code: SignatureKitErrorCodeValue.unsupportedOperation,
+    retryable: false,
+    reason: "The A1 operation was interrupted before it completed.",
+    operation: SignatureKitOperationValue.schemaDecode,
+  });
+
+const interruptCertificateOperation = (): void => {
+  const interruptor = certificateInterruptor;
+  certificateInterruptor = null;
+  interruptor?.();
+};
+
+const interruptSignerOperation = (): void => {
+  const interruptor = signerInterruptor;
+  signerInterruptor = null;
+  interruptor?.();
+};
 
 let certificateOperation = 0;
 let signerOperation = 0;
@@ -129,6 +154,7 @@ const resolveA1SignerCredentials = (
 
 export const clearA1Certificate = (): void => {
   certificateOperation += 1;
+  interruptCertificateOperation();
   certificateStore.setState(() => initialCertificateState);
 };
 
@@ -138,6 +164,7 @@ export const loadA1Certificate = async (
   password: string,
 ): Promise<A1CertificateLoadOutcome> => {
   const operation = ++certificateOperation;
+  interruptCertificateOperation();
 
   updateCertificateState(operation, (state) => ({
     ...state,
@@ -166,7 +193,26 @@ export const loadA1Certificate = async (
   );
 
   // effect-boundary: React hook event action [allow-run: hook event-action boundary]
-  const result = await Effect.runPromise(Effect.result(program));
+  const result = await new Promise<
+    EffectResult<
+      {
+        readonly profile: A1CertificateProfile;
+        readonly credentials: { readonly pfx: Uint8Array; readonly password: string };
+      },
+      SignatureKitError
+    >
+  >((resolve) => {
+    let completed = false;
+    // effect-boundary: React hook event action [allow-run: hook event-action boundary]
+    const interruptor = Effect.runCallback(Effect.result(program), {
+      onExit: (exit) => {
+        completed = true;
+        if (operation === certificateOperation) certificateInterruptor = null;
+        resolve(exit._tag === "Success" ? exit.value : Result.fail(interruptedOperationError()));
+      },
+    });
+    if (!completed && operation === certificateOperation) certificateInterruptor = interruptor;
+  });
 
   if (Result.isFailure(result)) {
     updateCertificateState(operation, () => ({
@@ -193,6 +239,7 @@ export const loadA1Certificate = async (
 
 export const clearA1Signer = (): void => {
   signerOperation += 1;
+  interruptSignerOperation();
   signerStore.setState(() => initialSignerState);
 };
 
@@ -208,6 +255,7 @@ export const signA1Documents = async (input: A1SignerInput): Promise<A1SignerRun
   }
 
   const operation = ++signerOperation;
+  interruptSignerOperation();
 
   updateSignerState(operation, () => ({ ...initialSignerState, busy: true }));
 
@@ -283,7 +331,20 @@ export const signA1Documents = async (input: A1SignerInput): Promise<A1SignerRun
   );
 
   // effect-boundary: React hook event action [allow-run: hook event-action boundary]
-  const result = await Effect.runPromise(Effect.result(program));
+  const result = await new Promise<EffectResult<ReadonlyArray<A1SignerRow>, SignatureKitError>>(
+    (resolve) => {
+      let completed = false;
+      // effect-boundary: React hook event action [allow-run: hook event-action boundary]
+      const interruptor = Effect.runCallback(Effect.result(program), {
+        onExit: (exit) => {
+          completed = true;
+          if (operation === signerOperation) signerInterruptor = null;
+          resolve(exit._tag === "Success" ? exit.value : Result.fail(interruptedOperationError()));
+        },
+      });
+      if (!completed && operation === signerOperation) signerInterruptor = interruptor;
+    },
+  );
 
   if (Result.isFailure(result)) {
     updateSignerState(operation, (state) => ({

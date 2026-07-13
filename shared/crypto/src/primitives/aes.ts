@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { CryptoError, CryptoErrorCodeValue, CryptoOperationValue } from "../config";
-import { removePkcs7Padding } from "./padding";
+import { CryptoError, CryptoErrorCodeValue, CryptoOperationValue } from "../config.js";
+import { removePkcs7Padding } from "./padding.js";
 
 const SBOX = new Uint8Array([
   0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,

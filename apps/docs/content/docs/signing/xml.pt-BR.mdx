@@ -155,8 +155,8 @@ description: "Assine XML com signXml e valide com verifyXml: referência envelop
 Toda falha de assinatura é um `SignatureKitError` tipado no canal de erro; falhas de parsing, canonicalização e verificação de XML chegam como `XmlError`. As mais comuns:
 
 <Cards>
-  <Card title="xml.INVALID_INPUT" href="/docs/signing/errors#error-catalog">Uma requisição de assinatura ou verificação inválida — incluindo fontes de confiança ausentes ou concorrentes.</Card>
-  <Card title="xml.SIGN_FAILED" href="/docs/signing/errors#error-catalog">A operação de assinatura sobre o digest não pôde ser concluída, incluindo um referenceId não resolvível (nenhum elemento com esse Id).</Card>
+  <Card title="xml.INVALID_INPUT" href="./errors#error-catalog">Uma requisição de assinatura ou verificação inválida — incluindo fontes de confiança ausentes ou concorrentes.</Card>
+  <Card title="xml.SIGN_FAILED" href="./errors#error-catalog">A operação de assinatura sobre o digest não pôde ser concluída, incluindo um referenceId não resolvível (nenhum elemento com esse Id).</Card>
 </Cards>
 
 <Callout type="info">
@@ -164,7 +164,7 @@ Toda falha de assinatura é um `SignatureKitError` tipado no canal de erro; falh
 </Callout>
 
 <Cards>
-  <Card title="xml.VERIFY_FAILED" href="/docs/signing/errors#error-catalog">A etapa de verificação em si não pôde ser concluída.</Card>
-  <Card title="xml.SIGNATURE_NOT_FOUND" href="/docs/signing/errors#error-catalog">Nenhum elemento `<Signature>` foi encontrado no documento.</Card>
-  <Card title="xml.KEY_IMPORT_FAILED" href="/docs/signing/errors#error-catalog">O `publicKeyDer`/`trustedCertificateDer` fornecido não pôde ser importado como chave de verificação.</Card>
+  <Card title="xml.VERIFY_FAILED" href="./errors#error-catalog">A etapa de verificação em si não pôde ser concluída.</Card>
+  <Card title="xml.SIGNATURE_NOT_FOUND" href="./errors#error-catalog">Nenhum elemento `<Signature>` foi encontrado no documento.</Card>
+  <Card title="xml.KEY_IMPORT_FAILED" href="./errors#error-catalog">O `publicKeyDer`/`trustedCertificateDer` fornecido não pôde ser importado como chave de verificação.</Card>
 </Cards>

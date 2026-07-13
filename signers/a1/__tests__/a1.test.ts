@@ -1,8 +1,14 @@
 import { describe, expect, it } from "@effect/vitest";
-import { signatures } from "@signature-kit/signatures";
+import {
+  SignatureKitError,
+  SignatureKitErrorCodeValue,
+  SignatureKitOperationValue,
+  signatures,
+} from "@signature-kit/signatures";
 import { parseCertificate } from "@signature-kit/certificates";
-import { signatureHttpClientLive } from "@signature-kit/http";
-import { Effect, Redacted, Result } from "effect";
+import { SignatureHttpClient, signatureHttpClientLive } from "@signature-kit/http";
+import type { SignatureHttpClientService } from "@signature-kit/http";
+import { Effect, Layer, Redacted, Result } from "effect";
 import { TestClock } from "effect/testing";
 import { readA1Fixture } from "../../../tooling/testing/fixtures";
 import {
@@ -12,8 +18,7 @@ import {
   loadA1SignerAdapter,
   parseA1CertificateProfile,
   parseA1CertificateProfileFromUrl,
-} from "@signature-kit/a1/signer";
-import { SignatureKitErrorCodeValue } from "@signature-kit/signatures";
+} from "../src/signer";
 
 const PASSWORD = Redacted.make("changeit");
 const textEncoder = new TextEncoder();
@@ -274,6 +279,54 @@ describe("A1 signatures", () => {
       expect(Result.isFailure(result)).toBe(true);
       if (Result.isFailure(result)) {
         expect(result.failure.code).toBe(SignatureKitErrorCodeValue.emptyFile);
+      }
+    }),
+  );
+  it.effect("redacts remote URL credentials and fragments from HTTP failures", () =>
+    Effect.gen(function* () {
+      const requestUrl =
+        "https://alice:password-secret@example.test/cert.p12?token=query-secret#hash-secret";
+      const failingHttpClient: SignatureHttpClientService = {
+        requestJson: () => Effect.die("unused"),
+        requestJsonResponse: () => Effect.die("unused"),
+        requestBytes: (request) => {
+          expect(request.url).toBe(requestUrl);
+          expect(request.diagnosticUrl).toBe("https://example.test/cert.p12?token=%3Credacted%3E");
+          return Effect.fail(
+            new SignatureKitError({
+              code: SignatureKitErrorCodeValue.http,
+              retryable: false,
+              operation: SignatureKitOperationValue.httpRequest,
+              reason: request.diagnosticUrl ?? "<missing>",
+            }),
+          );
+        },
+        requestVoid: () => Effect.die("unused"),
+      };
+
+      const result = yield* Effect.result(
+        fetchA1Pkcs12({ url: requestUrl }).pipe(
+          Effect.provide(Layer.succeed(SignatureHttpClient, failingHttpClient)),
+        ),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        const serialized = [
+          result.failure.reason,
+          result.failure.message,
+          JSON.stringify(result.failure),
+        ]
+          .filter((value): value is string => value !== undefined)
+          .join("\n");
+
+        expect(result.failure.code).toBe(SignatureKitErrorCodeValue.http);
+        expect(result.failure.operation).toBe(SignatureKitOperationValue.httpRequest);
+        expect(result.failure.reason).toBe("https://example.test/cert.p12?token=%3Credacted%3E");
+        expect(serialized).not.toContain("alice");
+        expect(serialized).not.toContain("password-secret");
+        expect(serialized).not.toContain("query-secret");
+        expect(serialized).not.toContain("hash-secret");
       }
     }),
   );

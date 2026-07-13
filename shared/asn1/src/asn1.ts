@@ -84,6 +84,7 @@ const CLASS_BITS: Record<Asn1Class, number> = {
   private: 0xc0,
 };
 const MAX_HIGH_TAG_NUMBER = 0x7fffffff;
+const MAX_NESTING_DEPTH = 256;
 
 type Tlv = { readonly node: Asn1Node; readonly next: number };
 
@@ -98,7 +99,7 @@ const decodeRoot = (data: Uint8Array): Effect.Effect<Asn1Node, Asn1Error> =>
       );
     }
 
-    const tlv = yield* decodeTlv(data, 0);
+    const tlv = yield* decodeTlv(data, 0, 0);
     if (tlv.next !== data.length) {
       return yield* Effect.fail(
         new Asn1Error({
@@ -111,8 +112,16 @@ const decodeRoot = (data: Uint8Array): Effect.Effect<Asn1Node, Asn1Error> =>
     return tlv.node;
   });
 
-const decodeTlv = (data: Uint8Array, start: number): Effect.Effect<Tlv, Asn1Error> =>
+const decodeTlv = (data: Uint8Array, start: number, depth: number): Effect.Effect<Tlv, Asn1Error> =>
   Effect.gen(function* () {
+    if (depth > MAX_NESTING_DEPTH) {
+      return yield* Effect.fail(
+        new Asn1Error({
+          code: Asn1ErrorCodeValue.decodeError,
+          reason: "Maximum ASN.1 nesting depth exceeded",
+        }),
+      );
+    }
     let offset = start;
     if (offset >= data.length)
       return yield* Effect.fail(
@@ -260,7 +269,7 @@ const decodeTlv = (data: Uint8Array, start: number): Effect.Effect<Tlv, Asn1Erro
           childOffset += 2;
           break;
         }
-        const child = yield* decodeTlv(data, childOffset);
+        const child = yield* decodeTlv(data, childOffset, depth + 1);
         children.push(child.node);
         childOffset = child.next;
       }
@@ -281,7 +290,7 @@ const decodeTlv = (data: Uint8Array, start: number): Effect.Effect<Tlv, Asn1Erro
       const children: Asn1Node[] = [];
       let childOffset = offset;
       while (childOffset < endOffset) {
-        const child = yield* decodeTlv(data, childOffset);
+        const child = yield* decodeTlv(data, childOffset, depth + 1);
         if (child.next > endOffset)
           return yield* Effect.fail(
             new Asn1Error({
@@ -399,6 +408,7 @@ const decodeBase128Vlq = (
     let offset = start;
     let byte = 0x80;
     let value = 0;
+    let firstByte = true;
     if (offset >= data.length) {
       return yield* Effect.fail(
         new Asn1Error({
@@ -410,8 +420,26 @@ const decodeBase128Vlq = (
 
     while ((byte & 0x80) !== 0) {
       byte = data[offset]!;
-      value = value * 128 + (byte & 0x7f);
       offset += 1;
+      const component = byte & 0x7f;
+      if (firstByte && (byte & 0x80) !== 0 && component === 0) {
+        return yield* Effect.fail(
+          new Asn1Error({
+            code: Asn1ErrorCodeValue.oidError,
+            reason: "Non-minimal VLQ encoding in OID",
+          }),
+        );
+      }
+      if (value > Math.floor((Number.MAX_SAFE_INTEGER - component) / 128)) {
+        return yield* Effect.fail(
+          new Asn1Error({
+            code: Asn1ErrorCodeValue.oidError,
+            reason: "VLQ value exceeds safe integer range in OID",
+          }),
+        );
+      }
+      value = value * 128 + component;
+      firstByte = false;
 
       if ((byte & 0x80) !== 0 && offset >= data.length) {
         return yield* Effect.fail(
@@ -482,14 +510,28 @@ export const bytesOf = (node: Asn1Node): Effect.Effect<Uint8Array, Asn1Error> =>
       );
 
 export const oidString = (node: Asn1Node): Effect.Effect<string, Asn1Error> =>
-  Effect.flatMap(bytesOf(node), decodeOidBytes);
+  node.kind === "primitive" && node.class === "universal" && node.tag === 0x06
+    ? decodeOidBytes(node.bytes)
+    : Effect.fail(
+        new Asn1Error({
+          code: Asn1ErrorCodeValue.structureError,
+          reason: "Expected a primitive universal OBJECT IDENTIFIER node.",
+        }),
+      );
 
 export const integerBigInt = (node: Asn1Node): Effect.Effect<bigint, Asn1Error> =>
-  Effect.map(bytesOf(node), (bytes) => {
-    if (bytes.length === 0) return 0n;
-    let value = (bytes[0]! & 0x80) === 0 ? 0n : -1n;
-    for (const byte of bytes) {
-      value = (value << 8n) | BigInt(byte);
-    }
-    return value;
-  });
+  node.kind === "primitive" && node.class === "universal" && node.tag === 0x02
+    ? Effect.map(Effect.succeed(node.bytes), (bytes) => {
+        if (bytes.length === 0) return 0n;
+        let value = (bytes[0]! & 0x80) === 0 ? 0n : -1n;
+        for (const byte of bytes) {
+          value = (value << 8n) | BigInt(byte);
+        }
+        return value;
+      })
+    : Effect.fail(
+        new Asn1Error({
+          code: Asn1ErrorCodeValue.structureError,
+          reason: "Expected a primitive universal INTEGER node.",
+        }),
+      );

@@ -147,6 +147,30 @@ describe("CMS detached verification", () => {
     }),
   );
 
+  it.effect("rejects detached CMS with multiple SignerInfos", () =>
+    Effect.gen(function* () {
+      const fixture = yield* createCmsFixture();
+      const { contentInfo, signed } = parseCms(fixture.cms);
+      const signerInfo = signed.signerInfos[0];
+      expect(signerInfo).toBeDefined();
+      if (signerInfo === undefined) return;
+      signed.signerInfos.push(signerInfo);
+
+      const verification = yield* Effect.result(
+        verifyDetachedSignedData({
+          cms: encodeCms(contentInfo, signed),
+          content: fixture.content,
+        }),
+      );
+
+      expect(Result.isFailure(verification)).toBe(true);
+      if (Result.isFailure(verification)) {
+        expect(verification.failure.code).toBe("cms.DECODE_ERROR");
+        expect(verification.failure.reason).toContain("exactly one SignerInfo");
+      }
+    }),
+  );
+
   it.effect("rejects attached content instead of accepting bytes supplied by the CMS", () =>
     Effect.gen(function* () {
       const fixture = yield* createCmsFixture();
@@ -185,6 +209,42 @@ describe("CMS detached verification", () => {
       if (Result.isFailure(verification)) {
         expect(verification.failure.code).toBe("cms.DECODE_ERROR");
         expect(verification.failure.operation).toBe("cms.verify");
+      }
+    }),
+  );
+
+  it.effect("rejects a non-signedData ContentInfo during inspection", () =>
+    Effect.gen(function* () {
+      const fixture = yield* createCmsFixture();
+      const { contentInfo } = parseCms(fixture.cms);
+      contentInfo.contentType = CmsOid.data;
+
+      const inspection = yield* Effect.result(
+        inspectDetachedSignedData({
+          cms: new Uint8Array(contentInfo.toSchema().toBER(false)),
+        }),
+      );
+
+      expect(Result.isFailure(inspection)).toBe(true);
+      if (Result.isFailure(inspection)) {
+        expect(inspection.failure.code).toBe("cms.DECODE_ERROR");
+        expect(inspection.failure.operation).toBe("cms.parse");
+      }
+    }),
+  );
+
+  it.effect("rejects trailing bytes after CMS ContentInfo", () =>
+    Effect.gen(function* () {
+      const fixture = yield* createCmsFixture();
+      const cms = new Uint8Array(fixture.cms.byteLength + 1);
+      cms.set(fixture.cms);
+
+      const inspection = yield* Effect.result(inspectDetachedSignedData({ cms }));
+
+      expect(Result.isFailure(inspection)).toBe(true);
+      if (Result.isFailure(inspection)) {
+        expect(inspection.failure.code).toBe("cms.DECODE_ERROR");
+        expect(inspection.failure.reason).toContain("trailing bytes");
       }
     }),
   );

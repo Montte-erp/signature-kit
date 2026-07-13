@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { Check, CheckContext } from "../src/model";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Check } from "../src/model";
 import { checks } from "../src/rule-set";
 import { schemaContractChecks } from "../src/rules/schema-contracts";
 import { errorHandlingChecks } from "../src/rules/error-handling";
@@ -10,7 +13,8 @@ import { observabilityCatalogChecks } from "../src/rules/observability-catalogs"
 import { configChecks } from "../src/rules/config";
 import { dependencyChecks } from "../src/rules/dependencies";
 import { hasCheckedExtension } from "../src/filesystem";
-import { importDeclarationLineMap } from "../src/runner";
+import { importDeclarationLineMap, runDeclarativeChecks } from "../src/runner";
+import { createCheckContexts } from "../src/source-context";
 
 const expectedChecks = [
   ...schemaContractChecks,
@@ -22,47 +26,35 @@ const expectedChecks = [
   ...dependencyChecks,
   ...architectureChecks,
 ];
-const context = (line: string): CheckContext => ({
-  line,
-  rawLine: line,
-  window: line,
-  path: "core/example/src/index.ts",
-  source: line,
-  lineNumber: 1,
-  lines: [line],
-  rawLines: [line],
-});
+
+const context = (line: string) => {
+  const first = createCheckContexts("core/example/src/index.ts", line)[0];
+  if (first === undefined) {
+    throw new Error("fixture context missing");
+  }
+  return first;
+};
 
 const anyCheckMatches = (checks: readonly Check[], line: string): boolean =>
   checks.some((check) => check.test(context(line)));
 
 const anyCheckMatchesSource = (checks: readonly Check[], path: string, source: string): boolean => {
-  const rawLines = source.split(/\r?\n/);
-  const lines = rawLines.map((line) => line.trim());
-  const importLines = importDeclarationLineMap(rawLines);
-  return rawLines.some((rawLine, index) => {
-    const line = lines[index] ?? "";
-    if (!line || line.startsWith("*") || line.startsWith("//")) {
-      return false;
-    }
-    return checks.some(
-      (check) =>
-        (!check.ignoreImportLine || !importLines[index]) &&
-        check.test({
-          line,
-          rawLine,
-          window: lines
-            .slice(index, index + 3)
-            .join(" ")
-            .trim(),
-          path,
-          source,
-          lineNumber: index + 1,
-          lines,
-          rawLines,
-        }),
-    );
-  });
+  const contexts = createCheckContexts(path, source);
+  const sourceFile = contexts[0]?.sourceFile;
+  if (sourceFile === undefined) {
+    return false;
+  }
+  const importLines = importDeclarationLineMap(
+    contexts.map((item) => item.rawLine),
+    sourceFile,
+  );
+  return contexts.some(
+    (item, index) =>
+      item.line !== "" &&
+      !item.line.startsWith("*") &&
+      !item.line.startsWith("//") &&
+      checks.some((check) => (!check.ignoreImportLine || !importLines[index]) && check.test(item)),
+  );
 };
 
 describe("declarative smell rules", () => {
@@ -129,6 +121,50 @@ describe("declarative smell rules", () => {
 
   it("rejects all TypeScript as casts including const assertions", () => {
     expect(anyCheckMatches(typeSafetyChecks, "const codes = ['A'] as const;")).toBe(true);
+  });
+
+  it("scans test files for casts without general exceptions", () => {
+    expect(
+      anyCheckMatchesSource(
+        typeSafetyChecks,
+        "core/example/__tests__/fixture.test.ts",
+        "const value = input as unknown;",
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        typeSafetyChecks,
+        "core/example/__tests__/fixture.test.ts",
+        "const values = ['ok'] as const;",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects throwing even a typed SignatureKit error from library code", () => {
+    expect(
+      anyCheckMatchesSource(
+        errorHandlingChecks,
+        "core/example/src/runtime.ts",
+        "throw new SignatureKitError({ code: 'invalid' });",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects try/finally in test files while preserving assertion throws", () => {
+    expect(
+      anyCheckMatchesSource(
+        errorHandlingChecks,
+        "core/example/__tests__/fixture.test.ts",
+        "try { await run(); } finally { cleanup(); }",
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        errorHandlingChecks,
+        "core/example/__tests__/fixture.test.ts",
+        'throw new Error("expected failure");',
+      ),
+    ).toBe(false);
   });
 
   it("allows Effect.as because it is a method call, not a TypeScript cast", () => {
@@ -221,6 +257,54 @@ Effect.provide(Layer.empty);
 `,
       ),
     ).toBe(true);
+  });
+
+  it("rejects deprecated Effect either/effect and dynamic imports in library source", () => {
+    expect(
+      anyCheckMatchesSource(
+        effectBoundaryChecks,
+        "core/signatures/src/runtime.ts",
+        "const result = Effect.either(program);",
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        effectBoundaryChecks,
+        "core/signatures/src/runtime.ts",
+        'const module = import("./runtime-helper");',
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        effectBoundaryChecks,
+        "core/signatures/src/runtime.ts",
+        "const module = import(moduleName);",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects named Effect escapes and direct Node platform imports only in library source", () => {
+    expect(
+      anyCheckMatchesSource(
+        effectBoundaryChecks,
+        "core/signatures/src/runtime.ts",
+        'import { runPromise } from "effect";\nconst result = runPromise(program);',
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        effectBoundaryChecks,
+        "core/signatures/src/runtime.ts",
+        'import { readFile } from "node:fs/promises";',
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        effectBoundaryChecks,
+        "apps/docs/app/page.ts",
+        'import { readFile } from "node:fs/promises";',
+      ),
+    ).toBe(false);
   });
 
   it("requires reasoned secret escapes in allowed React or docs paths", () => {
@@ -337,6 +421,23 @@ export const ExampleProvider = () =>
     ).toBe(true);
   });
 
+  it("checks Alchemy provider rules in every remote signer source module but excludes A1", () => {
+    expect(
+      anyCheckMatchesSource(
+        architectureChecks,
+        "signers/example/src/provider.ts",
+        'const baseUrl = process.env.NODE_ENV === "production" ? productionUrl : sandboxUrl;',
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        architectureChecks,
+        "signers/a1/src/signer.ts",
+        'const baseUrl = process.env.NODE_ENV === "production" ? productionUrl : sandboxUrl;',
+      ),
+    ).toBe(false);
+  });
+
   it("rejects hidden live HTTP transport in remote signer provider layers", () => {
     expect(
       anyCheckMatchesSource(
@@ -380,6 +481,57 @@ export const ExampleProvider = () =>
         architectureChecks,
         "signers/example/src/index.ts",
         "Layer.provide(Layer.fresh(exampleSignatureRequestProvider))",
+      ),
+    ).toBe(false);
+  });
+
+  it("flags public package scripts that shadow inferred TypeScript targets", () => {
+    expect(
+      anyCheckMatchesSource(
+        dependencyChecks,
+        "formats/pdf/package.json",
+        `
+{
+  "name": "@signature-kit/pdf",
+  "scripts": {
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  }
+}
+`,
+      ),
+    ).toBe(true);
+  });
+
+  it("allows non-TypeScript package scripts and application build scripts", () => {
+    expect(
+      anyCheckMatchesSource(
+        dependencyChecks,
+        "formats/pdf/package.json",
+        `
+{
+  "name": "@signature-kit/pdf",
+  "scripts": {
+    "test": "vitest run"
+  }
+}
+`,
+      ),
+    ).toBe(false);
+    expect(
+      anyCheckMatchesSource(
+        dependencyChecks,
+        "apps/docs/package.json",
+        `
+{
+  "name": "@signature-kit/docs",
+  "scripts": {
+    "build": "waku build",
+    "types:check": "tsc -p tsconfig.json --noEmit"
+  }
+}
+`,
       ),
     ).toBe(false);
   });
@@ -446,5 +598,101 @@ export const ExampleProvider = () =>
         'import { Effect } from "effect";',
       ),
     ).toBe(false);
+  });
+  it("uses stateful comment normalization for multiline blocks", () => {
+    expect(
+      anyCheckMatchesSource(
+        errorHandlingChecks,
+        "core/example/src/comments.ts",
+        "/*\nthrow new Error('comment');\ntry {\n}\n*/\nexport const value = true;\n",
+      ),
+    ).toBe(false);
+    expect(
+      anyCheckMatchesSource(
+        errorHandlingChecks,
+        "core/example/src/runtime.ts",
+        "try\n{\n  run();\n}\n",
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        errorHandlingChecks,
+        "core/example/src/runtime.ts",
+        "throw\nnew SignatureKitError({ code: 'invalid' });\n",
+      ),
+    ).toBe(true);
+  });
+
+  it("matches exact Effect member calls and named bindings", () => {
+    expect(
+      anyCheckMatchesSource(
+        effectBoundaryChecks,
+        "core/example/src/runtime.ts",
+        'import { runPromise } from "effect";\nclient.runPromise(program);\nEffect.effectfulApi(program);\nEffect.eitherThing(program);\n',
+      ),
+    ).toBe(false);
+    expect(
+      anyCheckMatchesSource(
+        effectBoundaryChecks,
+        "core/example/src/runtime.ts",
+        'import { runPromise } from "effect";\nrunPromise(program);\n',
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects multiline literal arrays and fake schema bindings", () => {
+    expect(
+      anyCheckMatchesSource(
+        schemaContractChecks,
+        "core/example/src/contracts.ts",
+        "const StatusCodes = [\n  'pending',\n  'complete',\n];\n",
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        schemaContractChecks,
+        "core/example/src/contracts.ts",
+        "export interface ExampleConfig {\n  enabled: boolean;\n}\nconst ExampleConfigSchema = 1;\n",
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        schemaContractChecks,
+        "core/example/src/contracts.ts",
+        "export interface ExampleConfig {\n  enabled: boolean;\n}\nconst ExampleConfigSchema = Schema.Struct({ enabled: Schema.Boolean });\n",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects inline import type annotations", () => {
+    expect(
+      anyCheckMatchesSource(
+        typeSafetyChecks,
+        "core/example/src/runtime.ts",
+        'const value: import("@signature-kit/signatures").Signatures = input;\n',
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        typeSafetyChecks,
+        "core/example/src/runtime.ts",
+        'import type { Signatures } from "@signature-kit/signatures";\nconst value: Signatures = input;\n',
+      ),
+    ).toBe(false);
+  });
+
+  it("runs fixtures through the declarative entry point", async () => {
+    const root = await mkdtemp(join(tmpdir(), "signature-kit-static-"));
+    const file = join(root, "core/example/src/index.ts");
+    await mkdir(join(root, "core/example/src"), { recursive: true });
+    await writeFile(
+      file,
+      "/*\nthrow new Error('comment');\nimport '@signature-kit/unused';\n*/\nexport const value = true;\n",
+    );
+    expect(runDeclarativeChecks(root, [file])).toBe(false);
+    const badFile = join(root, "core/example/src/bad.ts");
+    await writeFile(badFile, "throw\nnew SignatureKitError({ code: 'invalid' });\n");
+    expect(runDeclarativeChecks(root, [badFile])).toBe(true);
+    await rm(root, { recursive: true, force: true });
   });
 });

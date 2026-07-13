@@ -43,14 +43,14 @@ export type DocumensoEnvelopeState = (typeof DocumensoEnvelopeStateSchema)["Type
 
 export const DocumensoEnvelopeDocumentSchema = Schema.Struct({
   fileName: Schema.NonEmptyString,
-  mimeType: Schema.NonEmptyString,
+  mimeType: Schema.Literal("application/pdf"),
   content: Schema.Uint8Array,
 });
 export type DocumensoEnvelopeDocument = (typeof DocumensoEnvelopeDocumentSchema)["Type"];
 
 export const DocumensoEnvelopeDocumentPropsSchema = Schema.Struct({
   fileName: Schema.NonEmptyString,
-  mimeType: Schema.NonEmptyString,
+  mimeType: Schema.Literal("application/pdf"),
   contentBase64: base64String,
 });
 export type DocumensoEnvelopeDocumentProps = (typeof DocumensoEnvelopeDocumentPropsSchema)["Type"];

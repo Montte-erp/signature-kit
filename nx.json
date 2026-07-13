@@ -15,41 +15,40 @@
     ],
     "sharedGlobals": [
       "{workspaceRoot}/bun.lock",
+      "{workspaceRoot}/bunfig.toml",
+      "{workspaceRoot}/package.json",
       "{workspaceRoot}/tooling/typescript/base.json",
       "{workspaceRoot}/tooling/typescript/core.json",
       {
         "runtime": "bun --version"
+      },
+      {
+        "runtime": "node --version"
       }
     ]
   },
   "targetDefaults": {
     "build": {
-      "cache": true,
-      "dependsOn": ["^build"],
       "inputs": [
-        "production",
+        "...",
         {
-          "dependentTasksOutputFiles": "**/*.{d.ts,d.cts,d.mts,tsbuildinfo}",
-          "transitive": true
+          "runtime": "node --version"
         }
-      ],
-      "outputs": ["{projectRoot}/dist", "{projectRoot}/.cache/tsbuildinfo.json"]
+      ]
     },
     "typecheck": {
-      "cache": true,
-      "dependsOn": ["^build"],
+      "dependsOn": ["^typecheck"],
       "inputs": [
-        "production",
+        "...",
         {
-          "dependentTasksOutputFiles": "**/*.{d.ts,d.cts,d.mts,tsbuildinfo}",
-          "transitive": true
+          "runtime": "node --version"
         }
-      ],
-      "outputs": ["{projectRoot}/.cache/typecheck.tsbuildinfo"]
+      ]
     },
     "test": {
       "cache": false,
-      "dependsOn": ["build"]
+      "dependsOn": ["build"],
+      "inputs": ["default", "^production"]
     },
     "npm-pack": {
       "dependsOn": ["build"],
@@ -60,6 +59,31 @@
       "cache": false
     }
   },
+  "plugins": [
+    {
+      "plugin": "@nx/js/typescript",
+      "include": [
+        "core/**/tsconfig.json",
+        "formats/**/tsconfig.json",
+        "shared/**/tsconfig.json",
+        "signers/**/tsconfig.json",
+        "validators/**/tsconfig.json"
+      ],
+      "options": {
+        "compiler": "tsc",
+        "typecheck": {
+          "targetName": "typecheck",
+          "configName": "tsconfig.json"
+        },
+        "build": {
+          "targetName": "build",
+          "configName": "tsconfig.json",
+          "buildDepsName": "build-deps",
+          "watchDepsName": "watch-deps"
+        }
+      }
+    }
+  ],
   "pluginsConfig": {
     "@nx/js": {
       "analyzeSourceFiles": false,

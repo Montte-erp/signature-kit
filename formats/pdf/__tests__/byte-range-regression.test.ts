@@ -1,12 +1,13 @@
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, it, vi } from "@effect/vitest";
 import { PDFDocument } from "@cantoo/pdf-lib";
 import { a1SignaturesLayer } from "@signature-kit/a1/signer";
+import { readA1Fixture } from "../../../tooling/testing/fixtures";
 import { signPdf } from "../src/sign";
 import { verifyPdf } from "../src/verify";
 import { Effect, Redacted, Result, Schema } from "effect";
-import { readA1Fixture } from "../../../tooling/testing/fixtures";
 import {
   MAX_PDF_REVISIONS,
+  PreparedPdfSignatureSchema,
   extractPdfSignatures,
   findPdfByteRangeOffsets,
   hasPdfByteRange,
@@ -15,9 +16,13 @@ import {
   isCompletePdfRevision,
   preparePdfByteRange,
 } from "../src/byte-range";
+import * as pdfByteRange from "../src/byte-range";
 import { concatBytes, encodeAscii, indexOfBytes } from "../src/bytes";
-import { PdfSigningRequestSchema } from "../src/config";
-import type { PdfVerificationRequest } from "../src/config";
+import {
+  PdfByteRangeSchema,
+  PdfSigningRequestSchema,
+  PdfVerificationResultSchema,
+} from "../src/config";
 
 const fakeByteRange = "/ByteRange [0 0 0 0]";
 const fakeStreamContents = `/Type /Sig ${fakeByteRange} /Contents <00>`;
@@ -698,7 +703,7 @@ describe("PDF signature dictionary parsing", () => {
 
   it.effect("rejects malformed runtime verification requests with a typed schema error", () =>
     Effect.gen(function* () {
-      const malformed = { pdf: "not a byte array" } as unknown as PdfVerificationRequest;
+      const malformed = JSON.parse('{"pdf":"not a byte array"}');
       const result = yield* Effect.result(verifyPdf(malformed));
 
       expect(Result.isFailure(result)).toBe(true);
@@ -766,6 +771,27 @@ describe("PDF signature dictionary parsing", () => {
       expect(verification.valid).toBe(true);
     }),
   );
+  it.effect("applies revision completeness to every extracted signature", () =>
+    Effect.gen(function* () {
+      const pfx = yield* readA1Fixture("ecnpj");
+      const layer = a1SignaturesLayer({ pfx, password: PASSWORD });
+      const first = yield* signPdf({ pdf: yield* createPdf }).pipe(Effect.provide(layer));
+      const second = yield* signPdf({ pdf: first }).pipe(Effect.provide(layer));
+      let calls = 0;
+      const revisionSpy = vi.spyOn(pdfByteRange, "isCompletePdfRevision").mockImplementation(() =>
+        Effect.sync(() => {
+          calls += 1;
+          return calls > 1;
+        }),
+      );
+      const verification = yield* verifyPdf({ pdf: second });
+      revisionSpy.mockRestore();
+
+      expect(calls).toBe(2);
+      expect(verification.signatureCount).toBe(2);
+      expect(verification.valid).toBe(false);
+    }),
+  );
 
   it.effect(
     "accepts actual incremental revision ends and rejects xref markers inside streams",
@@ -812,6 +838,79 @@ describe("PDF signature dictionary parsing", () => {
       expect(valid.signatureLength).toBe(64);
       expect(Result.isFailure(fractional)).toBe(true);
       expect(Result.isFailure(zero)).toBe(true);
+    }),
+  );
+  it.effect("enforces safe non-negative PDF byte-range contracts", () =>
+    Effect.gen(function* () {
+      const invalidRanges = [
+        [-1, 1, 2, 3],
+        [0.5, 1, 2, 3],
+        [Number.NaN, 1, 2, 3],
+        [Number.POSITIVE_INFINITY, 1, 2, 3],
+        [Number.NEGATIVE_INFINITY, 1, 2, 3],
+        [Number.MAX_SAFE_INTEGER + 1, 1, 2, 3],
+      ];
+
+      for (const byteRange of invalidRanges) {
+        const result = yield* Effect.result(
+          Schema.decodeUnknownEffect(PdfByteRangeSchema)(byteRange),
+        );
+        expect(Result.isFailure(result)).toBe(true);
+      }
+
+      const decodedRange = yield* Schema.decodeUnknownEffect(PdfByteRangeSchema)([0, 1, 2, 3]);
+      expect(decodedRange).toStrictEqual([0, 1, 2, 3]);
+
+      const validVerificationResult = {
+        valid: true,
+        chainValid: true,
+        revocationStatus: "checked",
+        signatureCount: 1,
+        byteRange: [0, 1, 2, 3],
+        signerSerialNumber: null,
+      };
+      const decodedVerificationResult = yield* Schema.decodeUnknownEffect(
+        PdfVerificationResultSchema,
+      )(validVerificationResult);
+      expect(decodedVerificationResult.byteRange).toStrictEqual([0, 1, 2, 3]);
+
+      const invalidVerificationByteRange = yield* Effect.result(
+        Schema.decodeUnknownEffect(PdfVerificationResultSchema)({
+          ...validVerificationResult,
+          byteRange: [-1, 1, 2, 3],
+        }),
+      );
+      expect(Result.isFailure(invalidVerificationByteRange)).toBe(true);
+
+      const validPrepared = {
+        pdf: new Uint8Array(),
+        byteRange: [0, 0, 0, 0],
+        signedData: new Uint8Array(),
+        contentsStart: 1,
+        contentsEnd: 2,
+        placeholderLength: 0,
+      };
+      const decodedPrepared = yield* Schema.decodeUnknownEffect(PreparedPdfSignatureSchema)(
+        validPrepared,
+      );
+      expect(decodedPrepared.contentsStart).toBe(1);
+
+      const fields: ReadonlyArray<"contentsStart" | "contentsEnd" | "placeholderLength"> = [
+        "contentsStart",
+        "contentsEnd",
+        "placeholderLength",
+      ];
+      for (const field of fields) {
+        for (const value of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+          const result = yield* Effect.result(
+            Schema.decodeUnknownEffect(PreparedPdfSignatureSchema)({
+              ...validPrepared,
+              [field]: value,
+            }),
+          );
+          expect(Result.isFailure(result)).toBe(true);
+        }
+      }
     }),
   );
 });

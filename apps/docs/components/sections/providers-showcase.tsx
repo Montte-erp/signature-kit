@@ -1,5 +1,5 @@
 import { ArrowRight } from "lucide-react";
-import Link from "next/link";
+import { Link } from "fumapress/client";
 
 import { CodeBlock } from "@/components/code-block";
 import { FadeIn } from "@/components/fade-in";
@@ -204,8 +204,8 @@ export function ProvidersShowcase() {
     <Section>
       <Container>
         <FadeIn delay={0.05}>
-          <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:gap-12">
-            <div className="lg:py-2">
+          <div className="min-w-0 grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:gap-12">
+            <div className="min-w-0 lg:py-2">
               <Eyebrow>{m.showcase_eyebrow()}</Eyebrow>
               <h2 className="mt-3 text-3xl font-medium tracking-tight text-balance text-foreground sm:text-4xl">
                 {m.showcase_title()}
@@ -232,10 +232,12 @@ export function ProvidersShowcase() {
                 {FEATURES.map((feature) => (
                   <div
                     key={feature.label()}
-                    className="grid grid-cols-[7rem_1fr] gap-4 border-b border-border py-3.5"
+                    className="grid grid-cols-[7rem_minmax(0,1fr)] gap-4 border-b border-border py-3.5"
                   >
-                    <dt className="text-sm font-medium text-foreground">{feature.label()}</dt>
-                    <dd className="text-sm leading-relaxed text-pretty text-muted-foreground">
+                    <dt className="min-w-0 text-sm font-medium text-foreground">
+                      {feature.label()}
+                    </dt>
+                    <dd className="min-w-0 text-sm leading-relaxed text-pretty text-muted-foreground">
                       {feature.desc()}
                     </dd>
                   </div>

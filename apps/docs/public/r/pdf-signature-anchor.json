@@ -11,7 +11,7 @@
     {
       "path": "registry/default/pdf-signature-anchor/pdf-signature-anchor.tsx",
       "type": "registry:component",
-      "target": "components/signature-kit/pdf-signature-anchor.tsx",
+      "target": "@components/signature-kit/pdf-signature-anchor.tsx",
       "content": "import * as React from \"react\";\nimport { Text } from \"@react-pdf/renderer\";\n\nexport type PdfSignatureAnchorProps = {\n  readonly token?: string;\n  readonly children?: React.ReactNode;\n  readonly fontSize?: number;\n  readonly color?: string;\n};\n\nconst invisibleAnchorStyle = (fontSize: number, color: string) => ({\n  fontSize,\n  opacity: 0,\n  color,\n});\n\nexport function PdfSignatureAnchor({\n  token = \"{{signature}}\",\n  children,\n  fontSize = 6,\n  color = \"#ffffff\",\n}: PdfSignatureAnchorProps) {\n  return <Text style={invisibleAnchorStyle(fontSize, color)}>{children ?? token}</Text>;\n}\n"
     }
   ]

@@ -30,7 +30,7 @@ describe("crypto encoding hardening", () => {
 
   it.effect("rejects incomplete Base64 padding quanta", () =>
     Effect.gen(function* () {
-      const malformed = ["==", "A=", "A==", "AAAA=="];
+      const malformed = ["==", "A=", "A==", "AAAA==", "Zh==", "Zm/="];
 
       for (const input of malformed) {
         const result = yield* Effect.result(base64ToBytes(input));
@@ -134,6 +134,20 @@ describe("crypto encoding hardening", () => {
         expect(Result.isFailure(result)).toBe(true);
         if (Result.isFailure(result)) {
           expect(result.failure.code).toBe(CryptoErrorCodeValue.cipherError);
+        }
+      }
+    }),
+  );
+  it.effect("rejects RC2 effective bits outside the integer 1..1024 range", () =>
+    Effect.gen(function* () {
+      for (const effectiveBits of [0, 1.5, 1025, Number.NaN, Number.POSITIVE_INFINITY]) {
+        const result = yield* Effect.result(
+          rc2CbcDecrypt(new Uint8Array(16), effectiveBits, new Uint8Array(8), new Uint8Array(8)),
+        );
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure.code).toBe(CryptoErrorCodeValue.cipherError);
+          expect(result.failure.operation).toBe(CryptoOperationValue.cipherRc2);
         }
       }
     }),
