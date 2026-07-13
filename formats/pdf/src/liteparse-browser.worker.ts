@@ -1,5 +1,4 @@
 import initLiteParseWasm, { LiteParse } from "@llamaindex/liteparse-wasm";
-import liteParseWasmUrl from "@llamaindex/liteparse-wasm/liteparse_wasm_bg.wasm?url";
 import { Schema } from "effect";
 
 import { hasBoundedPdfLiteParseResult, PdfLiteParseResultSchemaForPageCount } from "./config";
@@ -9,7 +8,7 @@ import type { LiteParseWorkerRequest } from "./liteparse-browser-protocol";
 const isLiteParseWorkerRequest = Schema.is(LiteParseWorkerRequestSchema);
 
 const parseLiteParseRequest = (request: LiteParseWorkerRequest): Promise<unknown> =>
-  initLiteParseWasm(liteParseWasmUrl).then(() => {
+  initLiteParseWasm().then(() => {
     const parser = new LiteParse({
       ocrEnabled: false,
       maxPages: request.pageCount,
