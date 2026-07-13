@@ -7,6 +7,7 @@ import { flexsearchPlugin } from "fumapress/plugins/flexsearch";
 import { linkValidationPlugin } from "fumapress/plugins/link-validation";
 import { sitemapPlugin } from "fumapress/plugins/sitemap";
 import { takumiPlugin } from "fumapress/plugins/takumi";
+import wasmModule from "takumi-js/wasm";
 import { lucideIconsPlugin } from "fumadocs-core/source/lucide-icons";
 import { createRelativeLink } from "fumadocs-ui/mdx";
 
@@ -98,6 +99,12 @@ export type SiteContext = typeof baseConfig.$context;
 
 const siteLayouts = createSiteLayouts<SiteContext>();
 
+const takumiWasmOptions = {
+  height: 630,
+  module: wasmModule,
+  width: 1200,
+};
+
 export default baseConfig
   .plugins(
     docsAnalyticsPlugin(),
@@ -138,7 +145,51 @@ export default baseConfig
       },
     }),
     flexsearchPlugin<SiteContext>(),
-    takumiPlugin<SiteContext>(),
+    takumiPlugin<SiteContext>({
+      generate(page) {
+        return {
+          node: (
+            <div
+              style={{
+                backgroundColor: "#0c0c0c",
+                color: "#ffffff",
+                display: "flex",
+                flexDirection: "column",
+                height: "100%",
+                padding: "64px",
+                width: "100%",
+              }}
+            >
+              <div style={{ fontSize: "72px", fontWeight: 800 }}>{page.data.title}</div>
+              {page.data.description ? (
+                <div
+                  style={{
+                    borderBottom: "10px dashed rgba(255, 150, 255, 0.3)",
+                    color: "rgba(240, 240, 240, 0.8)",
+                    fontSize: "42px",
+                    marginTop: "16px",
+                    paddingBottom: "28px",
+                  }}
+                >
+                  {page.data.description}
+                </div>
+              ) : null}
+              <div
+                style={{
+                  color: "rgb(255, 150, 255)",
+                  fontSize: "48px",
+                  fontWeight: 600,
+                  marginTop: "auto",
+                }}
+              >
+                {SITE_NAME}
+              </div>
+            </div>
+          ),
+          options: takumiWasmOptions,
+        };
+      },
+    }),
     sitemapPlugin<SiteContext>(),
     linkValidationPlugin<SiteContext>(),
   )
