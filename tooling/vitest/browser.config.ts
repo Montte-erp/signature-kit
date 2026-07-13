@@ -4,7 +4,21 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   optimizeDeps: {
-    include: ["react/jsx-dev-runtime"],
+    noDiscovery: true,
+    include: [
+      "@react-pdf/renderer",
+      "react",
+      "react/jsx-runtime",
+      "react/jsx-dev-runtime",
+      "react-dom",
+      "react-dom/client",
+      "color",
+      "crypto-js",
+      "pako",
+      "node-html-better-parser",
+      "warning",
+      "use-sync-external-store/shim/with-selector",
+    ],
     exclude: [
       "@aws-sdk/credential-provider-web-identity",
       "@aws-sdk/credential-providers",
@@ -23,6 +37,7 @@ export default defineConfig({
     },
   },
   test: {
+    include: ["**/*.browser.test.*"],
     deps: {
       optimizer: {
         client: { enabled: false },

@@ -1,47 +1,65 @@
-import type { Check } from "../model";
-
+import * as ts from "typescript";
+import type { Check, CheckContext } from "../model";
 const hasHttpClientErrorInspector = (line: string): boolean =>
   /\b(?:const|function)\s+(?:isRecord|get[A-Za-z_$][\w$]*Error[A-Za-z_$\w$]*|create[A-Za-z_$][\w$]*Error[A-Za-z_$\w$]*)\b/.test(
     line,
   );
+const runtimeErrorLines = new WeakMap<ts.SourceFile, ReadonlySet<number>>();
+const assertionThrowLines = new WeakMap<ts.SourceFile, ReadonlySet<number>>();
 
-const hasRuntimeErrorHelpers = (line: string, path: string): boolean => {
-  const statementKeywords = /\b(try|catch|finally)\b\s*[{(]/g;
-  for (const match of line.matchAll(statementKeywords)) {
-    const start = match.index ?? 0;
-    const before = start > 0 ? line[start - 1] : "";
-    if (before === "." || before === "?") {
-      continue;
+const lineOf = (sourceFile: ts.SourceFile, node: ts.Node): number =>
+  sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line;
+
+const getRuntimeErrorLines = (sourceFile: ts.SourceFile): ReadonlySet<number> => {
+  const cached = runtimeErrorLines.get(sourceFile);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const lines = new Set<number>();
+  const assertions = new Set<number>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isTryStatement(node)) {
+      lines.add(lineOf(sourceFile, node));
     }
+    if (ts.isThrowStatement(node)) {
+      const line = lineOf(sourceFile, node);
+      lines.add(line);
+      const expression = node.expression;
+      if (
+        expression !== undefined &&
+        ts.isNewExpression(expression) &&
+        ts.isIdentifier(expression.expression) &&
+        expression.expression.text === "Error"
+      ) {
+        assertions.add(line);
+      }
+    }
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword &&
+      /(?:^|\.)(?:Error|DOMException|[A-Za-z_$][\w$]*(?:Error|Failure|Fault|Exception))$/.test(
+        node.right.getText(sourceFile),
+      )
+    ) {
+      lines.add(lineOf(sourceFile, node));
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  runtimeErrorLines.set(sourceFile, lines);
+  assertionThrowLines.set(sourceFile, assertions);
+  return lines;
+};
 
-    return true;
-  }
-
-  if (
-    /\binstanceof\s+(?:(?:[A-Za-z_$][\w$]*\.)*)(?:Error|DOMException|[A-Za-z_$][\w$]*(?:Error|Failure|Fault|Exception))\b/.test(
-      line,
-    )
-  ) {
-    return true;
-  }
-  if (!/(?:^|\/)__tests__\//.test(path) || !/\bthrow\s+new\s+Error\b/.test(line)) {
-    if (/\bthrow\s+new\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?(?:\s*<[^>]+>)?)/.test(line)) {
+const hasRuntimeErrorHelpers = (context: CheckContext): boolean => {
+  const runtimeLines = getRuntimeErrorLines(context.sourceFile);
+  if (runtimeLines.has(context.lineNumber - 1)) {
+    const isTestFile = /(?:^|\/)__tests__\/|(?:\.test|\.spec)\.[^./]+$/.test(context.path);
+    if (!isTestFile || !assertionThrowLines.get(context.sourceFile)?.has(context.lineNumber - 1)) {
       return true;
     }
   }
-
-  for (const match of line.matchAll(/\bthrow\b\s+([^;]+)/g)) {
-    const expr = (match[1] ?? "").trim();
-    if (expr !== "" && !/^new\s/.test(expr)) {
-      return true;
-    }
-  }
-
-  if (/\b(isHTTPError|isTimeoutError|HTTPError|TimeoutError)\b(?!\s*:)/.test(line)) {
-    return true;
-  }
-
-  return false;
+  return /\b(?:isHTTPError|isTimeoutError|HTTPError|TimeoutError)\b(?!\s*:)/.test(context.line);
 };
 const hasErrorFactoryOrClassName = (line: string, _path: string, source: string): boolean => {
   if (/TaggedErrorClass/.test(line) || /Schema\.TaggedError/.test(line)) {
@@ -108,7 +126,7 @@ export const errorHandlingChecks: readonly Check[] = [
   {
     message:
       "Use a tagged Effect error at the decision point; do not `throw`, `instanceof`, or library `try/catch/finally` (adapt with Effect.try/tryPromise and explicit operation/reason/status metadata).",
-    test: ({ line, path }) => hasRuntimeErrorHelpers(line, path),
+    test: hasRuntimeErrorHelpers,
     ignoreImportLine: false,
   },
   {

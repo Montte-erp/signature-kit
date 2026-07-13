@@ -185,17 +185,17 @@ result.signerSerialNumber // string | null — serial of the signer certificate
 
 A assinatura e a verificação de PDF falham com códigos da família `pdf.*` (`PdfError`); as falhas do signatário A1 que fornece `Signatures` chegam como `signature-kit.*`.
 
-- [`pdf.SIGN_FAILED`](/docs/signing/errors) — `hashAlgorithm` não suportado (apenas `sha384` é rejeitado).
-- [`pdf.SIGNATURE_TOO_LARGE`](/docs/signing/errors) — o CMS excedeu o espaço reservado; aumente `signatureLength`.
-- [`pdf.SIGNATURE_PLACEMENT_FAILED`](/docs/signing/errors) — o posicionamento automático não encontrou espaço ou recebeu dimensões inválidas.
-- [`pdf.INVALID_PDF`](/docs/signing/errors) — os bytes não formam um PDF válido para assinar ou verificar.
-- [`pdf.PLACEHOLDER_NOT_FOUND`](/docs/signing/errors) — `verifyPdf` não encontrou `/ByteRange`, por exemplo em um PDF sem assinatura.
-- [`signature-kit.WRONG_PASSWORD`](/docs/signing/errors) — senha A1 incorreta ao fornecer o serviço de assinaturas.
+- [`pdf.SIGN_FAILED`](./errors) — `hashAlgorithm` não suportado (apenas `sha384` é rejeitado).
+- [`pdf.SIGNATURE_TOO_LARGE`](./errors) — o CMS excedeu o espaço reservado; aumente `signatureLength`.
+- [`pdf.SIGNATURE_PLACEMENT_FAILED`](./errors) — o posicionamento automático não encontrou espaço ou recebeu dimensões inválidas.
+- [`pdf.INVALID_PDF`](./errors) — os bytes não formam um PDF válido para assinar ou verificar.
+- [`pdf.PLACEHOLDER_NOT_FOUND`](./errors) — `verifyPdf` não encontrou `/ByteRange`, por exemplo em um PDF sem assinatura.
+- [`signature-kit.WRONG_PASSWORD`](./errors) — senha A1 incorreta ao fornecer o serviço de assinaturas.
 
 ## Continue a partir daqui
 
 <Cards>
-  <Card title="XML-DSig" href="/docs/signing/xml">O outro formato sobre a mesma camada Signatures, para XML de NF-e.</Card>
-  <Card title="APIs de provedores" href="/docs/providers/request-shape">Pacotes de provedores para Clicksign, Assinafy, ZapSign, DocuSeal e Documenso.</Card>
-  <Card title="Canal de erros tipados" href="/docs/signing/errors">O catálogo de códigos pdf.* e signature-kit.* que podem falhar.</Card>
+  <Card title="XML-DSig" href="./xml">O outro formato sobre a mesma camada Signatures, para XML de NF-e.</Card>
+  <Card title="APIs de provedores" href="../providers/request-shape">Pacotes de provedores para Clicksign, Assinafy, ZapSign, DocuSeal e Documenso.</Card>
+  <Card title="Canal de erros tipados" href="./errors">O catálogo de códigos pdf.* e signature-kit.* que podem falhar.</Card>
 </Cards>

@@ -153,6 +153,36 @@ describe("Assinafy local API", () => {
     send: false,
     expiresAt: new Date("2024-01-31T00:00:00.000Z"),
   });
+  it.effect("rejects non-PDF documents before any HTTP request", () =>
+    localHttpServer(() => Promise.resolve({ status: 500, body: "unexpected request" })).pipe(
+      Effect.flatMap((server) =>
+        Effect.gen(function* () {
+          const validInput = createAssinafyRequest();
+          const invalidInput = JSON.parse(
+            JSON.stringify({
+              ...validInput,
+              documents: [
+                {
+                  ...validInput.documents[0],
+                  mimeType: "text/plain",
+                },
+              ],
+            }),
+          );
+          const result = yield* Effect.result(
+            reconcileAssinafySignatureRequest(makeProviderOptions(server.baseUrl), invalidInput),
+          );
+
+          expect(Result.isFailure(result)).toBe(true);
+          if (Result.isFailure(result)) {
+            expect(result.failure.code).toBe(SignatureKitErrorCodeValue.invalidInput);
+          }
+          expect(server.requests).toHaveLength(0);
+        }),
+      ),
+      Effect.scoped,
+    ),
+  );
 
   it.effect("sends correct create/reconcile path, method, auth, and request payloads", () =>
     Effect.gen(function* () {

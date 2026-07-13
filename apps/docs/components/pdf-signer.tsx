@@ -1,6 +1,6 @@
 "use client";
 
-import { Duration, Effect, Redacted, Result } from "effect";
+import { Duration, Effect, Exit, Redacted, Result } from "effect";
 
 import {
   BadgeCheck,
@@ -41,7 +41,6 @@ import type {
   PdfSignatureBadge,
   PdfSignatureBuilderState,
   PdfSignatureFieldDraft,
-  PdfSignaturePage,
   PdfSignatureRect,
   PdfSignatureTemplate,
   PdfTextBox,
@@ -67,27 +66,23 @@ import {
   type PdfDocumentProxy,
   type PdfLoadingTask,
 } from "@/components/pdf-page";
-import { createSyncStore, useSyncStore } from "@signature-kit/react/sync-store";
+import { useSyncStore } from "@signature-kit/react/sync-store";
 import { caveat } from "@/lib/handwriting-font";
 import { cn } from "@/lib/utils";
 import { captureDocsEvent } from "@/lib/posthog/client";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
+import {
+  createPdfSignerController,
+  type BatchRow,
+  type DocEntry,
+  type PdfSignerController,
+  type PlacementOwner,
+  type RunState,
+} from "@/components/pdf-signer-store";
 
 const SIGNATURE_FIELD_ID = "a1-signature";
 const VALIDAR_ITI_URL = "https://validar.iti.gov.br";
-
-const placeRunStore = createSyncStore<{ ran: boolean }>({ ran: false });
-
-const usePdfSignatureBuilderSelector = <Selected,>(
-  store: PdfSignatureBuilderStore,
-  selector: (state: PdfSignatureBuilderState) => Selected,
-): Selected =>
-  React.useSyncExternalStore(
-    store.subscribe,
-    () => selector(store.getSnapshot()),
-    () => selector(store.getSnapshot()),
-  );
 
 const SIGNER_ROLE: PdfSignatureTemplate["roles"][number] = {
   id: "signer-1",
@@ -105,33 +100,15 @@ const SIGNATURE_DRAFT: PdfSignatureFieldDraft = {
   label: "A1 signature",
   required: true,
 };
-
-interface DocEntry {
-  readonly id: string;
-  readonly name: string;
-  readonly pdfBytes: Uint8Array;
-  readonly documentId: string;
-  readonly pageDims: ReadonlyArray<PdfSignaturePage>;
-  readonly pageTextBoxes: ReadonlyArray<ReadonlyArray<PdfTextBox>>;
-  readonly template: PdfSignatureTemplate;
-  readonly store: PdfSignatureBuilderStore;
-  readonly rect?: PdfSignatureRect;
-}
-
-type BatchRow =
-  | { readonly status: "queued" }
-  | { readonly status: "signing" }
-  | { readonly status: "signed"; readonly signedPdf: Uint8Array }
-  | { readonly status: "failed"; readonly error: string };
-
-type RunState =
-  | { readonly kind: "idle" }
-  | {
-      readonly kind: "signing";
-      readonly current: number;
-      readonly total: number;
-    }
-  | { readonly kind: "done" };
+const usePdfSignatureBuilderSelector = <Selected,>(
+  store: PdfSignatureBuilderStore,
+  selector: (state: PdfSignatureBuilderState) => Selected,
+): Selected =>
+  React.useSyncExternalStore(
+    store.subscribe,
+    () => selector(store.getSnapshot()),
+    () => selector(store.getSnapshot()),
+  );
 
 type RubricSource = "type" | "cert";
 
@@ -151,92 +128,6 @@ const signerFormDefaults: SignerFormValues = {
   stampName: true,
   stampDate: true,
   rubricEveryPage: false,
-};
-
-type SignerRuntimeState = {
-  readonly docs: readonly DocEntry[];
-  readonly activeDocId: string | undefined;
-  readonly pfxBytes: Uint8Array | undefined;
-  readonly profile: A1CertificateProfile | undefined;
-  readonly busy: boolean;
-  readonly status: string;
-  readonly error: string;
-  readonly signatureDataUrl: string | undefined;
-  readonly rubricaDataUrl: string | undefined;
-  readonly rows: Record<string, BatchRow>;
-  readonly run: RunState;
-  readonly placing: boolean;
-  readonly placingIds: readonly string[];
-  readonly queuedIds: readonly string[];
-  readonly activeStep: 1 | 2 | 3 | 4;
-};
-
-const signerRuntimeInitial: SignerRuntimeState = {
-  docs: [],
-  activeDocId: undefined,
-  pfxBytes: undefined,
-  profile: undefined,
-  busy: false,
-  status: "",
-  error: "",
-  signatureDataUrl: undefined,
-  rubricaDataUrl: undefined,
-  rows: {},
-  run: { kind: "idle" },
-  placing: false,
-  placingIds: [],
-  queuedIds: [],
-  activeStep: 1,
-};
-
-const signerRuntimeStore = createSyncStore<SignerRuntimeState>(signerRuntimeInitial);
-
-const patchSignerRuntime = (patch: Partial<SignerRuntimeState>): void => {
-  signerRuntimeStore.setState((state) => ({ ...state, ...patch }));
-};
-
-const updateSignerRuntime = (update: (state: SignerRuntimeState) => SignerRuntimeState): void => {
-  signerRuntimeStore.setState(update);
-};
-
-type PlacementOwner = symbol;
-
-type PlacementLease = {
-  readonly owner: PlacementOwner;
-  readonly release: () => void;
-};
-
-let placementTail: Promise<void> = Promise.resolve();
-let placementOwner: PlacementOwner | undefined;
-
-const acquirePlacementLease = async (): Promise<PlacementLease> => {
-  const previous = placementTail;
-  let resolve: () => void = () => {};
-  placementTail = new Promise<void>((next) => {
-    resolve = next;
-  });
-  await previous;
-  const owner = Symbol("pdf-signer-placement");
-  placementOwner = owner;
-  let released = false;
-  return {
-    owner,
-    release: () => {
-      if (released) return;
-      released = true;
-      if (placementOwner === owner) placementOwner = undefined;
-      resolve();
-    },
-  };
-};
-
-const isDocumentMutationLocked = (owner?: PlacementOwner): boolean => {
-  const { busy, placing } = signerRuntimeStore.getSnapshot();
-  return (
-    busy ||
-    (placementOwner !== undefined && placementOwner !== owner) ||
-    (placing && placementOwner !== owner)
-  );
 };
 
 type PdfDocumentLoadLifecycle = {
@@ -487,6 +378,7 @@ async function renderRubricaInitialsPng(initials: string): Promise<string | unde
 }
 
 function DocumentCanvas({
+  controller,
   activeDoc,
   stampPreview,
   rubricEveryPage,
@@ -494,6 +386,7 @@ function DocumentCanvas({
   onPlaced,
   onError,
 }: {
+  controller: PdfSignerController;
   activeDoc: DocEntry;
   stampPreview: {
     inkDataUrl?: string;
@@ -513,7 +406,6 @@ function DocumentCanvas({
   const store = activeDoc.store;
   const template = usePdfSignatureBuilderSelector(store, pdfSignatureBuilderSelectors.template);
   const placedField = template.fields.find((f) => f.id === SIGNATURE_FIELD_ID);
-
   const pages = template.documents[0]?.pages ?? [];
   const [doc, setDoc] = React.useState<PdfDocumentProxy | null>(null);
   const mountPdfDocument = React.useCallback(
@@ -540,18 +432,19 @@ function DocumentCanvas({
   );
 
   const place = async (pageIndex: number, fracX: number, fracY: number) => {
-    if (isDocumentMutationLocked()) return;
+    if (controller.isDocumentMutationLocked()) return;
     const page = pages[pageIndex];
     if (!page) return;
-    const lease = await acquirePlacementLease();
-    if (isDocumentMutationLocked(lease.owner)) {
+    const lease = await controller.acquirePlacementLease();
+    if (lease === undefined) return;
+    if (controller.isDocumentMutationLocked(lease.owner)) {
       lease.release();
       return;
     }
-    const execute = async () => {
+    try {
       const x = fracX * page.width;
       const y = fracY * page.height;
-      const placed = await Effect.runPromise(
+      const placedExit = await controller.runPlacementEffect(
         Effect.result(
           store.placeField({
             documentId: activeDoc.documentId,
@@ -563,18 +456,26 @@ function DocumentCanvas({
           }),
         ),
       );
+      if (Exit.isFailure(placedExit) || controller.isDocumentMutationLocked(lease.owner)) {
+        return;
+      }
+      const placed = placedExit.value;
       if (Result.isFailure(placed)) {
         onError(placed.failure.message);
         return;
       }
       const field = placed.success.fields.find((candidate) => candidate.id === SIGNATURE_FIELD_ID);
       if (field) onTemplateChange(activeDoc.id, placed.success, field.rect, lease.owner);
-      await Effect.runPromise(store.selectField(SIGNATURE_FIELD_ID));
+      const selectedExit = await controller.runPlacementEffect(
+        store.selectField(SIGNATURE_FIELD_ID),
+      );
+      if (Exit.isFailure(selectedExit) || controller.isDocumentMutationLocked(lease.owner)) {
+        return;
+      }
       onPlaced(lease.owner);
-    };
-    await execute().finally(() => {
+    } finally {
       lease.release();
-    });
+    }
   };
 
   return (
@@ -892,7 +793,20 @@ function BatchResults({
   );
 }
 
-export function PdfSigner({ className, inDialog }: { className?: string; inDialog?: boolean }) {
+type PdfSignerProps = { className?: string; inDialog?: boolean };
+
+function PdfSignerContent({
+  className,
+  inDialog,
+  controller,
+}: PdfSignerProps & { controller: PdfSignerController }) {
+  const signerRuntimeStore = controller.runtimeStore;
+  const placeRunStore = controller.placeRunStore;
+  const patchSignerRuntime = controller.patchRuntime;
+  const updateSignerRuntime = controller.updateRuntime;
+  const isDocumentMutationLocked = controller.isDocumentMutationLocked;
+  const acquirePlacementLease = controller.acquirePlacementLease;
+
   const form = useForm({ defaultValues: signerFormDefaults });
 
   const docs = useSyncStore(signerRuntimeStore, (state) => state.docs);
@@ -952,15 +866,18 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
   const reset = React.useCallback(() => {
     patchSignerRuntime({ run: { kind: "idle" }, rows: {}, error: "", status: "" });
     placeRunStore.setState(() => ({ ran: false }));
-  }, []);
+  }, [patchSignerRuntime, placeRunStore]);
 
   const clearBanners = React.useCallback(() => {
     patchSignerRuntime({ error: "" });
-  }, []);
+  }, [patchSignerRuntime]);
 
-  const reportError = React.useCallback((message: string) => {
-    patchSignerRuntime({ error: message });
-  }, []);
+  const reportError = React.useCallback(
+    (message: string) => {
+      patchSignerRuntime({ error: message });
+    },
+    [patchSignerRuntime],
+  );
 
   const handlePlaced = React.useCallback(
     (owner: PlacementOwner) => {
@@ -976,26 +893,25 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
         status: m.signer_status_placed(),
       });
     },
-    [docs.length, placedCount],
+    [docs.length, isDocumentMutationLocked, patchSignerRuntime, placedCount],
   );
 
-  const stampPreviewRun = React.useRef(0);
   const refreshStampPreview = React.useCallback(
     (
       nextSource: RubricSource = rubricSource,
       nextText: string = typedText,
       nextProfile: A1CertificateProfile | undefined = profile,
     ) => {
-      const runId = stampPreviewRun.current + 1;
-      stampPreviewRun.current = runId;
+      const generation = controller.beginPreview();
       clearBanners();
-      void Effect.runPromise(renderStampPreviewImages(nextSource, nextText, nextProfile)).then(
-        (preview) => {
-          if (stampPreviewRun.current === runId) patchSignerRuntime(preview);
-        },
-      );
+      void controller
+        .runPreviewEffect(renderStampPreviewImages(nextSource, nextText, nextProfile), generation)
+        .then((exit) => {
+          if (Exit.isFailure(exit) || !controller.isCurrentPreview(generation)) return;
+          patchSignerRuntime(exit.value);
+        });
     },
-    [clearBanners, profile, rubricSource, typedText],
+    [clearBanners, controller, patchSignerRuntime, profile, rubricSource, typedText],
   );
 
   const step1Done = docs.length > 0 && docs.every((d) => d.rect);
@@ -1020,7 +936,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
         return { ...state, docs: nextDocs, activeStep: nextActiveStep };
       });
     },
-    [],
+    [isDocumentMutationLocked, updateSignerRuntime],
   );
 
   const onPdfFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1032,19 +948,25 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       total_bytes: files.reduce((total, file) => total + file.size, 0),
     });
     if (files.length === 0) return;
+    const generation = controller.beginWorkflow();
     reset();
     let loadedCount = 0;
     let failedCount = 0;
     patchSignerRuntime({ busy: true, status: m.signer_status_reading_pdfs() });
     for (const file of files) {
-      const bytes = await Effect.runPromise(Effect.result(readPdfBlobBytes(file)));
+      const bytesExit = await controller.runWorkflowEffect(
+        Effect.result(readPdfBlobBytes(file)),
+        generation,
+      );
+      if (!controller.isCurrentWorkflow(generation) || Exit.isFailure(bytesExit)) return;
+      const bytes = bytesExit.value;
       if (Result.isFailure(bytes)) {
         failedCount += 1;
         patchSignerRuntime({ error: bytes.failure.message });
         continue;
       }
       const id = `doc-${crypto.randomUUID()}`;
-      const state = await Effect.runPromise(
+      const stateExit = await controller.runWorkflowEffect(
         Effect.result(
           createPdfSignatureBuilderStateFromBytes(
             {
@@ -1059,7 +981,10 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
             { pageLabel: (page) => m.signer_doc_page({ page }) },
           ),
         ),
+        generation,
       );
+      if (!controller.isCurrentWorkflow(generation) || Exit.isFailure(stateExit)) return;
+      const state = stateExit.value;
       if (Result.isFailure(state)) {
         failedCount += 1;
         patchSignerRuntime({ error: state.failure.message });
@@ -1071,12 +996,16 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
         { length: pageDims.length },
         () => [],
       );
-      const pageTextBoxes = await Effect.runPromise(
+      const pageTextBoxesExit = await controller.runWorkflowEffect(
         parsePdfTextBoxesBrowser(bytes.success, pageDims.length).pipe(
           Effect.provide(liteParseWorkerBrowserLayer),
           Effect.catchTag("PdfError", () => Effect.succeed(pageTextBoxesFallback)),
         ),
+        generation,
       );
+      if (!controller.isCurrentWorkflow(generation) || Exit.isFailure(pageTextBoxesExit)) {
+        return;
+      }
       const store = createPdfSignatureBuilderStore(state.success);
       const entry: DocEntry = {
         id,
@@ -1084,17 +1013,18 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
         pdfBytes: bytes.success,
         documentId: id,
         pageDims,
-        pageTextBoxes,
+        pageTextBoxes: pageTextBoxesExit.value,
         template,
         store,
       };
-      updateSignerRuntime((state) => ({
-        ...state,
-        docs: [...state.docs, entry],
-        activeDocId: state.activeDocId ?? id,
+      updateSignerRuntime((current) => ({
+        ...current,
+        docs: [...current.docs, entry],
+        activeDocId: current.activeDocId ?? id,
       }));
       loadedCount += 1;
     }
+    if (!controller.isCurrentWorkflow(generation)) return;
     captureDocsEvent("pdf_signer_pdfs_loaded", {
       failed_count: failedCount,
       loaded_count: loadedCount,
@@ -1125,6 +1055,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
   const autoPlaceAll = async () => {
     if (docs.length === 0 || signerRuntimeStore.getSnapshot().busy) return;
     const lease = await acquirePlacementLease();
+    if (lease === undefined) return;
     if (isDocumentMutationLocked(lease.owner)) {
       lease.release();
       return;
@@ -1155,42 +1086,48 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       documentId: doc.documentId,
       draft: SIGNATURE_DRAFT,
     }));
-    const execute = async () => {
-      await Effect.runPromise(
-        placePdfSignatureFieldsBatch(queue, {
-          onItemStarted: (item) => {
-            updateSignerRuntime((state) => ({
-              ...state,
-              queuedIds: state.queuedIds.filter((id) => id !== item.id),
-              placingIds: [item.id],
-            }));
-          },
-          onItemSettled: (result) => {
-            if (result.ok) {
-              updateSignerRuntime((state) => {
-                if (!state.docs.some((doc) => doc.id === result.id)) return state;
-                return {
-                  ...state,
-                  docs: state.docs.map((doc) =>
-                    doc.id === result.id
-                      ? { ...doc, template: result.template, rect: result.field.rect }
-                      : doc,
-                  ),
-                  activeDocId: result.id,
-                };
-              });
-            } else {
-              patchSignerRuntime({ error: result.error.message });
-            }
-          },
-          yieldAfterItem: () =>
-            Effect.gen(function* () {
-              patchSignerRuntime({ placingIds: [] });
-              yield* Effect.sleep("24 millis");
-            }),
-        }),
+    try {
+      const exit = await controller.runPlacementEffect(
+        Effect.result(
+          placePdfSignatureFieldsBatch(queue, {
+            onItemStarted: (item) => {
+              if (isDocumentMutationLocked(lease.owner)) return;
+              updateSignerRuntime((state) => ({
+                ...state,
+                queuedIds: state.queuedIds.filter((id) => id !== item.id),
+                placingIds: [item.id],
+              }));
+            },
+            onItemSettled: (result) => {
+              if (isDocumentMutationLocked(lease.owner)) return;
+              if (result.ok) {
+                updateSignerRuntime((state) => {
+                  if (!state.docs.some((doc) => doc.id === result.id)) return state;
+                  return {
+                    ...state,
+                    docs: state.docs.map((doc) =>
+                      doc.id === result.id
+                        ? { ...doc, template: result.template, rect: result.field.rect }
+                        : doc,
+                    ),
+                    activeDocId: result.id,
+                  };
+                });
+              } else {
+                patchSignerRuntime({ error: result.error.message });
+              }
+            },
+            yieldAfterItem: () =>
+              Effect.gen(function* () {
+                if (!isDocumentMutationLocked(lease.owner)) {
+                  patchSignerRuntime({ placingIds: [] });
+                }
+                yield* Effect.sleep("24 millis");
+              }),
+          }),
+        ),
       );
-
+      if (Exit.isFailure(exit) || isDocumentMutationLocked(lease.owner)) return;
       const completedState = signerRuntimeStore.getSnapshot();
       const completedDocs = completedState.docs;
       if (
@@ -1204,13 +1141,13 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
         placed_count: completedDocs.filter((doc) => doc.rect).length,
         total_count: completedDocs.length,
       });
-    };
-    await execute().finally(() => {
-      patchSignerRuntime({ placing: false, queuedIds: [], placingIds: [] });
+    } finally {
+      if (!isDocumentMutationLocked(lease.owner)) {
+        patchSignerRuntime({ placing: false, queuedIds: [], placingIds: [] });
+      }
       lease.release();
-    });
+    }
   };
-
   const onPfxFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
     if (isDocumentMutationLocked()) return;
@@ -1218,15 +1155,22 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     captureDocsEvent("pdf_signer_certificate_selected", {
       file_size: file.size,
     });
+    const generation = controller.beginWorkflow();
     reset();
     patchSignerRuntime({
       profile: undefined,
+      pfxBytes: undefined,
       signatureDataUrl: undefined,
       rubricaDataUrl: undefined,
       busy: true,
       status: m.signer_status_reading_cert(),
     });
-    const bytes = await Effect.runPromise(Effect.result(readPdfBlobBytes(file)));
+    const bytesExit = await controller.runWorkflowEffect(
+      Effect.result(readPdfBlobBytes(file)),
+      generation,
+    );
+    if (!controller.isCurrentWorkflow(generation) || Exit.isFailure(bytesExit)) return;
+    const bytes = bytesExit.value;
     patchSignerRuntime({ busy: false });
     if (Result.isFailure(bytes)) {
       captureDocsEvent("pdf_signer_certificate_failed", {
@@ -1257,6 +1201,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       return patchSignerRuntime({ error: "Enter the certificate password." });
     }
 
+    const generation = controller.beginWorkflow();
     captureDocsEvent("pdf_signer_sign_started", {
       document_count: placed.length,
       rubric_every_page: rubricEveryPage,
@@ -1268,14 +1213,17 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
 
     let certValue = profile;
     if (!certValue) {
-      const certificate = await Effect.runPromise(
+      const certificateExit = await controller.runWorkflowEffect(
         Effect.result(
           parseA1CertificateProfile({
             pfx: pfxBytes,
             password: Redacted.make(password),
           }),
         ),
+        generation,
       );
+      if (!controller.isCurrentWorkflow(generation) || Exit.isFailure(certificateExit)) return;
+      const certificate = certificateExit.value;
       if (Result.isFailure(certificate)) {
         captureDocsEvent("pdf_signer_identity_failed", {
           phase: "sign_start",
@@ -1293,7 +1241,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       stampName,
       stampDate,
     );
-    const marks = await Effect.runPromise(
+    const marksExit = await controller.runWorkflowEffect(
       Effect.result(
         rubricSource === "type" && typedText.trim()
           ? Effect.all(
@@ -1325,7 +1273,10 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
               )
             : Effect.succeed({ sig: undefined, rub: undefined }),
       ),
+      generation,
     );
+    if (!controller.isCurrentWorkflow(generation) || Exit.isFailure(marksExit)) return;
+    const marks = marksExit.value;
     const sig = Result.isSuccess(marks) ? marks.success.sig : undefined;
     const rub = Result.isSuccess(marks) ? marks.success.rub : undefined;
     const mainPng = sig ? dataUrlToBytes(sig) : undefined;
@@ -1339,7 +1290,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       status: m.signer_status_preparing(),
     });
 
-    const preparation = await Effect.runPromise(
+    const preparationExit = await controller.runWorkflowEffect(
       Effect.result(
         preparePdfSigningBatch(
           {
@@ -1376,6 +1327,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
           },
           {
             onItemSettled: (result, index, total) => {
+              if (!controller.isCurrentWorkflow(generation)) return;
               updateSignerRuntime((state) => ({
                 ...state,
                 run: { kind: "signing", current: index + 1, total },
@@ -1391,8 +1343,12 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
           },
         ),
       ),
+      generation,
     );
-
+    if (!controller.isCurrentWorkflow(generation) || Exit.isFailure(preparationExit)) {
+      return;
+    }
+    const preparation = preparationExit.value;
     if (Result.isFailure(preparation)) {
       captureDocsEvent("pdf_signer_sign_failed", {
         attempted_count: placed.length,
@@ -1408,7 +1364,6 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
     }
 
     const items = preparation.success.flatMap((result) => (result.ok ? [result.item] : []));
-
     if (items.length === 0) {
       captureDocsEvent("pdf_signer_sign_failed", {
         attempted_count: placed.length,
@@ -1429,10 +1384,11 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       rows: { ...state.rows, [items[0].id]: { status: "signing" } },
       status: m.signer_status_signing(),
     }));
-    const batch = await Effect.runPromise(
+    const batchExit = await controller.runWorkflowEffect(
       Effect.result(
         signPdfSignatureBatch(items, {
           onItemSettled: (result, index, total) => {
+            if (!controller.isCurrentWorkflow(generation)) return;
             updateSignerRuntime((state) => {
               const next: Record<string, BatchRow> = {
                 ...state.rows,
@@ -1460,7 +1416,10 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
           ),
         ),
       ),
+      generation,
     );
+    if (!controller.isCurrentWorkflow(generation) || Exit.isFailure(batchExit)) return;
+    const batch = batchExit.value;
     if (Result.isFailure(batch)) {
       captureDocsEvent("pdf_signer_sign_failed", {
         attempted_count: placed.length,
@@ -1528,25 +1487,29 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
   const loadProfileThenAdvance = async () => {
     if (isDocumentMutationLocked()) return;
     if (!pfxBytes || password.length === 0) return;
+    const generation = controller.beginWorkflow();
     captureDocsEvent("pdf_signer_certificate_profile_started");
     patchSignerRuntime({ busy: true, status: m.signer_status_reading_identity() });
-    const c = await Effect.runPromise(
+    const profileExit = await controller.runWorkflowEffect(
       Effect.result(
         parseA1CertificateProfile({
           pfx: pfxBytes,
           password: Redacted.make(password),
         }),
       ),
+      generation,
     );
+    if (!controller.isCurrentWorkflow(generation) || Exit.isFailure(profileExit)) return;
     patchSignerRuntime({ busy: false });
-    if (Result.isFailure(c)) {
+    const parsed = profileExit.value;
+    if (Result.isFailure(parsed)) {
       captureDocsEvent("pdf_signer_certificate_profile_failed");
-      patchSignerRuntime({ error: c.failure.message });
+      patchSignerRuntime({ error: parsed.failure.message });
       return;
     }
     captureDocsEvent("pdf_signer_certificate_profile_loaded");
-    patchSignerRuntime({ profile: c.success });
-    refreshStampPreview(rubricSource, typedText, c.success);
+    patchSignerRuntime({ profile: parsed.success });
+    refreshStampPreview(rubricSource, typedText, parsed.success);
     goToStep(3);
   };
 
@@ -1634,6 +1597,7 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
               </Label>
             ) : (
               <DocumentCanvas
+                controller={controller}
                 key={activeDoc.id}
                 activeDoc={activeDoc}
                 stampPreview={stampPreview}
@@ -2099,6 +2063,21 @@ export function PdfSigner({ className, inDialog }: { className?: string; inDialo
       </div>
     </div>
   );
+}
+class PdfSignerBoundary extends React.Component<PdfSignerProps> {
+  readonly controller = createPdfSignerController();
+
+  componentWillUnmount(): void {
+    this.controller.dispose();
+  }
+
+  render(): React.ReactNode {
+    return <PdfSignerContent {...this.props} controller={this.controller} />;
+  }
+}
+
+export function PdfSigner(props: PdfSignerProps) {
+  return <PdfSignerBoundary {...props} />;
 }
 
 export function PdfSignerDialog({ children }: { children: React.ReactNode }) {

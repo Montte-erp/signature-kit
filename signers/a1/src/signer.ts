@@ -287,6 +287,9 @@ export const a1SignaturesLayer = (
 const redactPresignedUrl = (url: string): string => {
   if (!URL.canParse(url)) return "<redacted>";
   const sanitized = new URL(url);
+  sanitized.username = "";
+  sanitized.password = "";
+  sanitized.hash = "";
   for (const key of sanitized.searchParams.keys()) {
     sanitized.searchParams.set(key, "<redacted>");
   }

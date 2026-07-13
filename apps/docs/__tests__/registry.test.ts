@@ -1,52 +1,117 @@
-import * as ts from "typescript/unstable/ast";
-import { API } from "typescript/unstable/async";
-import { createVirtualFileSystem } from "typescript/unstable/fs";
-import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import type * as TypeScript from "typescript";
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
-const RegistryCatalogItemSchema = Schema.Struct({
+import { buildRegistry, registry } from "../scripts/build-registry";
+
+const RegistryFileSchema = Schema.Struct({
+  path: Schema.String,
+  type: Schema.String,
+  target: Schema.optional(Schema.String),
+  content: Schema.optional(Schema.String),
+});
+
+const RegistryItemSchema = Schema.Struct({
+  name: Schema.String,
+  type: Schema.String,
+  title: Schema.String,
+  description: Schema.String,
+  registryDependencies: Schema.optional(Schema.Array(Schema.String)),
   dependencies: Schema.optional(Schema.Array(Schema.String)),
+  files: Schema.Array(RegistryFileSchema),
+  docs: Schema.optional(Schema.String),
+});
+
+const RegistryCatalogSchema = Schema.Struct({
+  $schema: Schema.String,
+  name: Schema.String,
+  homepage: Schema.String,
+  items: Schema.Array(RegistryItemSchema),
 });
 
 const PackageJsonSchema = Schema.Struct({
   dependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
 });
 
-type ImportDeclarationSummary = {
-  specifier: string;
-  namedImports: ReadonlyArray<string>;
+type ModuleReferenceSummary = {
+  readonly specifier: string;
+  readonly namedImports: ReadonlyArray<string>;
+  readonly exportedNames: ReadonlyArray<string>;
 };
 
 const docsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-
-const componentPath = resolve(
-  docsRoot,
-  "registry/default/signature-pdf-viewer/signature-pdf-viewer.tsx",
-);
-const itemPath = resolve(docsRoot, "public/r/signature-pdf-viewer.json");
 const packagePath = resolve(docsRoot, "package.json");
-const buildRegistryPath = resolve(docsRoot, "scripts/build-registry.ts");
+const requiredTypescript = createRequire(import.meta.url)("typescript");
+const typescript: typeof TypeScript = requiredTypescript.default ?? requiredTypescript;
 
-const parseSourceFile = async (fileName: string, source: string): Promise<ts.SourceFile> => {
-  const api = new API({
-    cwd: docsRoot,
-    fs: createVirtualFileSystem({ [fileName]: source }),
-  });
+const parseSourceFile = (fileName: string, source: string): TypeScript.SourceFile =>
+  typescript.createSourceFile(
+    fileName,
+    source,
+    typescript.ScriptTarget.Latest,
+    true,
+    typescript.ScriptKind.TSX,
+  );
 
-  try {
-    const snapshot = await api.updateSnapshot({ openFiles: [fileName] });
-    const project = await snapshot.getDefaultProjectForFile(fileName);
-    if (project === undefined) throw new Error(`No project found for ${fileName}`);
+const moduleSpecifierText = (node: TypeScript.Expression | undefined): string | undefined =>
+  node !== undefined && typescript.isStringLiteralLike(node) ? node.text : undefined;
 
-    const sourceFile = await project.program.getSourceFile(fileName);
-    if (sourceFile === undefined) throw new Error(`No source file found for ${fileName}`);
-    return sourceFile;
-  } finally {
-    await api.close();
+const extractModuleReferences = (
+  fileName: string,
+  source: string,
+): ReadonlyArray<ModuleReferenceSummary> => {
+  const sourceFile = parseSourceFile(fileName, source);
+  const entries: ModuleReferenceSummary[] = [];
+
+  for (const statement of sourceFile.statements) {
+    if (typescript.isImportDeclaration(statement)) {
+      const specifier = moduleSpecifierText(statement.moduleSpecifier);
+      if (specifier === undefined) continue;
+
+      const namedImports: string[] = [];
+      const importClause = statement.importClause;
+      if (importClause?.name !== undefined) namedImports.push("default");
+
+      const namedBindings = importClause?.namedBindings;
+      if (namedBindings !== undefined && typescript.isNamedImports(namedBindings)) {
+        for (const element of namedBindings.elements) {
+          namedImports.push(element.propertyName?.text ?? element.name.text);
+        }
+      } else if (namedBindings !== undefined && typescript.isNamespaceImport(namedBindings)) {
+        namedImports.push("*");
+      }
+
+      entries.push({ specifier, namedImports, exportedNames: [] });
+      continue;
+    }
+
+    if (!typescript.isExportDeclaration(statement)) continue;
+    const specifier = moduleSpecifierText(statement.moduleSpecifier);
+    if (specifier === undefined) continue;
+
+    const namedImports: string[] = [];
+    const exportedNames: string[] = [];
+    const exportClause = statement.exportClause;
+    if (exportClause === undefined) {
+      namedImports.push("*");
+    } else if (typescript.isNamedExports(exportClause)) {
+      for (const element of exportClause.elements) {
+        namedImports.push(element.propertyName?.text ?? element.name.text);
+        exportedNames.push(element.name.text);
+      }
+    } else if (typescript.isNamespaceExport(exportClause)) {
+      exportedNames.push(exportClause.name.text);
+    }
+
+    entries.push({ specifier, namedImports, exportedNames });
   }
+
+  return entries;
 };
 
 const isExternal = (specifier: string): boolean =>
@@ -54,6 +119,10 @@ const isExternal = (specifier: string): boolean =>
   !specifier.startsWith("@/") &&
   !specifier.startsWith("#") &&
   !specifier.startsWith("/");
+const consumerHostPackages: Record<string, true> = {
+  react: true,
+  "react-dom": true,
+};
 
 const packageNameFromImport = (specifier: string): string => {
   if (specifier.startsWith("@")) {
@@ -67,212 +136,155 @@ const packageNameFromImport = (specifier: string): string => {
 
 const dependencyPackageName = (dependency: string): string => {
   if (dependency.startsWith("@")) {
-    const match = /^(@[^/]+\/[^@/]+)/.exec(dependency);
-    if (match === null) return dependency;
-    return match[1];
+    const separator = dependency.indexOf("@", 1);
+    return separator === -1 ? dependency : dependency.slice(0, separator);
   }
 
-  const index = dependency.indexOf("@");
-  return index === -1 ? dependency : dependency.slice(0, index);
+  const separator = dependency.indexOf("@");
+  return separator === -1 ? dependency : dependency.slice(0, separator);
 };
 
-const normalizeSorted = (values: ReadonlyArray<string>): ReadonlyArray<string> => {
-  const uniq = new Set(values);
-  return Array.from(uniq).sort();
+const dependencyVersion = (dependency: string): string | undefined => {
+  const packageName = dependencyPackageName(dependency);
+  const prefix = `${packageName}@`;
+  return dependency.startsWith(prefix) ? dependency.slice(prefix.length) : undefined;
 };
 
-const extractImports = async (source: string): Promise<ReadonlyArray<ImportDeclarationSummary>> => {
-  const sourceFile = await parseSourceFile(componentPath, source);
+const normalizeSorted = (values: ReadonlyArray<string>): ReadonlyArray<string> =>
+  Array.from(new Set(values)).sort();
 
-  const entries: ImportDeclarationSummary[] = [];
+const decodeJson = async <A>(schema: Schema.ConstraintDecoder<A>, path: string): Promise<A> =>
+  Effect.runPromise(Schema.decodeUnknownEffect(schema)(JSON.parse(await readFile(path, "utf8"))));
 
-  for (const statement of sourceFile.statements) {
-    if (!ts.isImportDeclaration(statement)) continue;
-    const moduleSpecifier = statement.moduleSpecifier;
-    if (!ts.isStringLiteralLikeNode(moduleSpecifier)) continue;
+describe("registry metadata", () => {
+  it("uses the stable TypeScript parser for aliases, re-exports, and defaults", () => {
+    const references = extractModuleReferences(
+      "fixture.tsx",
+      [
+        'import primary, { default as importedDefault, value as importedValue } from "@scope/source";',
+        'export { importedValue as renamed, importedDefault as default } from "@scope/reexport";',
+        'export * from "plain-package";',
+        'export * as namespace from "namespace-package";',
+        "export default primary;",
+      ].join("\n"),
+    );
 
-    const namedImports: string[] = [];
-    const named = statement.importClause?.namedBindings;
+    expect(references).toEqual([
+      {
+        specifier: "@scope/source",
+        namedImports: ["default", "default", "value"],
+        exportedNames: [],
+      },
+      {
+        specifier: "@scope/reexport",
+        namedImports: ["importedValue", "importedDefault"],
+        exportedNames: ["renamed", "default"],
+      },
+      {
+        specifier: "plain-package",
+        namedImports: ["*"],
+        exportedNames: [],
+      },
+      {
+        specifier: "namespace-package",
+        namedImports: [],
+        exportedNames: ["namespace"],
+      },
+    ]);
+  });
 
-    if (named !== undefined && ts.isNamedImports(named)) {
-      for (const element of named.elements) {
-        namedImports.push(element.name.getText(sourceFile));
-      }
-    }
+  it("validates every generated item, source file, dependency, and pinned version", async () => {
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "signature-kit-registry-"));
+    const outputPath = join(fixtureRoot, "public", "r");
 
-    entries.push({
-      specifier: moduleSpecifier.text,
-      namedImports,
-    });
-  }
+    try {
+      await mkdir(outputPath, { recursive: true });
+      await writeFile(join(outputPath, "sentinel.json"), "{}\n");
+      await buildRegistry(outputPath);
 
-  return entries;
-};
+      const generatedFiles = (await readdir(outputPath)).sort();
+      const expectedFiles = [
+        "registry.json",
+        ...registry.items.map((item) => `${item.name}.json`),
+      ].sort();
+      expect(generatedFiles).toEqual(expectedFiles);
 
-const normalizeText = (expression: ts.Expression | undefined): string | undefined => {
-  if (expression === undefined) return undefined;
-  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression))
-    return expression.text;
-  return undefined;
-};
+      const catalog = await decodeJson(RegistryCatalogSchema, join(outputPath, "registry.json"));
+      const packageJson = await decodeJson(PackageJsonSchema, packagePath);
+      const expectedNames = registry.items.map((item) => item.name).sort();
+      expect(catalog.name).toBe("signature-kit");
+      expect(catalog.items.map((item) => item.name).sort()).toEqual(expectedNames);
+      expect(new Set(catalog.items.map((item) => item.name)).size).toBe(catalog.items.length);
 
-const propertyName = (node: ts.PropertyName): string | undefined => {
-  if (ts.isIdentifier(node)) return node.text;
-  if (ts.isStringLiteral(node)) return node.text;
-  return undefined;
-};
+      const targets = catalog.items.flatMap((item) => item.files.map((file) => file.target ?? ""));
+      expect(new Set(targets).size).toBe(targets.length);
+      expect(targets.every((target) => target.startsWith("@components/signature-kit/"))).toBe(true);
 
-const extractObjectProperty = (
-  node: ts.ObjectLiteralExpression,
-  name: string,
-): ts.Expression | undefined => {
-  for (const child of node.properties) {
-    if (!ts.isPropertyAssignment(child)) continue;
-    if (propertyName(child.name) === name) return child.initializer;
-  }
+      for (const item of catalog.items) {
+        const generatedItem = await decodeJson(
+          Schema.Struct({
+            $schema: Schema.String,
+            ...RegistryItemSchema.fields,
+          }),
+          join(outputPath, `${item.name}.json`),
+        );
+        const declaredDependencies = normalizeSorted(
+          (item.dependencies ?? []).map(dependencyPackageName),
+        );
+        const sourceReferences = (
+          await Promise.all(
+            item.files.map(async (file) => ({
+              file,
+              source: await readFile(resolve(docsRoot, file.path), "utf8"),
+            })),
+          )
+        ).flatMap(({ file, source }) => {
+          const references = extractModuleReferences(file.path, source);
+          return references
+            .filter((reference) => isExternal(reference.specifier))
+            .map((reference) => packageNameFromImport(reference.specifier))
+            .filter((packageName) => consumerHostPackages[packageName] !== true);
+        });
 
-  return undefined;
-};
+        expect(declaredDependencies).toEqual(normalizeSorted(sourceReferences));
 
-const unwrapExpression = (node: ts.Expression): ts.Expression => {
-  if (ts.isSatisfiesExpression(node)) return node.expression;
-  if (ts.isAsExpression(node)) return node.expression;
-  if (ts.isTypeAssertion(node)) return node.expression;
-  if (ts.isParenthesizedExpression(node)) return node.expression;
-  return node;
-};
-
-const extractBuildRegistryDependencies = async (source: string): Promise<ReadonlyArray<string>> => {
-  const sourceFile = await parseSourceFile(buildRegistryPath, source);
-
-  for (const statement of sourceFile.statements) {
-    if (!ts.isVariableStatement(statement)) continue;
-
-    for (const declaration of statement.declarationList.declarations) {
-      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== "registry") continue;
-      if (declaration.initializer === undefined) continue;
-
-      const initializer = unwrapExpression(declaration.initializer);
-      if (!ts.isObjectLiteralExpression(initializer)) continue;
-
-      const items = extractObjectProperty(initializer, "items");
-      if (items === undefined || !ts.isArrayLiteralExpression(items)) continue;
-
-      for (const item of items.elements) {
-        if (!ts.isObjectLiteralExpression(item)) continue;
-
-        const name = normalizeText(extractObjectProperty(item, "name"));
-        if (name !== "signature-pdf-viewer") continue;
-
-        const dependenciesExpression = extractObjectProperty(item, "dependencies");
-        if (
-          dependenciesExpression === undefined ||
-          !ts.isArrayLiteralExpression(dependenciesExpression)
-        )
-          return [];
-
-        const deps: string[] = [];
-        for (const dep of dependenciesExpression.elements) {
-          const text = normalizeText(dep);
-          if (text === undefined) continue;
-          deps.push(text);
+        const generatedFileTargets = generatedItem.files.map((file) => file.target ?? "");
+        expect(generatedFileTargets).toEqual(item.files.map((file) => file.target ?? ""));
+        for (const [index, file] of item.files.entries()) {
+          const generatedFile = generatedItem.files[index];
+          const source = await readFile(resolve(docsRoot, file.path), "utf8");
+          expect(generatedFile.content).toBe(source);
         }
-        return deps;
+
+        for (const dependency of item.dependencies ?? []) {
+          const pinnedVersion = dependencyVersion(dependency);
+          if (pinnedVersion === undefined) continue;
+          const packageName = dependencyPackageName(dependency);
+          expect(packageJson.dependencies?.[packageName]).toBe(pinnedVersion);
+        }
       }
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
     }
-  }
+  });
 
-  return [];
-};
+  it("keeps the pdf viewer pdfjs import contract", async () => {
+    const item = registry.items.find((candidate) => candidate.name === "signature-pdf-viewer");
+    expect(item).toBeDefined();
+    if (item === undefined) return;
 
-describe("registry dependency assertions for signature-pdf-viewer", () => {
-  it("imports pdfjs only from react-pdf and not from pdfjs-dist", async () => {
-    const source = await readFile(componentPath, "utf8");
-    const imports = await extractImports(source);
-
+    const file = item.files[0];
+    const source = await readFile(resolve(docsRoot, file.path), "utf8");
+    const imports = extractModuleReferences(file.path, source);
     const reactPdfImport = imports.find((entry) => entry.specifier === "react-pdf");
+
     expect(reactPdfImport, "signature-pdf-viewer must import from react-pdf").toBeDefined();
     if (reactPdfImport === undefined) return;
-
-    expect(reactPdfImport.namedImports.includes("pdfjs"), "pdfjs must come from react-pdf").toBe(
-      true,
-    );
+    expect(reactPdfImport.namedImports.includes("pdfjs")).toBe(true);
     expect(
       imports.some(
         (entry) => entry.specifier === "pdfjs-dist" || entry.specifier.startsWith("pdfjs-dist/"),
       ),
-      "pdfjs-dist should never be imported from a package specifier",
     ).toBe(false);
-  });
-
-  it("declares dependency metadata from imported package names and pins effect", async () => {
-    const [itemRaw, packageRaw, sourceRaw] = await Promise.all([
-      readFile(itemPath, "utf8"),
-      readFile(packagePath, "utf8"),
-      readFile(componentPath, "utf8"),
-    ]);
-
-    const item = await Effect.runPromise(
-      Schema.decodeUnknownEffect(RegistryCatalogItemSchema)(JSON.parse(itemRaw)),
-    );
-    const packageJson = await Effect.runPromise(
-      Schema.decodeUnknownEffect(PackageJsonSchema)(JSON.parse(packageRaw)),
-    );
-    const imports = await extractImports(sourceRaw);
-
-    const importedPackages = normalizeSorted(
-      imports
-        .map((entry) => entry.specifier)
-        .filter(isExternal)
-        .filter((specifier) => packageNameFromImport(specifier) !== "react")
-        .map(packageNameFromImport),
-    );
-
-    const declaredDependencies = normalizeSorted(
-      (item.dependencies ?? []).map((dependency) => dependencyPackageName(dependency)),
-    );
-
-    expect(declaredDependencies).toEqual(importedPackages);
-
-    const effectVersion = packageJson.dependencies?.effect;
-    expect(effectVersion, "apps/docs must declare effect in package dependencies").toBeTypeOf(
-      "string",
-    );
-
-    const effectEntry = (item.dependencies ?? []).find(
-      (dependency) => dependencyPackageName(dependency) === "effect",
-    );
-    expect(effectEntry, "registry metadata must include effect").toBeDefined();
-    if (effectVersion === "workspace:*") {
-      expect(effectEntry).toBe("effect@workspace:*");
-    } else {
-      expect(effectEntry).toBe(`effect@${effectVersion}`);
-    }
-  });
-
-  it("build-registry script keeps signature-pdf-viewer effect pinned", async () => {
-    const [scriptRaw, packageRaw] = await Promise.all([
-      readFile(buildRegistryPath, "utf8"),
-      readFile(packagePath, "utf8"),
-    ]);
-    const packageJson = await Effect.runPromise(
-      Schema.decodeUnknownEffect(PackageJsonSchema)(JSON.parse(packageRaw)),
-    );
-    const scriptDependencies = await extractBuildRegistryDependencies(scriptRaw);
-    const effectVersion = packageJson.dependencies?.effect;
-
-    expect(effectVersion, "apps/docs must declare effect in package dependencies").toBeTypeOf(
-      "string",
-    );
-    const effectDep = scriptDependencies.find(
-      (dependency) => dependencyPackageName(dependency) === "effect",
-    );
-    expect(effectDep, "build-registry metadata must include effect").toBeDefined();
-
-    if (effectVersion === "workspace:*") {
-      expect(effectDep).toBe("effect@workspace:*");
-    } else {
-      expect(effectDep).toBe(`effect@${effectVersion}`);
-    }
   });
 });

@@ -27,16 +27,11 @@ const hasManifestDependency = (
   if (!matcher(context.rawLine)) {
     return false;
   }
-
-  try {
-    const parsed: unknown = JSON.parse(context.source);
-    if (!isRecord(parsed) || !isRecord(parsed.dependencies)) {
-      return false;
-    }
-    return Object.keys(parsed.dependencies).some((name) => matcher(`"${name}":`));
-  } catch {
-    return true;
+  const parsed = context.parsedJson;
+  if (!isRecord(parsed) || !isRecord(parsed.dependencies)) {
+    return false;
   }
+  return Object.keys(parsed.dependencies).some((name) => matcher(`"${name}":`));
 };
 
 const hasManualTypeScriptScript = (context: Parameters<Check["test"]>[0]): boolean => {
@@ -44,15 +39,10 @@ const hasManualTypeScriptScript = (context: Parameters<Check["test"]>[0]): boole
   if (scriptName === undefined) {
     return false;
   }
-
-  try {
-    const parsed: unknown = JSON.parse(context.source);
-    return (
-      isRecord(parsed) && isRecord(parsed.scripts) && typeof parsed.scripts[scriptName] === "string"
-    );
-  } catch {
-    return true;
-  }
+  const parsed = context.parsedJson;
+  return (
+    isRecord(parsed) && isRecord(parsed.scripts) && typeof parsed.scripts[scriptName] === "string"
+  );
 };
 
 export const dependencyChecks: readonly Check[] = [

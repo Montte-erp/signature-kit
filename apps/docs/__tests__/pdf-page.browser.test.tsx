@@ -1,10 +1,10 @@
 import * as React from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { A4, makeDummyPdf } from "./helpers/dummy-pdf";
 import { PdfPage, loadPdfjs } from "../components/pdf-page";
-import type { PdfDocumentProxy } from "../components/pdf-page";
+import type { PdfDocumentProxy, PdfPageRenderError } from "../components/pdf-page";
 
 const rafTick = () => new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
 
@@ -62,6 +62,19 @@ if (typeof document === "undefined") {
       if (doc !== undefined) return doc;
       expect.fail("pdf.js document was not loaded");
     };
+
+    afterEach(async () => {
+      cleanup();
+      await doc?.destroy?.();
+      doc = undefined;
+    });
+
+    const makeFakeDocument = (width: number, height: number): PdfDocumentProxy => ({
+      getPage: async () => ({
+        getViewport: () => ({ width, height, scale: 2 }),
+        render: () => ({ promise: Promise.resolve(), cancel: () => {} }),
+      }),
+    });
 
     it("rasterises a real dummy PDF page onto the canvas and reports click fractions", async () => {
       await ensureLoaded();
@@ -135,6 +148,115 @@ if (typeof document === "undefined") {
       expect(currentContainer().textContent).toContain("signature");
 
       cleanup();
+    });
+
+    it("renders a typed visible error when loading a page fails", async () => {
+      const errors: PdfPageRenderError[] = [];
+      const failingDocument: PdfDocumentProxy = {
+        getPage: async () => Promise.reject(new Error("page load failed")),
+      };
+      mount(
+        React.createElement(PdfPage, {
+          doc: failingDocument,
+          pageNumber: 1,
+          widthPt: A4.width,
+          heightPt: A4.height,
+          onPlace: () => {},
+          onError: (error) => errors.push(error),
+        }),
+      );
+
+      await waitForFrames(
+        () => currentContainer().querySelector('[role="alert"]') !== null,
+        "the page render error",
+      );
+      const alert = currentContainer().querySelector<HTMLElement>('[role="alert"]');
+      if (alert === null) expect.fail("page render error was not rendered");
+      expect(alert.dataset.pdfRenderError).toBe("pdf-page-load-failed");
+      expect(alert.textContent).toContain("Unable to load this PDF page.");
+      expect(errors).toHaveLength(1);
+      expect(errors[0]?._tag).toBe("PdfPageRenderError");
+      expect(errors[0]?.code).toBe("pdf-page-load-failed");
+    });
+
+    it("reports synchronous canvas render failures without an unhandled rejection", async () => {
+      const errors: PdfPageRenderError[] = [];
+      const failingDocument: PdfDocumentProxy = {
+        getPage: async () => ({
+          getViewport: () => ({ width: A4.width, height: A4.height, scale: 2 }),
+          render: () => {
+            throw new Error("render failed");
+          },
+        }),
+      };
+      const rejections: unknown[] = [];
+      const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+        rejections.push(event.reason);
+        event.preventDefault();
+      };
+      window.addEventListener("unhandledrejection", onUnhandledRejection);
+
+      try {
+        mount(
+          React.createElement(PdfPage, {
+            doc: failingDocument,
+            pageNumber: 1,
+            widthPt: A4.width,
+            heightPt: A4.height,
+            onPlace: () => {},
+            onError: (error) => errors.push(error),
+          }),
+        );
+
+        await waitForFrames(
+          () => currentContainer().querySelector('[role="alert"]') !== null,
+          "the synchronous render error",
+        );
+        const alert = currentContainer().querySelector<HTMLElement>('[role="alert"]');
+        if (alert === null) expect.fail("synchronous render error was not rendered");
+        expect(alert.dataset.pdfRenderError).toBe("pdf-page-render-failed");
+        expect(errors[0]?.code).toBe("pdf-page-render-failed");
+        await rafTick();
+        expect(rejections).toEqual([]);
+      } finally {
+        window.removeEventListener("unhandledrejection", onUnhandledRejection);
+      }
+    });
+
+    it("keeps canvases isolated when two pages render concurrently", async () => {
+      const firstDocument = makeFakeDocument(320, 480);
+      const secondDocument = makeFakeDocument(480, 640);
+      mount(
+        React.createElement(
+          "div",
+          null,
+          React.createElement(PdfPage, {
+            doc: firstDocument,
+            pageNumber: 1,
+            widthPt: 320,
+            heightPt: 480,
+            onPlace: () => {},
+          }),
+          React.createElement(PdfPage, {
+            doc: secondDocument,
+            pageNumber: 1,
+            widthPt: 480,
+            heightPt: 640,
+            onPlace: () => {},
+          }),
+        ),
+      );
+
+      await waitForFrames(
+        () => currentContainer().querySelectorAll("canvas").length === 2,
+        "both canvases",
+      );
+      const canvases = Array.from(currentContainer().querySelectorAll<HTMLCanvasElement>("canvas"));
+      await waitForFrames(
+        () => canvases[0]?.width === 320 && canvases[1]?.width === 480,
+        "both isolated canvas renders",
+      );
+      expect(canvases.map((canvas) => canvas.width)).toEqual([320, 480]);
     });
   });
 }

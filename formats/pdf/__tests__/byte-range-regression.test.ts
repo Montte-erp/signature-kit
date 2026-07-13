@@ -1,10 +1,10 @@
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, it, vi } from "@effect/vitest";
 import { PDFDocument } from "@cantoo/pdf-lib";
 import { a1SignaturesLayer } from "@signature-kit/a1/signer";
+import { readA1Fixture } from "../../../tooling/testing/fixtures";
 import { signPdf } from "../src/sign";
 import { verifyPdf } from "../src/verify";
 import { Effect, Redacted, Result, Schema } from "effect";
-import { readA1Fixture } from "../../../tooling/testing/fixtures";
 import {
   MAX_PDF_REVISIONS,
   PreparedPdfSignatureSchema,
@@ -16,6 +16,7 @@ import {
   isCompletePdfRevision,
   preparePdfByteRange,
 } from "../src/byte-range";
+import * as pdfByteRange from "../src/byte-range";
 import { concatBytes, encodeAscii, indexOfBytes } from "../src/bytes";
 import {
   PdfByteRangeSchema,
@@ -768,6 +769,27 @@ describe("PDF signature dictionary parsing", () => {
       expect(hasPdfByteRange(first)).toBe(true);
       expect(verification.signatureCount).toBe(2);
       expect(verification.valid).toBe(true);
+    }),
+  );
+  it.effect("applies revision completeness to every extracted signature", () =>
+    Effect.gen(function* () {
+      const pfx = yield* readA1Fixture("ecnpj");
+      const layer = a1SignaturesLayer({ pfx, password: PASSWORD });
+      const first = yield* signPdf({ pdf: yield* createPdf }).pipe(Effect.provide(layer));
+      const second = yield* signPdf({ pdf: first }).pipe(Effect.provide(layer));
+      let calls = 0;
+      const revisionSpy = vi.spyOn(pdfByteRange, "isCompletePdfRevision").mockImplementation(() =>
+        Effect.sync(() => {
+          calls += 1;
+          return calls > 1;
+        }),
+      );
+      const verification = yield* verifyPdf({ pdf: second });
+      revisionSpy.mockRestore();
+
+      expect(calls).toBe(2);
+      expect(verification.signatureCount).toBe(2);
+      expect(verification.valid).toBe(false);
     }),
   );
 

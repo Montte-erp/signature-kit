@@ -37,13 +37,7 @@ const captureEvent = (
   return posthog.flush().catch(() => undefined);
 };
 
-const distinctIdFor = (route: string, request: Request): string => {
-  const forwarded = request.headers.get("x-posthog-distinct-id");
-  if (forwarded !== null && forwarded.length > 0) return forwarded;
-
-  const userAgent = request.headers.get("user-agent") ?? "unknown";
-  return `docs-server:${route}:${userAgent}`;
-};
+const SERVER_DISTINCT_ID = "docs-server";
 
 export const captureServerEvent = (
   event: string,
@@ -53,12 +47,9 @@ export const captureServerEvent = (
   if (posthog === undefined) return Promise.resolve();
 
   const url = new URL(request.url);
-  return captureEvent(event, distinctIdFor(url.pathname, request), {
+  return captureEvent(event, SERVER_DISTINCT_ID, {
     ...properties,
-    route: url.pathname,
-    search: url.search || undefined,
-    referrer: request.headers.get("referer") ?? undefined,
-    user_agent: request.headers.get("user-agent") ?? undefined,
+    route: url.pathname.slice(0, 128),
   });
 };
 
@@ -71,8 +62,6 @@ export const captureServerEventWithoutRequest = (
 
 const routeEvents: Readonly<Record<string, string>> = {
   "/api/search": "search_requested",
-  "/llms.txt": "llms_txt_requested",
-  "/llms-full.txt": "llms_full_txt_requested",
 };
 
 export const docsAnalyticsPlugin = <
@@ -88,9 +77,11 @@ export const docsAnalyticsPlugin = <
 
         await next();
 
-        const url = new URL(req.url);
-        const query = url.searchParams.get("query");
-        await captureServerEvent(event, req.raw, query === null ? {} : { query });
+        const query = new URL(req.url).searchParams.get("query");
+        await captureServerEvent(event, req.raw, {
+          query_present: query !== null && query.length > 0,
+          query_length: Math.min(query?.length ?? 0, 256),
+        });
       },
     ];
   },

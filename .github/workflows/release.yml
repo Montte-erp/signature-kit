@@ -30,6 +30,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Build packages
@@ -38,11 +40,19 @@ jobs:
         run: bun run check
       - name: Run non-browser tests
         run: bun run test
+      - name: Version packages
+        run: bun run release version
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Check publish plan
+        run: bun run release check-publish
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Validate publish plan
         run: bun run release publish --dry-run
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      - name: Version or publish packages
-        run: bun run release ci
+      - name: Publish packages
+        run: bun run release publish
         env:
           GITHUB_TOKEN: ${{ github.token }}

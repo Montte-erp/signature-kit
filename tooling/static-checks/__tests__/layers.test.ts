@@ -332,4 +332,111 @@ describe("workspace layer checks", () => {
       message: "@signature-kit/new-signer remote signer index must export NewSignerProviderId.",
     });
   });
+  it("rejects exported dist entries that have no source module", async () => {
+    const root = await createTempWorkspace();
+    await writePackage(
+      root,
+      "shared/crypto",
+      "@signature-kit/crypto",
+      {},
+      [],
+      "export const crypto = true;\n",
+    );
+    await writeJson(join(root, "shared/crypto/package.json"), {
+      name: "@signature-kit/crypto",
+      version: "0.0.0",
+      private: true,
+      type: "module",
+      exports: {
+        "./missing": { import: "./dist/missing.js" },
+      },
+      dependencies: {},
+    });
+    await writeBaseConfig(root, {
+      "@signature-kit/crypto/missing": ["../../shared/crypto/src/missing.ts"],
+    });
+
+    expect(collectWorkspaceLayerDiagnostics(root)).toContainEqual({
+      path: "shared/crypto/package.json",
+      message:
+        "@signature-kit/crypto/missing is exported by @signature-kit/crypto but has no matching source module.",
+    });
+  });
+
+  it("applies dependency-reference lockstep to application packages", async () => {
+    const root = await createTempWorkspace();
+    await writePackage(
+      root,
+      "shared/dep",
+      "@signature-kit/dep",
+      {},
+      [],
+      "export const dep = true;\n",
+    );
+    await mkdir(join(root, "apps/docs"), { recursive: true });
+    await writeJson(join(root, "apps/docs/package.json"), {
+      name: "@signature-kit/docs",
+      version: "0.0.0",
+      private: true,
+      type: "module",
+      dependencies: { "@signature-kit/dep": "workspace:*" },
+    });
+    await writeJson(join(root, "apps/docs/tsconfig.json"), {
+      extends: "../../tooling/typescript/core.json",
+      references: [],
+    });
+
+    expect(collectWorkspaceLayerDiagnostics(root)).toContainEqual({
+      path: "apps/docs/tsconfig.json",
+      message:
+        "@signature-kit/docs depends on @signature-kit/dep but does not reference its tsconfig project.",
+    });
+  });
+
+  it("ignores imports mentioned only in comments", async () => {
+    const root = await createTempWorkspace();
+    await writePackage(
+      root,
+      "shared/dep",
+      "@signature-kit/dep",
+      {},
+      [],
+      "export const dep = true;\n",
+    );
+    await writePackage(
+      root,
+      "core/use",
+      "@signature-kit/use",
+      {},
+      [],
+      "// import '@signature-kit/dep';\n/* from '@signature-kit/dep' */\nexport const use = true;\n",
+    );
+
+    expect(collectWorkspaceLayerDiagnostics(root)).toEqual([]);
+  });
+
+  it("accepts type-only exports declared with export specifiers", async () => {
+    const root = await createTempWorkspace();
+    await writePackage(
+      root,
+      "signers/new-signer",
+      "@signature-kit/new-signer",
+      {},
+      [],
+      `type NewSignerProviderOptions = { token: string };
+export { type NewSignerProviderOptions };
+export type NewSignerSignatureRequest = { id: string };
+export const NewSignerProviderId = "new-signer";
+export const NewSignerProviderOptionsSchema = {};
+export const NewSignerSignatureRequest = {};
+export const providers = {};
+export const getNewSignerSignatureRequest = () => {};
+export const listNewSignerSignatureRequests = () => {};
+export const deleteNewSignerSignatureRequest = () => {};
+export const downloadNewSignerSignedDocument = () => {};
+`,
+    );
+
+    expect(collectWorkspaceLayerDiagnostics(root)).toEqual([]);
+  });
 });

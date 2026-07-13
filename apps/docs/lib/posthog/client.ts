@@ -45,7 +45,7 @@ export const initDocsPostHog = (): void => {
         "[data-analytics-sensitive]",
       ],
       element_attribute_ignorelist: ["value"],
-      capture_copied_text: true,
+      capture_copied_text: false,
     },
     rageclick: true,
     capture_dead_clicks: true,

@@ -2,6 +2,10 @@
   "name": "@signature-kit/xml",
   "version": "0.2.1",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Montte-erp/signature-kit.git"
+  },
   "files": [
     "dist",
     "README.md",
@@ -48,8 +52,7 @@
     "xmldsigjs": "2.8.7"
   },
   "devDependencies": {
-    "@signature-kit/a1": "^0.3.0",
-    "xml-crypto": "6.1.2"
+    "@signature-kit/a1": "^0.3.0"
   },
   "nx": {
     "implicitDependencies": [
@@ -70,7 +73,7 @@
       "npm-pack": {
         "executor": "nx:run-commands",
         "options": {
-          "command": "npm pack --dry-run --json",
+          "command": "bun pm pack --dry-run",
           "cwd": "{projectRoot}"
         }
       },

@@ -69,7 +69,7 @@ type SigningCallbacks = {
 const testRuntime = vi.hoisted(() => {
   const initialMarker = (): MockRect | undefined => undefined;
   const builderStates: Array<{ current: MockBuilderState }> = [];
-
+  const placeCallbacks: Array<(fracX: number, fracY: number) => void> = [];
   return {
     marker: initialMarker(),
     builderStates,
@@ -78,11 +78,13 @@ const testRuntime = vi.hoisted(() => {
     loadPdfjs: vi.fn(),
     onPlace: (_fracX: number, _fracY: number) => {},
     pageRenders: 0,
+    placeCallbacks,
     placeBatch: (_items: ReadonlyArray<PlacementQueueItem>, _callbacks: PlacementBatchCallbacks) =>
       Effect.succeed<ReadonlyArray<PlacementBatchResult>>([]),
     placeField: vi.fn<() => Effect.Effect<MockTemplate>>(),
     prepareBatch: (_input: PreparationInput) =>
       Effect.succeed<ReadonlyArray<PreparationResult>>([]),
+    readPdfBytes: vi.fn(() => Effect.succeed(new Uint8Array([1]))),
     resolveSigning: () => {},
     signBatch: (_items: ReadonlyArray<SigningItem>, _callbacks: SigningCallbacks) => Effect.void,
     signStarted: false,
@@ -97,6 +99,7 @@ vi.mock("@/components/pdf-page", () => ({
     testRuntime.pageRenders += 1;
     testRuntime.marker = props.marker;
     testRuntime.onPlace = props.onPlace;
+    testRuntime.placeCallbacks.push(props.onPlace);
     return null;
   },
   loadPdfjs: testRuntime.loadPdfjs,
@@ -147,7 +150,7 @@ vi.mock("@signature-kit/pdf/workflow", () => ({
       },
     }),
   preparePdfSigningBatch: (input: PreparationInput) => testRuntime.prepareBatch(input),
-  readPdfBlobBytes: () => Effect.succeed(new Uint8Array([1])),
+  readPdfBlobBytes: () => testRuntime.readPdfBytes(),
   signPdfSignatureBatch: (items: ReadonlyArray<SigningItem>, callbacks: SigningCallbacks) =>
     testRuntime.signBatch(items, callbacks),
 }));
@@ -197,6 +200,20 @@ const mountSigner = (): MountedSigner => {
   };
 };
 
+async function selectPdf(container: HTMLDivElement, name: string): Promise<void> {
+  await waitFor(
+    () => container.querySelector('input[accept="application/pdf,.pdf"]') !== null,
+    "PDF input to render",
+  );
+  const input = container.querySelector<HTMLInputElement>('input[accept="application/pdf,.pdf"]');
+  if (input === null) expect.fail("PDF input was not rendered");
+  Object.defineProperty(input, "files", {
+    configurable: true,
+    value: [new File([new Uint8Array([1])], name, { type: "application/pdf" })],
+  });
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
 async function uploadPdf(container: HTMLDivElement, name: string): Promise<void> {
   await waitFor(
     () => container.querySelector('input[accept="application/pdf,.pdf"]') !== null,
@@ -225,6 +242,84 @@ if (typeof document === "undefined") {
     afterEach(() => {
       cleanup?.();
       cleanup = undefined;
+    });
+    it("isolates runtime state and placement ownership between mounted signers", async () => {
+      testRuntime.readPdfBytes.mockReset();
+      testRuntime.readPdfBytes.mockReturnValue(Effect.succeed(new Uint8Array([1])));
+      const pendingPlacement = Promise.withResolvers<void>();
+      testRuntime.placeBatch = () => Effect.promise(() => pendingPlacement.promise.then(() => []));
+      testRuntime.getDocument.mockReset();
+      testRuntime.getDocument.mockReturnValue({
+        destroy: testRuntime.taskDestroy,
+        promise: Promise.resolve({ destroy: testRuntime.docDestroy }),
+      });
+      testRuntime.loadPdfjs.mockReset();
+      testRuntime.loadPdfjs.mockResolvedValue({ getDocument: testRuntime.getDocument });
+
+      const first = mountSigner();
+      const second = mountSigner();
+      cleanup = () => {
+        first.cleanup();
+        second.cleanup();
+      };
+
+      await uploadPdf(first.container, "first.pdf");
+      expect(second.container.textContent).not.toContain("first.pdf");
+
+      const firstPlaceButton = Array.from(
+        first.container.querySelectorAll<HTMLButtonElement>("button"),
+      ).find((button) => button.textContent?.includes(m.signer_place_all({ count: 1 })) ?? false);
+      if (firstPlaceButton === undefined)
+        expect.fail("first auto-placement button was not rendered");
+      firstPlaceButton.click();
+
+      const firstPdfInput = first.container.querySelector<HTMLInputElement>(
+        'input[accept="application/pdf,.pdf"]',
+      );
+      const secondPdfInput = second.container.querySelector<HTMLInputElement>(
+        'input[accept="application/pdf,.pdf"]',
+      );
+      if (firstPdfInput === null || secondPdfInput === null) {
+        expect.fail("both PDF inputs were not rendered");
+      }
+      await waitFor(() => firstPdfInput.disabled, "first signer to lock during placement");
+      expect(secondPdfInput.disabled).toBe(false);
+
+      pendingPlacement.resolve();
+      await waitFor(() => !firstPdfInput.disabled, "first signer placement to finish");
+    });
+
+    it("ignores a deferred replacement operation after unmount and remount", async () => {
+      const oldRead = Promise.withResolvers<Uint8Array>();
+      testRuntime.readPdfBytes.mockReset();
+      testRuntime.readPdfBytes.mockReturnValueOnce(
+        Effect.promise(() =>
+          oldRead.promise.then((bytes) => {
+            const copy = new Uint8Array(new ArrayBuffer(bytes.byteLength));
+            copy.set(bytes);
+            return copy;
+          }),
+        ),
+      );
+      testRuntime.readPdfBytes.mockReturnValue(Effect.succeed(new Uint8Array([2])));
+      testRuntime.getDocument.mockReturnValue({
+        destroy: testRuntime.taskDestroy,
+        promise: Promise.resolve({ destroy: testRuntime.docDestroy }),
+      });
+      testRuntime.loadPdfjs.mockResolvedValue({ getDocument: testRuntime.getDocument });
+
+      const oldSigner = mountSigner();
+      await selectPdf(oldSigner.container, "old.pdf");
+      await waitFor(() => testRuntime.readPdfBytes.mock.calls.length === 1, "old PDF read");
+      oldSigner.cleanup();
+
+      const freshSigner = mountSigner();
+      cleanup = freshSigner.cleanup;
+      oldRead.resolve(new Uint8Array([9]));
+      await rafTick();
+      await rafTick();
+
+      expect(freshSigner.container.textContent).not.toContain("old.pdf");
     });
 
     it("keeps a loaded document across rerenders and releases it on unmount", async () => {
@@ -275,6 +370,7 @@ if (typeof document === "undefined") {
 
       const signer = mountSigner();
       cleanup = signer.cleanup;
+      await uploadPdf(signer.container, "cancel.pdf");
       await waitFor(
         () => testRuntime.getDocument.mock.calls.length === 1,
         "the outstanding PDF loading task",
@@ -312,6 +408,7 @@ if (typeof document === "undefined") {
 
       const signer = mountSigner();
       cleanup = signer.cleanup;
+      await uploadPdf(signer.container, "lock.pdf");
       await waitFor(
         () => testRuntime.getDocument.mock.calls.length === 1,
         "the document preview before auto-placement",
@@ -526,6 +623,7 @@ if (typeof document === "undefined") {
 
       const signer = mountSigner();
       cleanup = signer.cleanup;
+      await uploadPdf(signer.container, "download.pdf");
       await waitFor(
         () => testRuntime.getDocument.mock.calls.length === 1,
         "the document preview before signing",

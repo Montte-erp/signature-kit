@@ -4,7 +4,7 @@ import type { BlogLayout } from "fumapress/plugins/blog";
 import HomePage from "@/src/site/home";
 import AssineDocumentosGratisPage from "@/src/site/sign-free";
 import { rssHandler } from "@/src/rss";
-import { i18n } from "@/lib/i18n";
+import { i18n, signFreeLocales, signFreePath } from "@/lib/i18n";
 import { SITE_URL } from "@/lib/site";
 
 export function siteRoutesPlugin<C extends ConfigContext>(
@@ -26,8 +26,8 @@ export function siteRoutesPlugin<C extends ConfigContext>(
       });
       createPage({
         render: "static",
-        path: "/[lang]/(site)/assine-documentos-gratis",
-        staticPaths: ["pt-BR"],
+        path: `/[lang]/(site)${signFreePath}`,
+        staticPaths: signFreeLocales,
         component: AssineDocumentosGratisPage,
       });
       createApiIsomorphic({

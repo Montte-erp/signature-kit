@@ -115,15 +115,15 @@ export function ProviderCarousel({ items, panels }: ProviderCarouselProps) {
   const active = items[index];
 
   return (
-    <Card className="gap-0 overflow-hidden p-0">
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-border px-4 py-3">
-        <span className="font-mono text-[10px] tracking-[0.11em] text-muted-foreground/70 uppercase">
+    <Card className="min-w-0 gap-0 overflow-hidden p-0">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-border px-4 py-3">
+        <span className="font-mono text-[10px] tracking-[0.11em] text-foreground uppercase">
           {m.showcase_card_provider()}
         </span>
         <Badge variant="outline" className="justify-self-center">
           {active.name}
         </Badge>
-        <span className="hidden justify-self-end text-right font-mono text-[10px] tracking-[0.11em] text-muted-foreground/70 uppercase sm:inline">
+        <span className="hidden justify-self-end text-right font-mono text-[10px] tracking-[0.11em] text-foreground uppercase sm:inline">
           {m.showcase_card_hint()}
         </span>
       </div>

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { Check, CheckContext } from "../src/model";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Check } from "../src/model";
 import { checks } from "../src/rule-set";
 import { schemaContractChecks } from "../src/rules/schema-contracts";
 import { errorHandlingChecks } from "../src/rules/error-handling";
@@ -10,7 +13,8 @@ import { observabilityCatalogChecks } from "../src/rules/observability-catalogs"
 import { configChecks } from "../src/rules/config";
 import { dependencyChecks } from "../src/rules/dependencies";
 import { hasCheckedExtension } from "../src/filesystem";
-import { importDeclarationLineMap } from "../src/runner";
+import { importDeclarationLineMap, runDeclarativeChecks } from "../src/runner";
+import { createCheckContexts } from "../src/source-context";
 
 const expectedChecks = [
   ...schemaContractChecks,
@@ -22,47 +26,35 @@ const expectedChecks = [
   ...dependencyChecks,
   ...architectureChecks,
 ];
-const context = (line: string): CheckContext => ({
-  line,
-  rawLine: line,
-  window: line,
-  path: "core/example/src/index.ts",
-  source: line,
-  lineNumber: 1,
-  lines: [line],
-  rawLines: [line],
-});
+
+const context = (line: string) => {
+  const first = createCheckContexts("core/example/src/index.ts", line)[0];
+  if (first === undefined) {
+    throw new Error("fixture context missing");
+  }
+  return first;
+};
 
 const anyCheckMatches = (checks: readonly Check[], line: string): boolean =>
   checks.some((check) => check.test(context(line)));
 
 const anyCheckMatchesSource = (checks: readonly Check[], path: string, source: string): boolean => {
-  const rawLines = source.split(/\r?\n/);
-  const lines = rawLines.map((line) => line.trim());
-  const importLines = importDeclarationLineMap(rawLines);
-  return rawLines.some((rawLine, index) => {
-    const line = lines[index] ?? "";
-    if (!line || line.startsWith("*") || line.startsWith("//")) {
-      return false;
-    }
-    return checks.some(
-      (check) =>
-        (!check.ignoreImportLine || !importLines[index]) &&
-        check.test({
-          line,
-          rawLine,
-          window: lines
-            .slice(index, index + 3)
-            .join(" ")
-            .trim(),
-          path,
-          source,
-          lineNumber: index + 1,
-          lines,
-          rawLines,
-        }),
-    );
-  });
+  const contexts = createCheckContexts(path, source);
+  const sourceFile = contexts[0]?.sourceFile;
+  if (sourceFile === undefined) {
+    return false;
+  }
+  const importLines = importDeclarationLineMap(
+    contexts.map((item) => item.rawLine),
+    sourceFile,
+  );
+  return contexts.some(
+    (item, index) =>
+      item.line !== "" &&
+      !item.line.startsWith("*") &&
+      !item.line.startsWith("//") &&
+      checks.some((check) => (!check.ignoreImportLine || !importLines[index]) && check.test(item)),
+  );
 };
 
 describe("declarative smell rules", () => {
@@ -606,5 +598,101 @@ export const ExampleProvider = () =>
         'import { Effect } from "effect";',
       ),
     ).toBe(false);
+  });
+  it("uses stateful comment normalization for multiline blocks", () => {
+    expect(
+      anyCheckMatchesSource(
+        errorHandlingChecks,
+        "core/example/src/comments.ts",
+        "/*\nthrow new Error('comment');\ntry {\n}\n*/\nexport const value = true;\n",
+      ),
+    ).toBe(false);
+    expect(
+      anyCheckMatchesSource(
+        errorHandlingChecks,
+        "core/example/src/runtime.ts",
+        "try\n{\n  run();\n}\n",
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        errorHandlingChecks,
+        "core/example/src/runtime.ts",
+        "throw\nnew SignatureKitError({ code: 'invalid' });\n",
+      ),
+    ).toBe(true);
+  });
+
+  it("matches exact Effect member calls and named bindings", () => {
+    expect(
+      anyCheckMatchesSource(
+        effectBoundaryChecks,
+        "core/example/src/runtime.ts",
+        'import { runPromise } from "effect";\nclient.runPromise(program);\nEffect.effectfulApi(program);\nEffect.eitherThing(program);\n',
+      ),
+    ).toBe(false);
+    expect(
+      anyCheckMatchesSource(
+        effectBoundaryChecks,
+        "core/example/src/runtime.ts",
+        'import { runPromise } from "effect";\nrunPromise(program);\n',
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects multiline literal arrays and fake schema bindings", () => {
+    expect(
+      anyCheckMatchesSource(
+        schemaContractChecks,
+        "core/example/src/contracts.ts",
+        "const StatusCodes = [\n  'pending',\n  'complete',\n];\n",
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        schemaContractChecks,
+        "core/example/src/contracts.ts",
+        "export interface ExampleConfig {\n  enabled: boolean;\n}\nconst ExampleConfigSchema = 1;\n",
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        schemaContractChecks,
+        "core/example/src/contracts.ts",
+        "export interface ExampleConfig {\n  enabled: boolean;\n}\nconst ExampleConfigSchema = Schema.Struct({ enabled: Schema.Boolean });\n",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects inline import type annotations", () => {
+    expect(
+      anyCheckMatchesSource(
+        typeSafetyChecks,
+        "core/example/src/runtime.ts",
+        'const value: import("@signature-kit/signatures").Signatures = input;\n',
+      ),
+    ).toBe(true);
+    expect(
+      anyCheckMatchesSource(
+        typeSafetyChecks,
+        "core/example/src/runtime.ts",
+        'import type { Signatures } from "@signature-kit/signatures";\nconst value: Signatures = input;\n',
+      ),
+    ).toBe(false);
+  });
+
+  it("runs fixtures through the declarative entry point", async () => {
+    const root = await mkdtemp(join(tmpdir(), "signature-kit-static-"));
+    const file = join(root, "core/example/src/index.ts");
+    await mkdir(join(root, "core/example/src"), { recursive: true });
+    await writeFile(
+      file,
+      "/*\nthrow new Error('comment');\nimport '@signature-kit/unused';\n*/\nexport const value = true;\n",
+    );
+    expect(runDeclarativeChecks(root, [file])).toBe(false);
+    const badFile = join(root, "core/example/src/bad.ts");
+    await writeFile(badFile, "throw\nnew SignatureKitError({ code: 'invalid' });\n");
+    expect(runDeclarativeChecks(root, [badFile])).toBe(true);
+    await rm(root, { recursive: true, force: true });
   });
 });

@@ -1,5 +1,4 @@
 import { SignatureKitErrorCodeValue } from "@signature-kit/signatures";
-import type { SignatureKitError } from "@signature-kit/signatures";
 import { signatureHttpClientLive } from "@signature-kit/http";
 import { describe, expect, it } from "@effect/vitest";
 import * as Provider from "alchemy/Provider";
@@ -22,7 +21,6 @@ import {
 } from "../src/index";
 import type {
   DocumensoEnvelopeState,
-  DocumensoEnvelope,
   DocumensoEnvelopeProps,
   DocumensoProviderOptions,
 } from "../src/index";
@@ -63,7 +61,7 @@ const documensoOptions = (baseUrl: string): DocumensoProviderOptions => ({
 const reconcileDocumensoSignatureRequest = (
   options: DocumensoProviderOptions,
   request: DocumensoEnvelopeProps,
-): Effect.Effect<DocumensoEnvelope, SignatureKitError, never> =>
+) =>
   Effect.gen(function* () {
     const provider = yield* Provider.findProvider(DocumensoSignatureRequest);
     return yield* provider.reconcile(reconcileResourceProps("documenso-local", request));
@@ -231,6 +229,35 @@ describe("Documenso offline provider", () => {
             (request) => request.method === "POST" && request.pathname === "/envelope/create",
           );
           expect(createCalls).toHaveLength(1);
+        }),
+    ),
+  );
+  it.effect("rejects non-PDF documents before any HTTP request", () =>
+    withLocalServer(
+      () => Promise.resolve({ status: 500, body: "unexpected request" }),
+      (server) =>
+        Effect.gen(function* () {
+          const validInput = defaultInput();
+          const invalidInput = JSON.parse(
+            JSON.stringify({
+              ...validInput,
+              documents: [
+                {
+                  ...validInput.documents[0],
+                  mimeType: "text/plain",
+                },
+              ],
+            }),
+          );
+          const result = yield* Effect.result(
+            reconcileDocumensoSignatureRequest(documensoOptions(server.baseUrl), invalidInput),
+          );
+
+          expect(Result.isFailure(result)).toBe(true);
+          if (Result.isFailure(result)) {
+            expect(result.failure.code).toBe(SignatureKitErrorCodeValue.invalidInput);
+          }
+          expect(server.requests).toHaveLength(0);
         }),
     ),
   );

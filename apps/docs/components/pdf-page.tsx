@@ -16,6 +16,19 @@ export interface PdfRenderTask {
   cancel(): void;
 }
 
+export type PdfPageRenderErrorCode =
+  | "pdf-page-load-failed"
+  | "pdf-page-canvas-context-failed"
+  | "pdf-page-viewport-failed"
+  | "pdf-page-render-failed";
+
+export type PdfPageRenderError = {
+  readonly _tag: "PdfPageRenderError";
+  readonly code: PdfPageRenderErrorCode;
+  readonly message: string;
+  readonly cause: unknown;
+};
+
 export interface PdfPageProxy {
   getViewport(options: { readonly scale: number }): PdfViewport;
   render(options: {
@@ -23,6 +36,80 @@ export interface PdfPageProxy {
     readonly viewport: PdfViewport;
   }): PdfRenderTask;
 }
+
+const pdfPageRenderErrorMessages: Record<PdfPageRenderErrorCode, string> = {
+  "pdf-page-load-failed": "Unable to load this PDF page.",
+  "pdf-page-canvas-context-failed": "Unable to prepare the PDF canvas.",
+  "pdf-page-viewport-failed": "Unable to size the PDF page.",
+  "pdf-page-render-failed": "Unable to render this PDF page.",
+};
+
+const makePdfPageRenderError = (
+  code: PdfPageRenderErrorCode,
+  cause: unknown,
+): PdfPageRenderError => ({
+  _tag: "PdfPageRenderError",
+  code,
+  message: pdfPageRenderErrorMessages[code],
+  cause,
+});
+
+const isPdfPageRenderError = (error: unknown): error is PdfPageRenderError =>
+  typeof error === "object" &&
+  error !== null &&
+  "_tag" in error &&
+  error._tag === "PdfPageRenderError";
+
+const normalizePdfPageRenderError = (error: unknown): PdfPageRenderError =>
+  isPdfPageRenderError(error) ? error : makePdfPageRenderError("pdf-page-render-failed", error);
+
+const tryCanvasContext = (
+  canvas: HTMLCanvasElement,
+): Effect.Effect<CanvasRenderingContext2D, PdfPageRenderError> =>
+  Effect.try({
+    try: () => {
+      const context = canvas.getContext("2d");
+      if (context === null) {
+        throw new Error("CanvasRenderingContext2D is unavailable.");
+      }
+      return context;
+    },
+    catch: (cause) => makePdfPageRenderError("pdf-page-canvas-context-failed", cause),
+  });
+
+const renderPdfPageCanvas = (
+  canvas: HTMLCanvasElement,
+  doc: PdfDocumentProxy,
+  pageNumber: number,
+  lifecycle: PdfCanvasRenderLifecycle,
+): Effect.Effect<void, PdfPageRenderError> =>
+  Effect.gen(function* () {
+    const page = yield* Effect.tryPromise({
+      try: () => doc.getPage(pageNumber),
+      catch: (cause) => makePdfPageRenderError("pdf-page-load-failed", cause),
+    });
+    if (!lifecycle.active) return;
+
+    const context = yield* tryCanvasContext(canvas);
+    const viewport = yield* Effect.try({
+      try: () => {
+        const nextViewport = page.getViewport({ scale: 2 });
+        canvas.width = nextViewport.width;
+        canvas.height = nextViewport.height;
+        return nextViewport;
+      },
+      catch: (cause) => makePdfPageRenderError("pdf-page-viewport-failed", cause),
+    });
+    const task = yield* Effect.try({
+      try: () => page.render({ canvasContext: context, viewport }),
+      catch: (cause) => makePdfPageRenderError("pdf-page-render-failed", cause),
+    });
+    lifecycle.task = task;
+    yield* Effect.tryPromise({
+      try: () => task.promise,
+      catch: (cause) => makePdfPageRenderError("pdf-page-render-failed", cause),
+    });
+  });
 
 export interface PdfDocumentProxy {
   readonly numPages?: number;
@@ -46,31 +133,6 @@ type PdfCanvasRenderLifecycle = {
 
 const QR_PREVIEW_CELLS = Array.from({ length: 25 }, (_item, index) => index);
 const QR_PREVIEW_DARK_CELLS = [0, 1, 2, 4, 5, 7, 9, 10, 12, 14, 15, 17, 19, 20, 22, 23, 24];
-
-const renderPdfPageCanvas = (
-  canvas: HTMLCanvasElement,
-  doc: PdfDocumentProxy,
-  pageNumber: number,
-  lifecycle: PdfCanvasRenderLifecycle,
-): Effect.Effect<void> =>
-  Effect.gen(function* () {
-    const page = yield* Effect.tryPromise({
-      try: () => doc.getPage(pageNumber),
-      catch: () => "pdf-page-load-failed",
-    }).pipe(Effect.orElseSucceed(() => undefined));
-    if (page === undefined || !lifecycle.active) return;
-    const context = canvas.getContext("2d");
-    if (context === null) return;
-    const viewport = page.getViewport({ scale: 2 });
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const task = page.render({ canvasContext: context, viewport });
-    lifecycle.task = task;
-    yield* Effect.tryPromise({
-      try: () => task.promise,
-      catch: () => "pdf-page-render-cancelled",
-    }).pipe(Effect.ignore);
-  });
 
 export const loadPdfjs = async (): Promise<PdfJsApi> => {
   if (typeof window !== "undefined") {
@@ -124,6 +186,7 @@ export interface PdfPageProps {
   ghost?: { rect: PageRect; label: string };
   stampPreview?: { inkDataUrl?: string; rubricaDataUrl?: string; lines: string[]; qr?: boolean };
   onPlace: (fracX: number, fracY: number) => void;
+  onError?: (error: PdfPageRenderError) => void;
 }
 
 export function PdfPage({
@@ -135,18 +198,34 @@ export function PdfPage({
   ghost,
   stampPreview,
   onPlace,
+  onError,
 }: PdfPageProps) {
+  const [renderError, setRenderError] = React.useState<PdfPageRenderError | null>(null);
+  const reportError = React.useCallback(
+    (error: PdfPageRenderError) => {
+      setRenderError(error);
+      onError?.(error);
+    },
+    [onError],
+  );
+
   const renderCanvas = React.useCallback(
     (canvas: HTMLCanvasElement | null) => {
       if (canvas === null) return;
       const lifecycle: PdfCanvasRenderLifecycle = { active: true };
-      void Effect.runPromise(renderPdfPageCanvas(canvas, doc, pageNumber, lifecycle));
+      setRenderError(null);
+      void Effect.runPromise(renderPdfPageCanvas(canvas, doc, pageNumber, lifecycle)).then(
+        () => undefined,
+        (error: unknown) => {
+          if (lifecycle.active) reportError(normalizePdfPageRenderError(error));
+        },
+      );
       return () => {
         lifecycle.active = false;
         lifecycle.task?.cancel();
       };
     },
-    [doc, pageNumber],
+    [doc, pageNumber, reportError],
   );
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -206,6 +285,15 @@ export function PdfPage({
       style={{ aspectRatio: `${widthPt} / ${heightPt}` }}
     >
       <canvas ref={renderCanvas} aria-hidden className="block h-auto w-full select-none" />
+      {renderError ? (
+        <p
+          role="alert"
+          data-pdf-render-error={renderError.code}
+          className="p-3 text-sm text-destructive"
+        >
+          {renderError.message}
+        </p>
+      ) : null}
       {ghost ? (
         <div
           aria-hidden

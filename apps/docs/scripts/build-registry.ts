@@ -1,11 +1,12 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 type RegistryFile = {
   readonly path: string;
   readonly type: string;
   readonly target?: string;
+  readonly content?: string;
 };
 
 type RegistryItem = {
@@ -27,9 +28,9 @@ type RegistryCatalog = {
 };
 
 const appRoot = new URL("../", import.meta.url);
-const outputRoot = new URL("../public/r/", import.meta.url);
+const outputRoot = fileURLToPath(new URL("../public/r/", import.meta.url));
 
-const registry = {
+export const registry = {
   $schema: "https://ui.shadcn.com/schema/registry.json",
   name: "signature-kit",
   homepage: "https://signaturekit.dev",
@@ -41,12 +42,12 @@ const registry = {
       description:
         "Password confirmation form for browser A1 signing, with callback-owned persistence.",
       registryDependencies: ["button", "checkbox", "input", "label"],
-      dependencies: ["@tanstack/react-form@0.11.0", "lucide-react"],
+      dependencies: ["@tanstack/react-form@1.33.2", "lucide-react"],
       files: [
         {
           path: "registry/default/signature-certificate-form/signature-certificate-form.tsx",
           type: "registry:component",
-          target: "components/signature-kit/signature-certificate-form.tsx",
+          target: "@components/signature-kit/signature-certificate-form.tsx",
         },
       ],
     },
@@ -60,14 +61,14 @@ const registry = {
       dependencies: [
         "@signature-kit/react",
         "@signature-kit/a1",
-        "@tanstack/react-form@0.11.0",
+        "@tanstack/react-form@1.33.2",
         "lucide-react",
       ],
       files: [
         {
           path: "registry/default/certificate-upload-form/certificate-upload-form.tsx",
           type: "registry:component",
-          target: "components/signature-kit/certificate-upload-form.tsx",
+          target: "@components/signature-kit/certificate-upload-form.tsx",
         },
       ],
     },
@@ -88,7 +89,7 @@ const registry = {
         {
           path: "registry/default/signature-pdf-viewer/signature-pdf-viewer.tsx",
           type: "registry:component",
-          target: "components/signature-kit/signature-pdf-viewer.tsx",
+          target: "@components/signature-kit/signature-pdf-viewer.tsx",
         },
       ],
     },
@@ -105,14 +106,15 @@ const registry = {
         "@signature-kit/pdf",
         "@signature-kit/cms",
         "@signature-kit/signatures",
-        "@tanstack/react-form@0.11.0",
+        "@tanstack/react-form@1.33.2",
+        "effect@4.0.0-beta.86",
         "lucide-react",
       ],
       files: [
         {
           path: "registry/default/signature-dialog/signature-dialog.tsx",
           type: "registry:component",
-          target: "components/signature-kit/signature-dialog.tsx",
+          target: "@components/signature-kit/signature-dialog.tsx",
         },
       ],
     },
@@ -128,7 +130,7 @@ const registry = {
         {
           path: "registry/default/signing-progress-list/signing-progress-list.tsx",
           type: "registry:component",
-          target: "components/signature-kit/signing-progress-list.tsx",
+          target: "@components/signature-kit/signing-progress-list.tsx",
         },
       ],
     },
@@ -143,15 +145,15 @@ const registry = {
         {
           path: "registry/default/pdf-signature-anchor/pdf-signature-anchor.tsx",
           type: "registry:component",
-          target: "components/signature-kit/pdf-signature-anchor.tsx",
+          target: "@components/signature-kit/pdf-signature-anchor.tsx",
         },
       ],
     },
   ],
 } satisfies RegistryCatalog;
 
-const writeJson = async (path: URL, value: unknown): Promise<void> => {
-  await mkdir(new URL("./", path), { recursive: true });
+const writeJson = async (path: string, value: unknown): Promise<void> => {
+  await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
 };
 
@@ -165,14 +167,25 @@ const itemWithFileContent = async (item: RegistryItem): Promise<RegistryItem> =>
   return { ...item, files };
 };
 
-await mkdir(outputRoot, { recursive: true });
-await writeJson(new URL("registry.json", outputRoot), registry);
+export const buildRegistry = async (outputPath: string = outputRoot): Promise<void> => {
+  await mkdir(dirname(outputPath), { recursive: true });
+  const temporaryPath = await mkdtemp(join(dirname(outputPath), ".registry-"));
 
-for (const item of registry.items) {
-  const outputPath = new URL(`${item.name}.json`, outputRoot);
-  await mkdir(dirname(fileURLToPath(outputPath)), { recursive: true });
-  await writeJson(outputPath, {
-    $schema: "https://ui.shadcn.com/schema/registry-item.json",
-    ...(await itemWithFileContent(item)),
-  });
-}
+  try {
+    await writeJson(join(temporaryPath, "registry.json"), registry);
+
+    for (const item of registry.items) {
+      await writeJson(join(temporaryPath, `${item.name}.json`), {
+        $schema: "https://ui.shadcn.com/schema/registry-item.json",
+        ...(await itemWithFileContent(item)),
+      });
+    }
+
+    await rm(outputPath, { recursive: true, force: true });
+    await rename(temporaryPath, outputPath);
+  } finally {
+    await rm(temporaryPath, { recursive: true, force: true });
+  }
+};
+
+if (import.meta.main) await buildRegistry();

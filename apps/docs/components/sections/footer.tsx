@@ -35,7 +35,7 @@ const PROJECT_LINKS: ReadonlyArray<{
 ];
 
 const COLUMN_HEADER_CLASS =
-  "font-mono text-[10px] font-bold uppercase tracking-[0.11em] text-muted-foreground/70";
+  "font-mono text-[10px] font-bold uppercase tracking-[0.11em] text-foreground";
 
 interface FooterLinkProps {
   href: string;

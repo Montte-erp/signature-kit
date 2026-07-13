@@ -147,6 +147,30 @@ describe("CMS detached verification", () => {
     }),
   );
 
+  it.effect("rejects detached CMS with multiple SignerInfos", () =>
+    Effect.gen(function* () {
+      const fixture = yield* createCmsFixture();
+      const { contentInfo, signed } = parseCms(fixture.cms);
+      const signerInfo = signed.signerInfos[0];
+      expect(signerInfo).toBeDefined();
+      if (signerInfo === undefined) return;
+      signed.signerInfos.push(signerInfo);
+
+      const verification = yield* Effect.result(
+        verifyDetachedSignedData({
+          cms: encodeCms(contentInfo, signed),
+          content: fixture.content,
+        }),
+      );
+
+      expect(Result.isFailure(verification)).toBe(true);
+      if (Result.isFailure(verification)) {
+        expect(verification.failure.code).toBe("cms.DECODE_ERROR");
+        expect(verification.failure.reason).toContain("exactly one SignerInfo");
+      }
+    }),
+  );
+
   it.effect("rejects attached content instead of accepting bytes supplied by the CMS", () =>
     Effect.gen(function* () {
       const fixture = yield* createCmsFixture();

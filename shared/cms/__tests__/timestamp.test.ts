@@ -335,6 +335,66 @@ describe("RFC 3161 timestamps", () => {
     ),
   );
 
+  it.effect("maps timestamp nonce generation failures to CmsError", () =>
+    Effect.gen(function* () {
+      const signer = yield* Effect.promise(() => testTsaSigner);
+      vi.spyOn(crypto, "getRandomValues").mockImplementation(() => {
+        throw new Error("nonce failure");
+      });
+
+      const result = yield* Effect.result(
+        requestTimestamp({
+          data: new Uint8Array([1, 2, 3]),
+          tsaUrl: "https://tsa.example.test",
+          trustedRoots: [signer.certificateDer],
+          hashAlgorithm: "sha256",
+        }),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe("cms.TIMESTAMP_ERROR");
+        expect(result.failure.operation).toBe("cms.timestamp");
+      }
+    }).pipe(Effect.ensuring(Effect.sync(() => vi.restoreAllMocks()))),
+  );
+
+  it.effect("redacts timestamp URL credentials, query, and hash from diagnostics", () =>
+    Effect.gen(function* () {
+      const signer = yield* Effect.promise(() => testTsaSigner);
+      vi.stubGlobal("fetch", () => {
+        throw new Error("timestamp request failure");
+      });
+
+      const result = yield* Effect.result(
+        requestTimestamp({
+          data: new Uint8Array([1, 2, 3]),
+          tsaUrl: "https://alice:secret@tsa.example.test/path?token=secret&user=alice#fragment",
+          trustedRoots: [signer.certificateDer],
+          hashAlgorithm: "sha256",
+          timeoutMillis: 1000,
+        }),
+      );
+
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.code).toBe("cms.TIMESTAMP_ERROR");
+        expect(result.failure.reason).toBe("TSA request to https://tsa.example.test/path failed.");
+        expect(result.failure.reason).not.toContain("alice");
+        expect(result.failure.reason).not.toContain("secret");
+        expect(result.failure.reason).not.toContain("token");
+        expect(result.failure.reason).not.toContain("fragment");
+      }
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          vi.restoreAllMocks();
+          vi.unstubAllGlobals();
+        }),
+      ),
+    ),
+  );
+
   it.effect("clears TSA timers when fetch throws synchronously", () =>
     Effect.gen(function* () {
       const signer = yield* Effect.promise(() => testTsaSigner);

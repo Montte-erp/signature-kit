@@ -596,7 +596,7 @@ describe("ITI local conformance hardening", () => {
         status: "Invalid",
         message: "O CMS deve conter exatamente um SignerInfo por dicionário de assinatura PDF.",
       });
-      expect(report.signatures[0]?.cipher.status).toBe("Valid");
+      expect(report.signatures[0]?.cipher.status).toBe("Invalid");
     }),
   );
 

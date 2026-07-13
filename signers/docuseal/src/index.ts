@@ -42,14 +42,14 @@ export type DocuSealSubmissionState = (typeof DocuSealSubmissionStateSchema)["Ty
 
 export const DocuSealSubmissionDocumentSchema = Schema.Struct({
   fileName: Schema.NonEmptyString,
-  mimeType: Schema.NonEmptyString,
+  mimeType: Schema.Literal("application/pdf"),
   content: Schema.Uint8Array,
 });
 export type DocuSealSubmissionDocument = (typeof DocuSealSubmissionDocumentSchema)["Type"];
 
 export const DocuSealSubmissionDocumentPropsSchema = Schema.Struct({
   fileName: Schema.NonEmptyString,
-  mimeType: Schema.NonEmptyString,
+  mimeType: Schema.Literal("application/pdf"),
   contentBase64: base64String,
 });
 export type DocuSealSubmissionDocumentProps =

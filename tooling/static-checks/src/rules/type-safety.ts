@@ -1,4 +1,5 @@
-import type { Check } from "../model";
+import * as ts from "typescript";
+import type { Check, CheckContext } from "../model";
 
 const hasTypeAssertion = (line: string): boolean => {
   for (const match of line.matchAll(/\bas\b/g)) {
@@ -8,20 +9,11 @@ const hasTypeAssertion = (line: string): boolean => {
       continue;
     }
 
-    if (!rest) {
-      continue;
-    }
-
-    if (/^\s*[,.;:)\]}]/.test(rest)) {
-      continue;
-    }
-
-    if (!/^([A-Za-z_$]|\[|\{|<|\()./.test(rest)) {
+    if (!rest || /^\s*[,.;:)\]}]/.test(rest) || !/^([A-Za-z_$]|\[|\{|<|\()./.test(rest)) {
       continue;
     }
     return true;
   }
-
   return false;
 };
 
@@ -30,6 +22,26 @@ const hasTaggedErrorAny = (line: string): boolean =>
 
 const hasErasedEffectAny = (line: string): boolean =>
   /\bEffect\.Effect\s*<[^>]*\bany\b[^>]*>/.test(line);
+
+const hasInlineImportType = (context: CheckContext): boolean => {
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (found) {
+      return;
+    }
+    if (
+      ts.isImportTypeNode(node) &&
+      context.sourceFile.getLineAndCharacterOfPosition(node.getStart(context.sourceFile)).line ===
+        context.lineNumber - 1
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(context.sourceFile);
+  return found;
+};
 
 export const typeSafetyChecks: readonly Check[] = [
   {
@@ -43,8 +55,13 @@ export const typeSafetyChecks: readonly Check[] = [
     ignoreImportLine: false,
   },
   {
-    message: "Avoid Any in a domain effect (`Effect.Effect<..., any, ...`).",
+    message: "Avoid Any in a domain effect (`Effect.Effect<..., any, ...>`).",
     test: ({ line }) => hasErasedEffectAny(line),
     ignoreImportLine: false,
+  },
+  {
+    message: "Use a top-level import type declaration instead of an inline import type annotation.",
+    test: hasInlineImportType,
+    ignoreImportLine: true,
   },
 ];

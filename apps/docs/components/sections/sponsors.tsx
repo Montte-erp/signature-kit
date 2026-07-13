@@ -23,7 +23,7 @@ export function Sponsors() {
   return (
     <Section className="border-t border-border">
       <Container className="flex flex-col items-center gap-7 py-14 text-center sm:py-16">
-        <p className="font-mono text-[10px] tracking-[0.2em] text-muted-foreground/70 uppercase">
+        <p className="font-mono text-[10px] tracking-[0.2em] text-foreground uppercase">
           {m.sponsors_eyebrow()}
         </p>
         <Marquee items={items} durationSeconds={24} className="w-full" gapClassName="gap-0" />

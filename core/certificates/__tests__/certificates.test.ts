@@ -85,6 +85,18 @@ const minimalX509 = (
   if (generalNames !== null) tbs.push(subjectAltNameExtension(generalNames));
   return sequence(sequence(...tbs), sequence(), primitive(0x03, new Uint8Array([0x00])));
 };
+const minimalX509WithVersion = (validity: Uint8Array, version: Uint8Array): Uint8Array => {
+  const tbs = [
+    version,
+    primitive(0x02, new Uint8Array([0x01])),
+    sequence(),
+    utf8Name("Issuer"),
+    validity,
+    utf8Name("Subject"),
+    sequence(),
+  ];
+  return sequence(sequence(...tbs), sequence(), primitive(0x03, new Uint8Array([0x00])));
+};
 
 type X509Tags = Partial<{
   certificate: number;
@@ -222,11 +234,11 @@ describe("certificates", () => {
         minimalX509(validity(time(23, "2401010000Z"), time(23, "250101000000Z"))),
       );
       const generalizedTime = yield* parseX509(
-        minimalX509(validity(time(24, "20240229010203Z"), time(24, "20250228010203Z"))),
+        minimalX509(validity(time(24, "20500228010203Z"), time(24, "20510228010203Z"))),
       );
 
       expect(utcWithoutSeconds.validity.notBefore.toISOString()).toBe("2024-01-01T00:00:00.000Z");
-      expect(generalizedTime.validity.notBefore.toISOString()).toBe("2024-02-29T01:02:03.000Z");
+      expect(generalizedTime.validity.notBefore.toISOString()).toBe("2050-02-28T01:02:03.000Z");
 
       const malformedTimes = [
         "241301000000Z",
@@ -234,6 +246,9 @@ describe("certificates", () => {
         "240101240000Z",
         "240101006000Z",
         "240101000060Z",
+        "240101000000",
+        "240101000000Z ",
+        "240101000000+0000",
         "240101000000+2460",
       ];
       for (const malformed of malformedTimes) {
@@ -243,6 +258,72 @@ describe("certificates", () => {
         expect(Result.isFailure(result), malformed).toBe(true);
         if (Result.isFailure(result)) {
           expect(result.failure.code).toBe("signature-kit.X509_PARSE_FAILED");
+        }
+      }
+
+      const invalidGeneralizedYear = yield* Effect.result(
+        parseX509(minimalX509(validity(time(24, "20490101000000Z"), time(24, "20500101000000Z")))),
+      );
+      expect(Result.isFailure(invalidGeneralizedYear)).toBe(true);
+      if (Result.isFailure(invalidGeneralizedYear)) {
+        expect(invalidGeneralizedYear.failure.code).toBe("signature-kit.X509_PARSE_FAILED");
+      }
+    }),
+  );
+  it.effect("rejects malformed validity and explicit version structures", () =>
+    Effect.gen(function* () {
+      const validValidity = validity(time(23, "240101000000Z"), time(23, "250101000000Z"));
+      for (const versionValue of [0, 1, 2]) {
+        const result = yield* Effect.result(
+          parseX509(
+            minimalX509WithVersion(
+              validValidity,
+              contextConstructed(0, primitive(0x02, new Uint8Array([versionValue]))),
+            ),
+          ),
+        );
+        expect(Result.isSuccess(result), `version ${versionValue}`).toBe(true);
+      }
+      const malformed: ReadonlyArray<readonly [string, Uint8Array]> = [
+        [
+          "validity child extra",
+          minimalX509(
+            sequence(
+              time(23, "240101000000Z"),
+              time(23, "250101000000Z"),
+              time(23, "250201000000Z"),
+            ),
+          ),
+        ],
+        [
+          "validity interval inverted",
+          minimalX509(validity(time(23, "250101000000Z"), time(23, "240101000000Z"))),
+        ],
+        [
+          "version wrapper not constructed",
+          minimalX509WithVersion(validValidity, primitive(0x80, new Uint8Array([0x00]))),
+        ],
+        [
+          "version child wrong type",
+          minimalX509WithVersion(
+            validValidity,
+            contextConstructed(0, primitive(0x04, new Uint8Array([0x00]))),
+          ),
+        ],
+        [
+          "version out of range",
+          minimalX509WithVersion(
+            validValidity,
+            contextConstructed(0, primitive(0x02, new Uint8Array([0x03]))),
+          ),
+        ],
+      ];
+
+      for (const [label, malformedDer] of malformed) {
+        const result = yield* Effect.result(parseX509(malformedDer));
+        expect(Result.isFailure(result), label).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure.code, label).toBe("signature-kit.X509_PARSE_FAILED");
         }
       }
     }),

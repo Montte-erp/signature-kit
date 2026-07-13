@@ -13,6 +13,7 @@ import { ReducedMotionProvider } from "@/components/reduced-motion-provider";
 import { Footer } from "@/components/sections/footer";
 import type { Locale } from "@/lib/locale";
 import { parseLocale } from "@/lib/locale";
+import { i18n, localizedPath, localizedPaths } from "@/lib/i18n";
 import { setServerLocale } from "@/lib/server-locale";
 import { absoluteUrl, OG_LOCALE, SITE_NAME } from "@/lib/site";
 
@@ -44,21 +45,32 @@ function CollectionMeta({
   readonly title: string;
   readonly description: string;
 }) {
-  const url = absoluteUrl(`/${locale}${path}`);
+  const url = absoluteUrl(localizedPath(path, locale));
 
   return (
     <>
       <title>{title}</title>
       <meta name="description" content={description} />
       <link rel="canonical" href={url} />
-      <link rel="alternate" hrefLang="en-US" href={absoluteUrl(`/en-US${path}`)} />
-      <link rel="alternate" hrefLang="pt-BR" href={absoluteUrl(`/pt-BR${path}`)} />
-      <link rel="alternate" hrefLang="x-default" href={absoluteUrl(`/en-US${path}`)} />
+      {localizedPaths(path).map(({ locale: alternateLocale, path: alternatePath }) => (
+        <link
+          key={alternateLocale}
+          rel="alternate"
+          hrefLang={alternateLocale}
+          href={absoluteUrl(alternatePath)}
+        />
+      ))}
+      <link
+        rel="alternate"
+        hrefLang="x-default"
+        href={absoluteUrl(localizedPath(path, i18n.defaultLanguage))}
+      />
       <meta property="og:type" content="website" />
       <meta property="og:url" content={url} />
       <meta property="og:locale" content={OG_LOCALE[locale]} />
       <meta property="og:title" content={title} />
       <meta property="og:description" content={description} />
+      <meta name="twitter:card" content="summary" />
       <meta name="twitter:title" content={title} />
       <meta name="twitter:description" content={description} />
     </>
@@ -98,7 +110,7 @@ export function createSiteLayouts<C extends ConfigContext>() {
     readonly lang?: string;
     readonly children: ReactNode;
   }) {
-    const locale = parseLocale(lang ?? "") ?? "en-US";
+    const locale = parseLocale(lang ?? "") ?? i18n.defaultLanguage;
     setServerLocale(locale);
 
     return (
@@ -117,7 +129,6 @@ export function createSiteLayouts<C extends ConfigContext>() {
   }) {
     const locale = parseLocale(lang ?? "");
     if (locale === undefined) return notFound();
-    setServerLocale(locale);
 
     return (
       <ReducedMotionProvider>
@@ -132,7 +143,6 @@ export function createSiteLayouts<C extends ConfigContext>() {
   function BlogIndex({ lang }: { readonly lang?: string }) {
     const locale = parseLocale(lang ?? "");
     if (locale === undefined) return notFound();
-    setServerLocale(locale);
     const copy = collectionCopy(locale);
     const Page = PressBlogIndex[locale];
 
@@ -152,7 +162,6 @@ export function createSiteLayouts<C extends ConfigContext>() {
   function BlogTags({ lang }: { readonly lang?: string }) {
     const locale = parseLocale(lang ?? "");
     if (locale === undefined) return notFound();
-    setServerLocale(locale);
     const copy = collectionCopy(locale);
     const Page = PressBlogTags[locale];
 
@@ -172,7 +181,6 @@ export function createSiteLayouts<C extends ConfigContext>() {
   function BlogTag({ lang, tag }: { readonly lang?: string; readonly tag: string }) {
     const locale = parseLocale(lang ?? "");
     if (locale === undefined) return notFound();
-    setServerLocale(locale);
     const copy = collectionCopy(locale);
 
     return (
@@ -191,7 +199,6 @@ export function createSiteLayouts<C extends ConfigContext>() {
   function ChangelogIndex({ lang }: { readonly lang?: string }) {
     const locale = parseLocale(lang ?? "");
     if (locale === undefined) return notFound();
-    setServerLocale(locale);
     const copy = collectionCopy(locale);
     const Page = PressChangelogIndex[locale];
 

@@ -90,18 +90,18 @@ description: "Carregue um certificado A1, inspecione a identidade e assine seus 
 ## Erros que você pode encontrar
 
 <Callout type="warn" title="Senha do certificado incorreta">
-  Se a senha do `.pfx` estiver errada, a camada de assinatura falha com [`signature-kit.WRONG_PASSWORD`](/docs/signing/errors#error-catalog) no canal de erro — e não com uma exceção. Verifique o segredo antes de prosseguir.
+  Se a senha do `.pfx` estiver errada, a camada de assinatura falha com [`signature-kit.WRONG_PASSWORD`](../signing/errors#error-catalog) no canal de erro — e não com uma exceção. Verifique o segredo antes de prosseguir.
 </Callout>
 
-- [`signature-kit.WRONG_PASSWORD`](/docs/signing/errors#error-catalog) — senha do certificado incorreta.
-- [`signature-kit.SIGN_FAILED`](/docs/signing/errors#error-catalog) — falha ao assinar o conteúdo.
-- [`signature-kit.VERIFY_FAILED`](/docs/signing/errors#error-catalog) — falha ao verificar a assinatura.
+- [`signature-kit.WRONG_PASSWORD`](../signing/errors#error-catalog) — senha do certificado incorreta.
+- [`signature-kit.SIGN_FAILED`](../signing/errors#error-catalog) — falha ao assinar o conteúdo.
+- [`signature-kit.VERIFY_FAILED`](../signing/errors#error-catalog) — falha ao verificar a assinatura.
 
 ## Leitura complementar
 
 <Cards>
-  <Card title="A camada de assinatura" href="/docs/signing/signers">O SignerAdapter: a junção por onde o poder de assinar entra.</Card>
-  <Card title="XML-DSig & PDF/PAdES" href="/docs/signing/xml">Assine NF-e e PDFs PAdES reaproveitando a mesma camada de assinatura A1.</Card>
-  <Card title="Certificados A1" href="/docs/signing/certificates">PKCS#12, X.509 e identidade ICP-Brasil (e-CPF / e-CNPJ).</Card>
-  <Card title="Canal de erro tipado" href="/docs/signing/errors">O SignatureKitError e o catálogo de códigos literais.</Card>
+  <Card title="A camada de assinatura" href="../signing/signers">O SignerAdapter: a junção por onde o poder de assinar entra.</Card>
+  <Card title="XML-DSig & PDF/PAdES" href="../signing/xml">Assine NF-e e PDFs PAdES reaproveitando a mesma camada de assinatura A1.</Card>
+  <Card title="Certificados A1" href="../signing/certificates">PKCS#12, X.509 e identidade ICP-Brasil (e-CPF / e-CNPJ).</Card>
+  <Card title="Canal de erro tipado" href="../signing/errors">O SignatureKitError e o catálogo de códigos literais.</Card>
 </Cards>

@@ -16,16 +16,16 @@ const AutoSignInner = React.lazy(() =>
 
 function AutoSignSkeleton() {
   return (
-    <div aria-hidden className="mt-10 grid gap-6 lg:grid-cols-[1fr_22rem]">
-      <div className="h-[30rem] animate-pulse rounded-xl border border-border bg-muted/30" />
-      <div className="flex flex-col gap-4">
-        <div className="h-9 w-40 animate-pulse rounded-md bg-muted/30" />
-        <div className="flex flex-col gap-1.5">
-          <div className="h-10 animate-pulse rounded-md border border-border bg-muted/30" />
-          <div className="h-10 animate-pulse rounded-md border border-border bg-muted/30" />
-          <div className="h-10 animate-pulse rounded-md border border-border bg-muted/30" />
+    <div aria-hidden className="mt-10 grid min-w-0 gap-6 lg:grid-cols-[1fr_22rem]">
+      <div className="h-[30rem] min-w-0 animate-pulse motion-reduce:animate-none rounded-xl border border-border bg-muted/30" />
+      <div className="flex min-w-0 flex-col gap-4">
+        <div className="h-9 w-40 min-w-0 animate-pulse motion-reduce:animate-none rounded-md bg-muted/30" />
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <div className="h-10 min-w-0 animate-pulse motion-reduce:animate-none rounded-md border border-border bg-muted/30" />
+          <div className="h-10 min-w-0 animate-pulse motion-reduce:animate-none rounded-md border border-border bg-muted/30" />
+          <div className="h-10 min-w-0 animate-pulse motion-reduce:animate-none rounded-md border border-border bg-muted/30" />
         </div>
-        <div className="h-12 w-full animate-pulse rounded-md bg-muted/30" />
+        <div className="h-12 w-full min-w-0 animate-pulse motion-reduce:animate-none rounded-md bg-muted/30" />
       </div>
     </div>
   );

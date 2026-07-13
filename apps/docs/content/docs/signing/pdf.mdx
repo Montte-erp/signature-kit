@@ -185,17 +185,17 @@ result.signerSerialNumber // string | null — serial of the signer certificate
 
 PDF signing and verification fail with codes from the `pdf.*` family (`PdfError`); failures from the A1 signer that provides `Signatures` arrive as `signature-kit.*`.
 
-- [`pdf.SIGN_FAILED`](/docs/signing/errors) — unsupported `hashAlgorithm` (only `sha384` is rejected).
-- [`pdf.SIGNATURE_TOO_LARGE`](/docs/signing/errors) — the CMS exceeded the reserved space; increase `signatureLength`.
-- [`pdf.SIGNATURE_PLACEMENT_FAILED`](/docs/signing/errors) — automatic placement found no space or received invalid dimensions.
-- [`pdf.INVALID_PDF`](/docs/signing/errors) — the bytes don't form a valid PDF to sign or verify.
-- [`pdf.PLACEHOLDER_NOT_FOUND`](/docs/signing/errors) — `verifyPdf` found no `/ByteRange`, e.g. an unsigned PDF.
-- [`signature-kit.WRONG_PASSWORD`](/docs/signing/errors) — wrong A1 password when providing the signatures service.
+- [`pdf.SIGN_FAILED`](./errors) — unsupported `hashAlgorithm` (only `sha384` is rejected).
+- [`pdf.SIGNATURE_TOO_LARGE`](./errors) — the CMS exceeded the reserved space; increase `signatureLength`.
+- [`pdf.SIGNATURE_PLACEMENT_FAILED`](./errors) — automatic placement found no space or received invalid dimensions.
+- [`pdf.INVALID_PDF`](./errors) — the bytes don't form a valid PDF to sign or verify.
+- [`pdf.PLACEHOLDER_NOT_FOUND`](./errors) — `verifyPdf` found no `/ByteRange`, e.g. an unsigned PDF.
+- [`signature-kit.WRONG_PASSWORD`](./errors) — wrong A1 password when providing the signatures service.
 
 ## Continue from here
 
 <Cards>
-  <Card title="XML-DSig" href="/docs/signing/xml">The other format over the same Signatures seam, for NF-e XML.</Card>
-  <Card title="Provider APIs" href="/docs/providers/request-shape">Provider packages for Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso.</Card>
-  <Card title="Typed error channel" href="/docs/signing/errors">The catalog of pdf.* and signature-kit.* codes that can fail.</Card>
+  <Card title="XML-DSig" href="./xml">The other format over the same Signatures seam, for NF-e XML.</Card>
+  <Card title="Provider APIs" href="../providers/request-shape">Provider packages for Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso.</Card>
+  <Card title="Typed error channel" href="./errors">The catalog of pdf.* and signature-kit.* codes that can fail.</Card>
 </Cards>

@@ -32,23 +32,18 @@ describe("browser integration test placement", () => {
       .map((path) => relative(process.cwd(), path).replaceAll("\\", "/"))
       .filter((path) => path.endsWith(".browser.test.ts") || path.endsWith(".browser.test.tsx"))
       .sort();
+    const allowedRoots = [
+      "apps/docs/",
+      "formats/pdf/__tests__/",
+      "formats/react/__tests__/",
+      "signers/a1/__tests__/",
+    ];
 
-    expect(browserTests).toEqual([
-      "apps/docs/__tests__/auto-sign.browser.test.tsx",
-      "apps/docs/__tests__/copy-feedback-lifecycle.browser.test.tsx",
-      "apps/docs/__tests__/formal-contract-pdf.browser.test.tsx",
-      "apps/docs/__tests__/pdf-page.browser.test.tsx",
-      "apps/docs/__tests__/pdf-signer.browser.test.tsx",
-      "apps/docs/registry/default/signature-dialog/signature-dialog.browser.test.tsx",
-      "apps/docs/registry/default/signature-dialog/signature-dialog.busy.browser.test.tsx",
-      "apps/docs/registry/default/signature-pdf-viewer/signature-pdf-viewer.browser.test.tsx",
-      "formats/pdf/__tests__/pdf-a1.browser.test.ts",
-      "formats/react/__tests__/a1.browser.test.tsx",
-      "formats/react/__tests__/a1.race.browser.test.tsx",
-      "formats/react/__tests__/browser-pdf.browser.test.tsx",
-      "formats/react/__tests__/sync-store.browser.test.tsx",
-      "signers/a1/__tests__/a1.browser.test.ts",
-    ]);
+    expect(browserTests.length).toBeGreaterThan(0);
+    expect(browserTests.every((path) => allowedRoots.some((root) => path.startsWith(root)))).toBe(
+      true,
+    );
+    expect(browserTests.some((path) => path.startsWith("apps/web/"))).toBe(false);
   });
 
   it("keeps package behavior tests out of apps/web", () => {

@@ -148,7 +148,7 @@ if (config === undefined) {
             Effect.ensuring(
               deleteDocumensoSignatureRequest(options, created.id).pipe(
                 Effect.provide(signatureHttpClientLive),
-                Effect.ignore,
+                Effect.orDie,
               ),
             ),
           );

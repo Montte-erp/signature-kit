@@ -41,7 +41,7 @@ const program = Effect.gen(function* () {
 
 const { identity, artifact } = await Effect.runPromise(program)`;
 
-const FLUSH = "!my-0 border-0 bg-transparent shadow-none";
+const FLUSH = "!my-0 min-w-0 max-w-full border-0 bg-transparent shadow-none";
 const INDEX_CHIP =
   "grid size-6 shrink-0 place-items-center rounded-full border border-border bg-background font-mono text-[11px] font-medium text-foreground";
 
@@ -54,15 +54,17 @@ export function GetStarted() {
         </FadeIn>
 
         <FadeIn delay={0.05}>
-          <Card className="mt-10 grid gap-0 overflow-hidden rounded-2xl p-0 shadow-none lg:grid-cols-2">
-            <div className="flex flex-col border-b border-border lg:border-r lg:border-b-0">
-              <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
+          <Card className="mt-10 grid min-w-0 gap-0 overflow-hidden rounded-2xl p-0 shadow-none lg:grid-cols-2">
+            <div className="flex min-w-0 flex-col border-b border-border lg:border-r lg:border-b-0">
+              <div className="flex min-w-0 items-center gap-2.5 border-b border-border px-4 py-3">
                 <span className={INDEX_CHIP}>01</span>
-                <span className="font-mono text-xs text-foreground">{m.gs_step1_heading()}</span>
+                <span className="min-w-0 font-mono text-xs text-foreground">
+                  {m.gs_step1_heading()}
+                </span>
               </div>
 
-              <div className="flex flex-1 flex-col p-4">
-                <Tabs items={INSTALL.map((i) => i.label)}>
+              <div className="flex min-w-0 flex-1 flex-col p-4">
+                <Tabs className="min-w-0 max-w-full" items={INSTALL.map((i) => i.label)}>
                   {INSTALL.map((i) => (
                     <Tab key={i.value} value={i.label}>
                       <CodeBlock code={i.code} lang="bash" className={FLUSH} />
@@ -90,19 +92,20 @@ export function GetStarted() {
               </div>
             </div>
 
-            <div className="flex flex-col">
-              <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
+            <div className="flex min-w-0 flex-col">
+              <div className="flex min-w-0 items-center gap-2.5 border-b border-border px-4 py-3">
                 <span className={INDEX_CHIP}>02</span>
-                <span className="font-mono text-xs text-foreground">{m.gs_step2_heading()}</span>
-                <span className="ml-auto font-mono text-[11px] text-muted-foreground/50">
+                <span className="min-w-0 font-mono text-xs text-foreground">
+                  {m.gs_step2_heading()}
+                </span>
+                <span className="ml-auto min-w-0 max-w-[40%] truncate font-mono text-[11px] text-foreground">
                   first-signature.ts
                 </span>
               </div>
 
-              <div className="flex flex-1 flex-col p-4">
+              <div className="flex min-w-0 flex-1 flex-col p-4">
                 <CodeBlock code={FIRST_CALL} lang="ts" className={FLUSH} />
               </div>
-
               <div className="mt-auto border-t border-border bg-muted/30 px-4 py-3">
                 <p className="text-sm leading-relaxed text-pretty text-muted-foreground">
                   <code className="mr-1 font-mono text-foreground">runPromise</code>

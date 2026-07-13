@@ -37,6 +37,7 @@
       ]
     },
     "typecheck": {
+      "dependsOn": ["^typecheck"],
       "inputs": [
         "...",
         {
@@ -45,7 +46,7 @@
       ]
     },
     "test": {
-      "cache": true,
+      "cache": false,
       "dependsOn": ["build"],
       "inputs": ["default", "^production"]
     },

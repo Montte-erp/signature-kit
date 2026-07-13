@@ -2,13 +2,28 @@ import type { TranslationsAPI } from "fumadocs-core/i18n";
 import { defineI18n } from "fumadocs-core/i18n";
 import { uiTranslations } from "fumadocs-ui/i18n";
 
+import { baseLocale, locales } from "@/paraglide/runtime";
+import type { Locale } from "@/lib/locale";
+
 export const i18n = defineI18n({
-  defaultLanguage: "en-US",
-  languages: ["en-US", "pt-BR"],
+  defaultLanguage: baseLocale,
+  languages: locales.map((locale) => locale),
   hideLocale: "never",
 });
 
-export const translations: TranslationsAPI<"en-US" | "pt-BR"> = i18n
+export const localizedPath = (path: string, locale: Locale): string =>
+  `/${locale}${path === "/" ? "" : path.startsWith("/") ? path : `/${path}`}`;
+
+export const localizedPaths = (path: string) =>
+  i18n.languages.map((locale) => ({
+    locale,
+    path: localizedPath(path, locale),
+  }));
+
+export const signFreePath = "/assine-documentos-gratis";
+export const signFreeLocales = i18n.languages.filter((locale) => locale === "pt-BR");
+
+export const translations: TranslationsAPI<Locale> = i18n
   .translations()
   .extend(uiTranslations())
   .add({

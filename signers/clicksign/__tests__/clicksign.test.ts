@@ -10,7 +10,6 @@ import {
   ClicksignSignatureRequestStateSchema,
   cancelClicksignSignatureRequest,
   deleteClicksignSignatureRequest,
-  downloadClicksignSignedDocument,
   getClicksignSignatureRequest,
   listClicksignSignatureRequests,
 } from "../src/index";
@@ -131,14 +130,11 @@ if (config === undefined) {
             } else {
               expect(cancelled.success).toBeUndefined();
             }
-
-            const _download = downloadClicksignSignedDocument;
-            void _download;
           }).pipe(
             Effect.ensuring(
               deleteClicksignSignatureRequest(options, id)
                 .pipe(Effect.provide(signatureHttpClientLive))
-                .pipe(Effect.ignore),
+                .pipe(Effect.orDie),
             ),
           );
         }),

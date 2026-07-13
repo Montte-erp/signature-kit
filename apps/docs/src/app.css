@@ -196,12 +196,31 @@ html > body[data-scroll-locked] {
 :is(#nd-sidebar, #nd-sidebar-mobile) p.inline-flex {
   position: relative;
   margin-block: 1.25rem 0.2rem;
-  color: color-mix(in oklab, var(--color-fd-muted-foreground) 72%, transparent);
+  color: var(--foreground);
   font-size: 0.625rem;
   font-weight: 700;
-  letter-spacing: 0.11em;
   line-height: 0.9;
   text-transform: uppercase;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(
+    [class~="animate-pulse"],
+    [class~="animate-spin"],
+    [class*="animate-in"],
+    [class*="animate-out"]
+  ) {
+    animation: none !important;
+  }
+
+  :where(.transition, [class*="transition-"], [class*="duration-"]) {
+    transition: none !important;
+  }
+}
+
+[class~="text-muted-foreground/50"],
+[class~="text-muted-foreground/70"] {
+  color: var(--foreground);
 }
 
 :is(#nd-sidebar, #nd-sidebar-mobile) p.inline-flex:first-child {

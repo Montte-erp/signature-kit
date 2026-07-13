@@ -9,10 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { parseLocale } from "@/lib/locale";
+import { localizedPath, signFreeLocales, signFreePath } from "@/lib/i18n";
 import { absoluteUrl, OG_LOCALE, SITE_NAME } from "@/lib/site";
-import { setServerLocale } from "@/lib/server-locale";
 
-const PATH = "/pt-BR/assine-documentos-gratis";
 const TITLE = "Assine documentos grátis com certificado A1";
 const DESCRIPTION =
   "Assine documentos PDF grátis no navegador com certificado digital A1. O arquivo, o .p12/.pfx e a senha ficam no seu dispositivo.";
@@ -62,8 +61,7 @@ const faqs = [
   },
 ];
 
-function buildJsonLd() {
-  const url = absoluteUrl(PATH);
+function buildJsonLd(url: string) {
   return {
     "@context": "https://schema.org",
     "@graph": [
@@ -103,28 +101,30 @@ function buildJsonLd() {
 
 export default function AssineDocumentosGratisPage({ lang }: PortugueseSeoPageProps) {
   const locale = parseLocale(lang ?? "");
-  if (locale !== "pt-BR") return notFound();
-  setServerLocale(locale);
+  if (locale === undefined || !signFreeLocales.some((candidate) => candidate === locale)) {
+    return notFound();
+  }
+  const url = absoluteUrl(localizedPath(signFreePath, locale));
 
   return (
     <>
       <title>{`${TITLE} | ${SITE_NAME}`}</title>
       <meta name="description" content={DESCRIPTION} />
-      <link rel="canonical" href={absoluteUrl(PATH)} />
+      <link rel="canonical" href={url} />
       <meta property="og:type" content="website" />
       <meta property="og:title" content={`${TITLE} | ${SITE_NAME}`} />
       <meta property="og:description" content={DESCRIPTION} />
-      <meta property="og:url" content={absoluteUrl(PATH)} />
+      <meta property="og:url" content={url} />
       <meta property="og:locale" content={OG_LOCALE[locale]} />
-      <meta name="twitter:card" content="summary_large_image" />
+      <meta name="twitter:card" content="summary" />
       <meta name="twitter:title" content={TITLE} />
       <meta name="twitter:description" content={DESCRIPTION} />
       <script
         id="assine-documentos-gratis-json-ld"
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(buildJsonLd()) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(buildJsonLd(url)) }}
       />
-      <main className="flex flex-col">
+      <div className="flex flex-col">
         <Section>
           <Container className="pt-20 pb-14 text-center sm:pt-24 sm:pb-16">
             <FadeIn>
@@ -155,7 +155,7 @@ export default function AssineDocumentosGratisPage({ lang }: PortugueseSeoPagePr
                   </Link>
                 </Button>
                 <Button asChild size="lg" variant="ghost">
-                  <Link href="/pt-BR/docs/a1-signing/browser-pdf-flow">
+                  <Link href={localizedPath("/docs/a1-signing/browser-pdf-flow", locale)}>
                     Como funciona
                     <ArrowRight data-icon="inline-end" />
                   </Link>
@@ -248,7 +248,7 @@ export default function AssineDocumentosGratisPage({ lang }: PortugueseSeoPagePr
             </div>
           </Container>
         </Section>
-      </main>
+      </div>
     </>
   );
 }

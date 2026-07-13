@@ -27,7 +27,7 @@ import type {
 } from "../src/index";
 
 const API_KEY = "docuseal-local-token";
-const sampleContent = new TextEncoder().encode("local docuSeal test payload");
+const sampleContent = new TextEncoder().encode("%PDF-1.4\n% local docuSeal test payload");
 const sampleContentBase64 = Buffer.from(sampleContent).toString("base64");
 
 const submissionPayload: DocuSealSubmissionProps = {
@@ -36,8 +36,8 @@ const submissionPayload: DocuSealSubmissionProps = {
   message: "offline test message",
   documents: [
     {
-      fileName: "document.txt",
-      mimeType: "text/plain",
+      fileName: "document.pdf",
+      mimeType: "application/pdf",
       contentBase64: sampleContentBase64,
     },
   ],
@@ -187,6 +187,44 @@ describe("DocuSeal offline provider", () => {
               });
             }
           }
+        }),
+    ),
+  );
+  it.effect("rejects non-PDF documents before any HTTP request", () =>
+    withLocalServer(
+      async () =>
+        Promise.resolve({
+          status: 500,
+          body: "unexpected request",
+        }),
+      (options, requests) =>
+        Effect.gen(function* () {
+          const validInput = submissionPayload;
+          const invalidInput = JSON.parse(
+            JSON.stringify({
+              ...validInput,
+              documents: [
+                {
+                  ...validInput.documents[0],
+                  mimeType: "text/plain",
+                },
+              ],
+            }),
+          );
+          const result = yield* Effect.result(
+            Effect.gen(function* () {
+              const provider = yield* Provider.findProvider(DocuSealSignatureRequest);
+              return yield* provider.reconcile(
+                reconcileResourceProps("docuseal-offline-invalid-mime", invalidInput),
+              );
+            }).pipe(Effect.provide(docuSealProviders(options))),
+          );
+
+          expect(Result.isFailure(result)).toBe(true);
+          if (Result.isFailure(result)) {
+            expect(result.failure.code).toBe(SignatureKitErrorCodeValue.invalidInput);
+          }
+          expect(requests).toHaveLength(0);
         }),
     ),
   );

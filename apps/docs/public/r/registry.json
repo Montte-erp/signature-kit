@@ -15,14 +15,14 @@
         "label"
       ],
       "dependencies": [
-        "@tanstack/react-form@0.11.0",
+        "@tanstack/react-form@1.33.2",
         "lucide-react"
       ],
       "files": [
         {
           "path": "registry/default/signature-certificate-form/signature-certificate-form.tsx",
           "type": "registry:component",
-          "target": "components/signature-kit/signature-certificate-form.tsx"
+          "target": "@components/signature-kit/signature-certificate-form.tsx"
         }
       ]
     },
@@ -41,14 +41,14 @@
       "dependencies": [
         "@signature-kit/react",
         "@signature-kit/a1",
-        "@tanstack/react-form@0.11.0",
+        "@tanstack/react-form@1.33.2",
         "lucide-react"
       ],
       "files": [
         {
           "path": "registry/default/certificate-upload-form/certificate-upload-form.tsx",
           "type": "registry:component",
-          "target": "components/signature-kit/certificate-upload-form.tsx"
+          "target": "@components/signature-kit/certificate-upload-form.tsx"
         }
       ]
     },
@@ -71,7 +71,7 @@
         {
           "path": "registry/default/signature-pdf-viewer/signature-pdf-viewer.tsx",
           "type": "registry:component",
-          "target": "components/signature-kit/signature-pdf-viewer.tsx"
+          "target": "@components/signature-kit/signature-pdf-viewer.tsx"
         }
       ]
     },
@@ -94,14 +94,15 @@
         "@signature-kit/pdf",
         "@signature-kit/cms",
         "@signature-kit/signatures",
-        "@tanstack/react-form@0.11.0",
+        "@tanstack/react-form@1.33.2",
+        "effect@4.0.0-beta.86",
         "lucide-react"
       ],
       "files": [
         {
           "path": "registry/default/signature-dialog/signature-dialog.tsx",
           "type": "registry:component",
-          "target": "components/signature-kit/signature-dialog.tsx"
+          "target": "@components/signature-kit/signature-dialog.tsx"
         }
       ]
     },
@@ -120,7 +121,7 @@
         {
           "path": "registry/default/signing-progress-list/signing-progress-list.tsx",
           "type": "registry:component",
-          "target": "components/signature-kit/signing-progress-list.tsx"
+          "target": "@components/signature-kit/signing-progress-list.tsx"
         }
       ]
     },
@@ -136,7 +137,7 @@
         {
           "path": "registry/default/pdf-signature-anchor/pdf-signature-anchor.tsx",
           "type": "registry:component",
-          "target": "components/signature-kit/pdf-signature-anchor.tsx"
+          "target": "@components/signature-kit/pdf-signature-anchor.tsx"
         }
       ]
     }

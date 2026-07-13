@@ -1,6 +1,8 @@
+import { pdfjs } from "react-pdf";
 import { describe, expect, it } from "vitest";
 
 import { SIGNATURE_VARIANTS, generateFormalContractPdf } from "../components/formal-contract-pdf";
+import { loadPdfjs } from "../components/pdf-page";
 import { isPdf } from "./helpers/dummy-pdf";
 
 const PARAGRAPHS = [
@@ -8,6 +10,22 @@ const PARAGRAPHS = [
   "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.",
   "Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium.",
 ];
+
+const extractFirstPageText = async (bytes: Uint8Array): Promise<string> => {
+  await loadPdfjs();
+  const loadingTask = pdfjs.getDocument({ data: bytes.slice() });
+  const documentProxy = await loadingTask.promise;
+  try {
+    const page = await documentProxy.getPage(1);
+    const content = await page.getTextContent();
+    return content.items
+      .map((item) => ("str" in item ? item.str : ""))
+      .filter((text) => text.length > 0)
+      .join(" ");
+  } finally {
+    await documentProxy.destroy();
+  }
+};
 
 if (typeof document === "undefined") {
   describe.skip("generateFormalContractPdf (browser)", () => {
@@ -29,18 +47,27 @@ if (typeof document === "undefined") {
       30000,
     );
 
-    it("renders a SIGNED contract in Chromium", async () => {
-      const bytes = await generateFormalContractPdf({
-        title: "Procuração assinada",
-        paragraphs: PARAGRAPHS,
-        variant: "field",
-        signed: {
-          name: "Maria A. Costa",
-          document: "CPF/CNPJ: 000.000.000-00",
-          date: "26/06/2026 13:30",
-        },
-      });
-      expect(isPdf(bytes)).toBe(true);
-    }, 30000);
+    it.each(SIGNATURE_VARIANTS)(
+      "preserves uploaded signer metadata in the '%s' variant",
+      async (variant) => {
+        const signedDocument = "CPF/CNPJ: 999.999.999-99";
+        const bytes = await generateFormalContractPdf({
+          title: "Procuração assinada",
+          paragraphs: PARAGRAPHS,
+          variant,
+          signed: {
+            name: "João de Azevedo",
+            document: signedDocument,
+            date: "26/06/2026 13:30",
+          },
+        });
+        const text = await extractFirstPageText(bytes);
+
+        expect(text).toContain(signedDocument);
+        expect(text).not.toContain("CPF/CNPJ: 000.000.000-00");
+        if (variant === "initials") expect(text).toContain("JA");
+      },
+      30000,
+    );
   });
 }

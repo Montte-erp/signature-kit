@@ -427,22 +427,25 @@ export const validatePdfConformance = (
     const reports = yield* Effect.forEach(signatures, (signature, index) =>
       Effect.gen(function* () {
         const cms = yield* parseCms(signature.signature);
-        const cmsVerification = yield* verifyDetachedSignedData({
-          cms: signature.signature,
-          content: signature.signedData,
-          ...(valid.trustedRoots === undefined ? {} : { trustedRoots: valid.trustedRoots }),
-        }).pipe(
-          Effect.mapError(
-            (error) =>
-              new SignatureKitError({
-                code: SignatureKitErrorCodeValue.verifyFailed,
-                retryable: false,
-                provider: ITI_PROVIDER,
-                operation: ItiOperation.conformance,
-                reason: error.reason ?? error.message,
-              }),
-          ),
-        );
+        const singleSignerInfo = cms.signerInfoCount === 1;
+        const cmsVerification = yield* singleSignerInfo
+          ? verifyDetachedSignedData({
+              cms: signature.signature,
+              content: signature.signedData,
+              ...(valid.trustedRoots === undefined ? {} : { trustedRoots: valid.trustedRoots }),
+            }).pipe(
+              Effect.mapError(
+                (error) =>
+                  new SignatureKitError({
+                    code: SignatureKitErrorCodeValue.verifyFailed,
+                    retryable: false,
+                    provider: ITI_PROVIDER,
+                    operation: ItiOperation.conformance,
+                    reason: error.reason ?? error.message,
+                  }),
+              ),
+            )
+          : Effect.succeed({ valid: false, chainValid: false });
         const inspection = yield* inspectDetachedSignedData({ cms: signature.signature }).pipe(
           Effect.mapError(
             (error) =>
@@ -461,7 +464,6 @@ export const validatePdfConformance = (
         const revisionComplete = yield* isCompletePdfRevision(valid.pdf, byteRangeEnd).pipe(
           Effect.catch(() => Effect.succeed(false)),
         );
-        const singleSignerInfo = cms.signerInfoCount === 1;
         const structureValid =
           signature.startsAtZero &&
           revisionComplete &&

@@ -89,6 +89,16 @@ export const verifyDetachedSignedData = (
           operation: CmsOperationValue.verify,
         }),
     });
+    if (signed.signerInfos.length !== 1) {
+      return yield* Effect.fail(
+        new CmsError({
+          code: CmsErrorCodeValue.decodeError,
+          reason: "CMS SignedData must contain exactly one SignerInfo.",
+          operation: CmsOperationValue.verify,
+        }),
+      );
+    }
+
     if (signed.encapContentInfo.eContentType !== CmsOid.data) {
       return yield* Effect.fail(
         new CmsError({

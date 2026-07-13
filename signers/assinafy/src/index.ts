@@ -42,14 +42,14 @@ export type AssinafySignatureRequestState = (typeof AssinafySignatureRequestStat
 
 export const AssinafyDocumentUploadSchema = Schema.Struct({
   fileName: Schema.NonEmptyString,
-  mimeType: Schema.NonEmptyString,
+  mimeType: Schema.Literal("application/pdf"),
   content: Schema.Uint8Array,
 });
 export type AssinafyDocumentUpload = (typeof AssinafyDocumentUploadSchema)["Type"];
 
 export const AssinafyDocumentUploadPropsSchema = Schema.Struct({
   fileName: Schema.NonEmptyString,
-  mimeType: Schema.NonEmptyString,
+  mimeType: Schema.Literal("application/pdf"),
   contentBase64: base64String,
 });
 export type AssinafyDocumentUploadProps = (typeof AssinafyDocumentUploadPropsSchema)["Type"];

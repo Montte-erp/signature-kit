@@ -19,6 +19,8 @@ const TSA_TIMESTAMPING_KEY_PURPOSE_OID = "1.3.6.1.5.5.7.3.8";
 const TSA_SIGNING_CERTIFICATE_OID = "1.2.840.113549.1.9.16.2.12";
 const TSA_KEY_USAGE_OID = "2.5.29.15";
 const DEFAULT_TIMEOUT_MILLIS = 15000;
+const diagnosticTimestampUrl = (url: string): string =>
+  url.replace(/^([a-z][a-z\d+.-]*:\/\/)(?:[^/?#]*@)/i, "$1").replace(/[?#].*$/, "");
 
 const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean => {
   if (left.byteLength !== right.byteLength) return false;
@@ -166,11 +168,20 @@ const signingCertificateMatches = (
     return bytesEqual(hash.hash, certificateHash);
   });
 
-const timestampNonce = (): asn1js.Integer => {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  bytes[0] = (bytes[0] ?? 0) & 0x7f;
-  return new asn1js.Integer({ valueHex: toArrayBuffer(bytes) });
-};
+const timestampNonce = (): Effect.Effect<asn1js.Integer, CmsError> =>
+  Effect.try({
+    try: () => {
+      const bytes = crypto.getRandomValues(new Uint8Array(16));
+      bytes[0] = (bytes[0] ?? 0) & 0x7f;
+      return new asn1js.Integer({ valueHex: toArrayBuffer(bytes) });
+    },
+    catch: () =>
+      new CmsError({
+        code: CmsErrorCodeValue.timestampError,
+        reason: "Failed to generate the RFC 3161 timestamp nonce.",
+        operation: CmsOperationValue.timestamp,
+      }),
+  });
 
 const RequestTimestampInputSchema = Schema.Struct({
   data: Schema.Uint8Array,
@@ -282,7 +293,8 @@ const downloadTimestamp = (
     catch: () =>
       new CmsError({
         code: CmsErrorCodeValue.timestampError,
-        reason: `TSA request to ${input.tsaUrl} failed.`,
+        reason: `TSA request to ${diagnosticTimestampUrl(input.tsaUrl)} failed.`,
+
         operation: CmsOperationValue.timestamp,
       }),
   });
@@ -301,6 +313,8 @@ export const requestTimestamp = (
           }),
       ),
     );
+    const diagnosticUrl = diagnosticTimestampUrl(valid.tsaUrl);
+
     const trustedCerts = yield* Effect.try({
       try: () => valid.trustedRoots.map((der) => pkijs.Certificate.fromBER(toArrayBuffer(der))),
       catch: () =>
@@ -311,7 +325,7 @@ export const requestTimestamp = (
         }),
     });
     const imprint = yield* digest(valid.hashAlgorithm, valid.data);
-    const nonce = timestampNonce();
+    const nonce = yield* timestampNonce();
 
     const requestDer = yield* Effect.try({
       try: () => {
@@ -343,8 +357,9 @@ export const requestTimestamp = (
         new CmsError({
           code: CmsErrorCodeValue.timestampError,
           reason: response.timedOut
-            ? `TSA request to ${valid.tsaUrl} timed out.`
-            : `TSA request to ${valid.tsaUrl} was aborted.`,
+            ? `TSA request to ${diagnosticUrl} timed out.`
+            : `TSA request to ${diagnosticUrl} was aborted.`,
+
           operation: CmsOperationValue.timestamp,
         }),
       );
@@ -354,7 +369,7 @@ export const requestTimestamp = (
       return yield* Effect.fail(
         new CmsError({
           code: CmsErrorCodeValue.timestampError,
-          reason: `TSA request to ${valid.tsaUrl} failed with HTTP ${response.status}.`,
+          reason: `TSA request to ${diagnosticUrl} failed with HTTP ${response.status}.`,
           operation: CmsOperationValue.timestamp,
         }),
       );

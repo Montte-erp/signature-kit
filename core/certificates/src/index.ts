@@ -351,8 +351,8 @@ const parseName = (
 const parseTimeWithZone = (text: string, yearDigits: 2 | 4): Date | null => {
   const utcTimePattern =
     yearDigits === 2
-      ? /^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?(?:\.\d+)?(Z|[+-]\d{4})?$/
-      : /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?(?:\.\d+)?(Z|[+-]\d{4})?$/;
+      ? /^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?(?:\.\d+)?Z$/
+      : /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?(?:\.\d+)?Z$/;
   const match = text.match(utcTimePattern);
   if (match === null) return null;
 
@@ -365,7 +365,6 @@ const parseTimeWithZone = (text: string, yearDigits: 2 | 4): Date | null => {
   const hourRaw = match[4];
   const minuteRaw = match[5];
   const secondRaw = match[6];
-  const zoneRaw = match[7];
 
   if (
     yearRaw === undefined ||
@@ -397,7 +396,13 @@ const parseTimeWithZone = (text: string, yearDigits: 2 | 4): Date | null => {
           return yy === null ? null : yy >= 50 ? 1900 + yy : 2000 + yy;
         })()
       : toNumber(yearRaw);
-  if (year === null) return null;
+  if (
+    year === null ||
+    (yearDigits === 2 && (year < 1950 || year > 2049)) ||
+    (yearDigits === 4 && year < 2050)
+  ) {
+    return null;
+  }
   const maxDay =
     month === 2
       ? year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
@@ -408,32 +413,12 @@ const parseTimeWithZone = (text: string, yearDigits: 2 | 4): Date | null => {
         : 31;
   if (day > maxDay) return null;
 
-  let offsetMinutes = 0;
-  if (zoneRaw !== undefined && zoneRaw !== "" && zoneRaw !== "Z") {
-    const zoneSign = zoneRaw[0];
-    const zoneHoursText = zoneRaw.substring(1, 3);
-    const zoneMinutesText = zoneRaw.substring(3, 5);
-    const zoneHours = toNumber(zoneHoursText);
-    const zoneMin = toNumber(zoneMinutesText);
-    if (
-      zoneHours === null ||
-      zoneMin === null ||
-      zoneHours > 23 ||
-      zoneMin > 59 ||
-      (zoneSign !== "+" && zoneSign !== "-")
-    ) {
-      return null;
-    }
-    const zoneTotal = zoneHours * 60 + zoneMin;
-    offsetMinutes = zoneSign === "+" ? zoneTotal : -zoneTotal;
-  }
-
   const base = Date.UTC(year, month - 1, day, hour, minute, second, 0);
-  return new Date(base - offsetMinutes * 60_000);
+  return new Date(base);
 };
 
 const parseTime = (node: Asn1Node): Effect.Effect<Date, SignatureKitError> => {
-  if (node.kind !== "primitive") {
+  if (node.kind !== "primitive" || node.class !== "universal") {
     return Effect.fail(
       new SignatureKitError({
         code: SignatureKitErrorCodeValue.x509ParseFailed,
@@ -443,7 +428,7 @@ const parseTime = (node: Asn1Node): Effect.Effect<Date, SignatureKitError> => {
       }),
     );
   }
-  const text = decodeText(node.bytes).trim();
+  const text = decodeText(node.bytes);
   const parsed =
     node.tag === 23
       ? parseTimeWithZone(text, 2)
@@ -467,7 +452,7 @@ const parseValidity = (
   node: Asn1Node,
 ): Effect.Effect<{ readonly notBefore: Date; readonly notAfter: Date }, SignatureKitError> =>
   Effect.gen(function* () {
-    if (node.kind !== "constructed" || node.children.length < 2) {
+    if (!isUniversalSequence(node) || node.children.length !== 2) {
       return yield* Effect.fail(
         new SignatureKitError({
           code: SignatureKitErrorCodeValue.x509ParseFailed,
@@ -489,7 +474,19 @@ const parseValidity = (
         }),
       );
     }
-    return { notBefore: yield* parseTime(before), notAfter: yield* parseTime(after) };
+    const notBefore = yield* parseTime(before);
+    const notAfter = yield* parseTime(after);
+    if (notBefore.getTime() > notAfter.getTime()) {
+      return yield* Effect.fail(
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.x509ParseFailed,
+          retryable: false,
+          reason: "Invalid Validity interval.",
+          operation: SignatureKitOperationValue.x509Parse,
+        }),
+      );
+    }
+    return { notBefore, notAfter };
   });
 
 const normalizeIcpOtherName = (oid: string, value: string): string => {
@@ -651,8 +648,31 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
     let idx = 0;
 
     const version = tbs[idx];
-    if (version !== undefined && version.class === "context" && version.tag === 0) idx++;
-
+    if (version !== undefined && version.class === "context" && version.tag === 0) {
+      const versionNode =
+        version.kind === "constructed" && version.children.length === 1
+          ? version.children[0]
+          : undefined;
+      if (
+        versionNode === undefined ||
+        versionNode.kind !== "primitive" ||
+        versionNode.class !== "universal" ||
+        versionNode.tag !== 0x02 ||
+        versionNode.bytes.length !== 1 ||
+        versionNode.bytes[0] === undefined ||
+        versionNode.bytes[0] > 2
+      ) {
+        return yield* Effect.fail(
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.x509ParseFailed,
+            retryable: false,
+            reason: "Invalid TBSCertificate version.",
+            operation: SignatureKitOperationValue.x509Parse,
+          }),
+        );
+      }
+      idx++;
+    }
     const serialNode = tbs[idx];
     idx++;
     if (

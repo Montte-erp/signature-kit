@@ -12,19 +12,13 @@ import { createRelativeLink } from "fumadocs-ui/mdx";
 
 import { blog, changelog, docs } from "./.source/server";
 import { getMDXComponents } from "@/components/mdx";
-import { i18n, translations } from "@/lib/i18n";
+import { i18n, localizedPath, localizedPaths, translations } from "@/lib/i18n";
 import { baseOptions } from "@/lib/layout.shared";
 import { parseLocale } from "@/lib/locale";
 import { captureServerEventWithoutRequest, docsAnalyticsPlugin } from "@/lib/posthog/server";
 import { absoluteUrl, OG_LOCALE, SITE_NAME, SITE_URL } from "@/lib/site";
 import { createSiteLayouts } from "@/src/layouts";
 import { siteRoutesPlugin } from "@/src/site-routes";
-
-const localizedUrl = (url: string, language: string): string => {
-  const segments = url.split("/");
-  if (i18n.languages.some((candidate) => candidate === segments[1])) segments[1] = language;
-  return absoluteUrl(segments.join("/"));
-};
 
 const baseConfig = defineConfig({
   content: {
@@ -41,7 +35,6 @@ const baseConfig = defineConfig({
       user: "Montte-erp",
       repo: "signature-kit",
       branch: "main",
-      rootDir: "apps/docs",
     },
   },
   loaderOptions: {
@@ -51,28 +44,43 @@ const baseConfig = defineConfig({
     root() {
       return (
         <>
-          <meta charSet="utf-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
           <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
           <meta name="theme-color" content="#1f1f1f" media="(prefers-color-scheme: dark)" />
           <meta property="og:site_name" content={SITE_NAME} />
-          <meta name="twitter:card" content="summary_large_image" />
         </>
       );
     },
     page(page) {
       const locale =
-        i18n.languages.find((candidate) => page.url.startsWith(`/${candidate}/`)) ??
-        i18n.defaultLanguage;
+        i18n.languages.find(
+          (candidate) => page.url === `/${candidate}` || page.url.startsWith(`/${candidate}/`),
+        ) ?? i18n.defaultLanguage;
+      const localePrefix = `/${locale}`;
+      const path =
+        page.url === localePrefix
+          ? "/"
+          : page.url.startsWith(`${localePrefix}/`)
+            ? page.url.slice(localePrefix.length)
+            : page.url;
       return (
         <>
           {page.data.description ? (
             <meta name="description" content={page.data.description} />
           ) : null}
           <link rel="canonical" href={absoluteUrl(page.url)} />
-          <link rel="alternate" hrefLang="en-US" href={localizedUrl(page.url, "en-US")} />
-          <link rel="alternate" hrefLang="pt-BR" href={localizedUrl(page.url, "pt-BR")} />
-          <link rel="alternate" hrefLang="x-default" href={localizedUrl(page.url, "en-US")} />
+          {localizedPaths(path).map(({ locale: alternateLocale, path: alternatePath }) => (
+            <link
+              key={alternateLocale}
+              rel="alternate"
+              hrefLang={alternateLocale}
+              href={absoluteUrl(alternatePath)}
+            />
+          ))}
+          <link
+            rel="alternate"
+            hrefLang="x-default"
+            href={absoluteUrl(localizedPath(path, i18n.defaultLanguage))}
+          />
           <meta property="og:type" content={page.type === "docs" ? "website" : "article"} />
           <meta property="og:url" content={absoluteUrl(page.url)} />
           <meta property="og:locale" content={OG_LOCALE[locale]} />
@@ -92,7 +100,7 @@ const siteLayouts = createSiteLayouts<SiteContext>();
 
 export default baseConfig
   .plugins(
-    docsAnalyticsPlugin<SiteContext>(),
+    docsAnalyticsPlugin(),
     siteRoutesPlugin<SiteContext>(siteLayouts.HomeLayout),
     blogPlugin<SiteContext>({
       layouts: {

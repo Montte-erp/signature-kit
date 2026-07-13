@@ -84,6 +84,6 @@ export function ContractSignatureBlock() {
 
 Use `signature-pdf-viewer` quando uma pessoa precisar confirmar as âncoras ou trocar para posicionamento manual por clique.
 
-### Ilha `react-pdf` no Next.js
+### Ilha `react-pdf` no Waku/FumaPress
 
-`react-pdf` toca APIs do navegador, então mantenha-o em um componente client carregado com `dynamic(() => import("./PdfPreviewIsland"), { ssr: false })`. Páginas server podem passar bytes, páginas e retângulos já validados para essa ilha; a ilha controla o estado de preview e os object URLs.
+`react-pdf` toca APIs do navegador, então mantenha-o atrás do boundary de hidratação mostrado em [`PdfPreviewIsland`](./react-pdf-preview). Use `useSyncExternalStore` para expor um snapshot do servidor como `false`, `lazy` para adiar o módulo exclusivo do navegador e `Suspense` para o fallback de carregamento. Páginas Waku/FumaPress podem passar bytes PDF, páginas e retângulos já validados para essa ilha; ela controla o estado do preview e os object URLs sem um helper específico de carregamento client.
