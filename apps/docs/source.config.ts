@@ -36,7 +36,11 @@ export const blog = defineDocs({
 export const changelog = defineDocs({
   dir: "content/changelog",
   docs: {
+    async: true,
     schema: changelogPageSchema,
+    postprocess: {
+      includeProcessedMarkdown: true,
+    },
   },
   meta: {
     schema: changelogMetaSchema,

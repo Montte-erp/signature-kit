@@ -12,6 +12,7 @@ import type { Locale } from "@/lib/locale";
 import { parseLocale } from "@/lib/locale";
 import { i18n, localizedPath, localizedPaths } from "@/lib/i18n";
 import { absoluteUrl, OG_LOCALE, SITE_NAME } from "@/lib/site";
+import { setServerLocale } from "@/lib/server-locale";
 
 const homeCopy: Record<
   Locale,
@@ -43,6 +44,7 @@ const homeCopy: Record<
 export default function HomePage({ lang }: { readonly lang?: string }) {
   const locale = parseLocale(lang ?? "");
   if (locale === undefined) return notFound();
+  setServerLocale(locale);
   const copy = homeCopy[locale];
   const url = absoluteUrl(localizedPath("", locale));
 
@@ -73,15 +75,15 @@ export default function HomePage({ lang }: { readonly lang?: string }) {
       <meta name="twitter:title" content={copy.ogTitle} />
       <meta name="twitter:description" content={copy.ogDescription} />
       <div className="flex flex-col">
-        <Hero />
+        <Hero locale={locale} />
         <Integrations />
         <Signer />
-        <AutoSign />
-        <ProvidersShowcase />
+        <AutoSign locale={locale} />
+        <ProvidersShowcase locale={locale} />
         <Capabilities />
         <GetStarted />
         <Sponsors />
-        <FinalCta />
+        <FinalCta locale={locale} />
       </div>
     </>
   );

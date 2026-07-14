@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import * as React from "react";
 import { Effect } from "effect";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "fumadocs-ui/components/tabs.unstyled";
 
 import {
   generateFormalContractPdf,
@@ -31,7 +32,7 @@ import { cn } from "@/lib/utils";
 import type { Locale } from "@/lib/locale";
 import { captureDocsEvent } from "@/lib/posthog/client";
 import { createSyncStore, useSyncStore } from "@signature-kit/react/sync-store";
-import { m } from "@/paraglide/messages";
+import { m } from "@/lib/client-messages";
 import { getLocale } from "@/paraglide/runtime";
 
 const LOREM = [
@@ -179,6 +180,9 @@ type QueueItem = {
   readonly outputLocale: Locale;
 };
 const statusEntry = (id: string, phase: DocPhase): readonly [string, DocPhase] => [id, phase];
+
+const autoDocIdPart = (id: string, index: number): string =>
+  `${id.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${index}`;
 
 const initialState = (): AutoState => ({
   docs: DEMO_DOCS.map((d) => ({ id: d.id })),
@@ -407,10 +411,14 @@ function AutoDocCanvas({
   return (
     <div
       ref={mountPdf}
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      aria-label={phase === "queued" ? m.autosign_doc_queued() : m.autosign_doc_generating()}
       className="flex aspect-[595/842] w-full items-center justify-center gap-2 rounded-md border border-border bg-muted/30 text-xs text-muted-foreground"
     >
-      <Loader2 className="size-4 animate-spin" />
-      {phase === "queued" ? m.autosign_doc_queued() : m.autosign_doc_generating()}…
+      <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+      <span>{phase === "queued" ? m.autosign_doc_queued() : m.autosign_doc_generating()}…</span>
     </div>
   );
 }
@@ -421,14 +429,10 @@ export function AutoSignInner() {
   const activeIndex = useSyncStore(store, (s) => s.activeIndex);
   const busy = useSyncStore(store, (s) => s.busy);
   const locale = getLocale();
-  const mountDemo = React.useCallback(
-    (node: HTMLDivElement | null) => {
-      if (node === null) return;
-      ensurePrepared(locale);
-      return () => invalidatePreparation(queueGeneration);
-    },
-    [locale],
-  );
+  React.useEffect(() => {
+    ensurePrepared(locale);
+    return () => invalidatePreparation(queueGeneration);
+  }, [locale]);
 
   const allSigned = docs.every((doc) => doc.outputLocale === locale && status[doc.id] === "signed");
   const count = docs.length;
@@ -437,8 +441,25 @@ export function AutoSignInner() {
   const activeOutputCurrent = activeDoc?.outputLocale === locale;
   const activePhase = activeDoc && activeOutputCurrent ? status[activeDoc.id] : "queued";
 
+  const documentValues = docs.map((doc, docIndex) => `${doc.id}-${docIndex}`);
+  const documentPanelIds = docs.map(
+    (doc, docIndex) => `auto-sign-panel-${autoDocIdPart(doc.id, docIndex)}`,
+  );
+  const documentTabIds = docs.map(
+    (doc, docIndex) => `auto-sign-tab-${autoDocIdPart(doc.id, docIndex)}`,
+  );
+  const activeValue = documentValues[activeIndex] ?? documentValues[0];
+
   return (
-    <div ref={mountDemo} className="mt-10 grid gap-6 lg:grid-cols-[1fr_22rem]">
+    <Tabs
+      value={activeValue}
+      orientation="vertical"
+      onValueChange={(value) => {
+        const nextIndex = documentValues.indexOf(value);
+        if (nextIndex >= 0) go(nextIndex);
+      }}
+      className="mt-10 grid gap-6 lg:grid-cols-[1fr_22rem]"
+    >
       <Card className="overflow-hidden p-0 shadow-none">
         <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
           <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
@@ -459,8 +480,7 @@ export function AutoSignInner() {
             <Button
               type="button"
               variant="ghost"
-              size="sm"
-              className="h-7 gap-1 px-2 text-xs"
+              className="min-h-11 gap-1 px-2 text-xs"
               onClick={() => activeDoc && downloadDoc(activeDoc)}
             >
               <Download className="size-3.5" />
@@ -471,7 +491,7 @@ export function AutoSignInner() {
             type="button"
             variant="outline"
             size="icon"
-            className="size-7 rounded-full"
+            className="size-11 shrink-0 rounded-full"
             aria-label={m.autosign_prev()}
             onClick={() => go(activeIndex - 1)}
           >
@@ -481,7 +501,7 @@ export function AutoSignInner() {
             type="button"
             variant="outline"
             size="icon"
-            className="size-7 rounded-full"
+            className="size-11 shrink-0 rounded-full"
             aria-label={m.autosign_next()}
             onClick={() => go(activeIndex + 1)}
           >
@@ -489,20 +509,31 @@ export function AutoSignInner() {
           </Button>
         </div>
         <div className="bg-muted/30 p-4">
-          {activeDoc ? (
-            <AutoDocCanvas
-              key={activeDoc.id}
-              doc={activeDoc}
-              phase={activePhase}
-              isOutputCurrent={activeOutputCurrent}
-            />
-          ) : null}
+          {docs.map((doc, docIndex) => (
+            <TabsContent
+              key={doc.id}
+              value={documentValues[docIndex]}
+              id={documentPanelIds[docIndex]}
+              aria-labelledby={documentTabIds[docIndex]}
+              forceMount
+              className="m-0 min-w-0 p-0"
+            >
+              {docIndex === activeIndex && activeDoc ? (
+                <AutoDocCanvas
+                  key={activeDoc.id}
+                  doc={activeDoc}
+                  phase={activePhase}
+                  isOutputCurrent={activeOutputCurrent}
+                />
+              ) : null}
+            </TabsContent>
+          ))}
         </div>
       </Card>
 
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" onClick={autoSign} disabled={busy}>
+          <Button type="button" className="min-h-11" onClick={autoSign} disabled={busy}>
             {busy ? (
               <Loader2 data-icon="inline-start" className="animate-spin" />
             ) : (
@@ -510,49 +541,54 @@ export function AutoSignInner() {
             )}
             {busy ? m.autosign_running() : m.autosign_cta()}
           </Button>
-          <Button type="button" variant="ghost" onClick={resetDemo} disabled={busy}>
+          <Button
+            type="button"
+            variant="ghost"
+            className="min-h-11"
+            onClick={resetDemo}
+            disabled={busy}
+          >
             <RotateCcw data-icon="inline-start" />
             {m.autosign_reset()}
           </Button>
         </div>
 
-        <ul className="flex flex-col gap-1.5">
+        <TabsList aria-label={m.autosign_eyebrow()} className="flex min-w-0 flex-col gap-1.5">
           {docs.map((d, i) => {
             const demo = demoDoc(d.id);
             if (demo === undefined) return null;
 
             return (
-              <li key={d.id}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => go(i)}
-                  aria-pressed={i === activeIndex}
-                  className={cn(
-                    "h-auto w-full justify-start gap-2 rounded-md border px-2.5 py-2 text-left text-xs font-normal",
-                    i === activeIndex
-                      ? "border-foreground/30 bg-muted/40"
-                      : "border-border hover:bg-muted/30",
-                  )}
-                >
-                  <PenLine className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                    <span className="w-full truncate text-foreground">{demo.name()}</span>
-                    <span className="w-full truncate text-[10px] font-normal text-muted-foreground">
-                      {demo.variantLabel()}
-                    </span>
+              <TabsTrigger
+                key={d.id}
+                type="button"
+                value={documentValues[i]}
+                id={documentTabIds[i]}
+                aria-controls={documentPanelIds[i]}
+                className={cn(
+                  "flex min-h-11 w-full items-center justify-start gap-2 rounded-md border px-2.5 py-2 text-left text-xs font-normal transition-colors focus-visible:outline-3 focus-visible:outline-ring focus-visible:outline-offset-2",
+                  i === activeIndex
+                    ? "border-foreground/30 bg-muted/40"
+                    : "border-border hover:bg-muted/30",
+                )}
+              >
+                <PenLine aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                  <span className="w-full truncate text-foreground">{demo.name()}</span>
+                  <span className="w-full truncate text-[10px] font-normal text-muted-foreground">
+                    {demo.variantLabel()}
                   </span>
-                  <DocBadge phase={d.outputLocale === locale ? status[d.id] : "queued"} />
-                </Button>
-              </li>
+                </span>
+                <DocBadge phase={d.outputLocale === locale ? status[d.id] : "queued"} />
+              </TabsTrigger>
             );
           })}
-        </ul>
+        </TabsList>
 
         <p className="text-xs leading-relaxed text-muted-foreground" aria-live="polite">
           {allSigned ? m.autosign_done() : m.autosign_note()}
         </p>
       </div>
-    </div>
+    </Tabs>
   );
 }

@@ -1,9 +1,11 @@
+import { feedbackTranslations } from "@fumapress/feedback/i18n";
+import { fumapressTranslations } from "fumapress/i18n";
 import type { TranslationsAPI } from "fumadocs-core/i18n";
 import { defineI18n } from "fumadocs-core/i18n";
 import { uiTranslations } from "fumadocs-ui/i18n";
 
-import { baseLocale, locales } from "@/paraglide/runtime";
 import type { Locale } from "@/lib/locale";
+import { baseLocale, locales } from "@/paraglide/runtime";
 
 export const i18n = defineI18n({
   defaultLanguage: baseLocale,
@@ -26,10 +28,21 @@ export const signFreeLocales = i18n.languages.filter((locale) => locale === "pt-
 export const translations: TranslationsAPI<Locale> = i18n
   .translations()
   .extend(uiTranslations())
+  .extend(fumapressTranslations())
+  .extend(feedbackTranslations())
   .add({
     "en-US": { displayName: "English" },
     "pt-BR": {
       displayName: "Português (Brasil)",
+      "All Tags(blog tags page)": "Todas as tags",
+      "Back to Home(blog)": "Voltar ao início",
+      "Blog(blog)": "Blog",
+      "Copied(blog panel)": "Copiado",
+      "Share(blog panel)": "Compartilhar",
+      "Table of Contents(blog panel)": "Índice",
+      'Tag "{tag}"(blog tag page)': 'Tag "{tag}"',
+      "{count} matching blog posts.(blog tag page)": "{count} posts de blog correspondentes.",
+      "{count} tags in total.(blog tags page)": "{count} tags no total.",
       "Back to Home(404 page)": "Voltar ao início",
       "Choose a language(language switcher)": "Escolher idioma",
       "Choose a language(language switcher)(aria-label)": "Escolher idioma",
@@ -75,5 +88,15 @@ export const translations: TranslationsAPI<Locale> = i18n
       "Toggle Theme(theme switcher)(aria-label)": "Alternar tema",
       "Type(type table)": "Tipo",
       "View as Markdown(page actions)": "Ver como Markdown",
+      "Bad(feedback)": "Ruim",
+      "Close(feedback popover)": "Fechar",
+      "Feedback(feedback popover)": "Feedback",
+      "Good(feedback)": "Bom",
+      "How is this guide?(feedback)": "Como está este guia?",
+      "Leave your feedback...(feedback)(input placeholder)": "Deixe seu feedback...",
+      "Submit Again(feedback)": "Enviar novamente",
+      "Submit(feedback)": "Enviar",
+      "Thank you for your feedback!(feedback)": "Obrigado pelo seu feedback!",
+      "View on GitHub(feedback)": "Ver no GitHub",
     },
   });

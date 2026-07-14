@@ -9,6 +9,7 @@ const docsRoot = path.dirname(fileURLToPath(import.meta.url));
 
 export default mergeConfig(baseBrowserConfig, {
   resolve: {
+    dedupe: ["react", "react-dom"],
     alias: {
       "@": docsRoot,
     },

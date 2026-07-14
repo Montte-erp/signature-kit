@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 import { ClientOnly } from "@/components/client-only";
 
 import { Button } from "@/components/ui/button";
-import { m } from "@/paraglide/messages";
+import { m } from "@/lib/client-messages";
 
 const PdfSignerIsland = React.lazy(() =>
   import("./pdf-signer").then((mod) => ({ default: mod.PdfSigner })),
@@ -28,15 +28,17 @@ type PdfSignerDialogProps = {
 
 function PdfSignerSkeleton() {
   return (
-    <div
-      aria-hidden
-      className="grid min-h-64 gap-4 rounded-xl border border-border bg-muted/30 p-4 md:grid-cols-[minmax(0,1fr)_20rem]"
-    >
-      <div className="animate-pulse rounded-lg bg-background/70" />
-      <div className="flex flex-col gap-3">
-        <div className="h-9 animate-pulse rounded-md bg-background/70" />
-        <div className="h-9 animate-pulse rounded-md bg-background/70" />
-        <div className="h-20 animate-pulse rounded-md bg-background/70" />
+    <div className="grid min-h-64 gap-4 rounded-xl border border-border bg-muted/30 p-4 md:grid-cols-[minmax(0,1fr)_20rem]">
+      <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {m.signer_loading()}
+      </span>
+      <div aria-hidden className="contents">
+        <div className="animate-pulse rounded-lg bg-background/70" />
+        <div className="flex flex-col gap-3">
+          <div className="h-9 animate-pulse rounded-md bg-background/70" />
+          <div className="h-9 animate-pulse rounded-md bg-background/70" />
+          <div className="h-20 animate-pulse rounded-md bg-background/70" />
+        </div>
       </div>
     </div>
   );
@@ -64,10 +66,13 @@ export function PdfSignerDialog({ children }: PdfSignerDialogProps) {
 
 function PdfSignerDialogLoading() {
   return (
-    <PdfSignerDialogFallback>
-      {m.signer_open()}
-      <PenLine data-icon="inline-end" />
-    </PdfSignerDialogFallback>
+    <div role="status" aria-live="polite" aria-atomic="true">
+      <span className="sr-only">{m.signer_loading()}</span>
+      <PdfSignerDialogFallback>
+        {m.signer_open()}
+        <PenLine data-icon="inline-end" />
+      </PdfSignerDialogFallback>
+    </div>
   );
 }
 

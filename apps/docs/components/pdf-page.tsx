@@ -3,7 +3,7 @@ import { pdfjs } from "react-pdf";
 import * as React from "react";
 import { Effect } from "effect";
 
-import { m } from "@/paraglide/messages";
+import { m } from "@/lib/client-messages";
 
 export interface PdfViewport {
   readonly width: number;
@@ -37,11 +37,11 @@ export interface PdfPageProxy {
   }): PdfRenderTask;
 }
 
-const pdfPageRenderErrorMessages: Record<PdfPageRenderErrorCode, string> = {
-  "pdf-page-load-failed": "Unable to load this PDF page.",
-  "pdf-page-canvas-context-failed": "Unable to prepare the PDF canvas.",
-  "pdf-page-viewport-failed": "Unable to size the PDF page.",
-  "pdf-page-render-failed": "Unable to render this PDF page.",
+const pdfPageRenderErrorMessages: Record<PdfPageRenderErrorCode, () => string> = {
+  "pdf-page-load-failed": () => m.signer_pdf_page_error_load(),
+  "pdf-page-canvas-context-failed": () => m.signer_pdf_page_error_canvas(),
+  "pdf-page-viewport-failed": () => m.signer_pdf_page_error_viewport(),
+  "pdf-page-render-failed": () => m.signer_pdf_page_error_render(),
 };
 
 const makePdfPageRenderError = (
@@ -50,7 +50,7 @@ const makePdfPageRenderError = (
 ): PdfPageRenderError => ({
   _tag: "PdfPageRenderError",
   code,
-  message: pdfPageRenderErrorMessages[code],
+  message: pdfPageRenderErrorMessages[code](),
   cause,
 });
 
@@ -185,6 +185,7 @@ export interface PdfPageProps {
   marker?: PageRect;
   ghost?: { rect: PageRect; label: string };
   stampPreview?: { inkDataUrl?: string; rubricaDataUrl?: string; lines: string[]; qr?: boolean };
+  disabled?: boolean;
   onPlace: (fracX: number, fracY: number) => void;
   onError?: (error: PdfPageRenderError) => void;
 }
@@ -199,8 +200,18 @@ export function PdfPage({
   stampPreview,
   onPlace,
   onError,
+  disabled,
 }: PdfPageProps) {
   const [renderError, setRenderError] = React.useState<PdfPageRenderError | null>(null);
+  const pointerState = React.useRef<
+    | {
+        pointerId: number;
+        clientX: number;
+        clientY: number;
+        canceled: boolean;
+      }
+    | undefined
+  >(undefined);
   const reportError = React.useCallback(
     (error: PdfPageRenderError) => {
       setRenderError(error);
@@ -229,13 +240,46 @@ export function PdfPage({
   );
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (disabled || !event.isPrimary || event.button !== 0) return;
+    pointerState.current = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      canceled: false,
+    };
+  };
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const pointer = pointerState.current;
+    if (pointer === undefined || pointer.pointerId !== event.pointerId || pointer.canceled) return;
+    const deltaX = event.clientX - pointer.clientX;
+    const deltaY = event.clientY - pointer.clientY;
+    if (deltaX * deltaX + deltaY * deltaY > 64) pointer.canceled = true;
+  };
+
+  const handlePointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (pointerState.current?.pointerId === event.pointerId) pointerState.current = undefined;
+  };
+
+  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const pointer = pointerState.current;
+    pointerState.current = undefined;
+    if (
+      pointer === undefined ||
+      pointer.pointerId !== event.pointerId ||
+      pointer.canceled ||
+      disabled
+    )
+      return;
     const bounds = event.currentTarget.getBoundingClientRect();
-    const fracX = (event.clientX - bounds.left) / bounds.width;
-    const fracY = (event.clientY - bounds.top) / bounds.height;
-    onPlace(fracX, fracY);
+    const clamp = (value: number) => Math.min(1, Math.max(0, value));
+    onPlace(
+      clamp((event.clientX - bounds.left) / bounds.width),
+      clamp((event.clientY - bounds.top) / bounds.height),
+    );
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) return;
     const STEP = 0.02;
     const clamp = (n: number) => Math.min(1, Math.max(0, n));
     const current = marker
@@ -274,106 +318,143 @@ export function PdfPage({
 
   const previewLines = stampPreview?.lines.map((line, i) => ({ key: `${i}:${line}`, text: line }));
 
+  const placementLabel = m.signer_aria_page_placement({ page: pageNumber });
+  const disabledLabel = m.signer_pdf_page_placement_disabled();
+  const markerLabelStyle = marker
+    ? {
+        left: `${(marker.x / widthPt) * 100}%`,
+        top: `${(marker.y / heightPt) * 100}%`,
+      }
+    : undefined;
+  const ghostLabelStyle = ghost
+    ? {
+        left: `${(ghost.rect.x / widthPt) * 100}%`,
+        top: `${(ghost.rect.y / heightPt) * 100}%`,
+      }
+    : undefined;
+
   return (
     <div
       role="button"
       tabIndex={0}
-      aria-label={m.signer_aria_page_placement({ page: pageNumber })}
-      className="group relative w-full cursor-crosshair overflow-hidden rounded-md border border-border bg-white outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      aria-disabled={disabled || undefined}
+      aria-label={disabled ? `${placementLabel} ${disabledLabel}` : placementLabel}
+      className={`group relative w-full rounded-md border border-transparent outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
+        disabled ? "cursor-not-allowed" : "cursor-crosshair"
+      }`}
       onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
       onKeyDown={handleKeyDown}
+      onPointerCancel={handlePointerCancel}
       style={{ aspectRatio: `${widthPt} / ${heightPt}` }}
     >
-      <canvas ref={renderCanvas} aria-hidden className="block h-auto w-full select-none" />
-      {renderError ? (
-        <p
-          role="alert"
-          data-pdf-render-error={renderError.code}
-          className="p-3 text-sm text-destructive"
-        >
-          {renderError.message}
-        </p>
-      ) : null}
-      {ghost ? (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute flex flex-col items-center justify-center overflow-hidden rounded-sm border border-dashed border-foreground/40 bg-white/70 p-0.5 opacity-70"
-          style={{
-            left: `${(ghost.rect.x / widthPt) * 100}%`,
-            top: `${(ghost.rect.y / heightPt) * 100}%`,
-            width: `${(ghost.rect.width / widthPt) * 100}%`,
-            height: `${(ghost.rect.height / heightPt) * 100}%`,
-          }}
-        >
-          {(stampPreview?.rubricaDataUrl ?? stampPreview?.inkDataUrl) ? (
-            <img
-              src={stampPreview?.rubricaDataUrl ?? stampPreview?.inkDataUrl}
-              alt=""
-              className="max-h-[80%] w-auto object-contain opacity-70"
-            />
-          ) : null}
-          <span className="absolute -top-5 left-0 flex items-center gap-1 whitespace-nowrap rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-            <PenLine className="size-2.5" />
-            {ghost.label}
-          </span>
-        </div>
-      ) : null}
-      {marker ? (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute flex flex-col items-center justify-center overflow-hidden rounded-sm border border-dashed border-foreground/30 p-0.5"
-          style={{
-            left: `${(marker.x / widthPt) * 100}%`,
-            top: `${(marker.y / heightPt) * 100}%`,
-            width: `${(marker.width / widthPt) * 100}%`,
-            height: `${(marker.height / heightPt) * 100}%`,
-          }}
-        >
-          {stampPreview?.qr ? (
-            <div className="flex h-full w-full items-center gap-1 px-0.5 py-0.5">
-              <div className="grid aspect-square h-[85%] shrink-0 grid-cols-5 overflow-hidden bg-white">
-                {QR_PREVIEW_CELLS.map((cell) => (
-                  <span
-                    key={cell}
-                    className={QR_PREVIEW_DARK_CELLS.includes(cell) ? "bg-neutral-900" : "bg-white"}
-                  />
-                ))}
+      <div className="relative h-full w-full overflow-hidden rounded-md border border-border bg-white">
+        <canvas ref={renderCanvas} aria-hidden className="block h-auto w-full select-none" />
+        {renderError ? (
+          <p
+            role="alert"
+            data-pdf-render-error={renderError.code}
+            className="p-3 text-sm text-destructive"
+          >
+            {renderError.message}
+          </p>
+        ) : null}
+        {ghost ? (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute flex flex-col items-center justify-center overflow-hidden rounded-sm border border-dashed border-foreground/40 bg-white/70 p-0.5 opacity-70"
+            style={{
+              left: `${(ghost.rect.x / widthPt) * 100}%`,
+              top: `${(ghost.rect.y / heightPt) * 100}%`,
+              width: `${(ghost.rect.width / widthPt) * 100}%`,
+              height: `${(ghost.rect.height / heightPt) * 100}%`,
+            }}
+          >
+            {(stampPreview?.rubricaDataUrl ?? stampPreview?.inkDataUrl) ? (
+              <img
+                src={stampPreview?.rubricaDataUrl ?? stampPreview?.inkDataUrl}
+                alt=""
+                className="max-h-[80%] w-auto object-contain opacity-70"
+              />
+            ) : null}
+          </div>
+        ) : null}
+        {marker ? (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute flex flex-col items-center justify-center overflow-hidden rounded-sm border border-dashed border-foreground/30 p-0.5"
+            style={{
+              left: `${(marker.x / widthPt) * 100}%`,
+              top: `${(marker.y / heightPt) * 100}%`,
+              width: `${(marker.width / widthPt) * 100}%`,
+              height: `${(marker.height / heightPt) * 100}%`,
+            }}
+          >
+            {stampPreview?.qr ? (
+              <div className="flex h-full w-full items-center gap-1 px-0.5 py-0.5">
+                <div className="grid aspect-square h-[85%] shrink-0 grid-cols-5 overflow-hidden bg-white">
+                  {QR_PREVIEW_CELLS.map((cell) => (
+                    <span
+                      key={cell}
+                      className={
+                        QR_PREVIEW_DARK_CELLS.includes(cell) ? "bg-neutral-900" : "bg-white"
+                      }
+                    />
+                  ))}
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col justify-center">
+                  {previewLines?.map((line) => (
+                    <span
+                      key={line.key}
+                      className="max-w-full truncate px-0.5 text-[5px] leading-none text-muted-foreground"
+                    >
+                      {line.text}
+                    </span>
+                  ))}
+                </div>
               </div>
-              <div className="flex min-w-0 flex-1 flex-col justify-center">
+            ) : (
+              <>
+                {stampPreview?.inkDataUrl ? (
+                  <img
+                    src={stampPreview.inkDataUrl}
+                    alt=""
+                    className="max-h-[55%] w-auto object-contain"
+                  />
+                ) : null}
                 {previewLines?.map((line) => (
                   <span
                     key={line.key}
-                    className="max-w-full truncate px-0.5 text-[5px] leading-none text-neutral-700"
+                    className="max-w-full truncate px-0.5 text-[6px] leading-tight text-muted-foreground"
                   >
                     {line.text}
                   </span>
                 ))}
-              </div>
-            </div>
-          ) : (
-            <>
-              {stampPreview?.inkDataUrl ? (
-                <img
-                  src={stampPreview.inkDataUrl}
-                  alt=""
-                  className="max-h-[55%] w-auto object-contain"
-                />
-              ) : null}
-              {previewLines?.map((line) => (
-                <span
-                  key={line.key}
-                  className="max-w-full truncate px-0.5 text-[6px] leading-tight text-neutral-600"
-                >
-                  {line.text}
-                </span>
-              ))}
-            </>
-          )}
-          <span className="absolute -top-5 left-0 flex items-center gap-1 whitespace-nowrap rounded bg-foreground px-1.5 py-0.5 font-mono text-[10px] text-background">
-            <PenLine className="size-2.5" />
-            signature
-          </span>
-        </div>
+              </>
+            )}
+          </div>
+        ) : null}
+      </div>
+      {ghost ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute z-10 flex -translate-y-full items-center gap-1 whitespace-nowrap rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+          style={ghostLabelStyle}
+        >
+          <PenLine className="size-2.5" />
+          {ghost.label}
+        </span>
+      ) : null}
+      {marker ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute z-10 flex -translate-y-full items-center gap-1 whitespace-nowrap rounded bg-foreground px-1.5 py-0.5 font-mono text-[10px] text-background"
+          style={markerLabelStyle}
+        >
+          <PenLine className="size-2.5" />
+          {m.signer_pdf_page_signature_label()}
+        </span>
       ) : null}
     </div>
   );

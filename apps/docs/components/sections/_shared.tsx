@@ -6,11 +6,17 @@ interface SectionProps {
   children: ReactNode;
   className?: string;
   id?: string;
+  "aria-labelledby"?: string;
 }
 
-export function Section({ children, className, id }: SectionProps) {
+export function Section({
+  children,
+  className,
+  id,
+  "aria-labelledby": ariaLabelledby,
+}: SectionProps) {
   return (
-    <section id={id} className={cn("relative", className)}>
+    <section id={id} aria-labelledby={ariaLabelledby} className={cn("relative", className)}>
       {children}
     </section>
   );
@@ -39,13 +45,17 @@ interface SectionHeadingProps {
   title: ReactNode;
   lead?: ReactNode;
   className?: string;
+  id?: string;
 }
 
-export function SectionHeading({ eyebrow, title, lead, className }: SectionHeadingProps) {
+export function SectionHeading({ eyebrow, title, lead, className, id }: SectionHeadingProps) {
   return (
     <div className={cn("max-w-3xl", className)}>
       {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
-      <h2 className="mt-3 text-3xl font-medium tracking-tight text-balance text-foreground sm:text-4xl">
+      <h2
+        id={id}
+        className="mt-3 text-3xl font-medium tracking-tight text-balance text-foreground sm:text-4xl"
+      >
         {title}
       </h2>
       {lead ? (

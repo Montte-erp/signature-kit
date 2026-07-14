@@ -7,13 +7,14 @@ import { Link } from "fumapress/client";
 import { InstallCommand } from "@/components/install-command";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import type { Locale } from "@/lib/locale";
 import { localePath } from "@/lib/links";
-import { m } from "@/paraglide/messages";
+import { m } from "@/lib/client-messages";
 
 type CubicBezier = readonly [number, number, number, number];
 const EASE: CubicBezier = [0.23, 1, 0.32, 1];
 
-export function Hero() {
+export function Hero({ locale }: { readonly locale: Locale }) {
   const reduce = useReducedMotion();
   const offset = reduce ? 0 : 12;
   return (
@@ -25,7 +26,7 @@ export function Hero() {
           className="gap-2 px-3 py-1 font-mono text-xs text-muted-foreground hover:text-foreground"
         >
           <a href="https://github.com/Montte-erp/signature-kit" rel="noreferrer" target="_blank">
-            {m.hero_badge()}
+            {m.hero_badge({}, { locale })}
             <ArrowRight data-icon="inline-end" />
           </a>
         </Badge>
@@ -36,7 +37,7 @@ export function Hero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.08, duration: 0.7, ease: EASE }}
         >
-          {m.hero_title()}
+          {m.hero_title({}, { locale })}
         </motion.h1>
 
         <motion.p
@@ -45,19 +46,19 @@ export function Hero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.18, duration: 0.6, ease: EASE }}
         >
-          {m.hero_subhead()}
+          {m.hero_subhead({}, { locale })}
         </motion.p>
 
         <motion.div
-          className="mt-8 flex flex-wrap items-center justify-center gap-3"
+          className="mt-8 flex w-full min-w-0 flex-wrap items-center justify-center gap-3"
           initial={{ opacity: 0, y: offset }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.26, duration: 0.6, ease: EASE }}
         >
-          <InstallCommand analyticsLocation="hero" />
+          <InstallCommand analyticsLocation="hero" locale={locale} />
           <Button asChild size="lg" variant="ghost">
-            <Link href={localePath("/docs")}>
-              {m.hero_cta_docs()}
+            <Link href={localePath("/docs", locale)}>
+              {m.hero_cta_docs({}, { locale })}
               <ArrowRight data-icon="inline-end" />
             </Link>
           </Button>

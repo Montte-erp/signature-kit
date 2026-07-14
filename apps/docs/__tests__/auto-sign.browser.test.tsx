@@ -1,6 +1,6 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
-import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, type Mock, vi } from "vitest";
 
 vi.mock("@/lib/posthog/client", () => ({
   captureDocsEvent: () => {},
@@ -177,6 +177,62 @@ if (typeof document === "undefined") {
         root.unmount();
         container.remove();
       }
+    });
+
+    it("exposes the document selector as a vertical tablist with linked panels", async () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      onTestFinished(() => {
+        React.act(() => root.unmount());
+        container.remove();
+      });
+
+      root.render(
+        <LocaleProvider locale="en-US">
+          <AutoSignInner />
+        </LocaleProvider>,
+      );
+      await waitForFrames(
+        () => container.querySelectorAll('[role="tab"]').length === 4,
+        "the auto-sign document tabs",
+      );
+
+      const tabs = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+      expect(tabs).toHaveLength(4);
+      expect(tabs.filter((tab) => tab.getAttribute("aria-selected") === "true")).toHaveLength(1);
+
+      for (const tab of tabs) {
+        const panelId = tab.getAttribute("aria-controls");
+        expect(panelId).not.toBeNull();
+        const panel = panelId === null ? null : container.querySelector(`#${panelId}`);
+        expect(panel?.getAttribute("role")).toBe("tabpanel");
+        expect(panel?.getAttribute("aria-labelledby")).toBe(tab.id);
+      }
+
+      const selectedIndex = tabs.findIndex((tab) => tab.getAttribute("aria-selected") === "true");
+      expect(selectedIndex).toBeGreaterThanOrEqual(0);
+      const nextIndex = (selectedIndex + 1) % tabs.length;
+      tabs[selectedIndex]?.focus();
+      tabs[selectedIndex]?.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown" }),
+      );
+      await waitForFrames(
+        () => document.activeElement === tabs[nextIndex],
+        "the next auto-sign document tab",
+      );
+
+      expect(tabs[nextIndex]?.getAttribute("aria-selected")).toBe("true");
+      expect(tabs[nextIndex]?.getAttribute("tabindex")).toBe("0");
+
+      expect(tabs.every((tab) => tab.className.includes("min-h-11"))).toBe(true);
+      expect(
+        container.querySelector<HTMLButtonElement>('button[aria-label="Previous document"]')
+          ?.className,
+      ).toContain("size-11");
+      expect(
+        container.querySelector<HTMLButtonElement>('button[aria-label="Next document"]')?.className,
+      ).toContain("size-11");
     });
 
     it("releases downloaded PDF URLs after the click task", async () => {

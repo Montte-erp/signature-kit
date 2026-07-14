@@ -1,10 +1,11 @@
 import { Effect, Layer } from "effect";
+import { PdfError, PdfErrorCodeValue, PdfOperationValue } from "@signature-kit/pdf/config";
 import * as React from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { m } from "@/paraglide/messages";
-import { PdfSigner } from "../components/pdf-signer";
+import { PdfSigner, PdfSignerDialog } from "../components/pdf-signer";
 
 type PreparationInput = {
   readonly documents: ReadonlyArray<{
@@ -78,13 +79,18 @@ const testRuntime = vi.hoisted(() => {
     loadPdfjs: vi.fn(),
     onPlace: (_fracX: number, _fracY: number) => {},
     pageRenders: 0,
+    pageMounts: 0,
+    pageUnmounts: 0,
+    pageCount: 1,
     placeCallbacks,
     placeBatch: (_items: ReadonlyArray<PlacementQueueItem>, _callbacks: PlacementBatchCallbacks) =>
       Effect.succeed<ReadonlyArray<PlacementBatchResult>>([]),
     placeField: vi.fn<() => Effect.Effect<MockTemplate>>(),
     prepareBatch: (_input: PreparationInput) =>
       Effect.succeed<ReadonlyArray<PreparationResult>>([]),
-    readPdfBytes: vi.fn(() => Effect.succeed(new Uint8Array([1]))),
+    readPdfBytes: vi.fn<() => Effect.Effect<Uint8Array, PdfError>>(() =>
+      Effect.succeed(new Uint8Array([1])),
+    ),
     resolveSigning: () => {},
     signBatch: (_items: ReadonlyArray<SigningItem>, _callbacks: SigningCallbacks) => Effect.void,
     signStarted: false,
@@ -95,12 +101,21 @@ vi.mock("@/components/pdf-page", () => ({
   PdfPage: (props: {
     readonly marker?: MockRect;
     readonly onPlace: (fracX: number, fracY: number) => void;
+    readonly pageNumber: number;
   }) => {
     testRuntime.pageRenders += 1;
     testRuntime.marker = props.marker;
     testRuntime.onPlace = props.onPlace;
     testRuntime.placeCallbacks.push(props.onPlace);
-    return null;
+    React.useEffect(() => {
+      testRuntime.pageMounts += 1;
+      return () => {
+        testRuntime.pageUnmounts += 1;
+      };
+    }, []);
+    return React.createElement("div", {
+      "data-mock-pdf-page": props.pageNumber,
+    });
   },
   loadPdfjs: testRuntime.loadPdfjs,
 }));
@@ -138,14 +153,23 @@ vi.mock("@signature-kit/pdf/builder-store", () => ({
 
 vi.mock("@signature-kit/pdf/liteparse-browser", () => ({
   liteParseWorkerBrowserLayer: Layer.empty,
-  parsePdfTextBoxesBrowser: () => Effect.succeed([[]]),
+  parsePdfTextBoxesBrowser: () =>
+    Effect.succeed(Array.from({ length: testRuntime.pageCount }, () => [])),
 }));
 
 vi.mock("@signature-kit/pdf/workflow", () => ({
   createPdfSignatureBuilderStateFromBytes: () =>
     Effect.succeed({
       template: {
-        documents: [{ pages: [{ height: 100, index: 0, width: 100 }] }],
+        documents: [
+          {
+            pages: Array.from({ length: testRuntime.pageCount }, (_item, index) => ({
+              height: 100,
+              index,
+              width: 100,
+            })),
+          },
+        ],
         fields: [],
       },
     }),
@@ -164,6 +188,62 @@ vi.mock("@/lib/posthog/client", () => ({
   captureDocsEvent: () => {},
   initDocsPostHog: () => {},
 }));
+type TestIntersectionObserver = {
+  readonly observed: Set<Element>;
+  readonly rootMargin: string;
+  readonly observe: (target: Element) => void;
+  readonly unobserve: (target: Element) => void;
+  readonly trigger: (target: Element, isIntersecting: boolean) => void;
+  readonly disconnect: () => void;
+};
+
+const installIntersectionObserver = () => {
+  const native = window.IntersectionObserver;
+  const instances: TestIntersectionObserver[] = [];
+  const MockIntersectionObserver = vi.fn(function (callback: IntersectionObserverCallback) {
+    const observed = new Set<Element>();
+    const observer: TestIntersectionObserver = {
+      observed,
+      rootMargin: "320px 0px",
+      observe: (target) => {
+        observed.add(target);
+      },
+      unobserve: (target) => {
+        observed.delete(target);
+      },
+      trigger: (target, isIntersecting) => {
+        callback(
+          [
+            {
+              target,
+              isIntersecting,
+              intersectionRatio: isIntersecting ? 1 : 0,
+            } as IntersectionObserverEntry,
+          ],
+          observer as unknown as IntersectionObserver,
+        );
+      },
+      disconnect: () => {
+        observed.clear();
+      },
+    };
+    instances.push(observer);
+    return observer;
+  });
+  Object.defineProperty(window, "IntersectionObserver", {
+    configurable: true,
+    value: MockIntersectionObserver,
+  });
+  return {
+    instances,
+    restore: () => {
+      Object.defineProperty(window, "IntersectionObserver", {
+        configurable: true,
+        value: native,
+      });
+    },
+  };
+};
 
 vi.mock("@/lib/handwriting-font", () => ({
   caveat: { style: { fontFamily: "cursive" } },
@@ -242,6 +322,10 @@ if (typeof document === "undefined") {
     afterEach(() => {
       cleanup?.();
       cleanup = undefined;
+      testRuntime.pageCount = 1;
+      testRuntime.pageRenders = 0;
+      testRuntime.pageMounts = 0;
+      testRuntime.pageUnmounts = 0;
     });
     it("isolates runtime state and placement ownership between mounted signers", async () => {
       testRuntime.readPdfBytes.mockReset();
@@ -264,6 +348,23 @@ if (typeof document === "undefined") {
       };
 
       await uploadPdf(first.container, "first.pdf");
+      await waitFor(
+        () =>
+          first.container
+            .querySelector<HTMLElement>('[role="status"]')
+            ?.textContent?.includes(m.signer_status_click_to_place()) ?? false,
+        "the PDF placement status",
+      );
+      const status = first.container.querySelector<HTMLElement>('[role="status"]');
+      if (status === null) expect.fail("signer status live region was not rendered");
+      expect(status.getAttribute("aria-live")).toBe("polite");
+      expect(status.getAttribute("aria-atomic")).toBe("true");
+      expect(status.textContent).toContain(m.signer_status_click_to_place());
+      const removeButton = first.container.querySelector<HTMLButtonElement>(
+        `button[aria-label="${m.signer_aria_remove({ name: "first.pdf" })}"]`,
+      );
+      if (removeButton === null) expect.fail("document remove control was not rendered");
+      expect(removeButton.className).toContain("size-11");
       expect(second.container.textContent).not.toContain("first.pdf");
 
       const firstPlaceButton = Array.from(
@@ -288,7 +389,131 @@ if (typeof document === "undefined") {
       pendingPlacement.resolve();
       await waitFor(() => !firstPdfInput.disabled, "first signer placement to finish");
     });
+    it("mounts only visible PDF pages and cancels pages outside the viewport", async () => {
+      const observerControl = installIntersectionObserver();
+      testRuntime.pageCount = 8;
+      testRuntime.pageRenders = 0;
+      testRuntime.pageMounts = 0;
+      testRuntime.pageUnmounts = 0;
+      testRuntime.getDocument.mockReset();
+      testRuntime.getDocument.mockReturnValue({
+        destroy: testRuntime.taskDestroy,
+        promise: Promise.resolve({ destroy: testRuntime.docDestroy }),
+      });
+      testRuntime.loadPdfjs.mockReset();
+      testRuntime.loadPdfjs.mockResolvedValue({ getDocument: testRuntime.getDocument });
 
+      const signer = mountSigner();
+      cleanup = () => {
+        signer.cleanup();
+        observerControl.restore();
+      };
+      await uploadPdf(signer.container, "windowed.pdf");
+
+      await waitFor(
+        () => observerControl.instances[0]?.observed.size === testRuntime.pageCount,
+        "all PDF page placeholders to be observed",
+      );
+      const observer = observerControl.instances[0];
+      if (observer === undefined) expect.fail("the page visibility observer was not created");
+      await waitFor(() => testRuntime.pageMounts === 1, "the first visible page to mount");
+      expect(observer.rootMargin).toBe("320px 0px");
+      expect(testRuntime.pageMounts).toBeLessThan(testRuntime.pageCount);
+
+      const pageWrappers = Array.from(
+        signer.container.querySelectorAll<HTMLElement>("[data-pdf-page-index]"),
+      );
+      expect(pageWrappers).toHaveLength(testRuntime.pageCount);
+      const firstPageWrapper = pageWrappers[0];
+      if (firstPageWrapper === undefined)
+        expect.fail("the first PDF page wrapper was not rendered");
+      expect(firstPageWrapper.className).not.toContain("overflow-hidden");
+      const pageThree = pageWrappers.find((node) => node.dataset.pdfPageIndex === "3");
+      const pageOne = pageWrappers.find((node) => node.dataset.pdfPageIndex === "0");
+      if (pageThree === undefined || pageOne === undefined) {
+        expect.fail("windowed PDF page placeholders were not rendered");
+      }
+      observer.trigger(pageThree, true);
+      await waitFor(() => testRuntime.pageMounts === 2, "a page entering the viewport to mount");
+      observer.trigger(pageOne, false);
+      await waitFor(
+        () => testRuntime.pageUnmounts === 1,
+        "a page leaving the viewport to cancel and unmount",
+      );
+      expect(
+        signer.container.querySelectorAll("[data-pdf-page-placeholder]").length,
+      ).toBeGreaterThan(0);
+    });
+
+    it("keeps the signer dialog on one scroll surface with a visible close target", async () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root: Root = createRoot(container);
+      root.render(
+        <PdfSignerDialog>
+          <button type="button">Open signer</button>
+        </PdfSignerDialog>,
+      );
+      cleanup = () => {
+        root.unmount();
+        container.remove();
+      };
+
+      await waitFor(
+        () => container.querySelector<HTMLButtonElement>("button") !== null,
+        "dialog trigger to render",
+      );
+      const trigger = container.querySelector<HTMLButtonElement>("button");
+      if (trigger === null) expect.fail("dialog trigger was not rendered");
+      trigger.click();
+      await waitFor(
+        () => document.querySelector('[data-slot="dialog-content"]') !== null,
+        "signer dialog to open",
+      );
+      const dialog = document.querySelector<HTMLElement>('[data-slot="dialog-content"]');
+      if (dialog === null) expect.fail("signer dialog content was not rendered");
+      expect(dialog.className).toContain("dvh");
+      expect(dialog.className).toContain("min-h-0");
+      expect(dialog.className).toContain("overscroll-contain");
+      expect(dialog.querySelectorAll<HTMLElement>('[class*="overflow-y-auto"]')).toHaveLength(1);
+
+      const close = dialog.querySelector<HTMLButtonElement>('[data-slot="dialog-close"]');
+      if (close === null) expect.fail("signer dialog close control was not rendered");
+      expect(close.className).toContain("size-11");
+      expect(close.className).toContain("focus-visible");
+      close.focus();
+      expect(document.activeElement).toBe(close);
+      close.click();
+      await waitFor(
+        () => document.querySelector('[data-slot="dialog-content"]') === null,
+        "signer dialog to close",
+      );
+    });
+    it("announces PDF loading failures through an assertive alert", async () => {
+      testRuntime.readPdfBytes.mockReset();
+      testRuntime.readPdfBytes.mockReturnValue(
+        Effect.fail(
+          new PdfError({
+            code: PdfErrorCodeValue.fileReadFailed,
+            retryable: true,
+            reason: "The PDF bytes could not be read.",
+            operation: PdfOperationValue.readBlobBytes,
+          }),
+        ),
+      );
+      const signer = mountSigner();
+      cleanup = signer.cleanup;
+      await selectPdf(signer.container, "broken.pdf");
+      await waitFor(
+        () => signer.container.querySelector('[role="alert"]') !== null,
+        "the PDF loading failure alert",
+      );
+      const alert = signer.container.querySelector<HTMLElement>('[role="alert"]');
+      if (alert === null) expect.fail("the PDF loading failure alert was not rendered");
+      expect(alert.getAttribute("aria-live")).toBe("assertive");
+      expect(alert.getAttribute("aria-atomic")).toBe("true");
+      expect(alert.textContent).toContain("The PDF bytes could not be read.");
+    });
     it("ignores a deferred replacement operation after unmount and remount", async () => {
       const oldRead = Promise.withResolvers<Uint8Array>();
       testRuntime.readPdfBytes.mockReset();
@@ -687,6 +912,16 @@ if (typeof document === "undefined") {
       if (signButton === undefined) expect.fail("sign button was not rendered");
       signButton.click();
       await waitFor(() => testRuntime.signStarted, "the delayed signing batch to begin");
+      const progress = Array.from(
+        signer.container.querySelectorAll<HTMLElement>('[role="status"]'),
+      ).find(
+        (element) =>
+          element.textContent?.includes(m.signer_signing_progress({ current: 0, total: 1 })) ??
+          false,
+      );
+      if (progress === undefined) expect.fail("signing progress live region was not rendered");
+      expect(progress.getAttribute("aria-live")).toBe("polite");
+      expect(progress.getAttribute("aria-atomic")).toBe("true");
 
       const pdfInput = signer.container.querySelector<HTMLInputElement>(
         'input[accept="application/pdf,.pdf"]',

@@ -101,7 +101,23 @@ export function createSiteLayouts<C extends ConfigContext>() {
     "en-US": createChangelogIndexPage<C>({ description: englishCopy.changelogDescription }),
     "pt-BR": createChangelogIndexPage<C>({ description: portugueseCopy.changelogDescription }),
   };
-  const DocsPage = createDocsLayoutPage<C>();
+  const PressDocsPage = createDocsLayoutPage<C>();
+
+  function DocsPage({
+    lang,
+    slugs,
+    page,
+  }: {
+    readonly lang?: string;
+    readonly slugs: string[];
+    readonly page: C["page"];
+  }) {
+    const locale = parseLocale(lang ?? "");
+    if (locale === undefined) return notFound();
+    setServerLocale(locale);
+
+    return <PressDocsPage lang={locale} slugs={slugs} page={page} />;
+  }
 
   function RootLayout({
     lang,
@@ -129,6 +145,7 @@ export function createSiteLayouts<C extends ConfigContext>() {
   }) {
     const locale = parseLocale(lang ?? "");
     if (locale === undefined) return notFound();
+    setServerLocale(locale);
 
     return (
       <ReducedMotionProvider>
@@ -143,6 +160,7 @@ export function createSiteLayouts<C extends ConfigContext>() {
   function BlogIndex({ lang }: { readonly lang?: string }) {
     const locale = parseLocale(lang ?? "");
     if (locale === undefined) return notFound();
+    setServerLocale(locale);
     const copy = collectionCopy(locale);
     const Page = PressBlogIndex[locale];
 
@@ -162,6 +180,7 @@ export function createSiteLayouts<C extends ConfigContext>() {
   function BlogTags({ lang }: { readonly lang?: string }) {
     const locale = parseLocale(lang ?? "");
     if (locale === undefined) return notFound();
+    setServerLocale(locale);
     const copy = collectionCopy(locale);
     const Page = PressBlogTags[locale];
 
@@ -181,6 +200,7 @@ export function createSiteLayouts<C extends ConfigContext>() {
   function BlogTag({ lang, tag }: { readonly lang?: string; readonly tag: string }) {
     const locale = parseLocale(lang ?? "");
     if (locale === undefined) return notFound();
+    setServerLocale(locale);
     const copy = collectionCopy(locale);
 
     return (
@@ -199,6 +219,7 @@ export function createSiteLayouts<C extends ConfigContext>() {
   function ChangelogIndex({ lang }: { readonly lang?: string }) {
     const locale = parseLocale(lang ?? "");
     if (locale === undefined) return notFound();
+    setServerLocale(locale);
     const copy = collectionCopy(locale);
     const Page = PressChangelogIndex[locale];
 

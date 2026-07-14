@@ -70,7 +70,7 @@ import { useSyncStore } from "@signature-kit/react/sync-store";
 import { caveat } from "@/lib/handwriting-font";
 import { cn } from "@/lib/utils";
 import { captureDocsEvent } from "@/lib/posthog/client";
-import { m } from "@/paraglide/messages";
+import { m } from "@/lib/client-messages";
 import { getLocale } from "@/paraglide/runtime";
 import {
   createPdfSignerController,
@@ -408,6 +408,63 @@ function DocumentCanvas({
   const placedField = template.fields.find((f) => f.id === SIGNATURE_FIELD_ID);
   const pages = template.documents[0]?.pages ?? [];
   const [doc, setDoc] = React.useState<PdfDocumentProxy | null>(null);
+  const [visiblePageIndexes, setVisiblePageIndexes] = React.useState<ReadonlySet<number>>(
+    () => new Set([0]),
+  );
+  const pageNodes = React.useRef(new Map<number, HTMLDivElement>());
+  const pageObserver = React.useRef<IntersectionObserver | null>(null);
+
+  const setPageNode = React.useCallback((index: number, node: HTMLDivElement | null) => {
+    const previous = pageNodes.current.get(index);
+    if (previous === node) return;
+    if (previous !== undefined) pageObserver.current?.unobserve(previous);
+    if (node === null) {
+      pageNodes.current.delete(index);
+      return;
+    }
+    pageNodes.current.set(index, node);
+    pageObserver.current?.observe(node);
+  }, []);
+
+  React.useEffect(() => {
+    if (pages.length === 0) {
+      setVisiblePageIndexes(new Set());
+      return;
+    }
+    if (typeof IntersectionObserver === "undefined") {
+      setVisiblePageIndexes(new Set([0]));
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        setVisiblePageIndexes((current) => {
+          const next = new Set(current);
+          let changed = false;
+          for (const entry of entries) {
+            const index = Number((entry.target as HTMLElement).dataset.pdfPageIndex);
+            if (!Number.isInteger(index)) continue;
+            const visible = entry.isIntersecting || entry.intersectionRatio > 0;
+            if (visible && !next.has(index)) {
+              next.add(index);
+              changed = true;
+            } else if (!visible && next.has(index)) {
+              next.delete(index);
+              changed = true;
+            }
+          }
+          return changed ? next : current;
+        });
+      },
+      { root: null, rootMargin: "320px 0px", threshold: 0 },
+    );
+    pageObserver.current = observer;
+    pageNodes.current.forEach((node) => observer.observe(node));
+    return () => {
+      observer.disconnect();
+      pageObserver.current = null;
+    };
+  }, [pages.length]);
+
   const mountPdfDocument = React.useCallback(
     (node: HTMLDivElement | null) => {
       if (node === null) return;
@@ -488,9 +545,10 @@ function DocumentCanvas({
       }
     >
       {doc === null ? (
-        <>
-          <Loader2 className="size-4 animate-spin" /> Rendering {activeDoc.name}…
-        </>
+        <p role="status" aria-live="polite" aria-atomic="true" className="flex items-center gap-2">
+          <Loader2 className="size-4 animate-spin" />{" "}
+          {m.signer_status_rendering({ name: activeDoc.name })}
+        </p>
       ) : (
         pages.map((page, index) => {
           const isPlacedPage = placedField !== undefined && placedField.rect.pageIndex === index;
@@ -498,21 +556,39 @@ function DocumentCanvas({
             !isPlacedPage && rubricEveryPage && placedField
               ? {
                   rect: rubricRectForPage(page, activeDoc.pageTextBoxes[index] ?? []),
-                  label: `Repeats on all ${pages.length} pages`,
+                  label: m.signer_ghost_repeat({ count: pages.length }),
                 }
               : undefined;
+          const visible = visiblePageIndexes.has(index);
           return (
-            <PdfPage
+            <div
               key={page.index}
-              doc={doc}
-              pageNumber={index + 1}
-              widthPt={page.width}
-              heightPt={page.height}
-              marker={isPlacedPage ? placedField.rect : undefined}
-              ghost={ghost}
-              stampPreview={stampPreview}
-              onPlace={(fx, fy) => void place(index, fx, fy)}
-            />
+              ref={(node) => setPageNode(index, node)}
+              data-pdf-page-index={index}
+              className="w-full rounded-md"
+              style={{ aspectRatio: `${page.width} / ${page.height}` }}
+            >
+              {visible ? (
+                <PdfPage
+                  doc={doc}
+                  pageNumber={index + 1}
+                  widthPt={page.width}
+                  heightPt={page.height}
+                  marker={isPlacedPage ? placedField.rect : undefined}
+                  ghost={ghost}
+                  stampPreview={stampPreview}
+                  disabled={controller.isDocumentMutationLocked()}
+                  onPlace={(fx, fy) => void place(index, fx, fy)}
+                  onError={(renderError) => onError(renderError.message)}
+                />
+              ) : (
+                <div
+                  aria-hidden
+                  data-pdf-page-placeholder
+                  className="h-full w-full rounded-md border border-dashed border-border bg-muted/20"
+                />
+              )}
+            </div>
           );
         })
       )}
@@ -691,7 +767,7 @@ function DocList({
               variant="ghost"
               onClick={() => onRemove(d.id)}
               aria-label={m.signer_aria_remove({ name: d.name })}
-              className="h-auto shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              className="size-11 min-h-11 min-w-11 shrink-0 rounded-md p-0 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
             >
               <X className="size-3.5" />
             </Button>
@@ -719,7 +795,12 @@ function BatchResults({
   return (
     <div className="flex flex-col gap-2">
       {run.kind === "signing" ? (
-        <p className="flex items-center gap-2 text-xs text-muted-foreground">
+        <p
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="flex items-center gap-2 text-xs text-muted-foreground"
+        >
           <Loader2 className="size-3.5 animate-spin" />{" "}
           {m.signer_signing_progress({
             current: run.current,
@@ -761,7 +842,12 @@ function BatchResults({
                   {m.signer_download()}
                 </Button>
               ) : status === "failed" ? (
-                <span className="min-w-0 max-w-[55%] shrink-0 truncate text-[11px] text-destructive">
+                <span
+                  role="alert"
+                  aria-live="assertive"
+                  aria-atomic="true"
+                  className="min-w-0 max-w-[55%] shrink-0 truncate text-[11px] text-destructive"
+                >
                   {m.signer_result_failed({
                     reason: row?.status === "failed" ? row.error : m.signer_error_generic(),
                   })}
@@ -1190,15 +1276,15 @@ function PdfSignerContent({
     const placed = docs.filter((d) => d.rect);
     if (placed.length === 0) {
       captureDocsEvent("pdf_signer_sign_blocked", { reason: "no_signature_placement" });
-      return patchSignerRuntime({ error: "Place at least one signature first." });
+      return patchSignerRuntime({ error: m.signer_error_no_signature() });
     }
     if (!pfxBytes) {
       captureDocsEvent("pdf_signer_sign_blocked", { reason: "missing_certificate" });
-      return patchSignerRuntime({ error: "Upload your A1 (.pfx/.p12) certificate." });
+      return patchSignerRuntime({ error: m.signer_error_certificate_required() });
     }
     if (password.length === 0) {
       captureDocsEvent("pdf_signer_sign_blocked", { reason: "missing_password" });
-      return patchSignerRuntime({ error: "Enter the certificate password." });
+      return patchSignerRuntime({ error: m.signer_error_password_required() });
     }
 
     const generation = controller.beginWorkflow();
@@ -1559,16 +1645,13 @@ function PdfSignerContent({
       <div
         className={cn(
           "grid gap-6 @4xl:grid-cols-[minmax(0,1fr)_minmax(400px,440px)]",
-          inDialog &&
-            "min-h-0 flex-1 overflow-y-auto p-6 @4xl:grid-rows-[minmax(0,1fr)] @4xl:overflow-hidden",
+          inDialog && "min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6",
         )}
       >
         <div
           className={cn(
             "min-w-0 bg-background pb-1",
-            inDialog
-              ? "@4xl:min-h-0 @4xl:self-stretch @4xl:overflow-y-auto"
-              : "sticky top-0 z-10 self-start @4xl:top-0",
+            inDialog ? "min-h-0" : "sticky top-0 z-10 self-start @4xl:top-0",
           )}
         >
           <div className="mb-2 flex items-center justify-between gap-2">
@@ -1609,7 +1692,12 @@ function PdfSignerContent({
             )}
           </Card>
           {shownStatus ? (
-            <p className="mt-2 px-0.5 text-xs leading-relaxed text-muted-foreground">
+            <p
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              className="mt-2 px-0.5 text-xs leading-relaxed text-muted-foreground"
+            >
               {shownStatus}
             </p>
           ) : null}
@@ -1627,12 +1715,7 @@ function PdfSignerContent({
           ) : null}
         </div>
 
-        <div
-          className={cn(
-            "flex flex-col gap-2.5",
-            inDialog && "@4xl:min-h-0 @4xl:self-stretch @4xl:overflow-y-auto",
-          )}
-        >
+        <div className={cn("flex flex-col gap-2.5", inDialog && "min-h-0")}>
           <Step
             n={1}
             title={m.signer_step_documents()}
@@ -2055,7 +2138,12 @@ function PdfSignerContent({
           </Step>
 
           {error ? (
-            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <p
+              role="alert"
+              aria-live="assertive"
+              aria-atomic="true"
+              className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+            >
               {error}
             </p>
           ) : null}
@@ -2087,14 +2175,14 @@ export function PdfSignerDialog({ children }: { children: React.ReactNode }) {
       <DialogContent
         showCloseButton={false}
         aria-describedby="pdf-signer-desc"
-        className="flex max-h-[92vh] w-[min(1180px,96vw)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl border-border bg-background p-0 shadow-2xl sm:max-w-none"
+        className="flex h-[min(92dvh,calc(100dvh-2rem))] max-h-[calc(100dvh-2rem)] min-h-0 w-[min(1180px,96vw)] max-w-none flex-col gap-0 overflow-hidden overscroll-contain rounded-2xl border-border bg-background p-0 shadow-2xl sm:max-w-none"
       >
         <DialogHeader className="gap-1 space-y-0 border-b border-border px-6 py-4 text-left">
           <div className="flex items-start justify-between gap-4">
             <DialogTitle className="text-base font-medium tracking-tight text-foreground">
               {m.signer_dialog_title()}
             </DialogTitle>
-            <DialogClose className="-mt-0.5 -mr-1 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+            <DialogClose className="size-11 min-h-11 min-w-11 shrink-0 rounded-md p-0 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
               <X className="size-4" />
               <span className="sr-only">{m.signer_close()}</span>
             </DialogClose>
@@ -2103,7 +2191,7 @@ export function PdfSignerDialog({ children }: { children: React.ReactNode }) {
             {m.signer_dialog_desc()}
           </DialogDescription>
         </DialogHeader>
-        <div className="flex min-h-0 flex-1">
+        <div className="min-h-0 flex-1">
           <PdfSigner inDialog />
         </div>
       </DialogContent>
