@@ -4,12 +4,13 @@ import { Link } from "fumapress/client";
 import { FadeIn } from "@/components/fade-in";
 import { InstallCommand } from "@/components/install-command";
 import { Button } from "@/components/ui/button";
+import type { Locale } from "@/lib/locale";
 import { localePath } from "@/lib/links";
 import { m } from "@/paraglide/messages";
 
 import { Container, Eyebrow, Section } from "./_shared";
 
-export function FinalCta() {
+export function FinalCta({ locale }: { readonly locale: Locale }) {
   return (
     <Section className="border-t border-border">
       <Container className="py-20 sm:py-28">
@@ -24,12 +25,16 @@ export function FinalCta() {
             </p>
             <div className="mt-8 flex min-w-0 flex-wrap items-center justify-center gap-3">
               <Button asChild size="lg">
-                <Link href={localePath("/docs/get-started/quickstart")}>
+                <Link href={localePath("/docs/get-started/quickstart", locale)}>
                   {m.final_cta()}
                   <ArrowRight data-icon="inline-end" />
                 </Link>
               </Button>
-              <InstallCommand analyticsLocation="final_cta" className="min-w-0 max-w-full" />
+              <InstallCommand
+                analyticsLocation="final_cta"
+                className="min-w-0 max-w-full"
+                locale={locale}
+              />
             </div>
           </div>
         </FadeIn>

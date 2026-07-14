@@ -11,6 +11,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { parseLocale } from "@/lib/locale";
 import { localizedPath, signFreeLocales, signFreePath } from "@/lib/i18n";
 import { absoluteUrl, OG_LOCALE, SITE_NAME } from "@/lib/site";
+import { setServerLocale } from "@/lib/server-locale";
 
 const TITLE = "Assine documentos grátis com certificado A1";
 const DESCRIPTION =
@@ -104,6 +105,7 @@ export default function AssineDocumentosGratisPage({ lang }: PortugueseSeoPagePr
   if (locale === undefined || !signFreeLocales.some((candidate) => candidate === locale)) {
     return notFound();
   }
+  setServerLocale(locale);
   const url = absoluteUrl(localizedPath(signFreePath, locale));
 
   return (

@@ -4,6 +4,7 @@ import { Link } from "fumapress/client";
 import { CodeBlock } from "@/components/code-block";
 import { FadeIn } from "@/components/fade-in";
 import { Button } from "@/components/ui/button";
+import type { Locale } from "@/lib/locale";
 import { localePath } from "@/lib/links";
 import { m } from "@/paraglide/messages";
 
@@ -183,7 +184,7 @@ const FEATURES: ReadonlyArray<{ readonly label: () => string; readonly desc: () 
   { label: m.showcase_feature_shape_label, desc: m.showcase_feature_shape_desc },
 ];
 
-export function ProvidersShowcase() {
+export function ProvidersShowcase({ locale }: { readonly locale: Locale }) {
   const items: ProviderCarouselItem[] = PROVIDERS_SHOWCASE.map((provider) => ({
     name: provider.name,
     filename: provider.filename,
@@ -216,13 +217,13 @@ export function ProvidersShowcase() {
 
               <div className="mt-7 flex flex-wrap items-center gap-3">
                 <Button asChild size="lg">
-                  <Link href={localePath("/docs")}>
+                  <Link href={localePath("/docs", locale)}>
                     {m.showcase_cta_docs()}
                     <ArrowRight data-icon="inline-end" />
                   </Link>
                 </Button>
                 <Button asChild variant="outline" size="lg">
-                  <Link href={localePath("/docs/providers/request-shape")}>
+                  <Link href={localePath("/docs/providers/request-shape", locale)}>
                     {m.showcase_cta_browse()}
                   </Link>
                 </Button>
@@ -246,7 +247,7 @@ export function ProvidersShowcase() {
             </div>
 
             <div className="min-w-0">
-              <ProviderCarousel items={items} panels={panels} />
+              <ProviderCarousel items={items} panels={panels} locale={locale} />
             </div>
           </div>
         </FadeIn>

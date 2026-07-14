@@ -1,10 +1,21 @@
-import { assertIsLocale, baseLocale, overwriteGetLocale } from "@/paraglide/runtime";
+"use client";
+
+import { baseLocale, overwriteGetLocale } from "@/paraglide/runtime";
 import type { Locale } from "@/lib/locale";
+import { parseLocale } from "@/lib/locale";
 
-let ssrLocale: string = baseLocale;
+const readDocumentLocale = (): Locale => {
+  if (typeof document === "undefined") return baseLocale;
+  return parseLocale(document.documentElement.lang) ?? baseLocale;
+};
 
-overwriteGetLocale(() => assertIsLocale(ssrLocale));
+if (typeof document !== "undefined") {
+  overwriteGetLocale(readDocumentLocale);
+}
 
 export function setClientLocale(locale: Locale): void {
-  ssrLocale = locale;
+  if (typeof document === "undefined") return;
+  if (document.documentElement.lang !== locale) {
+    document.documentElement.lang = locale;
+  }
 }

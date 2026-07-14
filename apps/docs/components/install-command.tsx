@@ -6,7 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { Effect, Result } from "effect";
 
 import { Button } from "@/components/ui/button";
-import { m } from "@/paraglide/messages";
+import type { Locale } from "@/lib/locale";
+import { m } from "@/lib/client-messages";
 import { captureDocsEvent } from "@/lib/posthog/client";
 import { cn } from "@/lib/utils";
 
@@ -16,12 +17,14 @@ type InstallCommandProps = {
   readonly command?: string;
   readonly analyticsLocation?: string;
   readonly className?: string;
+  readonly locale?: Locale;
 };
 
 export const InstallCommand = ({
   command = DEFAULT_COMMAND,
   className,
   analyticsLocation,
+  locale,
 }: InstallCommandProps) => {
   const [copied, setCopied] = useState(false);
   const resetTimerRef = useRef<number | null>(null);
@@ -69,22 +72,27 @@ export const InstallCommand = ({
     }
   };
 
+  const copiedLabel =
+    locale === undefined ? m.install_copied_label() : m.install_copied_label({}, { locale });
+  const copyLabel =
+    locale === undefined ? m.install_copy_label() : m.install_copy_label({}, { locale });
+
   return (
     <Button
       type="button"
       variant="outline"
       size="lg"
-      aria-label={copied ? m.install_copied_label() : m.install_copy_label()}
+      aria-label={copied ? copiedLabel : copyLabel}
       onClick={handleCopy}
-      className={cn("gap-3 font-mono text-foreground", className)}
+      className={cn("max-w-full min-w-0 shrink gap-3 font-mono text-foreground", className)}
     >
-      <span aria-hidden className="text-muted-foreground/60">
+      <span aria-hidden className="shrink-0 text-muted-foreground/60">
         $
       </span>
-      <span className="truncate">{command}</span>
+      <span className="min-w-0 truncate">{command}</span>
       <span
         aria-hidden
-        className="relative grid size-4 place-items-center text-muted-foreground transition-colors group-hover/button:text-foreground"
+        className="relative grid size-4 shrink-0 place-items-center text-muted-foreground transition-colors group-hover/button:text-foreground"
       >
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.span
