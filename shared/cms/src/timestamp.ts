@@ -10,7 +10,7 @@ import {
   hashAlgorithmOid,
   TimeoutMillisSchema,
 } from "./config.js";
-import { digest, toArrayBuffer } from "./engine.js";
+import { digest } from "./engine.js";
 
 const TSA_CONTENT_TYPE = "application/timestamp-query";
 const TSA_TST_INFO_CONTENT_TYPE = "1.2.840.113549.1.9.16.1.4";
@@ -173,7 +173,7 @@ const timestampNonce = (): Effect.Effect<asn1js.Integer, CmsError> =>
     try: () => {
       const bytes = crypto.getRandomValues(new Uint8Array(16));
       bytes[0] = (bytes[0] ?? 0) & 0x7f;
-      return new asn1js.Integer({ valueHex: toArrayBuffer(bytes) });
+      return new asn1js.Integer({ valueHex: new Uint8Array(bytes).buffer });
     },
     catch: () =>
       new CmsError({
@@ -263,7 +263,7 @@ const downloadTimestamp = (
         fetch(input.tsaUrl, {
           method: "POST",
           headers: { "content-type": TSA_CONTENT_TYPE },
-          body: toArrayBuffer(requestDer),
+          body: new Uint8Array(requestDer).buffer,
           signal: abort.signal,
         }).then(async (response): Promise<TimestampDownload> => {
           if (!response.ok) {
@@ -316,7 +316,8 @@ export const requestTimestamp = (
     const diagnosticUrl = diagnosticTimestampUrl(valid.tsaUrl);
 
     const trustedCerts = yield* Effect.try({
-      try: () => valid.trustedRoots.map((der) => pkijs.Certificate.fromBER(toArrayBuffer(der))),
+      try: () =>
+        valid.trustedRoots.map((der) => pkijs.Certificate.fromBER(new Uint8Array(der).buffer)),
       catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.timestampError,
@@ -335,7 +336,7 @@ export const requestTimestamp = (
             hashAlgorithm: new pkijs.AlgorithmIdentifier({
               algorithmId: hashAlgorithmOid(valid.hashAlgorithm),
             }),
-            hashedMessage: new asn1js.OctetString({ valueHex: toArrayBuffer(imprint) }),
+            hashedMessage: new asn1js.OctetString({ valueHex: new Uint8Array(imprint).buffer }),
           }),
           nonce,
           certReq: true,
@@ -379,7 +380,7 @@ export const requestTimestamp = (
 
     const parsed = yield* Effect.try({
       try: (): ParsedTimestampResponse => {
-        const responseDer = toArrayBuffer(responseBytes);
+        const responseDer = new Uint8Array(responseBytes).buffer;
         const decoded = asn1js.fromBER(responseDer);
         if (decoded.offset !== responseBytes.byteLength) {
           return { _tag: "TsaResponseTrailingBytes" };
@@ -410,7 +411,7 @@ export const requestTimestamp = (
           eContent.valueBlock.valueHexView.byteLength === 0
             ? new Uint8Array(eContent.getValue())
             : eContent.valueBlock.valueHexView;
-        const tstInfoDer = toArrayBuffer(eContentBytes);
+        const tstInfoDer = new Uint8Array(eContentBytes).buffer;
         const tstInfoDecoded = asn1js.fromBER(tstInfoDer);
         if (tstInfoDecoded.offset !== eContentBytes.byteLength) {
           return { _tag: "TsaResponseTrailingBytes" };
@@ -518,7 +519,7 @@ export const requestTimestamp = (
         signed.encapContentInfo.eContentType = pkijs.ContentInfo.DATA;
         return signed.verify({
           signer: 0,
-          data: toArrayBuffer(valid.data),
+          data: new Uint8Array(valid.data).buffer,
           checkDate: tstInfo.genTime,
           checkChain: true,
           trustedCerts,

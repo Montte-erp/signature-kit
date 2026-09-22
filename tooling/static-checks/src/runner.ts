@@ -1,10 +1,9 @@
 import { readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import * as ts from "typescript";
-import { requiredEffectSpanFiles, roots } from "./config";
+import { roots } from "./config";
 import { walk } from "./filesystem";
 import type { Check } from "./model";
-import { hasRequiredSpanCall } from "./observability";
 import { runWorkspaceLayerChecks } from "./layers";
 import { checks } from "./rule-set";
 import { errorHandlingChecks } from "./rules/error-handling";
@@ -88,20 +87,6 @@ export const runDeclarativeChecks = (
     const root = resolve(rootDirectory, configuredRoot);
     for (const file of walk(root)) {
       const source = readFileSync(file, "utf8");
-      const displayPath = normalizePath(relative(rootDirectory, file));
-      const requiredSpans = requiredEffectSpanFiles[displayPath];
-      if (requiredSpans !== undefined) {
-        for (const span of requiredSpans) {
-          if (hasRequiredSpanCall(source, span)) {
-            continue;
-          }
-          console.error(`${displayPath}:1: ${span.name}`);
-          console.error(
-            "Declarative error handling check failed. Flows must keep real Effect.withSpan calls from the observability catalog.",
-          );
-          failed = true;
-        }
-      }
       if (runFileDeclarativeChecks(file, source, rootDirectory)) {
         failed = true;
       }

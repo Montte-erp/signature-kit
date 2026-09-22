@@ -2,11 +2,7 @@ import { SignatureKitErrorCodeValue } from "@signature-kit/signatures";
 import { signatureHttpClientLive } from "@signature-kit/http";
 import { describe, expect, it } from "@effect/vitest";
 import * as Provider from "alchemy/Provider";
-import {
-  expectProviderListResult,
-  jsonBody,
-  localHttpServer,
-} from "../../../tooling/testing/local-http";
+import { jsonBody, localHttpServer } from "../../../tooling/testing/local-http";
 import type { LocalRequest, LocalResponse, LocalServer } from "../../../tooling/testing/local-http";
 import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import { Effect, Redacted, Result } from "effect";
@@ -156,7 +152,7 @@ describe("Documenso offline provider", () => {
           );
 
           expect(server.requests).toHaveLength(0);
-          expectProviderListResult(result);
+          expect(result).toEqual([]);
         }),
     ),
   );

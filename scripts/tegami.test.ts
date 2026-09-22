@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
+import { Effect, Schema } from "effect";
 import {
   createReleaseProject,
   hasPublishPlan,
@@ -102,21 +103,36 @@ describe("Tegami release guards", () => {
   });
 
   it("keeps the parseable workflow gates ordered before real publish", async () => {
-    const workflow = await readFile(".github/workflows/release.yml", "utf8");
-    expect(parse(workflow)).toBeTypeOf("object");
-    const commands = [
-      "bun run release version",
+    const workflow = await Effect.runPromise(
+      Schema.decodeUnknownEffect(
+        Schema.Struct({
+          permissions: Schema.Struct({
+            contents: Schema.Literal("write"),
+            "id-token": Schema.Literal("write"),
+          }),
+          jobs: Schema.Struct({
+            validate: Schema.Struct({ uses: Schema.Literal("./.github/workflows/checks.yml") }),
+            release: Schema.Struct({
+              needs: Schema.Literal("validate"),
+              steps: Schema.Array(Schema.Struct({ run: Schema.optional(Schema.String) })),
+            }),
+          }),
+        }),
+      )(parse(await readFile(".github/workflows/release.yml", "utf8"))),
+    );
+    const commands = workflow.jobs.release.steps.flatMap((step) =>
+      step.run === undefined ? [] : [step.run],
+    );
+    const gates = [
+      "bun run build",
       "bun run release check-publish",
       "bun run release publish --dry-run",
       "bun run release publish",
     ];
-    const positions = commands.map((command) => workflow.indexOf(command));
-
+    const positions = gates.map((command) => commands.indexOf(command));
     expect(positions.every((position) => position >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
-    expect(workflow).toContain("contents: write");
-    expect(workflow).toContain("id-token: write");
-    expect(workflow).toContain("pull-requests: write");
+    expect(commands).not.toContain("bun run release version");
   });
 
   it("classifies lock statuses without treating absence as publishable", () => {

@@ -59,7 +59,7 @@ const lex = (source: string, removeQuotedText: boolean): string => {
 
     if (character === "/" && next === "/") {
       mode = "line-comment";
-      output += removeQuotedText ? "  " : "  ";
+      output += "  ";
       index += 1;
       continue;
     }
@@ -90,14 +90,4 @@ const lex = (source: string, removeQuotedText: boolean): string => {
   return output;
 };
 
-export const stripQuotedText = (line: string): string => lex(line, true);
-
-export const stripLineComment = (line: string): string => lex(line, true);
-
-export const stripBlockComments = (line: string): string => lex(line, true);
-
-export const normalizeLine = (line: string): string => lex(line, true).trimEnd();
-
 export const normalizeSource = (source: string): string => lex(source, true);
-
-export const stripSourceComments = (source: string): string => lex(source, false);

@@ -176,7 +176,7 @@
     },
     "shared/cms": {
       "name": "@signature-kit/cms",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "dependencies": {
         "@peculiar/asn1-cms": "2.8.0",
         "@peculiar/asn1-ess": "2.8.0",

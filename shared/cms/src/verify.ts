@@ -8,7 +8,6 @@ import {
   CmsOperationValue,
 } from "./config.js";
 import type { CmsVerifyResult, VerifyDetachedSignedDataInput } from "./config.js";
-import { toArrayBuffer } from "./engine.js";
 
 const isUint8Array = (value: unknown): value is Uint8Array =>
   Object.prototype.toString.call(value) === "[object Uint8Array]";
@@ -62,7 +61,7 @@ export const verifyDetachedSignedData = (
     );
 
     const contentInfo = yield* Effect.try({
-      try: () => pkijs.ContentInfo.fromBER(toArrayBuffer(valid.cms)),
+      try: () => pkijs.ContentInfo.fromBER(new Uint8Array(valid.cms).buffer),
       catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.decodeError,
@@ -119,7 +118,9 @@ export const verifyDetachedSignedData = (
 
     const trustedCerts = yield* Effect.try({
       try: () =>
-        (valid.trustedRoots ?? []).map((der) => pkijs.Certificate.fromBER(toArrayBuffer(der))),
+        (valid.trustedRoots ?? []).map((der) =>
+          pkijs.Certificate.fromBER(new Uint8Array(der).buffer),
+        ),
       catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.decodeError,
@@ -135,7 +136,7 @@ export const verifyDetachedSignedData = (
       try: () =>
         signed.verify({
           signer: 0,
-          data: toArrayBuffer(valid.content),
+          data: new Uint8Array(valid.content).buffer,
           checkChain,
           trustedCerts,
           passedWhenNotRevValues: false,

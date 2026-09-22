@@ -3,7 +3,6 @@ import * as asn1js from "asn1js";
 import { Effect, Result } from "effect";
 import * as pkijs from "pkijs";
 import { CmsOid } from "../src/config";
-import { toArrayBuffer, toBufferSource } from "../src/engine";
 import { inspectDetachedSignedData } from "../src/inspect";
 import { createDetachedSignedData } from "../src/sign";
 import { verifyDetachedSignedData } from "../src/verify";
@@ -30,7 +29,7 @@ const createCertificateFixture = async (
     {
       name: "RSASSA-PKCS1-v1_5",
       modulusLength: 1024,
-      publicExponent: toBufferSource(Uint8Array.of(1, 0, 1)),
+      publicExponent: new Uint8Array(Uint8Array.of(1, 0, 1)),
       hash: "SHA-256",
     },
     true,
@@ -59,12 +58,12 @@ const createCertificateFixture = async (
     new Uint8Array(
       await crypto.subtle.digest(
         "SHA-1",
-        toBufferSource(certificate.subjectPublicKeyInfo.subjectPublicKey.valueBlock.valueHexView),
+        new Uint8Array(certificate.subjectPublicKeyInfo.subjectPublicKey.valueBlock.valueHexView),
       ),
     );
   const subjectKeyIdentifierExtensionDer =
     options.subjectKeyIdentifierExtensionDer ??
-    new asn1js.OctetString({ valueHex: toArrayBuffer(subjectKeyIdentifier) }).toBER(false);
+    new asn1js.OctetString({ valueHex: new Uint8Array(subjectKeyIdentifier).buffer }).toBER(false);
   const basicConstraints = new pkijs.BasicConstraints({ cA: true });
   const extensions = [
     new pkijs.Extension({
@@ -108,7 +107,7 @@ const createCmsFixture = (commonName = "CMS signer") =>
 const parseCms = (
   cms: Uint8Array,
 ): { contentInfo: pkijs.ContentInfo; signed: pkijs.SignedData } => {
-  const contentInfo = pkijs.ContentInfo.fromBER(toArrayBuffer(cms));
+  const contentInfo = pkijs.ContentInfo.fromBER(new Uint8Array(cms).buffer);
   return { contentInfo, signed: new pkijs.SignedData({ schema: contentInfo.content }) };
 };
 
@@ -126,7 +125,7 @@ const replaceSignerIdentifierWithSubjectKeyIdentifier = (
   signerInfo.version = 3;
   signerInfo.sid = new asn1js.Primitive({
     idBlock: { tagClass: 3, tagNumber: 0 },
-    valueHex: toArrayBuffer(subjectKeyIdentifier),
+    valueHex: new Uint8Array(subjectKeyIdentifier).buffer,
   });
   return true;
 };
@@ -144,6 +143,23 @@ describe("CMS detached verification", () => {
       expect(verification.valid).toBe(true);
       expect(verification.chainValid).toBe(false);
       expect(verification.revocationStatus).toBe("not_checked");
+    }),
+  );
+
+  it.effect("verifies detached data from views without including surrounding bytes", () =>
+    Effect.gen(function* () {
+      const fixture = yield* createCmsFixture();
+      const cmsStorage = new Uint8Array(fixture.cms.length + 16).fill(255);
+      const contentStorage = new Uint8Array(fixture.content.length + 16).fill(255);
+      cmsStorage.set(fixture.cms, 8);
+      contentStorage.set(fixture.content, 8);
+      const cms = cmsStorage.subarray(8, -8);
+      const content = contentStorage.subarray(8, -8);
+      const verification = yield* verifyDetachedSignedData({ cms, content });
+      expect(verification.valid).toBe(true);
+      content[0] = (content[0] ?? 0) ^ 255;
+      const tampered = yield* verifyDetachedSignedData({ cms, content });
+      expect(tampered.valid).toBe(false);
     }),
   );
 
@@ -176,7 +192,7 @@ describe("CMS detached verification", () => {
       const fixture = yield* createCmsFixture();
       const { contentInfo, signed } = parseCms(fixture.cms);
       signed.encapContentInfo.eContent = new asn1js.OctetString({
-        valueHex: toArrayBuffer(fixture.content),
+        valueHex: new Uint8Array(fixture.content).buffer,
       });
       const tamperedContent = new Uint8Array(fixture.content);
       tamperedContent[0] = (tamperedContent[0] ?? 0) ^ 0xff;
@@ -287,7 +303,7 @@ describe("CMS detached verification", () => {
       const subjectKeyIdentifier = yield* Effect.promise(() =>
         crypto.subtle.digest(
           "SHA-1",
-          toBufferSource(
+          new Uint8Array(
             signer.certificate.subjectPublicKeyInfo.subjectPublicKey.valueBlock.valueHexView,
           ),
         ),
@@ -399,7 +415,7 @@ describe("CMS detached verification", () => {
           new Uint8Array(
             await crypto.subtle.digest(
               "SHA-1",
-              toBufferSource(
+              new Uint8Array(
                 signer.certificate.subjectPublicKeyInfo.subjectPublicKey.valueBlock.valueHexView,
               ),
             ),
@@ -533,12 +549,12 @@ describe("CMS detached verification", () => {
         yield* Effect.promise(() =>
           crypto.subtle.digest(
             "SHA-256",
-            toBufferSource(new Uint8Array(embeddedCertificate.toSchema().toBER(false))),
+            new Uint8Array(new Uint8Array(embeddedCertificate.toSchema().toBER(false))),
           ),
         ),
       );
 
-      expect(toBufferSource(certificateHash.valueBlock.valueHexView)).toEqual(expectedHash);
+      expect(new Uint8Array(certificateHash.valueBlock.valueHexView)).toEqual(expectedHash);
     }),
   );
 });

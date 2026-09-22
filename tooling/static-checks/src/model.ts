@@ -18,8 +18,3 @@ export type Check = {
   test: (context: CheckContext) => boolean;
   ignoreImportLine: boolean;
 };
-
-export type RequiredSpanCall = {
-  readonly name: string;
-  readonly expression: string;
-};

@@ -1,5 +1,4 @@
 import { existsSync } from "node:fs";
-import type { RequiredSpanCall } from "./model";
 
 export const checkedExtensions: Record<string, true> = {
   ".cjs": true,
@@ -29,8 +28,6 @@ export const roots = [
   "apps/docs/components/sections/providers-showcase.tsx",
   "apps/docs/content/docs/providers",
 ].filter((path) => existsSync(path));
-
-export const requiredEffectSpanFiles: Record<string, readonly RequiredSpanCall[]> = {};
 
 export const allowedEffectProvideSites: Record<string, readonly string[]> = {
   "signers/assinafy/src/index.ts": [

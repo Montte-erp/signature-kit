@@ -5,11 +5,7 @@ import { signatureHttpClientLive } from "@signature-kit/http";
 import type { SignatureHttpClient } from "@signature-kit/http";
 import * as Provider from "alchemy/Provider";
 import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
-import {
-  expectProviderListResult,
-  jsonBody,
-  localHttpServer,
-} from "../../../tooling/testing/local-http";
+import { jsonBody, localHttpServer } from "../../../tooling/testing/local-http";
 import type { LocalRequest, LocalResponse } from "../../../tooling/testing/local-http";
 import { Effect, Redacted, Result } from "effect";
 import {
@@ -106,7 +102,7 @@ describe("DocuSeal offline provider", () => {
           }).pipe(Effect.provide(docuSealProviders(options)));
 
           expect(requests).toHaveLength(0);
-          expectProviderListResult(result);
+          expect(result).toEqual([]);
         }),
     ),
   );

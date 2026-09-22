@@ -1,0 +1,77 @@
+core:changelogs:
+  - content: "---\npackages:\n  \"@signature-kit/cms\":\n    type: patch\n---\n\n## Native byte conversion and verified release gates\n\nUse native Uint8Array copies at ASN.1 and WebCrypto boundaries, removing redundant buffer adapters while preserving byte offsets and detached-signature verification. Add coverage for sliced buffers and tampered content.\n\nThe workspace now discovers every browser test, isolates live provider suites from local runs, and requires the complete CI validation workflow before publishing.\n"
+    filename: native-cms-buffers.md
+    v: 0.0.0
+core:packages:
+  - id: npm:signature-kit
+    updated: false
+  - id: npm:@signature-kit/docs
+    updated: false
+  - id: npm:@signature-kit/certificates
+    updated: false
+  - id: npm:@signature-kit/react
+    updated: false
+  - id: npm:@signature-kit/xml
+    updated: false
+  - id: npm:@signature-kit/http
+    updated: false
+  - id: npm:@signature-kit/pdf
+    updated: false
+  - id: npm:@signature-kit/i18n
+    updated: false
+  - id: npm:@signature-kit/signatures
+    updated: false
+  - id: npm:@signature-kit/a1
+    updated: false
+  - id: npm:@signature-kit/assinafy
+    updated: false
+  - id: npm:@signature-kit/clicksign
+    updated: false
+  - id: npm:@signature-kit/documenso
+    updated: false
+  - id: npm:@signature-kit/docuseal
+    updated: false
+  - id: npm:@signature-kit/zapsign
+    updated: false
+  - id: npm:@signature-kit/asn1
+    updated: false
+  - changelogIds:
+      - native-cms-buffers.md
+    id: npm:@signature-kit/cms
+    updated: true
+  - id: npm:@signature-kit/crypto
+    updated: false
+  - id: npm:@tooling/integration-tests
+    updated: false
+  - id: npm:@tooling/oxc
+    updated: false
+  - id: npm:@tooling/static-checks
+    updated: false
+  - id: npm:@tooling/typescript
+    updated: false
+  - id: npm:@signature-kit/iti
+    updated: false
+npm:packages:
+  - id: npm:signature-kit
+  - id: npm:@signature-kit/docs
+  - id: npm:@signature-kit/certificates
+  - id: npm:@signature-kit/react
+  - id: npm:@signature-kit/xml
+  - id: npm:@signature-kit/http
+  - id: npm:@signature-kit/pdf
+  - id: npm:@signature-kit/i18n
+  - id: npm:@signature-kit/signatures
+  - id: npm:@signature-kit/a1
+  - id: npm:@signature-kit/assinafy
+  - id: npm:@signature-kit/clicksign
+  - id: npm:@signature-kit/documenso
+  - id: npm:@signature-kit/docuseal
+  - id: npm:@signature-kit/zapsign
+  - id: npm:@signature-kit/asn1
+  - id: npm:@signature-kit/cms
+  - id: npm:@signature-kit/crypto
+  - id: npm:@tooling/integration-tests
+  - id: npm:@tooling/oxc
+  - id: npm:@tooling/static-checks
+  - id: npm:@tooling/typescript
+  - id: npm:@signature-kit/iti

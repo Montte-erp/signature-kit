@@ -7,7 +7,6 @@ import * as pkijs from "pkijs";
 import { vi } from "vitest";
 import { CmsOid, MAX_NATIVE_TIMEOUT_MILLIS, TimestampOptionsSchema } from "../src/config";
 import type { TimestampOptions } from "../src/config";
-import { toArrayBuffer, toBufferSource } from "../src/engine";
 import { requestTimestamp } from "../src/timestamp";
 
 type TimestampSigner = {
@@ -61,7 +60,7 @@ const createTsaSigner = async ({
     : {
         name: "RSASSA-PKCS1-v1_5",
         modulusLength: 2048,
-        publicExponent: toBufferSource(Uint8Array.of(1, 0, 1)),
+        publicExponent: new Uint8Array(Uint8Array.of(1, 0, 1)),
         hash: { name: "SHA-256" },
       };
   keyAlgorithm.hash.name = "SHA-256";
@@ -107,7 +106,7 @@ const createTsaSigner = async ({
   }
   if (keyUsage !== undefined) {
     const keyUsageBits = new asn1js.BitString({
-      valueHex: toArrayBuffer(Uint8Array.of(keyUsage)),
+      valueHex: new Uint8Array(Uint8Array.of(keyUsage)).buffer,
     });
     extensions.push(
       new pkijs.Extension({
@@ -148,7 +147,7 @@ const timestampSignedAttributes = async (
     crypto.subtle.digest("SHA-256", tstInfoDer),
     Promise.all(
       certificateDers.map((certificateDer) =>
-        crypto.subtle.digest("SHA-256", toArrayBuffer(certificateDer)),
+        crypto.subtle.digest("SHA-256", new Uint8Array(certificateDer).buffer),
       ),
     ),
   ]);
@@ -181,7 +180,7 @@ const timestampResponse = async (
   signer: TimestampSigner | undefined,
   options: TimestampResponseOptions = {},
 ): Promise<Uint8Array> => {
-  const requestSchema = asn1js.fromBER(toArrayBuffer(requestDer));
+  const requestSchema = asn1js.fromBER(new Uint8Array(requestDer).buffer);
   const request = new pkijs.TimeStampReq({ schema: requestSchema.result });
   const tstInfoBase = {
     version: 1,
@@ -438,7 +437,7 @@ describe("RFC 3161 timestamps", () => {
         const body = init?.body;
         if (body instanceof ArrayBuffer) {
           return new Response(
-            toArrayBuffer(await timestampResponse(new Uint8Array(body), undefined)),
+            new Uint8Array(await timestampResponse(new Uint8Array(body), undefined)).buffer,
             {
               status: 200,
               headers: { "content-type": "application/timestamp-reply" },
@@ -471,7 +470,7 @@ describe("RFC 3161 timestamps", () => {
           const response = await timestampResponse(new Uint8Array(body), signer);
           const withTrailing = new Uint8Array(response.byteLength + 1);
           withTrailing.set(response);
-          return new Response(toArrayBuffer(withTrailing), {
+          return new Response(new Uint8Array(withTrailing).buffer, {
             status: 200,
             headers: { "content-type": "application/timestamp-reply" },
           });
@@ -505,7 +504,7 @@ describe("RFC 3161 timestamps", () => {
           const body = init?.body;
           if (body instanceof ArrayBuffer) {
             return new Response(
-              toArrayBuffer(await timestampResponse(new Uint8Array(body), signer)),
+              new Uint8Array(await timestampResponse(new Uint8Array(body), signer)).buffer,
               {
                 status: 200,
                 headers: { "content-type": "application/timestamp-reply" },
@@ -533,7 +532,7 @@ describe("RFC 3161 timestamps", () => {
         const body = init?.body;
         if (body instanceof ArrayBuffer) {
           return new Response(
-            toArrayBuffer(await timestampResponse(new Uint8Array(body), signer)),
+            new Uint8Array(await timestampResponse(new Uint8Array(body), signer)).buffer,
             {
               status: 200,
               headers: { "content-type": "application/timestamp-reply" },
@@ -566,7 +565,7 @@ describe("RFC 3161 timestamps", () => {
         const body = init?.body;
         if (body instanceof ArrayBuffer) {
           return new Response(
-            toArrayBuffer(await timestampResponse(new Uint8Array(body), signer)),
+            new Uint8Array(await timestampResponse(new Uint8Array(body), signer)).buffer,
             {
               status: 200,
               headers: { "content-type": "application/timestamp-reply" },
@@ -599,11 +598,11 @@ describe("RFC 3161 timestamps", () => {
         const body = init?.body;
         if (body instanceof ArrayBuffer) {
           return new Response(
-            toArrayBuffer(
+            new Uint8Array(
               await timestampResponse(new Uint8Array(body), signer, {
                 includeSignedAttributes: false,
               }),
-            ),
+            ).buffer,
             {
               status: 200,
               headers: { "content-type": "application/timestamp-reply" },
@@ -637,11 +636,11 @@ describe("RFC 3161 timestamps", () => {
           const body = init?.body;
           if (body instanceof ArrayBuffer) {
             return new Response(
-              toArrayBuffer(
+              new Uint8Array(
                 await timestampResponse(new Uint8Array(body), signer, {
                   signingCertificateDers: [decoySigner.certificateDer, signer.certificateDer],
                 }),
-              ),
+              ).buffer,
               {
                 status: 200,
                 headers: { "content-type": "application/timestamp-reply" },
@@ -675,7 +674,7 @@ describe("RFC 3161 timestamps", () => {
         const body = init?.body;
         if (body instanceof ArrayBuffer) {
           return new Response(
-            toArrayBuffer(await timestampResponse(new Uint8Array(body), signer)),
+            new Uint8Array(await timestampResponse(new Uint8Array(body), signer)).buffer,
             {
               status: 200,
               headers: { "content-type": "application/timestamp-reply" },
@@ -706,9 +705,9 @@ describe("RFC 3161 timestamps", () => {
         const body = init?.body;
         if (body instanceof ArrayBuffer) {
           return new Response(
-            toArrayBuffer(
+            new Uint8Array(
               await timestampResponse(new Uint8Array(body), signer, { tamperSignature: true }),
-            ),
+            ).buffer,
             {
               status: 200,
               headers: { "content-type": "application/timestamp-reply" },

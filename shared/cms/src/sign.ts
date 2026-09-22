@@ -11,7 +11,7 @@ import {
   webCryptoHashName,
 } from "./config.js";
 import type { CreateDetachedSignedDataInput } from "./config.js";
-import { digest, toArrayBuffer, toBufferSource } from "./engine.js";
+import { digest } from "./engine.js";
 import { requestTimestamp } from "./timestamp.js";
 
 export const createDetachedSignedData = (
@@ -33,7 +33,7 @@ export const createDetachedSignedData = (
     const hashAlgorithm = valid.hashAlgorithm ?? "sha256";
 
     const certificate = yield* Effect.try({
-      try: () => pkijs.Certificate.fromBER(toArrayBuffer(valid.certificateDer)),
+      try: () => pkijs.Certificate.fromBER(new Uint8Array(valid.certificateDer).buffer),
       catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.decodeError,
@@ -53,7 +53,8 @@ export const createDetachedSignedData = (
     });
 
     const chain = yield* Effect.try({
-      try: () => (valid.chainDer ?? []).map((der) => pkijs.Certificate.fromBER(toArrayBuffer(der))),
+      try: () =>
+        (valid.chainDer ?? []).map((der) => pkijs.Certificate.fromBER(new Uint8Array(der).buffer)),
       catch: () =>
         new CmsError({
           code: CmsErrorCodeValue.decodeError,
@@ -107,7 +108,7 @@ export const createDetachedSignedData = (
           valid.signingKey,
           0,
           webCryptoHashName(hashAlgorithm),
-          toBufferSource(valid.content),
+          new Uint8Array(valid.content),
         ),
       catch: () =>
         new CmsError({
@@ -143,7 +144,7 @@ export const createDetachedSignedData = (
             attributes: [
               new pkijs.Attribute({
                 type: CmsOid.timeStampToken,
-                values: [asn1js.fromBER(toArrayBuffer(tokenDer)).result],
+                values: [asn1js.fromBER(new Uint8Array(tokenDer).buffer).result],
               }),
             ],
           });

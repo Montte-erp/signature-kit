@@ -3,7 +3,6 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Result } from "effect";
 import { vi } from "vitest";
 import { MAX_NATIVE_TIMEOUT_MILLIS } from "../src/config";
-import { toArrayBuffer } from "../src/engine";
 import {
   IcpBrasilPadesPolicy,
   fetchIcpBrasilPadesPolicy,
@@ -90,7 +89,7 @@ describe("ICP-Brasil PAdES policy", () => {
       const fixture = yield* readPolicyFixture();
       vi.stubGlobal("fetch", () =>
         Promise.resolve(
-          new Response(toArrayBuffer(fixture), {
+          new Response(new Uint8Array(fixture).buffer, {
             status: 200,
             headers: { "content-type": "application/octet-stream" },
           }),
@@ -109,7 +108,7 @@ describe("ICP-Brasil PAdES policy", () => {
       const fixture = yield* readPolicyFixture();
       vi.stubGlobal("fetch", () =>
         Promise.resolve(
-          new Response(toArrayBuffer(fixture), {
+          new Response(new Uint8Array(fixture).buffer, {
             status: 200,
             headers: { "content-type": "application/octet-stream" },
           }),
@@ -180,7 +179,7 @@ describe("ICP-Brasil PAdES policy", () => {
       const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
       vi.stubGlobal("fetch", () =>
         Promise.resolve(
-          new Response(toArrayBuffer(fixture), {
+          new Response(new Uint8Array(fixture).buffer, {
             status: 200,
             headers: { "content-type": "application/octet-stream" },
           }),
@@ -210,7 +209,7 @@ describe("ICP-Brasil PAdES policy", () => {
       const lastByte = mutated.byteLength - 1;
       mutated[lastByte] = (mutated[lastByte] ?? 0) ^ 0x01;
       vi.stubGlobal("fetch", () =>
-        Promise.resolve(new Response(toArrayBuffer(mutated), { status: 200 })),
+        Promise.resolve(new Response(new Uint8Array(mutated).buffer, { status: 200 })),
       );
 
       const result = yield* Effect.result(fetchIcpBrasilPadesPolicy({ timeoutMillis: 1000 }));

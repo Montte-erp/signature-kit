@@ -4,7 +4,7 @@ import type { Asn1Error, Asn1Node } from "@signature-kit/asn1";
 import { Effect, Option, Schema } from "effect";
 import * as pkijs from "pkijs";
 import { CmsError, CmsErrorCodeValue, CmsOid, CmsOperationValue } from "./config.js";
-import { digest, toArrayBuffer } from "./engine.js";
+import { digest } from "./engine.js";
 
 export const CmsSignedAttributeSchema = Schema.Struct({
   type: Schema.NonEmptyString,
@@ -231,7 +231,9 @@ const subjectKeyIdentifierFromCertificate = (
 
   const encodedSubjectKeyIdentifier =
     subjectKeyIdentifierExtension.extnValue.valueBlock.valueHexView;
-  const decodedSubjectKeyIdentifier = asn1js.fromBER(toArrayBuffer(encodedSubjectKeyIdentifier));
+  const decodedSubjectKeyIdentifier = asn1js.fromBER(
+    new Uint8Array(encodedSubjectKeyIdentifier).buffer,
+  );
   if (
     decodedSubjectKeyIdentifier.offset !== encodedSubjectKeyIdentifier.byteLength ||
     !Schema.is(Asn1OctetStringSchema)(decodedSubjectKeyIdentifier.result)
@@ -444,7 +446,7 @@ export const inspectDetachedSignedData = (
 
     const contentInfo = yield* Effect.try({
       try: () => {
-        const cmsDer = toArrayBuffer(valid.cms);
+        const cmsDer = new Uint8Array(valid.cms).buffer;
         const decoded = asn1js.fromBER(cmsDer);
         if (decoded.offset !== valid.cms.byteLength) return undefined;
         return pkijs.ContentInfo.fromBER(cmsDer);

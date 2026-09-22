@@ -9,11 +9,15 @@ concurrency:
 
 permissions:
   contents: write
+  actions: read
   id-token: write
   pull-requests: write
 
 jobs:
+  validate:
+    uses: ./.github/workflows/checks.yml
   release:
+    needs: validate
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -36,14 +40,6 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Build packages
         run: bun run build
-      - name: Run static and type checks
-        run: bun run check
-      - name: Run non-browser tests
-        run: bun run test
-      - name: Version packages
-        run: bun run release version
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
       - name: Check publish plan
         run: bun run release check-publish
         env:
