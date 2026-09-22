@@ -1,3 +1,4 @@
+import { createPdfFixture } from "../../../tooling/testing/fixtures";
 import { describe, expect, it } from "@effect/vitest";
 import { signatureHttpClientLive } from "@signature-kit/http";
 import * as Provider from "alchemy/Provider";
@@ -24,29 +25,6 @@ const config = loadFlaggedConfig(
   }),
 );
 
-const livePdf = (): Uint8Array => {
-  const encoder = new TextEncoder();
-  const objects = [
-    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
-    "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
-    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >>\nendobj\n",
-    "4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n",
-  ];
-  let pdf = "%PDF-1.4\n";
-  const offsets = objects.map((object) => {
-    const offset = encoder.encode(pdf).byteLength;
-    pdf += object;
-    return offset;
-  });
-  const xrefOffset = encoder.encode(pdf).byteLength;
-  const entries = offsets
-    .map((offset) => `${offset.toString().padStart(10, "0")} 00000 n \n`)
-    .join("");
-  return encoder.encode(
-    `${pdf}xref\n0 5\n0000000000 65535 f \n${entries}trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`,
-  );
-};
-
 const knownStates = new Set<string>(ClicksignSignatureRequestStateSchema.literals);
 
 if (config === undefined) {
@@ -70,7 +48,7 @@ if (config === undefined) {
         {
           fileName: "signature-kit-live.pdf",
           mimeType: "application/pdf",
-          contentBase64: Buffer.from(livePdf()).toString("base64"),
+          contentBase64: Buffer.from(createPdfFixture()).toString("base64"),
         },
       ],
       recipients: [
@@ -132,9 +110,10 @@ if (config === undefined) {
             }
           }).pipe(
             Effect.ensuring(
-              deleteClicksignSignatureRequest(options, id)
-                .pipe(Effect.provide(signatureHttpClientLive))
-                .pipe(Effect.orDie),
+              deleteClicksignSignatureRequest(options, id).pipe(
+                Effect.provide(signatureHttpClientLive),
+                Effect.orDie,
+              ),
             ),
           );
         }),

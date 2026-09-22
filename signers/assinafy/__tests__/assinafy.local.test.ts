@@ -17,11 +17,7 @@ import type {
   AssinafySignatureRequestState,
 } from "../src/index";
 import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
-import {
-  expectProviderListResult,
-  jsonBody,
-  localHttpServer,
-} from "../../../tooling/testing/local-http";
+import { jsonBody, localHttpServer } from "../../../tooling/testing/local-http";
 import type { LocalResponse } from "../../../tooling/testing/local-http";
 
 const API_KEY = "local-assinafy-api-key";
@@ -129,7 +125,7 @@ describe("Assinafy local API", () => {
           );
 
           expect(server.requests).toHaveLength(0);
-          expectProviderListResult(result);
+          expect(result).toEqual([]);
         }),
       ),
       Effect.scoped,

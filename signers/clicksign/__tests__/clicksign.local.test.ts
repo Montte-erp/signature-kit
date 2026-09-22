@@ -3,11 +3,7 @@ import { SignatureKitErrorCodeValue } from "@signature-kit/signatures";
 import type { SignatureKitError } from "@signature-kit/signatures";
 import { signatureHttpClientLive } from "@signature-kit/http";
 import * as Provider from "alchemy/Provider";
-import {
-  expectProviderListResult,
-  jsonBody,
-  localHttpServer,
-} from "../../../tooling/testing/local-http";
+import { jsonBody, localHttpServer } from "../../../tooling/testing/local-http";
 import type { LocalRequest, LocalResponse, LocalServer } from "../../../tooling/testing/local-http";
 import { reconcileResourceProps } from "../../__tests__/alchemy-provider";
 import { Context, Effect, Layer, Redacted, Result } from "effect";
@@ -117,7 +113,7 @@ describe("Clicksign local HTTP provider tests", () => {
           );
 
           expect(server.requests).toHaveLength(0);
-          expectProviderListResult(result);
+          expect(result).toEqual([]);
         }),
       ),
       Effect.scoped,

@@ -64,7 +64,8 @@ describe("browser integration test placement", () => {
     );
     const command = rootPackage.scripts["test:integration:browser"] ?? "";
 
-    expect(command).toContain("formats/react/__tests__/a1.browser.test.tsx");
-    expect(command).toContain("formats/react/__tests__/browser-pdf.browser.test.tsx");
+    expect(command).toContain("tooling/vitest/browser.config.ts signers formats");
+    expect(command).toContain("apps/docs/vitest.browser.config.ts apps/docs");
+    expect(command).not.toContain(".browser.test.");
   });
 });

@@ -1,88 +1,64 @@
 import * as React from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const mermaidMock = vi.hoisted(() => ({
-  initialize: vi.fn(),
-  render: vi.fn(),
-}));
-
-vi.mock("mermaid", () => ({ default: mermaidMock }));
-
+import { createRoot } from "react-dom/client";
+import { Effect } from "effect";
+import { describe, expect, it } from "vitest";
 import { Mermaid } from "../components/mermaid";
 
-const render = (element: React.ReactElement): { container: HTMLDivElement; root: Root } => {
-  const container = document.createElement("div");
-  document.body.appendChild(container);
-  const root = createRoot(container);
-  root.render(element);
-  return { container, root };
-};
-
-const waitForFrames = async (predicate: () => boolean): Promise<void> => {
-  for (let frame = 0; frame < 120; frame += 1) {
-    if (predicate()) return;
-    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-  }
-
-  throw new Error("Timed out waiting for Mermaid render");
-};
-
-if (typeof document === "undefined") {
-  describe.skip("Mermaid rendering (browser)", () => {
-    it("runs only through apps/docs/vitest.browser.config.ts", () => {});
-  });
-} else {
-  describe("Mermaid rendering", () => {
-    beforeEach(() => {
-      mermaidMock.initialize.mockReset();
-      mermaidMock.render.mockReset();
-      document.body.replaceChildren();
-    });
-
-    it("loads the runtime on hydration and renders an SVG", async () => {
-      mermaidMock.render.mockResolvedValue({ svg: '<svg data-testid="diagram-svg"></svg>' });
-      const { container, root } = render(<Mermaid chart="flowchart TD\n  A-->B" />);
-
-      try {
-        await waitForFrames(() => container.querySelector('[data-testid="diagram-svg"]') !== null);
-        expect(mermaidMock.initialize).toHaveBeenCalledWith(
-          expect.objectContaining({
-            securityLevel: "strict",
-            startOnLoad: false,
-            theme: "default",
-          }),
-        );
-        expect(mermaidMock.render).toHaveBeenCalledOnce();
-        expect(container.querySelector('[data-testid="diagram-svg"]')).not.toBeNull();
-      } finally {
+const mount = (chart: string) =>
+  Effect.acquireRelease(
+    Effect.sync(() => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      root.render(<Mermaid chart={chart} />);
+      return { container, root };
+    }),
+    ({ container, root }) =>
+      Effect.sync(() => {
         root.unmount();
         container.remove();
-      }
-    });
+      }),
+  );
 
-    it("renders a fallback when the runtime rejects without an unhandled rejection", async () => {
-      mermaidMock.render.mockRejectedValue(new Error("parser failed"));
-      const unhandledRejections: Array<unknown> = [];
-      const onUnhandledRejection = (event: PromiseRejectionEvent): void => {
-        event.preventDefault();
-        unhandledRejections.push(event.reason);
-      };
-      window.addEventListener("unhandledrejection", onUnhandledRejection);
-      const { container, root } = render(<Mermaid chart="invalid chart" />);
+describe("Mermaid rendering", () => {
+  it(
+    "loads the real runtime and renders the diagram labels in an SVG",
+    () =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const { container } = yield* mount("flowchart TD\n  A[Certificate]-->B[Signature]");
+          yield* Effect.promise(() =>
+            expect.poll(() => container.querySelector("svg"), { timeout: 15000 }).not.toBeNull(),
+          );
+          expect(container.querySelector("svg")?.textContent).toContain("Certificate");
+          expect(container.querySelector("svg")?.textContent).toContain("Signature");
+        }).pipe(Effect.scoped),
+      ),
+    20000,
+  );
 
-      try {
-        await waitForFrames(
-          () => container.textContent?.includes("Unable to render Mermaid diagram.") ?? false,
-        );
-        await Promise.resolve();
-        expect(unhandledRejections).toEqual([]);
-        expect(container.textContent).toContain("Unable to render Mermaid diagram.");
-      } finally {
-        window.removeEventListener("unhandledrejection", onUnhandledRejection);
-        root.unmount();
-        container.remove();
-      }
-    });
-  });
-}
+  it(
+    "shows a fallback for invalid syntax without an unhandled rejection",
+    () =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const unhandledRejections: unknown[] = [];
+          const listener = (event: PromiseRejectionEvent): void => {
+            unhandledRejections.push(event.reason);
+          };
+          yield* Effect.acquireRelease(
+            Effect.sync(() => window.addEventListener("unhandledrejection", listener)),
+            () => Effect.sync(() => window.removeEventListener("unhandledrejection", listener)),
+          );
+          const { container } = yield* mount("invalid chart");
+          yield* Effect.promise(() =>
+            expect
+              .poll(() => container.textContent, { timeout: 15000 })
+              .toContain("Unable to render Mermaid diagram."),
+          );
+          expect(unhandledRejections).toEqual([]);
+        }).pipe(Effect.scoped),
+      ),
+    20000,
+  );
+});

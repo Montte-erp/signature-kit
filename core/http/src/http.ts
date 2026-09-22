@@ -435,7 +435,7 @@ export const signatureHttpClientLive: Layer.Layer<SignatureHttpClient> = Layer.s
             valid,
             (response) => response.body?.cancel() ?? Promise.resolve(),
             `Failed to discard ${valid.method} ${diagnosticRequestUrl(valid)} response body.`,
-          ).pipe(Effect.map(() => undefined)),
+          ).pipe(Effect.asVoid),
         ),
       ),
   },

@@ -383,7 +383,7 @@ export const validatePdfConformance = (
       name: "document.pdf",
       pdf: valid.pdf,
     }).pipe(
-      Effect.map(() => undefined),
+      Effect.asVoid,
       Effect.mapError(
         (error) =>
           new SignatureKitError({

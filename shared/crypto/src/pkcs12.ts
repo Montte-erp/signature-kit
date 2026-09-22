@@ -181,7 +181,7 @@ const consumeKdfWork = (
     );
   }
   budget.remaining -= work;
-  return Effect.succeed(undefined);
+  return Effect.void;
 };
 
 const pkcs12Kdf = (
@@ -407,7 +407,7 @@ const validateCbcParameters = (
       }),
     );
   }
-  return Effect.succeed(undefined);
+  return Effect.void;
 };
 
 const decryptPbes2 = (

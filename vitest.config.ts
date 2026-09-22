@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
@@ -9,6 +9,6 @@ export default defineConfig({
     },
   },
   test: {
-    setupFiles: ["./tooling/vitest/load-env.ts"],
+    exclude: [...configDefaults.exclude, "**/*.live.test.*"],
   },
 });

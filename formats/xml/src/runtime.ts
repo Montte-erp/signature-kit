@@ -1033,7 +1033,7 @@ const validateSignatureTransforms = (document: Document): Effect.Effect<void, Xm
     );
   }
 
-  return Effect.succeed(undefined);
+  return Effect.void;
 };
 
 const validateSigningDocument = (

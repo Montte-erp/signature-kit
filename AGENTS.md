@@ -254,6 +254,23 @@ with a `Provider.effect` and a collection layer); follow that shape.
   Do not introduce a custom state-store package until a real durable backend is
   required; demos and tests use Alchemy's built-in in-memory state.
 
+## Keep ownership small
+
+- Prefer native contracts and lifecycles. An abstraction must own domain policy,
+  boundary validation, resource lifetime, or demonstrated reuse. Forwarding,
+  renaming, adding a span, or keeping a caller short does not justify a layer.
+- Trace current owners and consumers before removing code. Include public package
+  exports, docs, tests, registry copies, and executable configuration; an external
+  API contract is a consumer even when this workspace does not call it.
+- Remove obsolete callers, exports, dependencies, aliases, and configuration in
+  the same cutover. Preserve behavior-bearing tests; do not optimize deletion counts.
+- Optional modes, empty catalogs, and extension points require a current consumer
+  or an explicit public contract. Do not retain scaffolding for hypothetical use.
+- Rules describe invariants once. Exact commands, versions, schemas, and package
+  inventories belong to executable owners. Prefer native lint/parser facilities
+  over handwritten lexers or name-based bans; test aliases, shadowing, multiline
+  syntax, template expressions, and actual file selection.
+
 ## Architecture taste
 
 - Core is a set of focused provider-agnostic packages: `@signature-kit/signatures`
@@ -427,6 +444,50 @@ validators/iti     @signature-kit/iti       ITI local and remote signature confo
   paths change. PDF verification fails closed on non-conforming `/Contents`, but
   tolerates ISO-32000-legal whitespace and odd-hex forms; unsigned holes must be
   zero or whitespace padding.
+
+## Test and release contracts
+
+- Test observable behavior with real implementations. New or rewritten tests use
+  scoped resources and local HTTP servers instead of module mocks, spies, patched
+  globals, or handwritten SDK doubles. Retain existing failure cases when replacing
+  a harness; existing violations are debt, not precedent.
+- Use Effect TestClock for Effect scheduling and native browser behavior for browser
+  lifecycles. Acquisition failure, assertion failure, and interruption must release
+  resources. Do not share mutable test resources across test cases.
+- Suite discovery includes all tests in its owning directories. Never enumerate
+  individual browser files in release/CI commands. Local suites must not activate
+  live provider writes from ambient developer configuration; live suites have
+  explicit commands and fail when required credentials are missing.
+- Verify cancellation, cleanup, malformed input, isolation, and real pagination
+  boundaries where relevant. Static gates assert architecture; behavior tests do
+  not substitute source spelling or copied constants for execution.
+- Release validation includes package build, static/type checks, local tests,
+  server and browser integration, performance checks, site build, and package
+  packing. Report local, CI, publication, and live-provider evidence separately.
+- Preserve the repository's Tegami release owner and npm trusted publishing.
+  Prepare a changelog, run `bun run release version`, and commit the generated
+  versions, changelog, and publish lock for CI review before publication;
+  a Git push or successful dry-run is not evidence of an npm release.
+
+## Effect-aware linting
+
+- Oxlint owns Effect diagnostics through the official `@effect/tsgo` integration.
+  Keep `@effect/tsgo`, `oxlint`, and `oxlint-tsgolint` pinned to the upstream
+  compatibility matrix. The root `prepare` patches Oxlint only; `tsc` still owns
+  package declaration builds and type checks.
+- Use the native correctness preset and the selected simplification rules in
+  `tooling/oxc/base.json`; docs inherit them. Warnings fail the lint gate.
+  Prefer native combinators over equivalent scaffolding. `Effect.void` has a
+  void success channel in the installed Effect version; preserve
+  `Effect.succeed(undefined)` when an optional-value contract requires undefined.
+  Do not enable `effect-succeed-with-void` until it respects that distinction. Do not duplicate those diagnostics in custom checks.
+- `any-unknown-in-error-context` remains opt-out because it also reports Alchemy's
+  native provider signatures and unknown SDK causes before boundary decoding.
+  This does not permit erasing public errors or requirements; existing typed
+  boundary rules still apply. Do not wrap native providers to silence a diagnostic.
+- Integration tests execute the installed patched Oxlint on real TypeScript
+  programs and assert both rejection and acceptance. A config entry alone does
+  not prove that type-aware analysis or the binary patch is active.
 
 ## Done means
 

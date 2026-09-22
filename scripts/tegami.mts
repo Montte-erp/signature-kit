@@ -5,12 +5,6 @@ import { createCli } from "tegami/cli";
 import { github } from "tegami/plugins/github";
 import { tegami } from "tegami";
 
-type ReleaseStatus = "none" | "pending" | "success";
-
-export const isVersionLockClear = (status: ReleaseStatus): boolean => status !== "pending";
-
-export const hasPublishPlan = (status: ReleaseStatus): boolean => status === "pending";
-
 export const createReleaseProject = (cwd = process.cwd()) =>
   tegami({
     cwd,
@@ -45,12 +39,12 @@ export const runReleaseCli = async (
   const command = argv[0];
   if (command === "version" || command === "publish") {
     const { status, reason } = await project.getPublishStatus();
-    if (command === "version" && !isVersionLockClear(status)) {
+    if (command === "version" && status === "pending") {
       console.error(reason ?? "A publish lock is already pending.");
       process.exitCode = 1;
       return;
     }
-    if (command === "publish" && !hasPublishPlan(status)) {
+    if (command === "publish" && status !== "pending") {
       console.error("No pending publish plan found.");
       process.exitCode = 1;
       return;

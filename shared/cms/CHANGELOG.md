@@ -1,3 +1,11 @@
+## @signature-kit/cms@0.2.2
+
+### Native byte conversion and verified release gates
+
+Use native Uint8Array copies at ASN.1 and WebCrypto boundaries, removing redundant buffer adapters while preserving byte offsets and detached-signature verification. Add coverage for sliced buffers and tampered content.
+
+The workspace now discovers every browser test, isolates live provider suites from local runs, and requires the complete CI validation workflow before publishing.
+
 # Changelog
 
 ## 0.2.1

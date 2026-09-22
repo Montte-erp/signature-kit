@@ -5,7 +5,6 @@ import * as pkijs from "pkijs";
 import { Schema } from "effect";
 import { IcpBrasilPolicySchema, CmsOid, hashAlgorithmOid } from "./config.js";
 import type { IcpBrasilPolicy } from "./config.js";
-import { toArrayBuffer } from "./engine.js";
 
 const contentTypeAttribute = (): pkijs.Attribute =>
   new pkijs.Attribute({
@@ -16,12 +15,12 @@ const contentTypeAttribute = (): pkijs.Attribute =>
 const messageDigestAttribute = (messageDigest: Uint8Array): pkijs.Attribute =>
   new pkijs.Attribute({
     type: CmsOid.messageDigest,
-    values: [new asn1js.OctetString({ valueHex: toArrayBuffer(messageDigest) })],
+    values: [new asn1js.OctetString({ valueHex: new Uint8Array(messageDigest).buffer })],
   });
 
 const signingCertificateV2Attribute = (certificateSha256: Uint8Array): pkijs.Attribute => {
   const essCertId = new ESSCertIDv2({
-    certHash: new OctetString(toArrayBuffer(certificateSha256)),
+    certHash: new OctetString(new Uint8Array(certificateSha256).buffer),
   });
   const scv2 = new SigningCertificateV2({ certs: [essCertId] });
   const scv2Der = AsnConvert.serialize(scv2);
@@ -41,7 +40,7 @@ const signaturePolicyAttribute = (policy: IcpBrasilPolicy): pkijs.Attribute => {
           new asn1js.ObjectIdentifier({ value: hashAlgorithmOid(policy.policyHashAlgorithm) }),
         ],
       }),
-      new asn1js.OctetString({ valueHex: toArrayBuffer(policy.policyHash) }),
+      new asn1js.OctetString({ valueHex: new Uint8Array(policy.policyHash).buffer }),
     ],
   });
   const qualifiers = new asn1js.Sequence({

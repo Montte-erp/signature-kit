@@ -1,11 +1,6 @@
-import { expect } from "@effect/vitest";
 import { createServer } from "node:http";
 import type { IncomingHttpHeaders, IncomingMessage, Server, ServerResponse } from "node:http";
 import { Effect } from "effect";
-
-export const expectProviderListResult = (result: unknown): void => {
-  expect(result).toEqual([]);
-};
 
 export type LocalRequest = {
   readonly method: string;

@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 import { Config, Effect } from "effect";
-import { toArrayBufferView } from "../../../tooling/testing/fixtures";
 import { loadFlaggedConfig, optionalIntEnv } from "../../../tooling/testing/env";
 
 export const DEFAULT_EXPECTED_STATUS_WITH_FIXTURE = 406;
@@ -24,6 +23,6 @@ export const expectedStatus = (expectedStatusOverride: number | undefined): numb
 
 export const sha256Hex = (bytes: Uint8Array): Effect.Effect<string> =>
   Effect.promise(async () => {
-    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", toArrayBufferView(bytes)));
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes)));
     return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
   });

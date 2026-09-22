@@ -2,24 +2,12 @@ import { Effect } from "effect";
 import { CmsError, CmsErrorCodeValue, CmsOperationValue, webCryptoHashName } from "./config.js";
 import type { CmsHashAlgorithm } from "./config.js";
 
-export const toArrayBuffer = (data: Uint8Array): ArrayBuffer => {
-  const copy = new Uint8Array(data.byteLength);
-  copy.set(data);
-  return copy.buffer;
-};
-
-export const toBufferSource = (data: Uint8Array): Uint8Array<ArrayBuffer> => {
-  const copy = new Uint8Array(data.byteLength);
-  copy.set(data);
-  return copy;
-};
-
 export const digest = (
   algorithm: CmsHashAlgorithm,
   data: Uint8Array,
 ): Effect.Effect<Uint8Array, CmsError> =>
   Effect.tryPromise({
-    try: () => crypto.subtle.digest(webCryptoHashName(algorithm), toBufferSource(data)),
+    try: () => crypto.subtle.digest(webCryptoHashName(algorithm), new Uint8Array(data)),
     catch: () =>
       new CmsError({
         code: CmsErrorCodeValue.unsupportedAlgorithm,
