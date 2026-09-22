@@ -37,10 +37,12 @@
     "check:static": "bun run check:declarative-errors && bun run lint && bun run lint:docs && bun run format:check",
     "check": "bun run check:nx && bun run check:konsistent && bun run check:static && bun run typecheck && bun run typecheck:test && bun run typecheck:docs",
     "pack:npm": "nx run-many --target=npm-pack --projects=tag:npm:public --parallel=1",
-    "release": "node scripts/tegami.mts"
+    "release": "node scripts/tegami.mts",
+    "prepare": "effect-tsgo patch --no-typescript --oxlint"
   },
   "devDependencies": {
     "@effect/platform-node": "4.0.0-beta.86",
+    "@effect/tsgo": "0.45.0",
     "@effect/vitest": "4.0.0-beta.86",
     "@fumapress/tegami": "0.7.3",
     "@nx/js": "23.0.2",
@@ -52,7 +54,8 @@
     "konsistent": "1.0.0-beta.3",
     "nx": "23.0.2",
     "oxfmt": "0.58.0",
-    "oxlint": "1.73.0",
+    "oxlint": "1.82.0",
+    "oxlint-tsgolint": "7.0.2001",
     "playwright": "^1.61.1",
     "tegami": "1.2.5",
     "typescript": "6.0.2",

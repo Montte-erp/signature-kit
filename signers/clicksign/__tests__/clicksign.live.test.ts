@@ -110,9 +110,10 @@ if (config === undefined) {
             }
           }).pipe(
             Effect.ensuring(
-              deleteClicksignSignatureRequest(options, id)
-                .pipe(Effect.provide(signatureHttpClientLive))
-                .pipe(Effect.orDie),
+              deleteClicksignSignatureRequest(options, id).pipe(
+                Effect.provide(signatureHttpClientLive),
+                Effect.orDie,
+              ),
             ),
           );
         }),

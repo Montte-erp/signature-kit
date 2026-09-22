@@ -1,6 +1,6 @@
 {
-  "$schema": "../../node_modules/oxlint/configuration_schema.json",
-  "plugins": ["typescript", "import"],
+  "$schema": "../../node_modules/@effect/tsgo/oxlint-schema.json",
+  "plugins": ["typescript", "import", "effecttsgo"],
   "categories": {
     "correctness": "error"
   },
@@ -9,13 +9,30 @@
     "no-unused-vars": "warn",
     "no-console": "off",
     "no-undef": "off",
-    "no-restricted-imports": ["error", { "paths": ["better-result", "evlog", "zod", "ky"] }],
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": ["better-result", "evlog", "zod", "ky"]
+      }
+    ],
     "typescript/no-require-imports": "error",
-
     "typescript/consistent-type-imports": [
       "error",
-      { "prefer": "type-imports", "fixStyle": "separate-type-imports" }
-    ]
+      {
+        "prefer": "type-imports",
+        "fixStyle": "separate-type-imports"
+      }
+    ],
+    "effecttsgo/unnecessary-effect-gen": "error",
+    "effecttsgo/unnecessary-pipe": "error",
+    "effecttsgo/unnecessary-pipe-chain": "error",
+    "effecttsgo/redundant-map-error": "error",
+    "effecttsgo/redundant-or-die": "error",
+    "effecttsgo/effect-map-flatten": "error",
+    "effecttsgo/effect-map-void": "error",
+    "effecttsgo/flat-map-to-map": "error",
+    "effecttsgo/sync-to-succeed": "error",
+    "effecttsgo/any-unknown-in-error-context": "off"
   },
   "ignorePatterns": [
     "dist/**",
@@ -24,5 +41,6 @@
     "**/.cache/**",
     "node_modules/**",
     "outputs/**"
-  ]
+  ],
+  "extends": ["../../node_modules/@effect/tsgo/oxlint-presets/correctness.json"]
 }

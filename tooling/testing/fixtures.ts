@@ -11,12 +11,6 @@ export const readA1Fixture = (name: A1FixtureName): Effect.Effect<Uint8Array> =>
       ),
   );
 
-export const toArrayBufferView = (bytes: Uint8Array): Uint8Array<ArrayBuffer> => {
-  const copy = new Uint8Array(bytes.byteLength);
-  copy.set(bytes);
-  return copy;
-};
-
 export const createPdfFixture = (): Uint8Array => {
   const encoder = new TextEncoder();
   const objects = [

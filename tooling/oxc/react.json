@@ -1,7 +1,7 @@
 {
-  "$schema": "../../node_modules/oxlint/configuration_schema.json",
+  "$schema": "../../node_modules/@effect/tsgo/oxlint-schema.json",
   "extends": ["./base.json"],
-  "plugins": ["typescript", "import", "react"],
+  "plugins": ["typescript", "import", "react", "effecttsgo"],
   "rules": {
     "react/rules-of-hooks": "error",
     "react/exhaustive-deps": "error",

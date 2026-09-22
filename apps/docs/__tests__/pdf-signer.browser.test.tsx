@@ -763,12 +763,13 @@ if (typeof document === "undefined") {
       );
       const password = signer.container.querySelector<HTMLInputElement>('input[type="password"]');
       if (password === null) expect.fail("certificate password input was not rendered");
-      const passwordValueSetter = Object.getOwnPropertyDescriptor(
+      const passwordValueDescriptor = Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
         "value",
-      )?.set;
-      if (passwordValueSetter === undefined) expect.fail("password value setter was not available");
-      passwordValueSetter.call(password, "changeit");
+      );
+      if (passwordValueDescriptor?.set === undefined)
+        expect.fail("password value setter was not available");
+      passwordValueDescriptor.set.call(password, "changeit");
       password.dispatchEvent(new Event("input", { bubbles: true }));
       const signLabels = [1, 2, 3, 4].map((count) =>
         m.signer_sign_button({
@@ -883,12 +884,13 @@ if (typeof document === "undefined") {
       );
       const password = signer.container.querySelector<HTMLInputElement>('input[type="password"]');
       if (password === null) expect.fail("certificate password input was not rendered");
-      const passwordValueSetter = Object.getOwnPropertyDescriptor(
+      const passwordValueDescriptor = Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
         "value",
-      )?.set;
-      if (passwordValueSetter === undefined) expect.fail("password value setter was not available");
-      passwordValueSetter.call(password, "changeit");
+      );
+      if (passwordValueDescriptor?.set === undefined)
+        expect.fail("password value setter was not available");
+      passwordValueDescriptor.set.call(password, "changeit");
       password.dispatchEvent(new Event("input", { bubbles: true }));
 
       const signLabels = [1, 2, 3, 4].map((count) =>

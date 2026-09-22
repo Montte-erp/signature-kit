@@ -427,21 +427,14 @@ function DocumentCanvas({
   }, []);
 
   React.useEffect(() => {
-    if (pages.length === 0) {
-      setVisiblePageIndexes(new Set());
-      return;
-    }
-    if (typeof IntersectionObserver === "undefined") {
-      setVisiblePageIndexes(new Set([0]));
-      return;
-    }
+    if (pages.length === 0 || typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver(
       (entries) => {
         setVisiblePageIndexes((current) => {
           const next = new Set(current);
           let changed = false;
           for (const entry of entries) {
-            const index = Number((entry.target as HTMLElement).dataset.pdfPageIndex);
+            const index = Number(entry.target.getAttribute("data-pdf-page-index"));
             if (!Number.isInteger(index)) continue;
             const visible = entry.isIntersecting || entry.intersectionRatio > 0;
             if (visible && !next.has(index)) {
@@ -559,7 +552,10 @@ function DocumentCanvas({
                   label: m.signer_ghost_repeat({ count: pages.length }),
                 }
               : undefined;
-          const visible = visiblePageIndexes.has(index);
+          const visible =
+            typeof IntersectionObserver === "undefined"
+              ? index === 0
+              : visiblePageIndexes.has(index);
           return (
             <div
               key={page.index}

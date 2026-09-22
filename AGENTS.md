@@ -469,6 +469,26 @@ validators/iti     @signature-kit/iti       ITI local and remote signature confo
   versions, changelog, and publish lock for CI review before publication;
   a Git push or successful dry-run is not evidence of an npm release.
 
+## Effect-aware linting
+
+- Oxlint owns Effect diagnostics through the official `@effect/tsgo` integration.
+  Keep `@effect/tsgo`, `oxlint`, and `oxlint-tsgolint` pinned to the upstream
+  compatibility matrix. The root `prepare` patches Oxlint only; `tsc` still owns
+  package declaration builds and type checks.
+- Use the native correctness preset and the selected simplification rules in
+  `tooling/oxc/base.json`; docs inherit them. Warnings fail the lint gate.
+  Prefer native combinators over equivalent scaffolding. `Effect.void` has a
+  void success channel in the installed Effect version; preserve
+  `Effect.succeed(undefined)` when an optional-value contract requires undefined.
+  Do not enable `effect-succeed-with-void` until it respects that distinction. Do not duplicate those diagnostics in custom checks.
+- `any-unknown-in-error-context` remains opt-out because it also reports Alchemy's
+  native provider signatures and unknown SDK causes before boundary decoding.
+  This does not permit erasing public errors or requirements; existing typed
+  boundary rules still apply. Do not wrap native providers to silence a diagnostic.
+- Integration tests execute the installed patched Oxlint on real TypeScript
+  programs and assert both rejection and acceptance. A config entry alone does
+  not prove that type-aware analysis or the binary patch is active.
+
 ## Done means
 
 - `bun run build && bun run check && bun run test` was actually run and reported.

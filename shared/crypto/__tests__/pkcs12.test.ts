@@ -481,7 +481,7 @@ const makeCustomPfx = (
   privateKeyInfo: Uint8Array,
   certificateLocalKeyId: Uint8Array,
   keyLocalKeyId: Uint8Array,
-  parameterIv: Uint8Array | undefined = undefined,
+  parameterIv?: Uint8Array,
 ): Effect.Effect<Uint8Array> =>
   Effect.gen(function* () {
     const encrypted = yield* encryptPbes2(privateKeyInfo);

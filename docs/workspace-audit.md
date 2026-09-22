@@ -22,6 +22,30 @@ The review compared this repository with the current architecture and testing ru
 - Tegami generated CMS 0.2.2 and validated the publish lock in dry-run mode. CI and npm publication require separate remote evidence.
 - Live signer APIs and ITI were not called. Their discovery was checked without importing tests or contacting providers.
 
+## Effect-aware lint follow-up
+
+The installed `@effect/tsgo` integration now patches Oxlint through the root prepare
+script, using the compatible pinned Oxlint and tsgolint versions. The native
+correctness preset and selected simplification rules run for packages and docs.
+A regression test executes the installed patched linter against valid and invalid
+programs, so CI detects an absent patch or missing type analysis.
+
+Removed redundant void mappings, chained pipes, a single-consumer buffer wrapper,
+and release status forwarding helpers. The PDF viewer derives its no-observer
+fallback without synchronous state updates inside its resource effect.
+
+Two rule boundaries are intentional: `any-unknown-in-error-context` also flags
+native Alchemy signatures and undecoded SDK failures, so it is disabled;
+`effect-succeed-with-void` is not selected because the installed Effect version
+returns void, which is incompatible with optional-value contracts returning
+undefined. Build errors verified that distinction; public types were preserved.
+
+Follow-up verification: build and all checks passed; 571 local tests in 61 files,
+73 browser tests, and five performance tests passed. The live ITI integration
+also passed using the committed fixture and its expected validator response.
+Remote signer creation APIs were not called. The extra package cleanups have a
+pending Tegami entry; the existing CMS publish lock remains unchanged.
+
 ## Remaining debt
 
 This is not a claim that every package or test satisfies every written rule.

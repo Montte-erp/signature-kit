@@ -4,12 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
 import { Effect, Schema } from "effect";
-import {
-  createReleaseProject,
-  hasPublishPlan,
-  isVersionLockClear,
-  runReleaseCli,
-} from "./tegami.mts";
+import { createReleaseProject, runReleaseCli } from "./tegami.mts";
 
 const temporaryRoots: string[] = [];
 const originalCi = process.env.CI;
@@ -99,7 +94,7 @@ describe("Tegami release guards", () => {
     await runReleaseCli(project, ["publish", "--dry-run"]);
 
     expect(process.exitCode).toBeUndefined();
-    expect(hasPublishPlan((await project.getPublishStatus()).status)).toBe(true);
+    expect((await project.getPublishStatus()).status).toBe("pending");
   });
 
   it("keeps the parseable workflow gates ordered before real publish", async () => {
@@ -133,12 +128,5 @@ describe("Tegami release guards", () => {
     expect(positions.every((position) => position >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
     expect(commands).not.toContain("bun run release version");
-  });
-
-  it("classifies lock statuses without treating absence as publishable", () => {
-    expect(isVersionLockClear("none")).toBe(true);
-    expect(isVersionLockClear("pending")).toBe(false);
-    expect(hasPublishPlan("none")).toBe(false);
-    expect(hasPublishPlan("pending")).toBe(true);
   });
 });
