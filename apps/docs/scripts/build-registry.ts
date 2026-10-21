@@ -1,3 +1,4 @@
+import docsPackage from "../package.json" with { type: "json" };
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,7 +43,10 @@ export const registry = {
       description:
         "Password confirmation form for browser A1 signing, with callback-owned persistence.",
       registryDependencies: ["button", "checkbox", "input", "label"],
-      dependencies: ["@tanstack/react-form@1.33.2", "lucide-react"],
+      dependencies: [
+        `@tanstack/react-form@${docsPackage.dependencies["@tanstack/react-form"]}`,
+        "lucide-react",
+      ],
       files: [
         {
           path: "registry/default/signature-certificate-form/signature-certificate-form.tsx",
@@ -61,7 +65,7 @@ export const registry = {
       dependencies: [
         "@signature-kit/react",
         "@signature-kit/a1",
-        "@tanstack/react-form@1.33.2",
+        `@tanstack/react-form@${docsPackage.dependencies["@tanstack/react-form"]}`,
         "lucide-react",
       ],
       files: [
@@ -81,9 +85,9 @@ export const registry = {
       registryDependencies: ["badge", "button"],
       dependencies: [
         "@signature-kit/pdf",
-        "effect@4.0.0-beta.86",
+        `effect@${docsPackage.dependencies.effect}`,
         "lucide-react",
-        "react-pdf@10.4.1",
+        `react-pdf@${docsPackage.dependencies["react-pdf"]}`,
       ],
       files: [
         {
@@ -106,8 +110,8 @@ export const registry = {
         "@signature-kit/pdf",
         "@signature-kit/cms",
         "@signature-kit/signatures",
-        "@tanstack/react-form@1.33.2",
-        "effect@4.0.0-beta.86",
+        `@tanstack/react-form@${docsPackage.dependencies["@tanstack/react-form"]}`,
+        `effect@${docsPackage.dependencies.effect}`,
         "lucide-react",
       ],
       files: [

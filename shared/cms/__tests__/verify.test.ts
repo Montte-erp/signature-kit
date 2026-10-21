@@ -37,18 +37,26 @@ const createCertificateFixture = async (
   );
   const certificate = new pkijs.Certificate();
   certificate.version = 2;
-  certificate.serialNumber = new asn1js.Integer({ value: serialNumber });
+  certificate.serialNumber.valueBlock.valueDec = serialNumber;
   certificate.issuer.typesAndValues.push(
-    new pkijs.AttributeTypeAndValue({
-      type: "2.5.4.3",
-      value: new asn1js.Utf8String({ value: commonName }),
-    }),
+    pkijs.AttributeTypeAndValue.fromBER(
+      new asn1js.Sequence({
+        value: [
+          new asn1js.ObjectIdentifier({ value: "2.5.4.3" }),
+          new asn1js.Utf8String({ value: commonName }),
+        ],
+      }).toBER(false),
+    ),
   );
   certificate.subject.typesAndValues.push(
-    new pkijs.AttributeTypeAndValue({
-      type: "2.5.4.3",
-      value: new asn1js.Utf8String({ value: commonName }),
-    }),
+    pkijs.AttributeTypeAndValue.fromBER(
+      new asn1js.Sequence({
+        value: [
+          new asn1js.ObjectIdentifier({ value: "2.5.4.3" }),
+          new asn1js.Utf8String({ value: commonName }),
+        ],
+      }).toBER(false),
+    ),
   );
   certificate.notBefore.value = new Date("2020-01-01T00:00:00.000Z");
   certificate.notAfter.value = new Date("2040-01-01T00:00:00.000Z");
@@ -191,9 +199,8 @@ describe("CMS detached verification", () => {
     Effect.gen(function* () {
       const fixture = yield* createCmsFixture();
       const { contentInfo, signed } = parseCms(fixture.cms);
-      signed.encapContentInfo.eContent = new asn1js.OctetString({
-        valueHex: new Uint8Array(fixture.content).buffer,
-      });
+      signed.encapContentInfo.eContent = pkijs.EncapsulatedContentInfo.defaultValues("eContent");
+      signed.encapContentInfo.eContent.valueBlock.valueHexView = new Uint8Array(fixture.content);
       const tamperedContent = new Uint8Array(fixture.content);
       tamperedContent[0] = (tamperedContent[0] ?? 0) ^ 0xff;
 

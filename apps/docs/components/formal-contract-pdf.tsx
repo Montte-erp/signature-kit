@@ -188,16 +188,16 @@ const styles = StyleSheet.create({
 const Identification = ({
   name,
   document,
-  role,
+  partyRole,
 }: {
   name: string;
   document: string;
-  role: string;
+  partyRole: string;
 }) => (
   <>
     <Text style={styles.partyName}>{name}</Text>
     <Text style={styles.partyDoc}>{document}</Text>
-    <Text style={styles.partyRole}>{role}</Text>
+    <Text style={styles.partyRole}>{partyRole}</Text>
   </>
 );
 
@@ -209,7 +209,7 @@ function SignatureLineVariant({ signed }: { signed?: SignedMark }) {
   return (
     <View style={styles.centerBlock}>
       <View style={styles.markBand}>
-        {signed ? (
+        {signed !== undefined ? (
           <Text style={styles.markName}>{signed.name}</Text>
         ) : (
           <Text style={styles.markHint}>Assinatura</Text>
@@ -219,9 +219,9 @@ function SignatureLineVariant({ signed }: { signed?: SignedMark }) {
       <Identification
         name={signed?.name ?? PARTY_NAME}
         document={signed?.document ?? PARTY_DOCUMENT}
-        role="CONTRATANTE"
+        partyRole="CONTRATANTE"
       />
-      {signed ? <SignedStamp date={signed.date} /> : null}
+      {signed !== undefined ? <SignedStamp date={signed.date} /> : null}
     </View>
   );
 }
@@ -230,8 +230,8 @@ function SignatureFieldVariant({ signed }: { signed?: SignedMark }) {
   return (
     <View style={styles.fieldBlock}>
       <Text style={styles.fieldTab}>ASSINATURA</Text>
-      <View style={[styles.fieldBox, signed ? {} : styles.fieldBoxEmpty]}>
-        {signed ? (
+      <View style={[styles.fieldBox, signed !== undefined ? {} : styles.fieldBoxEmpty]}>
+        {signed !== undefined ? (
           <>
             <Text style={styles.markName}>{signed.name}</Text>
             <SignedStamp date={signed.date} />
@@ -252,21 +252,21 @@ function SignatureWitnessedVariant({ signed }: { signed?: SignedMark }) {
     <View style={styles.wideBlock}>
       <View style={styles.col}>
         <View style={styles.markBand}>
-          {signed ? <Text style={styles.markName}>{signed.name}</Text> : null}
+          {signed !== undefined ? <Text style={styles.markName}>{signed.name}</Text> : null}
         </View>
         <View style={styles.line} />
         <Identification
           name={signed?.name ?? PARTY_NAME}
           document={signed?.document ?? PARTY_DOCUMENT}
-          role="CONTRATANTE"
+          partyRole="CONTRATANTE"
         />
       </View>
       <View style={styles.col}>
         <View style={styles.markBand}>
-          {signed ? <Text style={styles.markNameSm}>{WITNESS_NAME}</Text> : null}
+          {signed !== undefined ? <Text style={styles.markNameSm}>{WITNESS_NAME}</Text> : null}
         </View>
         <View style={styles.line} />
-        <Identification name={WITNESS_NAME} document={WITNESS_DOCUMENT} role="TESTEMUNHA" />
+        <Identification name={WITNESS_NAME} document={WITNESS_DOCUMENT} partyRole="TESTEMUNHA" />
       </View>
     </View>
   );
@@ -281,7 +281,7 @@ function SignatureInitialsVariant({ signed }: { signed?: SignedMark }) {
       </View>
       <View style={styles.sigCol}>
         <View style={styles.markBand}>
-          {signed ? (
+          {signed !== undefined ? (
             <Text style={styles.markName}>{signed.name}</Text>
           ) : (
             <Text style={styles.markHint}>Assinatura</Text>
@@ -291,7 +291,7 @@ function SignatureInitialsVariant({ signed }: { signed?: SignedMark }) {
         <Identification
           name={signed?.name ?? PARTY_NAME}
           document={signed?.document ?? PARTY_DOCUMENT}
-          role="CONTRATANTE"
+          partyRole="CONTRATANTE"
         />
       </View>
     </View>
@@ -312,7 +312,7 @@ function SignatureComponent({
       return <SignatureWitnessedVariant signed={signed} />;
     case "initials":
       return <SignatureInitialsVariant signed={signed} />;
-    default:
+    case "line":
       return <SignatureLineVariant signed={signed} />;
   }
 }

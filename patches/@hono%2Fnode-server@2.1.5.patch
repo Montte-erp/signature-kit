@@ -1,0 +1,24 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index e578de054e8855cd264743e014c32ba4c2d8eac5..29d55007c344abb559fd9e7077890cd643308b1b 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -534,6 +534,7 @@ Object.defineProperty(requestPrototype, "signal", { get() {
+ 	"cache",
+ 	"credentials",
+ 	"destination",
++	"duplex",
+ 	"integrity",
+ 	"mode",
+ 	"redirect",
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 4f5954d707ae457a0713186d4102b2f2d68807c6..3850e643e32ddbca3fb77869667b32ff686dc574 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -533,6 +533,7 @@ Object.defineProperty(requestPrototype, "signal", { get() {
+ 	"cache",
+ 	"credentials",
+ 	"destination",
++	"duplex",
+ 	"integrity",
+ 	"mode",
+ 	"redirect",

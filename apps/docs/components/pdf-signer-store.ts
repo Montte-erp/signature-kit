@@ -41,6 +41,7 @@ export type SignerRuntimeState = {
   readonly busy: boolean;
   readonly status: string;
   readonly error: string;
+  readonly logoDataUrl: string | undefined;
   readonly signatureDataUrl: string | undefined;
   readonly rubricaDataUrl: string | undefined;
   readonly rows: Record<string, BatchRow>;
@@ -59,6 +60,7 @@ const signerRuntimeInitial = (): SignerRuntimeState => ({
   busy: false,
   status: "",
   error: "",
+  logoDataUrl: undefined,
   signatureDataUrl: undefined,
   rubricaDataUrl: undefined,
   rows: {},
@@ -98,6 +100,7 @@ export type PdfSignerController = {
   readonly isCurrentPreview: (generation: number) => boolean;
   readonly isDocumentMutationLocked: (owner?: PlacementOwner) => boolean;
   readonly acquirePlacementLease: () => Promise<PlacementLease | undefined>;
+  readonly activate: () => void;
   readonly dispose: () => void;
 };
 
@@ -116,6 +119,7 @@ export const createPdfSignerController = (): PdfSignerController => {
   const activeLeases = new Set<() => void>();
   const pendingPlacementGates = new Set<() => void>();
   let mounted = true;
+  let lifecycle = 0;
   let workflowGeneration = 0;
   let previewGeneration = 0;
   let placementTail = Promise.resolve();
@@ -186,13 +190,14 @@ export const createPdfSignerController = (): PdfSignerController => {
   };
 
   const acquirePlacementLease = async (): Promise<PlacementLease | undefined> => {
+    const acquiredLifecycle = lifecycle;
     const previous = placementTail;
     const gate = Promise.withResolvers<void>();
     placementTail = gate.promise;
     pendingPlacementGates.add(gate.resolve);
     await previous;
     pendingPlacementGates.delete(gate.resolve);
-    if (!mounted) {
+    if (!mounted || acquiredLifecycle !== lifecycle) {
       gate.resolve();
       return undefined;
     }
@@ -213,6 +218,7 @@ export const createPdfSignerController = (): PdfSignerController => {
   const dispose = (): void => {
     if (!mounted) return;
     mounted = false;
+    lifecycle += 1;
     workflowGeneration += 1;
     previewGeneration += 1;
     cancelAll(workflowInterruptors);
@@ -239,6 +245,9 @@ export const createPdfSignerController = (): PdfSignerController => {
     isCurrentPreview,
     isDocumentMutationLocked,
     acquirePlacementLease,
+    activate: () => {
+      mounted = true;
+    },
     dispose,
   };
 };

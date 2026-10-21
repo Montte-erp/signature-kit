@@ -91,7 +91,10 @@ const cryptoErrorReasonOverridableByCode = {
   "crypto.UNKNOWN": true,
 } satisfies Record<CryptoErrorCode, boolean>;
 
-export class CryptoError extends Schema.TaggedErrorClass<CryptoError>()("CryptoError", {
+export class CryptoError extends Schema.TaggedError<
+  CryptoError,
+  { readonly brand: unique symbol }
+>()("CryptoError", {
   code: CryptoErrorCodeSchema,
   reason: Schema.optional(Schema.String),
   operation: Schema.optional(CryptoOperationSchema),

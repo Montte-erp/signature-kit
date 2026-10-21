@@ -67,18 +67,26 @@ const createTsaSigner = async ({
   const keyPair = await cryptoEngine.generateKey(keyAlgorithm, true, parameters.usages);
   const certificate = new pkijs.Certificate();
   certificate.version = 2;
-  certificate.serialNumber = new asn1js.Integer({ value: 1 });
+  certificate.serialNumber.valueBlock.valueDec = 1;
   certificate.issuer.typesAndValues.push(
-    new pkijs.AttributeTypeAndValue({
-      type: "2.5.4.3",
-      value: new asn1js.BmpString({ value: "SignatureKit Test TSA" }),
-    }),
+    pkijs.AttributeTypeAndValue.fromBER(
+      new asn1js.Sequence({
+        value: [
+          new asn1js.ObjectIdentifier({ value: "2.5.4.3" }),
+          new asn1js.BmpString({ value: "SignatureKit Test TSA" }),
+        ],
+      }).toBER(false),
+    ),
   );
   certificate.subject.typesAndValues.push(
-    new pkijs.AttributeTypeAndValue({
-      type: "2.5.4.3",
-      value: new asn1js.BmpString({ value: "SignatureKit Test TSA" }),
-    }),
+    pkijs.AttributeTypeAndValue.fromBER(
+      new asn1js.Sequence({
+        value: [
+          new asn1js.ObjectIdentifier({ value: "2.5.4.3" }),
+          new asn1js.BmpString({ value: "SignatureKit Test TSA" }),
+        ],
+      }).toBER(false),
+    ),
   );
   certificate.notBefore.value = new Date("2020-01-01T00:00:00Z");
   certificate.notAfter.value = new Date("2030-01-01T00:00:00Z");
@@ -182,6 +190,8 @@ const timestampResponse = async (
 ): Promise<Uint8Array> => {
   const requestSchema = asn1js.fromBER(new Uint8Array(requestDer).buffer);
   const request = new pkijs.TimeStampReq({ schema: requestSchema.result });
+  const serialNumber = pkijs.TSTInfo.defaultValues("serialNumber");
+  serialNumber.valueBlock.valueDec = 1;
   const tstInfoBase = {
     version: 1,
     policy: "1.2.3.4",
@@ -189,7 +199,7 @@ const timestampResponse = async (
       hashAlgorithm: request.messageImprint.hashAlgorithm,
       hashedMessage: request.messageImprint.hashedMessage,
     }),
-    serialNumber: new asn1js.Integer({ value: 1 }),
+    serialNumber,
     genTime: new Date(),
   };
   const tstInfo = new pkijs.TSTInfo(
@@ -203,11 +213,13 @@ const timestampResponse = async (
           tstInfoDer,
           options.signingCertificateDers ?? [signer.certificateDer],
         );
+  const eContent = pkijs.EncapsulatedContentInfo.defaultValues("eContent");
+  eContent.valueBlock.valueHexView = new Uint8Array(tstInfoDer);
   const signed = new pkijs.SignedData({
     version: 3,
     encapContentInfo: new pkijs.EncapsulatedContentInfo({
       eContentType: TSA_TST_INFO_CONTENT_TYPE,
-      eContent: new asn1js.OctetString({ valueHex: tstInfoDer }),
+      eContent,
     }),
     signerInfos:
       signer === undefined
@@ -227,7 +239,7 @@ const timestampResponse = async (
   if (signer !== undefined) {
     await signed.sign(signer.privateKey, 0, "SHA-256");
     const signature = signed.signerInfos[0]?.signature.valueBlock.valueHexView;
-    if (options.tamperSignature && signature !== undefined && signature.byteLength > 0) {
+    if (options.tamperSignature === true && signature !== undefined && signature.byteLength > 0) {
       signature[0] = (signature[0] ?? 0) ^ 0x01;
     }
   }

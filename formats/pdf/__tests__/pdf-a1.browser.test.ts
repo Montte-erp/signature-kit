@@ -1,3 +1,4 @@
+import { readA1FixtureFromBrowser } from "../../../tooling/testing/fixtures.browser";
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName } from "@cantoo/pdf-lib";
 import { describe, expect, it } from "vitest";
 import { a1SignaturesLayer, parseA1CertificateProfile } from "@signature-kit/a1/signer";
@@ -22,17 +23,6 @@ import { Effect, Layer, Redacted, Result, Schema } from "effect";
 
 const PASSWORD = Redacted.make("changeit");
 const latin1 = new TextDecoder("latin1");
-
-const readA1FixtureFromBrowser = (name: "ecpf" | "ecnpj"): Effect.Effect<Uint8Array> =>
-  Effect.promise(async () => {
-    const fixtureUrl = new URL(
-      `../../../signers/a1/__tests__/fixtures/${name}.p12`,
-      import.meta.url,
-    );
-    const response = await fetch(fixtureUrl);
-    expect(response.ok).toBe(true);
-    return new Uint8Array(await response.arrayBuffer());
-  });
 
 const createPdf: Effect.Effect<Uint8Array> = Effect.promise(async () => {
   const pdf = await PDFDocument.create();

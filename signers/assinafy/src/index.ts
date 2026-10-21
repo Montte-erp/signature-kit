@@ -9,7 +9,18 @@ import { SignatureHttpClient, bearerAuthorization, normalizedBaseUrl } from "@si
 import type { SignatureHttpClientService, SignatureHttpHeaders } from "@signature-kit/http";
 import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
-import { Context, Effect, Layer, Match, Option, Redacted, Schema, Stream } from "effect";
+import {
+  Context,
+  Duration,
+  Effect,
+  Layer,
+  Match,
+  Option,
+  Redacted,
+  Schedule,
+  Schema,
+  Stream,
+} from "effect";
 
 const AssinafySchemaName = {
   providerOptions: "AssinafyProviderOptions",
@@ -57,7 +68,7 @@ export type AssinafyDocumentUploadProps = (typeof AssinafyDocumentUploadPropsSch
 export const AssinafySignerSchema = Schema.Struct({
   name: Schema.NonEmptyString,
   email: Schema.NonEmptyString,
-  routingOrder: Schema.optional(Schema.Number),
+  routingOrder: Schema.optional(Schema.Finite),
 });
 export type AssinafySigner = (typeof AssinafySignerSchema)["Type"];
 
@@ -622,18 +633,11 @@ const createAssinafySignatureRequest = (
         Effect.flatMap((signerIds) =>
           createAssignment(http, options, baseUrl, uploadedDocument.id, signerIds, input),
         ),
-        Effect.catch((error) =>
-          shouldRollbackAssinafyCreate(error)
-            ? deleteAssinafySignatureRequestInternal(
-                http,
-                options,
-                baseUrl,
-                uploadedDocument.id,
-              ).pipe(
-                Effect.catch(() => Effect.void),
-                Effect.flatMap(() => Effect.fail(error)),
-              )
-            : Effect.fail(error),
+        Effect.catchIf(shouldRollbackAssinafyCreate, (error) =>
+          deleteAssinafySignatureRequestInternal(http, options, baseUrl, uploadedDocument.id).pipe(
+            Effect.ignore,
+            Effect.flatMap(() => Effect.fail(error)),
+          ),
         ),
         Effect.flatMap((assignment) =>
           getAssinafySignatureRequestInternal(http, options, baseUrl, uploadedDocument.id).pipe(
@@ -786,3 +790,39 @@ export const downloadAssinafySignedDocument = (
     const http = yield* SignatureHttpClient;
     return yield* downloadAssinafySignedDocumentInternal(http, valid, assinafyBaseUrl(valid), id);
   });
+
+export const waitForAssinafySignatureRequest = Effect.fn(function* (
+  options: AssinafyProviderOptions,
+  id: string,
+  pollInterval: Duration.Duration,
+): Effect.fn.Return<AssinafySignatureRequestAttributes, SignatureKitError, SignatureHttpClient> {
+  const interval = yield* Schema.decodeUnknownEffect(
+    Schema.Duration.check(
+      Schema.makeFilter((value) => Duration.isFinite(value) && Duration.isPositive(value)),
+    ),
+  )(pollInterval).pipe(
+    Effect.mapError(
+      (issue) =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.invalidInput,
+          retryable: false,
+          provider: PROVIDER,
+          operation: SignatureKitOperationValue.schemaDecode,
+          schemaName: "AssinafyPollInterval",
+          issueMessage: String(issue),
+          reason: "Polling requires a positive, finite interval.",
+        }),
+    ),
+  );
+  return yield* getAssinafySignatureRequest(options, id).pipe(
+    Effect.repeat({
+      while: (request) =>
+        Match.value(request.state).pipe(
+          Match.whenOr("draft", "sent", () => true),
+          Match.whenOr("completed", "cancelled", "deleted", "declined", "expired", () => false),
+          Match.exhaustive,
+        ),
+      schedule: Schedule.spaced(interval),
+    }),
+  );
+});

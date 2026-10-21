@@ -1,5 +1,5 @@
 import { createChangelogIndexPage } from "@fumapress/tegami";
-import type { ConfigContext } from "fumapress";
+import type { AppShape } from "fumapress";
 import { createBlogIndexPage } from "fumapress/layouts/blog.index";
 import { createBlogTagPage, createBlogTagsPage } from "fumapress/layouts/blog.tags";
 import { createDocsLayoutPage } from "fumapress/layouts/docs";
@@ -77,7 +77,7 @@ function CollectionMeta({
   );
 }
 
-export function createSiteLayouts<C extends ConfigContext>() {
+export function createSiteLayouts<C extends AppShape>() {
   const PressRootLayout = createRootLayout<C>();
   const PressHomeLayout = createHomeLayout<C>({ inherit: { layoutProps: true } });
   const englishCopy = collectionCopy("en-US");

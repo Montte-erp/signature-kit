@@ -9,7 +9,11 @@ const hasTypeAssertion = (line: string): boolean => {
       continue;
     }
 
-    if (!rest || /^\s*[,.;:)\]}]/.test(rest) || !/^([A-Za-z_$]|\[|\{|<|\()./.test(rest)) {
+    if (
+      rest.length === 0 ||
+      /^\s*[,.;:)\]}]/.test(rest) ||
+      !/^([A-Za-z_$]|\[|\{|<|\()./.test(rest)
+    ) {
       continue;
     }
     return true;
@@ -18,7 +22,7 @@ const hasTypeAssertion = (line: string): boolean => {
 };
 
 const hasTaggedErrorAny = (line: string): boolean =>
-  /\bTaggedErrorClass\s*<[^>]*\bany\b[^>]*>/.test(line);
+  /\bTaggedError\s*<[^>]*\bany\b[^>]*>/.test(line);
 
 const hasErasedEffectAny = (line: string): boolean =>
   /\bEffect\.Effect\s*<[^>]*\bany\b[^>]*>/.test(line);

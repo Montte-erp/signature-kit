@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { mergeConfig } from "vitest/config";
 
-import baseBrowserConfig from "../../tooling/vitest/browser.config";
+import baseBrowserConfig from "../../tooling/vitest/browser.config.ts";
 
 const docsRoot = path.dirname(fileURLToPath(import.meta.url));
 

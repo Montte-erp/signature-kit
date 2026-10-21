@@ -30,6 +30,12 @@ export const roots = [
 ].filter((path) => existsSync(path));
 
 export const allowedEffectProvideSites: Record<string, readonly string[]> = {
+  "formats/pdf/src/worker-browser.ts": ["RpcClient.layerProtocolWorker", "BrowserWorker.layer"],
+  "formats/pdf/src/browser.worker.ts": [
+    "pdfWorkerHandlersLayer",
+    "RpcServer.layerProtocolWorkerRunner",
+    "BrowserWorkerRunner.layer",
+  ],
   "signers/assinafy/src/index.ts": [
     "assinafySignatureRequestProvider",
     "assinafyCredentialsLayer(options)",

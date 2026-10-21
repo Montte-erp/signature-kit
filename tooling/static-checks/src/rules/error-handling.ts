@@ -55,14 +55,17 @@ const hasRuntimeErrorHelpers = (context: CheckContext): boolean => {
   const runtimeLines = getRuntimeErrorLines(context.sourceFile);
   if (runtimeLines.has(context.lineNumber - 1)) {
     const isTestFile = /(?:^|\/)__tests__\/|(?:\.test|\.spec)\.[^./]+$/.test(context.path);
-    if (!isTestFile || !assertionThrowLines.get(context.sourceFile)?.has(context.lineNumber - 1)) {
+    if (
+      !isTestFile ||
+      assertionThrowLines.get(context.sourceFile)?.has(context.lineNumber - 1) !== true
+    ) {
       return true;
     }
   }
   return /\b(?:isHTTPError|isTimeoutError|HTTPError|TimeoutError)\b(?!\s*:)/.test(context.line);
 };
 const hasErrorFactoryOrClassName = (line: string, _path: string, source: string): boolean => {
-  if (/TaggedErrorClass/.test(line) || /Schema\.TaggedError/.test(line)) {
+  if (/TaggedError/.test(line) || /Schema\.TaggedError/.test(line)) {
     return false;
   }
 
@@ -70,7 +73,7 @@ const hasErrorFactoryOrClassName = (line: string, _path: string, source: string)
     /\b(?:export\s+)?(?:(function|class)\s+([A-Za-z_$][\w$]*)|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=)/.exec(
       line,
     );
-  if (!declarationMatch) {
+  if (declarationMatch === null) {
     return false;
   }
 
@@ -96,7 +99,7 @@ const hasErrorFactoryOrClassName = (line: string, _path: string, source: string)
     const start = source.indexOf(line);
     if (start !== -1) {
       const tail = source.slice(start, start + line.length + 200);
-      if (/\bTaggedErrorClass\b/.test(tail) || /\bSchema\.TaggedError\b/.test(tail)) {
+      if (/\bTaggedError\b/.test(tail) || /\bSchema\.TaggedError\b/.test(tail)) {
         return false;
       }
     }
@@ -131,7 +134,7 @@ export const errorHandlingChecks: readonly Check[] = [
   },
   {
     message:
-      "Use a TaggedErrorClass/Schema.TaggedErrorClass helper at the decision point. Do not create *Failure/*Fault/*Error helpers elsewhere.",
+      "Use a TaggedError/Schema.TaggedError helper at the decision point. Do not create *Failure/*Fault/*Error helpers elsewhere.",
     test: ({ line, path, source }) => hasErrorFactoryOrClassName(line, path, source),
     ignoreImportLine: true,
   },

@@ -83,7 +83,9 @@ export const InstallCommand = ({
       variant="outline"
       size="lg"
       aria-label={copied ? copiedLabel : copyLabel}
-      onClick={handleCopy}
+      onClick={() => {
+        void handleCopy();
+      }}
       className={cn("max-w-full min-w-0 shrink gap-3 font-mono text-foreground", className)}
     >
       <span aria-hidden className="shrink-0 text-muted-foreground/60">

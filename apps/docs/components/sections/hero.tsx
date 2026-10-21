@@ -16,7 +16,7 @@ const EASE: CubicBezier = [0.23, 1, 0.32, 1];
 
 export function Hero({ locale }: { readonly locale: Locale }) {
   const reduce = useReducedMotion();
-  const offset = reduce ? 0 : 12;
+  const offset = reduce === true ? 0 : 12;
   return (
     <section className="relative overflow-hidden">
       <div className="mx-auto flex max-w-5xl flex-col items-center px-6 pt-20 pb-14 text-center sm:pt-24 sm:pb-16 lg:pt-28 lg:pb-20">

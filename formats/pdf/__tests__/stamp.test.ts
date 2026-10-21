@@ -388,6 +388,91 @@ const expectRunInside = (
 };
 
 describe("stampPdfRubric", () => {
+  it.effect("keeps premeasured badge values on one PDF text line", () =>
+    Effect.gen(function* () {
+      const pdf = yield* createThreePagePdf;
+      const value = "TrustSign Tests";
+      const encoded = yield* Effect.promise(async () => {
+        const document = await PDFDocument.create();
+        const font = await document.embedFont(StandardFonts.Helvetica);
+        return font.encodeText(value).toString();
+      });
+      const stamped = yield* stampPdfVisibleSignature({
+        pdf,
+        pageIndex: 0,
+        rect: { pageIndex: 0, x: 0, y: 0, width: 320, height: 128 },
+        badge: { header: { text: "Signed" }, rows: [[{ label: "Company", value }]], footer: [] },
+      });
+      expect(decodedFlateStreams(stamped)).toContain(`${encoded} Tj`);
+    }),
+  );
+
+  it.effect("rejects a badge that has no positive drawing area inside its padding", () =>
+    Effect.gen(function* () {
+      const pdf = yield* createThreePagePdf;
+      const result = yield* Effect.result(
+        stampPdfVisibleSignature({
+          pdf,
+          pageIndex: 0,
+          rect: { pageIndex: 0, x: 0, y: 0, width: 16, height: 8 },
+          badge: BADGE_STAMP,
+        }),
+      );
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) expect(result.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+    }),
+  );
+
+  it.effect("lays out logo, QR and handwriting without overlap on rotated cropped pages", () =>
+    Effect.gen(function* () {
+      const badge = { ...BADGE_STAMP, logoPng: ONE_BY_ONE_PNG, signaturePng: ONE_BY_ONE_PNG };
+      const fixture = yield* Effect.promise(async () => {
+        const document = await PDFDocument.create();
+        for (const angle of [0, 90, 180, 270]) {
+          const page = document.addPage([500, 500]);
+          page.setCropBox(40, 50, 400, 400);
+          page.setRotation(degrees(angle));
+        }
+        const font = await document.embedFont(StandardFonts.Helvetica);
+        const bold = await document.embedFont(StandardFonts.HelveticaBold);
+        return { pdf: new Uint8Array(await document.save()), font, bold };
+      });
+      const layout = layoutPdfSignatureBadge(
+        badge,
+        { x: 0, y: 0, width: 320, height: 128 },
+        fixture.font,
+        fixture.bold,
+      );
+      expect(layout.logo).toBeDefined();
+      expect(layout.signature).toBeDefined();
+      if (layout.logo !== undefined && layout.qr !== undefined)
+        expect(layout.qr.y + layout.qr.height).toBeLessThanOrEqual(layout.logo.y);
+      if (layout.signature !== undefined)
+        for (const row of layout.rows)
+          expect(row.rect.y + GEOMETRY_EPSILON).toBeGreaterThanOrEqual(
+            layout.signature.y + layout.signature.height,
+          );
+      const stamped = yield* stampPdfVisibleSignatures(
+        {
+          pdf: fixture.pdf,
+          badge,
+          stamps: [
+            { pageIndex: 0, rect: { pageIndex: 0, x: 20, y: 20, width: 320, height: 128 } },
+            ...[1, 2, 3].map((pageIndex) => ({
+              pageIndex,
+              rect: { pageIndex, x: 20, y: 20, width: 320, height: 128 },
+            })),
+          ],
+        },
+        false,
+      );
+      const document = yield* Effect.promise(() => PDFDocument.load(stamped));
+      expect(document.getPageCount()).toBe(4);
+      for (const page of document.getPages())
+        expect(page.node.Resources()?.get(PDFName.of("XObject"))).toBeDefined();
+    }),
+  );
+
   it.effect("stamps the rubric on every page and preserves the page count", () =>
     Effect.gen(function* () {
       const pdf = yield* createThreePagePdf;
@@ -929,11 +1014,12 @@ describe("stampPdfRubric", () => {
         regularFont,
         boldFont,
       );
-      const item = layout.rows[0]?.items[0];
+      const row = layout.rows[0];
+      const item = row?.items[0];
 
       expect(item).toBeDefined();
-      if (item !== undefined) {
-        expectRectInside(layout.rows[0]!.rect, layout.container);
+      if (row !== undefined && item !== undefined) {
+        expectRectInside(row.rect, layout.container);
         expectRunInside(item.label, layout.container);
         expectRunInside(item.value, layout.container);
         expect(item.value.text).not.toBe(value);

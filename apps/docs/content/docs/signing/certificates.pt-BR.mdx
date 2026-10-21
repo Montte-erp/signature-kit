@@ -187,13 +187,26 @@ description: "Leia a identidade do titular de um certificado A1 (e-CPF / e-CNPJ)
 
 Toda falha de leitura é um `SignatureKitError` tipado no canal de erro. Os mais comuns ao ler certificados:
 
-- [`signature-kit.NO_CERTIFICATE`](./errors#error-catalog) — o material carregado não contém um certificado.
-- [`signature-kit.X509_PARSE_FAILED`](./errors#error-catalog) — o DER não pôde ser parseado pelo `parseX509`.
-- [`signature-kit.PEM_EXTRACTION_FAILED`](./errors#error-catalog) — falha ao extrair o PEM do certificado.
+- [`signature-kit.NO_CERTIFICATE`](/pt-BR/docs/signing/errors#error-catalog) — o material carregado não contém um certificado.
+- [`signature-kit.X509_PARSE_FAILED`](/pt-BR/docs/signing/errors#error-catalog) — o DER não pôde ser parseado pelo `parseX509`.
+- [`signature-kit.PEM_EXTRACTION_FAILED`](/pt-BR/docs/signing/errors#error-catalog) — falha ao extrair o PEM do certificado.
 
 ## Veja também
 
 <Cards>
-  <Card title="A camada de assinatura" href="./signers">O SignerAdapter que carrega o A1 e expõe o material de assinatura.</Card>
-  <Card title="Canal de erros tipados" href="./errors">NO_CERTIFICATE, X509_PARSE_FAILED e os demais SignatureKitError.</Card>
+  <Card title="A camada de assinatura" href="/pt-BR/docs/signing/signers">O SignerAdapter que carrega o A1 e expõe o material de assinatura.</Card>
+  <Card title="Canal de erros tipados" href="/pt-BR/docs/signing/errors">NO_CERTIFICATE, X509_PARSE_FAILED e os demais SignatureKitError.</Card>
 </Cards>
+
+## Inspecionar validade com o relógio do Effect
+
+`inspectCertificateValidity` retorna `notYetValid`, `valid` ou `expired`, o instante da avaliação, os milissegundos restantes e os dias inteiros até a expiração. Os limites inicial e final são inclusivos. Datas inválidas e intervalos invertidos falham com `SignatureKitError`. A aplicação escolhe o limiar para alertar sobre expiração. Esta inspeção avalia o intervalo de validade; confiança da cadeia e revogação são verificações separadas. `parseCertificate` usa o mesmo relógio do Effect para o campo `isValid`.
+
+```ts
+import { inspectCertificateValidity } from "@signature-kit/certificates";
+
+declare const notBefore: Date;
+declare const notAfter: Date;
+
+const inspection = inspectCertificateValidity({ notBefore, notAfter });
+```

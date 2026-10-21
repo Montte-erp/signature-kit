@@ -13,7 +13,8 @@ const hasManualSchemaContract = (context: CheckContext): boolean => {
   for (const statement of context.sourceFile.statements) {
     if (
       !(ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) ||
-      !statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ||
+      statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) !==
+        true ||
       statement.name === undefined ||
       !contractNamePattern.test(statement.name.text) ||
       context.sourceFile.getLineAndCharacterOfPosition(statement.getStart(context.sourceFile))
@@ -60,11 +61,7 @@ const hasManualSchemaContract = (context: CheckContext): boolean => {
         const initializer = node.initializer;
         const annotation = node.type?.getText(context.sourceFile) ?? "";
         const initializerText = initializer?.getText(context.sourceFile) ?? "";
-        if (
-          annotation.startsWith("Schema.") ||
-          /^Schema\./.test(initializerText) ||
-          initializerText.startsWith("Schema.")
-        ) {
+        if (annotation.startsWith("Schema.") || initializerText.startsWith("Schema.")) {
           hasSchemaBinding = true;
           return;
         }

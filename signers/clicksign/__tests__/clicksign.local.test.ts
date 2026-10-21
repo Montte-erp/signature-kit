@@ -167,12 +167,14 @@ describe("Clicksign local HTTP provider tests", () => {
           [
             firstProvider.read({
               id: "first",
+              fqn: "first",
               instanceId: "first-instance",
               olds,
               output: { provider: "clicksign", id: "first", state: "sent" },
             }),
             secondProvider.read({
               id: "second",
+              fqn: "second",
               instanceId: "second-instance",
               olds,
               output: { provider: "clicksign", id: "second", state: "sent" },

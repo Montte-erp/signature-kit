@@ -66,7 +66,26 @@ Input inválido, falhas HTTP remotas e shapes de resposta inválidos falham como
 ## Relacionados
 
 <Cards>
-  <Card title="Clicksign" href="./clicksign">Fluxo v1 de documento + signatário, um documento por request.</Card>
-  <Card title="ZapSign" href="./zapsign">Upload PDF com Bearer token e primeira URL de assinatura.</Card>
-  <Card title="Requests remotos" href="../concepts/remote-signature-requests">Por que providers remotos não são backends locais de Signatures.</Card>
+  <Card title="Clicksign" href="/pt-BR/docs/providers/clicksign">Fluxo v1 de documento + signatário, um documento por request.</Card>
+  <Card title="ZapSign" href="/pt-BR/docs/providers/zapsign">Upload PDF com Bearer token e primeira URL de assinatura.</Card>
+  <Card title="Requests remotos" href="/pt-BR/docs/concepts/remote-signature-requests">Por que providers remotos não são backends locais de Signatures.</Card>
 </Cards>
+
+## Aguardar um estado final
+
+`waitForAssinafySignatureRequest(options, id, pollInterval)` consulta imediatamente e repete enquanto o pedido estiver em `draft` ou `sent`. O retorno preserva o estado final do provedor, inclusive cancelamento, recusa, exclusão ou expiração; confira `state` antes de baixar o documento. O intervalo deve ser positivo e finito. Falhas de consulta são propagadas sem retry automático. Interromper o Effect cancela a consulta ativa e impede novas consultas. O prazo fica com a aplicação:
+
+```ts
+import { waitForAssinafySignatureRequest } from "@signature-kit/assinafy";
+import { signatureHttpClientLive } from "@signature-kit/http";
+import { Duration, Effect } from "effect";
+import type { AssinafyProviderOptions } from "@signature-kit/assinafy";
+
+declare const options: AssinafyProviderOptions;
+declare const requestId: string;
+
+const program = waitForAssinafySignatureRequest(options, requestId, Duration.seconds(2)).pipe(
+  Effect.timeout(Duration.minutes(5)),
+  Effect.provide(signatureHttpClientLive),
+);
+```

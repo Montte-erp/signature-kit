@@ -187,13 +187,26 @@ description: "Read the holder identity of an A1 certificate (e-CPF / e-CNPJ), in
 
 Every read failure is a typed `SignatureKitError` in the error channel. The most common when reading certificates:
 
-- [`signature-kit.NO_CERTIFICATE`](./errors#error-catalog) — the loaded material does not contain a certificate.
-- [`signature-kit.X509_PARSE_FAILED`](./errors#error-catalog) — the DER could not be parsed by `parseX509`.
-- [`signature-kit.PEM_EXTRACTION_FAILED`](./errors#error-catalog) — failed to extract the PEM from the certificate.
+- [`signature-kit.NO_CERTIFICATE`](/en-US/docs/signing/errors#error-catalog) — the loaded material does not contain a certificate.
+- [`signature-kit.X509_PARSE_FAILED`](/en-US/docs/signing/errors#error-catalog) — the DER could not be parsed by `parseX509`.
+- [`signature-kit.PEM_EXTRACTION_FAILED`](/en-US/docs/signing/errors#error-catalog) — failed to extract the PEM from the certificate.
 
 ## See also
 
 <Cards>
-  <Card title="The signing boundary" href="./signers">The SignerAdapter that loads the A1 and exposes the signing material.</Card>
-  <Card title="Typed error channel" href="./errors">NO_CERTIFICATE, X509_PARSE_FAILED and the other SignatureKitError.</Card>
+  <Card title="The signing boundary" href="/en-US/docs/signing/signers">The SignerAdapter that loads the A1 and exposes the signing material.</Card>
+  <Card title="Typed error channel" href="/en-US/docs/signing/errors">NO_CERTIFICATE, X509_PARSE_FAILED and the other SignatureKitError.</Card>
 </Cards>
+
+## Inspect validity with the Effect clock
+
+`inspectCertificateValidity` reports `notYetValid`, `valid`, or `expired`, the evaluation time, remaining milliseconds, and whole days until expiry. Both validity boundaries are inclusive. It rejects invalid dates and reversed intervals as `SignatureKitError`. Use the remaining duration to choose an expiry-warning threshold in your application. This checks the validity interval; trust-chain and revocation verification remain separate operations. `parseCertificate` uses the same Effect clock for its `isValid` snapshot.
+
+```ts
+import { inspectCertificateValidity } from "@signature-kit/certificates";
+
+declare const notBefore: Date;
+declare const notAfter: Date;
+
+const inspection = inspectCertificateValidity({ notBefore, notAfter });
+```

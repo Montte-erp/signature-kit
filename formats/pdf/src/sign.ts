@@ -2,8 +2,7 @@ import type { CmsError, CmsHashAlgorithm } from "@signature-kit/cms/config";
 import { IcpBrasilPadesPolicy } from "@signature-kit/cms/icp-brasil";
 import { createDetachedSignedData } from "@signature-kit/cms/sign";
 import { signatures } from "@signature-kit/signatures";
-import type { Signatures } from "@signature-kit/signatures";
-import type { SignatureAlgorithm, SignatureKitError } from "@signature-kit/signatures";
+import type { Signatures, SignatureAlgorithm, SignatureKitError } from "@signature-kit/signatures";
 import { Effect, Match, Schema } from "effect";
 import {
   PdfError,
@@ -78,14 +77,12 @@ export const signPdf = (
     });
     const signatureHex = bytesToHex(cms);
     if (signatureHex.length > prepared.placeholderLength) {
-      return yield* Effect.fail(
-        new PdfError({
-          code: PdfErrorCodeValue.signatureTooLarge,
-          retryable: false,
-          reason: `CMS signature exceeds PDF placeholder length: ${signatureHex.length} > ${prepared.placeholderLength}.`,
-          operation: PdfOperationValue.sign,
-        }),
-      );
+      return yield* new PdfError({
+        code: PdfErrorCodeValue.signatureTooLarge,
+        retryable: false,
+        reason: `CMS signature exceeds PDF placeholder length: ${signatureHex.length} > ${prepared.placeholderLength}.`,
+        operation: PdfOperationValue.sign,
+      });
     }
 
     const paddedSignature = `<${signatureHex}${"0".repeat(prepared.placeholderLength - signatureHex.length)}>`;

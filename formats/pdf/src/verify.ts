@@ -9,11 +9,15 @@ import {
   PdfSchemaNameValue,
   PdfVerificationRequestSchema,
 } from "./config.js";
-import type { PdfVerificationRequest, PdfVerificationResult } from "./config.js";
+import type {
+  PdfSignatureVerificationResult,
+  PdfVerificationRequest,
+  PdfVerificationResult,
+} from "./config.js";
 
-export const verifyPdf = (
+export const verifyPdfSignatures = (
   input: PdfVerificationRequest,
-): Effect.Effect<PdfVerificationResult, PdfError | CmsError> =>
+): Effect.Effect<readonly PdfSignatureVerificationResult[], PdfError | CmsError> =>
   Effect.gen(function* () {
     const request = yield* Schema.decodeUnknownEffect(PdfVerificationRequestSchema)(input).pipe(
       Effect.mapError(
@@ -29,46 +33,55 @@ export const verifyPdf = (
       ),
     );
 
-    let coverageValid = true;
-    let cryptoValid = true;
-    let chainValid = true;
-    let revocationStatus: PdfVerificationResult["revocationStatus"] = "checked";
-    let signerSerialNumber: PdfVerificationResult["signerSerialNumber"] = null;
-    let byteRange: PdfVerificationResult["byteRange"] = [0, 0, 0, 0];
-    let signatureCount = 0;
+    const results: PdfSignatureVerificationResult[] = [];
     yield* forEachPdfSignature(request.pdf, (extracted, index, total) =>
       Effect.gen(function* () {
-        signatureCount += 1;
         const isNewest = index === total - 1;
-        if (!extracted.startsAtZero) coverageValid = false;
         const revisionEnd = extracted.byteRange[2] + extracted.byteRange[3];
         const revisionComplete = yield* isCompletePdfRevision(request.pdf, revisionEnd);
-        if (!revisionComplete) coverageValid = false;
-        if (isNewest) {
-          if (!extracted.coversFileEnd) coverageValid = false;
-          byteRange = extracted.byteRange;
-        }
+        const coverageValid =
+          extracted.startsAtZero && revisionComplete && (!isNewest || extracted.coversFileEnd);
         const cmsResult = yield* verifyDetachedSignedData({
           cms: extracted.signature,
           content: extracted.signedData,
           trustedRoots: request.trustedRoots,
         });
-        if (!cmsResult.valid) cryptoValid = false;
-        if (!cmsResult.chainValid) chainValid = false;
-        if (cmsResult.revocationStatus === "not_checked") revocationStatus = "not_checked";
-        signerSerialNumber = cmsResult.signerSerialNumber;
+        results.push({
+          signatureIndex: index,
+          valid:
+            cmsResult.valid &&
+            coverageValid &&
+            (request.trustedRoots === undefined || cmsResult.chainValid),
+          cryptographicValid: cmsResult.valid,
+          coverageValid,
+          chainValid: cmsResult.chainValid,
+          revocationStatus: cmsResult.revocationStatus,
+          byteRange: extracted.byteRange,
+          signerSerialNumber: cmsResult.signerSerialNumber,
+          revisionEnd,
+          coversFileEnd: extracted.coversFileEnd,
+        });
       }),
     );
-
-    const valid =
-      cryptoValid && coverageValid && (request.trustedRoots === undefined || chainValid);
-
-    return {
-      valid,
-      chainValid,
-      revocationStatus,
-      signatureCount,
-      byteRange,
-      signerSerialNumber,
-    };
+    return results;
   });
+
+export const verifyPdf = Effect.fn(function* (
+  input: PdfVerificationRequest,
+): Effect.fn.Return<PdfVerificationResult, PdfError | CmsError> {
+  const results = yield* verifyPdfSignatures(input);
+  const newest = results.at(-1);
+  if (newest === undefined) {
+    return yield* Effect.die("PDF signature traversal completed without a signature.");
+  }
+  return {
+    valid: results.every((result) => result.valid),
+    chainValid: results.every((result) => result.chainValid),
+    revocationStatus: results.some((result) => result.revocationStatus === "not_checked")
+      ? "not_checked"
+      : "checked",
+    signatureCount: results.length,
+    byteRange: newest.byteRange,
+    signerSerialNumber: newest.signerSerialNumber,
+  };
+});

@@ -1,4 +1,4 @@
-import type { ConfigContext, ServerPlugin } from "fumapress";
+import type { AppShape, PressPlugin } from "fumapress";
 import { PostHog } from "posthog-node";
 
 import { docsAnalyticsProperties, docsEventName } from "@/lib/posthog/events";
@@ -64,9 +64,7 @@ const routeEvents: Readonly<Record<string, string>> = {
   "/api/search": "search_requested",
 };
 
-export const docsAnalyticsPlugin = <
-  C extends ConfigContext = ConfigContext,
->(): ServerPlugin<C> => ({
+export const docsAnalyticsPlugin = <C extends AppShape = AppShape>(): PressPlugin<C> => ({
   name: "analytics:posthog",
   enforce: "post",
   createMiddlewares() {

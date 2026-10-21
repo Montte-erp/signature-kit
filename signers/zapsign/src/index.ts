@@ -9,7 +9,7 @@ import { SignatureHttpClient, bearerAuthorization, normalizedBaseUrl } from "@si
 import type { SignatureHttpClientService } from "@signature-kit/http";
 import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
-import { Context, Effect, Layer, Match, Option, Schema, Stream } from "effect";
+import { Context, Duration, Effect, Layer, Match, Option, Schedule, Schema, Stream } from "effect";
 
 const ZapSignSchemaName = {
   providerOptions: "ZapSignProviderOptions",
@@ -59,7 +59,7 @@ export type ZapSignPdfDocumentProps = (typeof ZapSignPdfDocumentPropsSchema)["Ty
 export const ZapSignSignerSchema = Schema.Struct({
   name: Schema.NonEmptyString,
   email: Schema.NonEmptyString,
-  routingOrder: Schema.optional(Schema.Number),
+  routingOrder: Schema.optional(Schema.Finite),
 });
 export type ZapSignSigner = (typeof ZapSignSignerSchema)["Type"];
 
@@ -195,7 +195,7 @@ const ZapSignDocumentResultSchema = Schema.Struct({
 type ZapSignDocumentResult = (typeof ZapSignDocumentResultSchema)["Type"];
 
 const ZapSignDocumentsResultSchema = Schema.Struct({
-  count: Schema.optional(Schema.Number),
+  count: Schema.optional(Schema.Finite),
   next: Schema.optional(Schema.Union([Schema.Null, Schema.String])),
   previous: Schema.optional(Schema.Union([Schema.Null, Schema.String])),
   results: Schema.Array(ZapSignDocumentResultSchema),
@@ -706,3 +706,39 @@ export const downloadZapSignSignedDocument = (
     const http = yield* SignatureHttpClient;
     return yield* downloadZapSignSignedDocumentInternal(http, valid, zapSignBaseUrl(valid), id);
   });
+
+export const waitForZapSignSignatureRequest = Effect.fn(function* (
+  options: ZapSignProviderOptions,
+  id: string,
+  pollInterval: Duration.Duration,
+): Effect.fn.Return<ZapSignDocument, SignatureKitError, SignatureHttpClient> {
+  const interval = yield* Schema.decodeUnknownEffect(
+    Schema.Duration.check(
+      Schema.makeFilter((value) => Duration.isFinite(value) && Duration.isPositive(value)),
+    ),
+  )(pollInterval).pipe(
+    Effect.mapError(
+      (issue) =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.invalidInput,
+          retryable: false,
+          provider: PROVIDER,
+          operation: SignatureKitOperationValue.schemaDecode,
+          schemaName: "ZapSignPollInterval",
+          issueMessage: String(issue),
+          reason: "Polling requires a positive, finite interval.",
+        }),
+    ),
+  );
+  return yield* getZapSignSignatureRequest(options, id).pipe(
+    Effect.repeat({
+      while: (request) =>
+        Match.value(request.state).pipe(
+          Match.whenOr("draft", "sent", () => true),
+          Match.whenOr("completed", "cancelled", "deleted", "declined", "expired", () => false),
+          Match.exhaustive,
+        ),
+      schedule: Schedule.spaced(interval),
+    }),
+  );
+});

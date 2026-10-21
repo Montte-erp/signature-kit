@@ -194,11 +194,14 @@ export const CmsVerifyResultSchema = Schema.Struct({
 });
 export type CmsVerifyResult = (typeof CmsVerifyResultSchema)["Type"];
 
-export class CmsError extends Schema.TaggedErrorClass<CmsError>()("CmsError", {
-  code: CmsErrorCodeSchema,
-  reason: Schema.optional(Schema.String),
-  operation: Schema.optional(CmsOperationSchema),
-}) {
+export class CmsError extends Schema.TaggedError<CmsError, { readonly brand: unique symbol }>()(
+  "CmsError",
+  {
+    code: CmsErrorCodeSchema,
+    reason: Schema.optional(Schema.String),
+    operation: Schema.optional(CmsOperationSchema),
+  },
+) {
   get message(): string {
     const defaultMessage = cmsErrorMessages["en-US"][this.code];
     return cmsErrorReasonOverridableByCode[this.code]

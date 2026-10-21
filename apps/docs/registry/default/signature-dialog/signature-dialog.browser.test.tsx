@@ -1,3 +1,5 @@
+import { Effect } from "effect";
+import { readA1FixtureFromBrowser } from "../../../../../tooling/testing/fixtures.browser";
 import { PDFDocument } from "@cantoo/pdf-lib";
 import * as React from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -41,16 +43,6 @@ const makePdf = async (): Promise<Uint8Array> => {
 const buildDocuments = async () => [
   { id: "document-1", name: "document-1.pdf", pdf: await makePdf() },
 ];
-
-const readA1FixtureFromBrowser = async (): Promise<Uint8Array> => {
-  const fixtureUrl = new URL(
-    "../../../../../signers/a1/__tests__/fixtures/ecpf.p12",
-    import.meta.url,
-  );
-  const response = await fetch(fixtureUrl);
-  expect(response.ok).toBe(true);
-  return new Uint8Array(await response.arrayBuffer());
-};
 
 const captureUnhandledRejections = () => {
   const reasons: unknown[] = [];
@@ -218,7 +210,7 @@ if (typeof document === "undefined") {
 
   it("hides signed output and renders a localized error when onSigned rejects", async () => {
     const rejections = captureUnhandledRejections();
-    const pfx = await readA1FixtureFromBrowser();
+    const pfx = await Effect.runPromise(readA1FixtureFromBrowser("ecpf"));
     const dialog = mountDialog(buildDocuments, pfx, {
       onSigned: async () => {
         throw new Error("signed callback failed");
@@ -247,7 +239,7 @@ if (typeof document === "undefined") {
 
   it("keeps password recovery visible without an unhandled rejection when onWrongPassword rejects", async () => {
     const rejections = captureUnhandledRejections();
-    const pfx = await readA1FixtureFromBrowser();
+    const pfx = await Effect.runPromise(readA1FixtureFromBrowser("ecpf"));
     let savedPasswordClears = 0;
     const dialog = mountDialog(buildDocuments, pfx, {
       onWrongPassword: async () => {
@@ -283,7 +275,7 @@ if (typeof document === "undefined") {
 
   it("keeps password recovery visible without an unhandled rejection when onSavePassword rejects", async () => {
     const rejections = captureUnhandledRejections();
-    const pfx = await readA1FixtureFromBrowser();
+    const pfx = await Effect.runPromise(readA1FixtureFromBrowser("ecpf"));
     let wrongPasswordCalls = 0;
     let savePasswordCalls = 0;
     const dialog = mountDialog(buildDocuments, pfx, {

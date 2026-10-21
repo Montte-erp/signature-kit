@@ -162,7 +162,7 @@ export const loadPdfjs = async (): Promise<PdfJsApi> => {
                   viewport: page.getViewport({ scale: renderOptions.viewport.scale ?? 1 }),
                 }),
             })),
-          destroy: () => doc.destroy(),
+          destroy: () => task.destroy(),
         })),
         destroy: () => task.destroy(),
       };
@@ -184,7 +184,13 @@ export interface PdfPageProps {
   heightPt: number;
   marker?: PageRect;
   ghost?: { rect: PageRect; label: string };
-  stampPreview?: { inkDataUrl?: string; rubricaDataUrl?: string; lines: string[]; qr?: boolean };
+  stampPreview?: {
+    logoDataUrl?: string;
+    inkDataUrl?: string;
+    rubricaDataUrl?: string;
+    lines: string[];
+    qr?: boolean;
+  };
   disabled?: boolean;
   onPlace: (fracX: number, fracY: number) => void;
   onError?: (error: PdfPageRenderError) => void;
@@ -240,7 +246,7 @@ export function PdfPage({
   );
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (disabled || !event.isPrimary || event.button !== 0) return;
+    if (disabled === true || !event.isPrimary || event.button !== 0) return;
     pointerState.current = {
       pointerId: event.pointerId,
       clientX: event.clientX,
@@ -267,7 +273,7 @@ export function PdfPage({
       pointer === undefined ||
       pointer.pointerId !== event.pointerId ||
       pointer.canceled ||
-      disabled
+      disabled === true
     )
       return;
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -279,15 +285,16 @@ export function PdfPage({
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (disabled) return;
+    if (disabled === true) return;
     const STEP = 0.02;
     const clamp = (n: number) => Math.min(1, Math.max(0, n));
-    const current = marker
-      ? {
-          x: (marker.x + marker.width / 2) / widthPt,
-          y: (marker.y + marker.height / 2) / heightPt,
-        }
-      : { x: 0.5, y: 0.5 };
+    const current =
+      marker !== undefined
+        ? {
+            x: (marker.x + marker.width / 2) / widthPt,
+            y: (marker.y + marker.height / 2) / heightPt,
+          }
+        : { x: 0.5, y: 0.5 };
 
     switch (event.key) {
       case "Enter":
@@ -320,27 +327,29 @@ export function PdfPage({
 
   const placementLabel = m.signer_aria_page_placement({ page: pageNumber });
   const disabledLabel = m.signer_pdf_page_placement_disabled();
-  const markerLabelStyle = marker
-    ? {
-        left: `${(marker.x / widthPt) * 100}%`,
-        top: `${(marker.y / heightPt) * 100}%`,
-      }
-    : undefined;
-  const ghostLabelStyle = ghost
-    ? {
-        left: `${(ghost.rect.x / widthPt) * 100}%`,
-        top: `${(ghost.rect.y / heightPt) * 100}%`,
-      }
-    : undefined;
+  const markerLabelStyle =
+    marker !== undefined
+      ? {
+          left: `${(marker.x / widthPt) * 100}%`,
+          top: `${(marker.y / heightPt) * 100}%`,
+        }
+      : undefined;
+  const ghostLabelStyle =
+    ghost !== undefined
+      ? {
+          left: `${(ghost.rect.x / widthPt) * 100}%`,
+          top: `${(ghost.rect.y / heightPt) * 100}%`,
+        }
+      : undefined;
 
   return (
     <div
       role="button"
       tabIndex={0}
       aria-disabled={disabled || undefined}
-      aria-label={disabled ? `${placementLabel} ${disabledLabel}` : placementLabel}
+      aria-label={disabled === true ? `${placementLabel} ${disabledLabel}` : placementLabel}
       className={`group relative w-full rounded-md border border-transparent outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${
-        disabled ? "cursor-not-allowed" : "cursor-crosshair"
+        disabled === true ? "cursor-not-allowed" : "cursor-crosshair"
       }`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -351,7 +360,7 @@ export function PdfPage({
     >
       <div className="relative h-full w-full overflow-hidden rounded-md border border-border bg-white">
         <canvas ref={renderCanvas} aria-hidden className="block h-auto w-full select-none" />
-        {renderError ? (
+        {renderError !== null ? (
           <p
             role="alert"
             data-pdf-render-error={renderError.code}
@@ -360,7 +369,7 @@ export function PdfPage({
             {renderError.message}
           </p>
         ) : null}
-        {ghost ? (
+        {ghost !== undefined ? (
           <div
             aria-hidden
             className="pointer-events-none absolute flex flex-col items-center justify-center overflow-hidden rounded-sm border border-dashed border-foreground/40 bg-white/70 p-0.5 opacity-70"
@@ -371,7 +380,8 @@ export function PdfPage({
               height: `${(ghost.rect.height / heightPt) * 100}%`,
             }}
           >
-            {(stampPreview?.rubricaDataUrl ?? stampPreview?.inkDataUrl) ? (
+            {(stampPreview?.rubricaDataUrl ?? stampPreview?.inkDataUrl) !== undefined &&
+            (stampPreview?.rubricaDataUrl ?? stampPreview?.inkDataUrl ?? "").length > 0 ? (
               <img
                 src={stampPreview?.rubricaDataUrl ?? stampPreview?.inkDataUrl}
                 alt=""
@@ -380,7 +390,7 @@ export function PdfPage({
             ) : null}
           </div>
         ) : null}
-        {marker ? (
+        {marker !== undefined ? (
           <div
             aria-hidden
             className="pointer-events-none absolute flex flex-col items-center justify-center overflow-hidden rounded-sm border border-dashed border-foreground/30 p-0.5"
@@ -391,8 +401,15 @@ export function PdfPage({
               height: `${(marker.height / heightPt) * 100}%`,
             }}
           >
-            {stampPreview?.qr ? (
+            {stampPreview?.qr === true ? (
               <div className="flex h-full w-full items-center gap-1 px-0.5 py-0.5">
+                {stampPreview.logoDataUrl === undefined ? null : (
+                  <img
+                    src={stampPreview.logoDataUrl}
+                    alt=""
+                    className="h-[45%] max-w-[22%] object-contain"
+                  />
+                )}
                 <div className="grid aspect-square h-[85%] shrink-0 grid-cols-5 overflow-hidden bg-white">
                   {QR_PREVIEW_CELLS.map((cell) => (
                     <span
@@ -416,7 +433,7 @@ export function PdfPage({
               </div>
             ) : (
               <>
-                {stampPreview?.inkDataUrl ? (
+                {stampPreview?.inkDataUrl !== undefined && stampPreview?.inkDataUrl.length > 0 ? (
                   <img
                     src={stampPreview.inkDataUrl}
                     alt=""
@@ -436,7 +453,7 @@ export function PdfPage({
           </div>
         ) : null}
       </div>
-      {ghost ? (
+      {ghost !== undefined ? (
         <span
           aria-hidden
           className="pointer-events-none absolute z-10 flex -translate-y-full items-center gap-1 whitespace-nowrap rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
@@ -446,7 +463,7 @@ export function PdfPage({
           {ghost.label}
         </span>
       ) : null}
-      {marker ? (
+      {marker !== undefined ? (
         <span
           aria-hidden
           className="pointer-events-none absolute z-10 flex -translate-y-full items-center gap-1 whitespace-nowrap rounded bg-foreground px-1.5 py-0.5 font-mono text-[10px] text-background"

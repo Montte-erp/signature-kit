@@ -8,6 +8,7 @@ const noopPlanStatusSession = {
 
 export const reconcileResourceProps = <Props>(id: string, props: Props) => ({
   id,
+  fqn: id,
   instanceId: `${id}-instance`,
   news: props,
   olds: undefined,

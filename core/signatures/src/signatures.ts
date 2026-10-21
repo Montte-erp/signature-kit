@@ -276,20 +276,20 @@ export const SignatureKitOperationValue = {
   schemaDecode: "schema.decode",
 } satisfies Record<string, SignatureKitOperation>;
 
-export class SignatureKitError extends Schema.TaggedErrorClass<SignatureKitError>()(
-  "SignatureKitError",
-  {
-    code: SignatureKitErrorCodeSchema,
-    retryable: Schema.Boolean,
-    reason: Schema.optional(Schema.String),
-    operation: Schema.optional(SignatureKitOperationSchema),
-    schemaName: Schema.optional(Schema.String),
-    issueMessage: Schema.optional(Schema.String),
-    provider: Schema.optional(Schema.String),
-    status: Schema.optional(Schema.Number),
-    retryAfterEpochSeconds: Schema.optional(Schema.Number),
-  },
-) {
+export class SignatureKitError extends Schema.TaggedError<
+  SignatureKitError,
+  { readonly brand: unique symbol }
+>()("SignatureKitError", {
+  code: SignatureKitErrorCodeSchema,
+  retryable: Schema.Boolean,
+  reason: Schema.optional(Schema.String),
+  operation: Schema.optional(SignatureKitOperationSchema),
+  schemaName: Schema.optional(Schema.String),
+  issueMessage: Schema.optional(Schema.String),
+  provider: Schema.optional(Schema.String),
+  status: Schema.optional(Schema.Finite),
+  retryAfterEpochSeconds: Schema.optional(Schema.Finite),
+}) {
   get message(): string {
     const catalogEntry = signatureKitErrorCatalogEntry(this.code);
     return catalogEntry.overridable ? (this.reason ?? catalogEntry.message) : catalogEntry.message;

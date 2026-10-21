@@ -2,8 +2,7 @@ import { PDFDocument } from "@cantoo/pdf-lib";
 import { Effect, Schema } from "effect";
 import { parsePdfTextBoxesBrowser } from "./liteparse-browser.js";
 import type { LiteParseWorkerFactory } from "./liteparse-browser.js";
-import { clampCoordinate } from "./placement.js";
-import { visiblePdfPageSize } from "./stamp.js";
+import { clampCoordinate, visiblePdfPageSize } from "./stamp.js";
 import {
   PdfError,
   PdfErrorCodeValue,

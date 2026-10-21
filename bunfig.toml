@@ -1,2 +1,4 @@
 [install]
 linker = "isolated"
+hoist = false
+publicHoistPattern = ["events"]

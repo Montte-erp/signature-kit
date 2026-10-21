@@ -31,6 +31,6 @@ export const A1CertificateProfileSchema = Schema.Struct({
   fingerprint: Schema.NonEmptyString,
   validFrom: Schema.Date,
   validTo: Schema.Date,
-  daysUntilExpiry: Schema.Number,
+  daysUntilExpiry: Schema.Finite,
 });
 export type A1CertificateProfile = (typeof A1CertificateProfileSchema)["Type"];

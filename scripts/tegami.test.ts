@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -33,6 +34,7 @@ const createTempWorkspace = async (): Promise<string> => {
       publishConfig: { access: "public" },
     })}\n`,
   );
+  execFileSync("git", ["init", "--quiet"], { cwd: root });
   return root;
 };
 

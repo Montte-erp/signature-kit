@@ -15,7 +15,7 @@
         "label"
       ],
       "dependencies": [
-        "@tanstack/react-form@1.33.2",
+        "@tanstack/react-form@1.33.5",
         "lucide-react"
       ],
       "files": [
@@ -41,7 +41,7 @@
       "dependencies": [
         "@signature-kit/react",
         "@signature-kit/a1",
-        "@tanstack/react-form@1.33.2",
+        "@tanstack/react-form@1.33.5",
         "lucide-react"
       ],
       "files": [
@@ -63,9 +63,9 @@
       ],
       "dependencies": [
         "@signature-kit/pdf",
-        "effect@4.0.0-beta.86",
+        "effect@4.0.5",
         "lucide-react",
-        "react-pdf@10.4.1"
+        "react-pdf@11.0.0"
       ],
       "files": [
         {
@@ -94,8 +94,8 @@
         "@signature-kit/pdf",
         "@signature-kit/cms",
         "@signature-kit/signatures",
-        "@tanstack/react-form@1.33.2",
-        "effect@4.0.0-beta.86",
+        "@tanstack/react-form@1.33.5",
+        "effect@4.0.5",
         "lucide-react"
       ],
       "files": [

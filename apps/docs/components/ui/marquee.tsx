@@ -42,7 +42,7 @@ export function Marquee({
   const x = useTransform(trackX, (value) => `${value}%`);
 
   useAnimationFrame((_, deltaMs) => {
-    if (reducedMotion || paused.current) return;
+    if (reducedMotion === true || paused.current) return;
     const direction = reverse ? 1 : -1;
     const step = (deltaMs / 1000) * (Math.abs(TRACK_WRAP_PERCENT) / durationSeconds) * direction;
     let next = trackX.get() + step;

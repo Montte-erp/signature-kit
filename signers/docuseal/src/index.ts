@@ -9,7 +9,18 @@ import { SignatureHttpClient, normalizedBaseUrl } from "@signature-kit/http";
 import type { SignatureHttpClientService } from "@signature-kit/http";
 import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
-import { Context, Effect, Layer, Match, Option, Redacted, Schema, Stream } from "effect";
+import {
+  Context,
+  Duration,
+  Effect,
+  Layer,
+  Match,
+  Option,
+  Redacted,
+  Schedule,
+  Schema,
+  Stream,
+} from "effect";
 
 const DocuSealSchemaName = {
   providerOptions: "DocuSealProviderOptions",
@@ -59,7 +70,7 @@ export const DocuSealSubmitterSchema = Schema.Struct({
   name: Schema.NonEmptyString,
   email: Schema.NonEmptyString,
   role: Schema.optional(Schema.NonEmptyString),
-  routingOrder: Schema.optional(Schema.Number),
+  routingOrder: Schema.optional(Schema.Finite),
 });
 export type DocuSealSubmitter = (typeof DocuSealSubmitterSchema)["Type"];
 
@@ -174,7 +185,7 @@ export const DocuSealProviderOptionsSchema = Schema.Struct({
 });
 export type DocuSealProviderOptions = (typeof DocuSealProviderOptionsSchema)["Type"];
 
-const DocuSealSubmissionIdSchema = Schema.Union([Schema.Number, Schema.NonEmptyString]);
+const DocuSealSubmissionIdSchema = Schema.Union([Schema.Finite, Schema.NonEmptyString]);
 const DocuSealSubmitterLinkFields = {
   embed_src: Schema.optional(Schema.NullOr(Schema.String)),
   signing_url: Schema.optional(Schema.NullOr(Schema.String)),
@@ -221,9 +232,9 @@ const DocuSealSubmissionDocumentsResultSchema = Schema.Struct({
   ),
 });
 const DocuSealPaginationSchema = Schema.Struct({
-  count: Schema.Number,
-  next: Schema.NullOr(Schema.Number),
-  prev: Schema.NullOr(Schema.Number),
+  count: Schema.Finite,
+  next: Schema.NullOr(Schema.Finite),
+  prev: Schema.NullOr(Schema.Finite),
 });
 const DocuSealSubmissionsResultSchema = Schema.Struct({
   data: Schema.Array(DocuSealSubmissionResultSchema),
@@ -733,3 +744,39 @@ export const downloadDocuSealSignedDocument = (
     const http = yield* SignatureHttpClient;
     return yield* downloadDocumentFromSubmission(http, valid, docuSealBaseUrl(valid), id);
   });
+
+export const waitForDocuSealSignatureRequest = Effect.fn(function* (
+  options: DocuSealProviderOptions,
+  id: string,
+  pollInterval: Duration.Duration,
+): Effect.fn.Return<DocuSealSubmissionAttributes, SignatureKitError, SignatureHttpClient> {
+  const interval = yield* Schema.decodeUnknownEffect(
+    Schema.Duration.check(
+      Schema.makeFilter((value) => Duration.isFinite(value) && Duration.isPositive(value)),
+    ),
+  )(pollInterval).pipe(
+    Effect.mapError(
+      (issue) =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.invalidInput,
+          retryable: false,
+          provider: PROVIDER,
+          operation: SignatureKitOperationValue.schemaDecode,
+          schemaName: "DocuSealPollInterval",
+          issueMessage: String(issue),
+          reason: "Polling requires a positive, finite interval.",
+        }),
+    ),
+  );
+  return yield* getDocuSealSignatureRequest(options, id).pipe(
+    Effect.repeat({
+      while: (request) =>
+        Match.value(request.state).pipe(
+          Match.whenOr("draft", "sent", () => true),
+          Match.whenOr("completed", "cancelled", "deleted", "declined", "expired", () => false),
+          Match.exhaustive,
+        ),
+      schedule: Schedule.spaced(interval),
+    }),
+  );
+});

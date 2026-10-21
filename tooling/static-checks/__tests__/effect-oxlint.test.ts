@@ -39,7 +39,7 @@ describe("Effect Oxlint integration", () => {
           yield* Effect.promise(() =>
             writeFile(
               fixture,
-              'import { Effect } from "effect";\nEffect.succeed(1);\nexport const redundant = Effect.succeed(1).pipe(Effect.map(() => undefined));\n',
+              'import { Effect, Schema } from "effect";\nEffect.succeed(1);\nexport const redundant = Effect.succeed(1).pipe(Effect.map(() => undefined));\nexport const unbounded = Schema.Number;\n',
             ),
           );
           const rejected = spawnSync(
@@ -61,12 +61,16 @@ describe("Effect Oxlint integration", () => {
             JSON.parse(rejected.stdout),
           );
           expect(diagnostics.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
-            expect.arrayContaining(["effecttsgo(floating-effect)", "effecttsgo(effect-map-void)"]),
+            expect.arrayContaining([
+              "effecttsgo(floating-effect)",
+              "effecttsgo(effect-map-void)",
+              "effecttsgo(schema-number)",
+            ]),
           );
           yield* Effect.promise(() =>
             writeFile(
               fixture,
-              'import { Effect } from "effect";\nexport const valid = Effect.void;\n',
+              'import { Effect, Schema } from "effect";\nexport const valid = Effect.void;\nexport const finite = Schema.Finite;\n',
             ),
           );
           const accepted = spawnSync(

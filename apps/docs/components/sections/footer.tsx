@@ -44,7 +44,7 @@ interface FooterLinkProps {
 }
 
 const FooterLink = ({ href, external, children }: FooterLinkProps) =>
-  external ? (
+  external === true ? (
     <a
       className="text-sm text-muted-foreground transition-colors hover:text-foreground"
       href={href}

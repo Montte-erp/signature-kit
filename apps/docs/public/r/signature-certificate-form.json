@@ -11,7 +11,7 @@
     "label"
   ],
   "dependencies": [
-    "@tanstack/react-form@1.33.2",
+    "@tanstack/react-form@1.33.5",
     "lucide-react"
   ],
   "files": [

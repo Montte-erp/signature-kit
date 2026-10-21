@@ -2,16 +2,15 @@ import { adapterOrPackagePathPrefixes, signatureRuntimePrefix } from "../config"
 
 export const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-export const isAdapterOrPackageFile = (path: string): boolean => {
-  return adapterOrPackagePathPrefixes.some((prefix) => path.startsWith(prefix));
-};
+export const isAdapterOrPackageFile = (path: string): boolean =>
+  adapterOrPackagePathPrefixes.some((prefix) => path.startsWith(prefix));
 
 export const isSignatureRuntimeFile = (path: string): boolean =>
   path.startsWith(signatureRuntimePrefix);
 
 export const isTaggedErrorName = (name: string): boolean => {
   const raw = name.replace(/\s*<[\s\S]*$/, "");
-  return /(^|\.)(?:TaggedError|TaggedErrorClass)$/.test(raw);
+  return /(^|\.)TaggedError$/.test(raw);
 };
 
 export const isCatalogFile = (path: string): boolean =>

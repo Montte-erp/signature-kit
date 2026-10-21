@@ -132,7 +132,7 @@ const resignCms = (
 const signingCertificateV2Value = (signerInfo: pkijs.SignerInfo): asn1js.Sequence => {
   const value = signedAttribute(signerInfo, CmsOid.signingCertificateV2).values[0];
   if (!(value instanceof asn1js.Sequence)) {
-    throw new Error("SigningCertificateV2 attribute is not a sequence.");
+    expect.fail("SigningCertificateV2 attribute is not a sequence.");
   }
   return value;
 };
@@ -140,7 +140,7 @@ const signingCertificateV2Value = (signerInfo: pkijs.SignerInfo): asn1js.Sequenc
 const signingCertificateV2Certificates = (signerInfo: pkijs.SignerInfo): asn1js.Sequence => {
   const certificates = signingCertificateV2Value(signerInfo).valueBlock.value[0];
   if (!(certificates instanceof asn1js.Sequence)) {
-    throw new Error("SigningCertificateV2 certificate list is not a sequence.");
+    expect.fail("SigningCertificateV2 certificate list is not a sequence.");
   }
   return certificates;
 };
@@ -148,7 +148,7 @@ const signingCertificateV2Certificates = (signerInfo: pkijs.SignerInfo): asn1js.
 const firstEssCertIdV2 = (signerInfo: pkijs.SignerInfo): asn1js.Sequence => {
   const entry = signingCertificateV2Certificates(signerInfo).valueBlock.value[0];
   if (!(entry instanceof asn1js.Sequence)) {
-    throw new Error("SigningCertificateV2 certificate entry is not a sequence.");
+    expect.fail("SigningCertificateV2 certificate entry is not a sequence.");
   }
   return entry;
 };
@@ -156,7 +156,7 @@ const firstEssCertIdV2 = (signerInfo: pkijs.SignerInfo): asn1js.Sequence => {
 const issuerSerialForSigner = (signerInfo: pkijs.SignerInfo): asn1js.Sequence => {
   const signerIdentifier = signerInfo.sid;
   if (!(signerIdentifier instanceof pkijs.IssuerAndSerialNumber)) {
-    throw new Error("CMS signer does not use issuer and serial number.");
+    expect.fail("CMS signer does not use issuer and serial number.");
   }
   return new asn1js.Sequence({
     value: [
@@ -579,11 +579,9 @@ describe("ITI local conformance hardening", () => {
         signed.signingKey,
         (signedData, signerInfo) => {
           const forgedSigner = new pkijs.SignerInfo({ schema: signerInfo.toSchema() });
-          forgedSigner.signature = new asn1js.OctetString({
-            valueHex: toArrayBuffer(
-              new Uint8Array(forgedSigner.signature.valueBlock.valueHexView.byteLength),
-            ),
-          });
+          forgedSigner.signature.valueBlock.valueHexView = new Uint8Array(
+            forgedSigner.signature.valueBlock.valueHexView.byteLength,
+          );
           signedData.signerInfos.push(forgedSigner);
         },
       );
@@ -675,11 +673,11 @@ describe("ITI local conformance hardening", () => {
         (_signedData, signerInfo) => {
           const policy = signedAttribute(signerInfo, CmsOid.signaturePolicy).values[0];
           if (!(policy instanceof asn1js.Sequence)) {
-            throw new Error("Policy attribute is not a sequence.");
+            expect.fail("Policy attribute is not a sequence.");
           }
           const policyHash = policy.valueBlock.value[1];
           if (!(policyHash instanceof asn1js.Sequence)) {
-            throw new Error("Policy hash is not a sequence.");
+            expect.fail("Policy hash is not a sequence.");
           }
           policyHash.valueBlock.value[1] = new asn1js.OctetString({
             valueHex: toArrayBuffer(new Uint8Array(32)),
@@ -711,15 +709,15 @@ describe("ITI local conformance hardening", () => {
         (_signedData, signerInfo) => {
           const policy = signedAttribute(signerInfo, CmsOid.signaturePolicy).values[0];
           if (!(policy instanceof asn1js.Sequence)) {
-            throw new Error("Policy attribute is not a sequence.");
+            expect.fail("Policy attribute is not a sequence.");
           }
           const qualifiers = policy.valueBlock.value[2];
           if (!(qualifiers instanceof asn1js.Sequence)) {
-            throw new Error("Policy qualifiers are not a sequence.");
+            expect.fail("Policy qualifiers are not a sequence.");
           }
           const qualifier = qualifiers.valueBlock.value[0];
           if (!(qualifier instanceof asn1js.Sequence)) {
-            throw new Error("Policy qualifier is not a sequence.");
+            expect.fail("Policy qualifier is not a sequence.");
           }
           qualifier.valueBlock.value[1] = new asn1js.Utf8String({
             value: IcpBrasilPadesPolicy.adRbV11.policyUri,
@@ -751,7 +749,7 @@ describe("ITI local conformance hardening", () => {
           const policyAttribute = signedAttribute(signerInfo, CmsOid.signaturePolicy);
           const policy = policyAttribute.values[0];
           if (!(policy instanceof asn1js.Sequence)) {
-            throw new Error("Policy attribute is not a sequence.");
+            expect.fail("Policy attribute is not a sequence.");
           }
           const policyAttributeLength = policyAttribute.toSchema().toBER(false).byteLength;
           policy.valueBlock.value.pop();
@@ -802,21 +800,21 @@ describe("ITI local conformance hardening", () => {
         (_signedData, signerInfo) => {
           const policy = signedAttribute(signerInfo, CmsOid.signaturePolicy).values[0];
           if (!(policy instanceof asn1js.Sequence)) {
-            throw new Error("Policy attribute is not a sequence.");
+            expect.fail("Policy attribute is not a sequence.");
           }
           const qualifiers = policy.valueBlock.value[2];
           if (!(qualifiers instanceof asn1js.Sequence)) {
-            throw new Error("Policy qualifiers are not a sequence.");
+            expect.fail("Policy qualifiers are not a sequence.");
           }
           const qualifier = qualifiers.valueBlock.value[0];
           if (!(qualifier instanceof asn1js.Sequence)) {
-            throw new Error("Policy qualifier is not a sequence.");
+            expect.fail("Policy qualifier is not a sequence.");
           }
           const copied = asn1js.fromBER(
             toArrayBuffer(new Uint8Array(qualifier.toBER(false))),
           ).result;
           if (!(copied instanceof asn1js.Sequence)) {
-            throw new Error("Failed to copy policy qualifier.");
+            expect.fail("Failed to copy policy qualifier.");
           }
           qualifiers.valueBlock.value.push(copied);
         },
@@ -846,15 +844,15 @@ describe("ITI local conformance hardening", () => {
           const signingCertificate = signedAttribute(signerInfo, CmsOid.signingCertificateV2)
             .values[0];
           if (!(signingCertificate instanceof asn1js.Sequence)) {
-            throw new Error("SigningCertificateV2 attribute is not a sequence.");
+            expect.fail("SigningCertificateV2 attribute is not a sequence.");
           }
           const certificates = signingCertificate.valueBlock.value[0];
           if (!(certificates instanceof asn1js.Sequence)) {
-            throw new Error("SigningCertificateV2 certificate list is not a sequence.");
+            expect.fail("SigningCertificateV2 certificate list is not a sequence.");
           }
           const essCertId = certificates.valueBlock.value[0];
           if (!(essCertId instanceof asn1js.Sequence)) {
-            throw new Error("SigningCertificateV2 certificate entry is not a sequence.");
+            expect.fail("SigningCertificateV2 certificate entry is not a sequence.");
           }
           const hashIndex = essCertId.valueBlock.value[0] instanceof asn1js.OctetString ? 0 : 1;
           essCertId.valueBlock.value[hashIndex] = new asn1js.OctetString({
@@ -888,7 +886,7 @@ describe("ITI local conformance hardening", () => {
           const first = firstEssCertIdV2(signerInfo);
           const copied = asn1js.fromBER(toArrayBuffer(new Uint8Array(first.toBER(false)))).result;
           if (!(copied instanceof asn1js.Sequence)) {
-            throw new Error("Failed to copy SigningCertificateV2 certificate entry.");
+            expect.fail("Failed to copy SigningCertificateV2 certificate entry.");
           }
           signingCertificateV2Certificates(signerInfo).valueBlock.value.push(copied);
         },
@@ -971,12 +969,13 @@ describe("ITI local conformance hardening", () => {
           const issuerSerial = issuerSerialForSigner(signerInfo);
           const serial = issuerSerial.valueBlock.value[1];
           if (!(serial instanceof asn1js.Integer)) {
-            throw new Error("IssuerSerial serial number is not an INTEGER.");
+            expect.fail("IssuerSerial serial number is not an INTEGER.");
           }
           const serialBytes = new Uint8Array(serial.valueBlock.valueHexView);
           const lastByte = serialBytes.length - 1;
-          if (lastByte < 0) throw new Error("IssuerSerial serial number is empty.");
-          serialBytes[lastByte] = serialBytes[lastByte]! ^ 1;
+          const byte = serialBytes[lastByte];
+          if (byte === undefined) expect.fail("IssuerSerial serial number is empty.");
+          serialBytes[lastByte] = byte ^ 1;
           issuerSerial.valueBlock.value[1] = new asn1js.Integer({
             valueHex: toArrayBuffer(serialBytes),
           });
@@ -1009,11 +1008,11 @@ describe("ITI local conformance hardening", () => {
           const issuerSerial = issuerSerialForSigner(signerInfo);
           const issuers = issuerSerial.valueBlock.value[0];
           if (!(issuers instanceof asn1js.Sequence)) {
-            throw new Error("IssuerSerial issuer names are not a sequence.");
+            expect.fail("IssuerSerial issuer names are not a sequence.");
           }
           const issuer = issuers.valueBlock.value[0];
           if (!(issuer instanceof asn1js.Constructed)) {
-            throw new Error("IssuerSerial issuer is not a GeneralName.");
+            expect.fail("IssuerSerial issuer is not a GeneralName.");
           }
           issuer.valueBlock.value = [
             new asn1js.Sequence({

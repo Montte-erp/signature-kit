@@ -121,13 +121,11 @@ export const createDetachedSignedData = (
     if (valid.timestamp !== undefined) {
       const signerInfo = signed.signerInfos[0];
       if (signerInfo === undefined) {
-        return yield* Effect.fail(
-          new CmsError({
-            code: CmsErrorCodeValue.encodeError,
-            reason: "CMS SignedData has no signer info for timestamp embedding.",
-            operation: CmsOperationValue.encode,
-          }),
-        );
+        return yield* new CmsError({
+          code: CmsErrorCodeValue.encodeError,
+          reason: "CMS SignedData has no signer info for timestamp embedding.",
+          operation: CmsOperationValue.encode,
+        });
       }
       const signatureValue = signerInfo.signature.valueBlock.valueHexView;
       const tokenDer = yield* requestTimestamp({

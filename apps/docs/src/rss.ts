@@ -1,4 +1,5 @@
 import { getPressContext } from "fumapress";
+import { getBlogPosts } from "fumapress/plugins/blog";
 import type { SiteContext } from "../press.config";
 
 import { parseLocale } from "@/lib/locale";
@@ -22,11 +23,7 @@ export async function rssHandler(
   if (locale === undefined) return new Response("Not found", { status: 404 });
 
   await captureServerEvent("blog_rss_requested", request, { locale });
-  const source = await getPressContext<SiteContext>().getLoader();
-  const posts = source
-    .getPages(locale)
-    .flatMap((page) => (page.type === "blog" ? [page] : []))
-    .sort((left, right) => right.data.date.getTime() - left.data.date.getTime());
+  const posts = await getBlogPosts(getPressContext<SiteContext>(), locale);
   const channelUrl = absoluteUrl(`/${locale}/blog`);
   const copy =
     locale === "pt-BR"
@@ -40,12 +37,12 @@ export async function rssHandler(
         };
   const items = posts
     .map(
-      (post) => `<item>
-<title>${escapeXml(post.data.title)}</title>
-<link>${escapeXml(absoluteUrl(post.url))}</link>
-<guid>${escapeXml(absoluteUrl(post.url))}</guid>
-<pubDate>${post.data.date.toUTCString()}</pubDate>
-<description>${escapeXml(post.data.description ?? "")}</description>
+      ({ page, date }) => `<item>
+<title>${escapeXml(page.data.title ?? copy.title)}</title>
+<link>${escapeXml(absoluteUrl(page.url))}</link>
+<guid>${escapeXml(absoluteUrl(page.url))}</guid>
+${date === undefined ? "" : `<pubDate>${date.toUTCString()}</pubDate>`}
+<description>${escapeXml(page.data.description ?? "")}</description>
 </item>`,
     )
     .join("\n");

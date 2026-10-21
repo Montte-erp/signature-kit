@@ -73,6 +73,25 @@ export const downloadSigned = (id: string) =>
   downloadDocuSealSignedDocument(options, id).pipe(Effect.provide(signatureHttpClientLive));
 ```
 
+## Wait for a final state
+
+`waitForDocuSealSignatureRequest(options, id, pollInterval)` reads immediately and polls while the request is `draft` or `sent`. It returns the provider's final state, including cancellation, rejection, deletion, or expiry; inspect `state` before downloading. The interval must be positive and finite. Read failures propagate immediately without automatic retry. Interruption cancels the active read and stops future polls. The caller owns the deadline:
+
+```ts
+import { waitForDocuSealSignatureRequest } from "@signature-kit/docuseal";
+import { signatureHttpClientLive } from "@signature-kit/http";
+import { Duration, Effect } from "effect";
+import type { DocuSealProviderOptions } from "@signature-kit/docuseal";
+
+declare const options: DocuSealProviderOptions;
+declare const requestId: string;
+
+const program = waitForDocuSealSignatureRequest(options, requestId, Duration.seconds(2)).pipe(
+  Effect.timeout(Duration.minutes(5)),
+  Effect.provide(signatureHttpClientLive),
+);
+```
+
 ## Errors and i18n
 
 Invalid inputs, remote HTTP failures, unsupported operations, and invalid response shapes fail as `SignatureKitError` from `@signature-kit/signatures`. Applications can render localized copy through `errorMessage` from `@signature-kit/i18n` with the `signatureKitErrorMessages` catalog from `@signature-kit/signatures`.

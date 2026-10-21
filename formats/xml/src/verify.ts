@@ -6,6 +6,7 @@ import {
   XmlOperationValue,
   XmlSchemaNameValue,
   XmlVerificationRequestSchema,
+  XmlSignatureMethodSchema,
   xmlHashAlgorithmFromSignatureAlgorithm,
 } from "./config.js";
 import type {
@@ -38,11 +39,9 @@ type SignatureVerificationMetadata = {
 
 const XmlCoreErrorSchema = Schema.Struct({
   prefix: Schema.Literal("XMLJS"),
-  code: Schema.Number,
+  code: Schema.Finite,
   message: Schema.String,
 });
-
-const isXmlCoreCryptographicCause = Schema.is(XmlCoreErrorSchema);
 
 const directElementsByName = (
   parent: Element,
@@ -328,20 +327,40 @@ const verifySingleSignature = (
         }),
     });
 
-    return yield* Effect.tryPromise({
-      try: () => signedXml.Verify(publicKey),
-      catch: (cause) => cause,
-    }).pipe(
-      Effect.catch((cause) =>
-        isXmlCoreCryptographicCause(cause) && cause.code === XML_CORE_CRYPTOGRAPHIC_ERROR_CODE
-          ? Effect.succeed(false)
-          : Effect.fail(
-              new XmlError({
-                code: XmlErrorCodeValue.verifyFailed,
-                retryable: false,
-                operation: XmlOperationValue.verify,
-              }),
-            ),
+    yield* Schema.decodeUnknownEffect(XmlSignatureMethodSchema)(
+      signedXml.XmlSignature.SignedInfo.SignatureMethod.Algorithm,
+    ).pipe(
+      Effect.mapError(
+        (issue) =>
+          new XmlError({
+            code: XmlErrorCodeValue.verifyFailed,
+            retryable: false,
+            operation: XmlOperationValue.verify,
+            schemaName: XmlSchemaNameValue.signatureMethod,
+            issueMessage: String(issue),
+            reason: "The XML signature method is not supported by the RSA verification contract.",
+          }),
+      ),
+    );
+
+    return yield* Effect.promise(() => signedXml.Verify(publicKey)).pipe(
+      Effect.catchDefect((cause) =>
+        Schema.decodeUnknownEffect(XmlCoreErrorSchema)(cause).pipe(
+          Effect.matchEffect({
+            onFailure: () => Effect.die(cause),
+            onSuccess: (error) =>
+              error.code === XML_CORE_CRYPTOGRAPHIC_ERROR_CODE
+                ? Effect.succeed(false)
+                : Effect.fail(
+                    new XmlError({
+                      code: XmlErrorCodeValue.verifyFailed,
+                      retryable: false,
+                      operation: XmlOperationValue.verify,
+                      reason: `XMLJS verification failed with code ${error.code}: ${error.message}`,
+                    }),
+                  ),
+          }),
+        ),
       ),
     );
   });
@@ -370,14 +389,12 @@ export const verifyXml = (
     const signatureStructure = xmlRuntime.inspectSignatureStructure(document);
     const signatureCount = signatureStructure.signatureCount;
     if (signatureCount === 0) {
-      return yield* Effect.fail(
-        new XmlError({
-          code: XmlErrorCodeValue.signatureNotFound,
-          retryable: false,
-          reason: "No XMLDSig Signature element found.",
-          operation: XmlOperationValue.verify,
-        }),
-      );
+      return yield* new XmlError({
+        code: XmlErrorCodeValue.signatureNotFound,
+        retryable: false,
+        reason: "No XMLDSig Signature element found.",
+        operation: XmlOperationValue.verify,
+      });
     }
 
     const signatureElements = signatureStructure.signatureElements;

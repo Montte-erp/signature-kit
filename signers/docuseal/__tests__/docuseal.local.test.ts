@@ -196,17 +196,8 @@ describe("DocuSeal offline provider", () => {
       (options, requests) =>
         Effect.gen(function* () {
           const validInput = submissionPayload;
-          const invalidInput = JSON.parse(
-            JSON.stringify({
-              ...validInput,
-              documents: [
-                {
-                  ...validInput.documents[0],
-                  mimeType: "text/plain",
-                },
-              ],
-            }),
-          );
+          const invalidInput = structuredClone(validInput);
+          Object.defineProperty(invalidInput.documents[0], "mimeType", { value: "text/plain" });
           const result = yield* Effect.result(
             Effect.gen(function* () {
               const provider = yield* Provider.findProvider(DocuSealSignatureRequest);

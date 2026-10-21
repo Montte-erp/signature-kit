@@ -52,12 +52,12 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
 
 ## Error rules
 
-- Errors are native Effect errors: `Schema.TaggedErrorClass` with a literal code
+- Errors are native Effect errors: branded `Schema.TaggedError` with a literal code
   catalog (`Schema.Literals([...])`) in the package `config.ts`.
 - Construct the tagged error at the exact decision point.
 - Do not create ad-hoc error/factory helpers like `makeProviderError`,
   `parseFailure`, `responseShapeFailure`, or any `*Error`/`*Failure`/`*Fault` name
-  outside the `TaggedErrorClass` definition.
+  outside the `TaggedError` definition.
 - Do not `throw` (no `throw new Error`, no re-throw), use library-level `try/catch/`
   `finally`, or build runtime error wrapper classes. Promise/IO adaptation uses
   `Effect.tryPromise` / `Effect.try` with an inline declarative `catch` that
@@ -68,7 +68,7 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
   unknown-cause metadata wrapper. If the cause has no real contract, let it be
   a defect instead of pretending it is typed.
 - Do not add parallel internal error/result channels next to an existing
-  `TaggedErrorClass`. Low-level parsers and decoders should return typed
+  `TaggedError`. Low-level parsers and decoders should return typed
   `Effect` failures directly; only total pure primitives may stay plain values.
 - When a foreign SDK rejects with a documented structural error, validate that
   shape with `Schema.decodeUnknownEffect` before mapping it. If the rejected
@@ -89,7 +89,7 @@ runtimes. A1 / PKCS#12 is the first backend, not the product definition.
   decision point; use inline `Schema.decodeUnknownEffect(...).pipe(Effect.mapError(...))`
   at the provider, resource, or public API boundary.
 - Default error-message catalogs are source-of-truth data next to the
-  `TaggedErrorClass`, backed by Schema-derived entry types. Apps resolve
+  `TaggedError`, backed by Schema-derived entry types. Apps resolve
   localized display copy by code through `@signature-kit/i18n`, never by
   matching `reason` text.
 - HTTP errors must never serialize secrets. If an upstream forces credentials into
@@ -293,7 +293,7 @@ with a `Provider.effect` and a collection layer); follow that shape.
   Source filenames should name the real seam too: keep `@signature-kit/a1/signer`
   backed by `src/signer.ts`, and keep `@signature-kit/asn1` backed by an ASN.1 API
   module rather than a misleading `config.ts` root.
-- Avoid `types.ts`. Keep schemas and `Schema.TaggedErrorClass` catalogs beside
+- Avoid `types.ts`. Keep schemas and `Schema.TaggedError` catalogs beside
   the API they validate — usually `config.ts`, or the package root module when the
   root specifier is the real API.
 - The signer backend is not the document format. A `SignerAdapter` owns "where the
@@ -473,8 +473,9 @@ validators/iti     @signature-kit/iti       ITI local and remote signature confo
 
 - Oxlint owns Effect diagnostics through the official `@effect/tsgo` integration.
   Keep `@effect/tsgo`, `oxlint`, and `oxlint-tsgolint` pinned to the upstream
-  compatibility matrix. The root `prepare` patches Oxlint only; `tsc` still owns
-  package declaration builds and type checks.
+  compatibility matrix. The root `prepare` patches Oxlint only; TypeScript 7's `tsc` owns
+  package declaration builds and type checks. The `typescript` npm alias provides
+  Microsoft's TypeScript 6 compatibility API to Nx and AST-based tooling.
 - Use the native correctness preset and the selected simplification rules in
   `tooling/oxc/base.json`; docs inherit them. Warnings fail the lint gate.
   Prefer native combinators over equivalent scaffolding. `Effect.void` has a

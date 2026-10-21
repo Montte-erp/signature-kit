@@ -1058,17 +1058,15 @@ const validateSigningDocument = (
             }),
         ),
         Effect.map(() => inspectSignatureStructure(document)),
-        Effect.flatMap((signatureStructure) =>
-          signatureStructure.valid
-            ? Effect.succeed(signatureStructure)
-            : Effect.fail(
-                new XmlError({
-                  code: XmlErrorCodeValue.signFailed,
-                  retryable: false,
-                  reason: "XML signature structure exceeds verification limits.",
-                  operation: XmlOperationValue.sign,
-                }),
-              ),
+        Effect.filterOrFail(
+          (signatureStructure) => signatureStructure.valid,
+          () =>
+            new XmlError({
+              code: XmlErrorCodeValue.signFailed,
+              retryable: false,
+              reason: "XML signature structure exceeds verification limits.",
+              operation: XmlOperationValue.sign,
+            }),
         ),
       );
 
@@ -1107,20 +1105,21 @@ const parseXml = (xml: string): Effect.Effect<Document, XmlError> =>
           operation: XmlOperationValue.parse,
         }),
     }).pipe(
-      Effect.flatMap((document) =>
-        hasParserDiagnostic ||
-        document.doctype !== null ||
-        document.documentElement === null ||
-        hasInvalidXmlDocumentChildren(document) ||
-        exceedsXmlStructuralLimits(document)
-          ? Effect.fail(
-              new XmlError({
-                code: XmlErrorCodeValue.invalidXml,
-                retryable: false,
-                operation: XmlOperationValue.parse,
-              }),
-            )
-          : Effect.succeed(document),
+      Effect.filterOrFail(
+        (document) =>
+          !(
+            hasParserDiagnostic ||
+            document.doctype !== null ||
+            document.documentElement === null ||
+            hasInvalidXmlDocumentChildren(document) ||
+            exceedsXmlStructuralLimits(document)
+          ),
+        () =>
+          new XmlError({
+            code: XmlErrorCodeValue.invalidXml,
+            retryable: false,
+            operation: XmlOperationValue.parse,
+          }),
       ),
     );
   });

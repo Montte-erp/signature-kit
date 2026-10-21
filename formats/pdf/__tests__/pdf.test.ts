@@ -12,7 +12,7 @@ import { Effect, Redacted, Result, Schema } from "effect";
 import { readA1Fixture } from "../../../tooling/testing/fixtures";
 import { a1SignaturesLayer } from "@signature-kit/a1/signer";
 import { signPdf } from "@signature-kit/pdf/sign";
-import { verifyPdf } from "@signature-kit/pdf/verify";
+import { verifyPdf, verifyPdfSignatures } from "@signature-kit/pdf/verify";
 import { extractPdfSignatures, extractPdfSignature, preparePdfByteRange } from "../src/byte-range";
 import { encodeAscii, indexOfByte, indexOfBytes, replaceRange } from "../src/bytes";
 import { stampPdfRubric } from "../src/stamp";
@@ -368,6 +368,20 @@ describe("PDF signatures", () => {
       expect(verification.valid).toBe(true);
       expect(verification.chainValid).toBe(false);
       expect(verification.signatureCount).toBe(2);
+      const details = yield* verifyPdfSignatures({ pdf: personSigned });
+      expect(details).toHaveLength(2);
+      expect(details.map((detail) => detail.signatureIndex)).toEqual([0, 1]);
+      expect(
+        details.every(
+          (detail) => detail.valid && detail.cryptographicValid && detail.coverageValid,
+        ),
+      ).toBe(true);
+      expect(details.map((detail) => detail.coversFileEnd)).toEqual([false, true]);
+      expect(details.map((detail) => detail.revisionEnd)).toEqual([
+        companySigned.byteLength,
+        personSigned.byteLength,
+      ]);
+      expect(details[1]?.signerSerialNumber).toBe(verification.signerSerialNumber);
     }),
   );
 
@@ -672,6 +686,9 @@ ${"x".repeat(1000)}
 
       expect(verification.signatureCount).toBe(2);
       expect(verification.valid).toBe(false);
+      const details = yield* verifyPdfSignatures({ pdf: tampered });
+      expect(details.every((detail) => !detail.valid && !detail.cryptographicValid)).toBe(true);
+      expect(details.every((detail) => detail.coverageValid)).toBe(true);
     }),
   );
 

@@ -9,7 +9,18 @@ import { SignatureHttpClient, normalizedBaseUrl } from "@signature-kit/http";
 import type { SignatureHttpClientService } from "@signature-kit/http";
 import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
-import { Context, Effect, Layer, Match, Option, Redacted, Schema, Stream } from "effect";
+import {
+  Context,
+  Duration,
+  Effect,
+  Layer,
+  Match,
+  Option,
+  Redacted,
+  Schedule,
+  Schema,
+  Stream,
+} from "effect";
 
 const DocumensoSchemaName = {
   providerOptions: "DocumensoProviderOptions",
@@ -62,7 +73,7 @@ export const DocumensoEnvelopeRecipientSchema = Schema.Struct({
   name: Schema.NonEmptyString,
   email: Schema.NonEmptyString,
   role: Schema.optional(DocumensoRecipientRoleSchema),
-  routingOrder: Schema.optional(Schema.Number),
+  routingOrder: Schema.optional(Schema.Finite),
 });
 export type DocumensoEnvelopeRecipient = (typeof DocumensoEnvelopeRecipientSchema)["Type"];
 
@@ -185,11 +196,11 @@ const DocumensoCreateEnvelopeResultSchema = Schema.Struct({
 
 type DocumensoCreateEnvelopeResult = (typeof DocumensoCreateEnvelopeResultSchema)["Type"];
 const DocumensoRecipientResultSchema = Schema.Struct({
-  id: Schema.Number,
+  id: Schema.Finite,
   name: Schema.String,
   email: Schema.String,
   role: Schema.String,
-  signingOrder: Schema.optional(Schema.NullOr(Schema.Number)),
+  signingOrder: Schema.optional(Schema.NullOr(Schema.Finite)),
   signingUrl: Schema.optional(Schema.String),
 });
 
@@ -200,7 +211,7 @@ const DocumensoDistributeEnvelopeResultSchema = Schema.Struct({
 });
 
 const DocumensoEnvelopeRecipientResultSchema = Schema.Struct({
-  id: Schema.Union([Schema.NonEmptyString, Schema.Number]),
+  id: Schema.Union([Schema.NonEmptyString, Schema.Finite]),
   name: Schema.String,
   email: Schema.String,
   role: Schema.String,
@@ -218,10 +229,10 @@ const DocumensoEnvelopeResultSchema = Schema.Struct({
 });
 
 const DocumensoEnvelopeListPaginationSchema = Schema.Struct({
-  page: Schema.Number,
-  perPage: Schema.Number,
-  totalPages: Schema.Number,
-  totalItems: Schema.Number,
+  page: Schema.Finite,
+  perPage: Schema.Finite,
+  totalPages: Schema.Finite,
+  totalItems: Schema.Finite,
 });
 
 const DocumensoEnvelopeListResultSchema = Schema.Struct({
@@ -490,8 +501,8 @@ const listEnvelopes = (
   http: SignatureHttpClientService,
   options: DocumensoProviderOptions,
   baseUrl: string,
-): Effect.Effect<DocumensoEnvelope[], SignatureKitError> => {
-  return Stream.paginate(DOCUMENSO_LIST_FIRST_PAGE, (page) => {
+): Effect.Effect<DocumensoEnvelope[], SignatureKitError> =>
+  Stream.paginate(DOCUMENSO_LIST_FIRST_PAGE, (page) => {
     const url = new URL(`${baseUrl}/envelope`);
     url.searchParams.set("page", String(page));
     url.searchParams.set("perPage", String(DOCUMENSO_LIST_PER_PAGE));
@@ -513,7 +524,6 @@ const listEnvelopes = (
         ]),
       );
   }).pipe(Stream.runCollect);
-};
 
 const cancelEnvelope = (
   http: SignatureHttpClientService,
@@ -625,13 +635,11 @@ const createDocumensoEnvelopeRequest = (
         });
       }
       return distributeEnvelope(http, options, baseUrl, input, envelope).pipe(
-        Effect.catch((error) =>
-          shouldRollbackDocumensoCreate(error)
-            ? deleteEnvelope(http, options, baseUrl, envelope.id).pipe(
-                Effect.catch(() => Effect.void),
-                Effect.flatMap(() => Effect.fail(error)),
-              )
-            : Effect.fail(error),
+        Effect.catchIf(shouldRollbackDocumensoCreate, (error) =>
+          deleteEnvelope(http, options, baseUrl, envelope.id).pipe(
+            Effect.ignore,
+            Effect.flatMap(() => Effect.fail(error)),
+          ),
         ),
       );
     }),
@@ -792,3 +800,39 @@ export const downloadDocumensoSignedDocument = (
     const http = yield* SignatureHttpClient;
     return yield* downloadSignedEnvelopeDocument(http, valid, documensoBaseUrl(valid), envelopeId);
   });
+
+export const waitForDocumensoSignatureRequest = Effect.fn(function* (
+  options: DocumensoProviderOptions,
+  id: string,
+  pollInterval: Duration.Duration,
+): Effect.fn.Return<DocumensoEnvelope, SignatureKitError, SignatureHttpClient> {
+  const interval = yield* Schema.decodeUnknownEffect(
+    Schema.Duration.check(
+      Schema.makeFilter((value) => Duration.isFinite(value) && Duration.isPositive(value)),
+    ),
+  )(pollInterval).pipe(
+    Effect.mapError(
+      (issue) =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.invalidInput,
+          retryable: false,
+          provider: PROVIDER,
+          operation: SignatureKitOperationValue.schemaDecode,
+          schemaName: "DocumensoPollInterval",
+          issueMessage: String(issue),
+          reason: "Polling requires a positive, finite interval.",
+        }),
+    ),
+  );
+  return yield* getDocumensoSignatureRequest(options, id).pipe(
+    Effect.repeat({
+      while: (request) =>
+        Match.value(request.state).pipe(
+          Match.whenOr("draft", "sent", () => true),
+          Match.whenOr("completed", "cancelled", "deleted", "declined", "expired", () => false),
+          Match.exhaustive,
+        ),
+      schedule: Schedule.spaced(interval),
+    }),
+  );
+});
