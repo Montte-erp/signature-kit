@@ -19,8 +19,8 @@ const NON_AD_RB_POLICY_OID = "2.16.76.1.7.1.11.1.2";
 
 const Asn1SequenceShapeSchema = Schema.Struct({
   idBlock: Schema.Struct({
-    tagClass: Schema.Number,
-    tagNumber: Schema.Number,
+    tagClass: Schema.Finite,
+    tagNumber: Schema.Finite,
   }),
   valueBlock: Schema.Struct({
     value: Schema.Array(Schema.Any),
@@ -29,8 +29,8 @@ const Asn1SequenceShapeSchema = Schema.Struct({
 
 const Asn1ObjectIdentifierShapeSchema = Schema.Struct({
   idBlock: Schema.Struct({
-    tagClass: Schema.Number,
-    tagNumber: Schema.Number,
+    tagClass: Schema.Finite,
+    tagNumber: Schema.Finite,
   }),
 });
 

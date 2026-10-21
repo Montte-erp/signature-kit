@@ -52,6 +52,36 @@ const templateFor = (
 });
 
 describe("PDF batch observer isolation", () => {
+  it.effect("prepares the structured badge with the demo's legacy border option", () =>
+    Effect.gen(function* () {
+      const pdf = yield* createPdf();
+      const pages = [{ index: 0, width: 320, height: 180 }];
+      const rect = { pageIndex: 0, x: 20, y: 20, width: 240, height: 100 };
+      const results = yield* preparePdfSigningBatch({
+        documents: [
+          {
+            id: "badge",
+            pdf,
+            template: templateFor("badge", pages, rect),
+            fieldId: "signature",
+            rect,
+            pageDimensions: pages,
+          },
+        ],
+        stamp: {
+          badge: {
+            header: { text: "Signed" },
+            rows: [[{ label: "Name", value: "Jane Doe" }]],
+            footer: [],
+          },
+          border: false,
+        },
+        signing: {},
+      });
+      expect(results.map((result) => result.ok)).toEqual([true]);
+    }),
+  );
+
   it.effect("continues preparing every item when observers throw, fail, or die", () =>
     Effect.gen(function* () {
       const pdf = yield* createPdf();

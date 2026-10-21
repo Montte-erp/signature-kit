@@ -86,4 +86,4 @@ Use `signature-pdf-viewer` when a human needs to confirm anchor results or switc
 
 ### Waku/FumaPress `react-pdf` island
 
-`react-pdf` touches browser APIs, so keep it behind the hydration boundary shown in [`PdfPreviewIsland`](./react-pdf-preview). Use `useSyncExternalStore` to expose a server snapshot of `false`, `lazy` to defer the browser-only module, and `Suspense` for the loading fallback. Waku/FumaPress pages can pass validated PDF bytes, pages, and rectangles into that island; it owns preview state and object URLs without a framework-specific client-loading helper.
+`react-pdf` touches browser APIs, so keep it behind the hydration boundary shown in [`PdfPreviewIsland`](/en-US/docs/recipes/react-pdf-preview). Use `useSyncExternalStore` to expose a server snapshot of `false`, `lazy` to defer the browser-only module, and `Suspense` for the loading fallback. Waku/FumaPress pages can pass validated PDF bytes, pages, and rectangles into that island; it owns preview state and object URLs without a framework-specific client-loading helper.

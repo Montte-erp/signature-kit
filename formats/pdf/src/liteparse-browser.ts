@@ -101,7 +101,7 @@ const parseLiteParseWorker = (
     try: (signal) =>
       new Promise<unknown>((resolve, reject) => {
         let settled = false;
-        let unsubscribe: (() => void) | undefined;
+        const subscription: { unsubscribe?: () => void } = {};
 
         function onAbort(): void {
           finish(() => {
@@ -114,7 +114,7 @@ const parseLiteParseWorker = (
           if (settled) return;
           settled = true;
           signal.removeEventListener("abort", onAbort);
-          unsubscribe?.();
+          subscription.unsubscribe?.();
           callback();
         }
 
@@ -133,7 +133,7 @@ const parseLiteParseWorker = (
           subscribed();
           return;
         }
-        unsubscribe = subscribed;
+        subscription.unsubscribe = subscribed;
 
         if (signal.aborted) {
           onAbort();
@@ -215,15 +215,13 @@ export const parsePdfTextBoxesBrowser = (
       }),
     );
     if (!hasBoundedPdfLiteParseResult(parsedUnknown, request.pageCount)) {
-      return yield* Effect.fail(
-        new PdfError({
-          code: PdfErrorCodeValue.invalidPdf,
-          retryable: false,
-          operation: PdfOperationValue.parse,
-          schemaName: PdfSchemaNameValue.pdfLiteParseResult,
-          reason: "LiteParse WASM returned an invalid text-box result.",
-        }),
-      );
+      return yield* new PdfError({
+        code: PdfErrorCodeValue.invalidPdf,
+        retryable: false,
+        operation: PdfOperationValue.parse,
+        schemaName: PdfSchemaNameValue.pdfLiteParseResult,
+        reason: "LiteParse WASM returned an invalid text-box result.",
+      });
     }
     const parsed = yield* Schema.decodeUnknownEffect(
       PdfLiteParseResultSchemaForPageCount(request.pageCount),

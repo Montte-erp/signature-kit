@@ -50,7 +50,7 @@ const message = errorMessage(error, {
 
 ## Errors and i18n
 
-This package is the display layer. Package-specific message catalogs remain beside their `TaggedErrorClass` definitions: `signatureKitErrorMessages`, `pdfErrorMessages`, `xmlErrorMessages`, `cmsErrorMessages`, `cryptoErrorMessages`, and `asn1ErrorMessages`.
+This package is the display layer. Package-specific message catalogs remain beside their `TaggedError` definitions: `signatureKitErrorMessages`, `pdfErrorMessages`, `xmlErrorMessages`, `cmsErrorMessages`, `cryptoErrorMessages`, and `asn1ErrorMessages`.
 
 Docs: <https://signaturekit.dev/en-US/docs/signing/errors>.
 

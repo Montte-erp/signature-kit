@@ -1,7 +1,6 @@
 import { bytesToBase64 } from "@signature-kit/crypto/base64";
 import { signatures } from "@signature-kit/signatures";
-import type { Signatures } from "@signature-kit/signatures";
-import type { SignatureAlgorithm, SignatureKitError } from "@signature-kit/signatures";
+import type { Signatures, SignatureAlgorithm, SignatureKitError } from "@signature-kit/signatures";
 import { Effect, Schema } from "effect";
 import type { OptionsSignReference } from "xmldsigjs";
 import {
@@ -53,14 +52,12 @@ export const signXml = (
     const document = yield* xmlRuntime.parse(input.xml);
     const sourceSignatureStructure = yield* xmlRuntime.validateSigningDocument(document);
     if (!sourceSignatureStructure.canAppendSignature) {
-      return yield* Effect.fail(
-        new XmlError({
-          code: XmlErrorCodeValue.signFailed,
-          retryable: false,
-          reason: "XML signature count would exceed verification limits.",
-          operation: XmlOperationValue.sign,
-        }),
-      );
+      return yield* new XmlError({
+        code: XmlErrorCodeValue.signFailed,
+        retryable: false,
+        reason: "XML signature count would exceed verification limits.",
+        operation: XmlOperationValue.sign,
+      });
     }
     const [certificate, signingKey] = yield* Effect.all(
       [signatures.certificate(), signatures.importSigningKey(algorithm)],

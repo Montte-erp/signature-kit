@@ -103,7 +103,7 @@ const AssinafyAssignmentBodySchema = Schema.Struct({
       id: Schema.String,
       verification_method: Schema.String,
       notification_methods: Schema.Array(Schema.String),
-      step: Schema.Number,
+      step: Schema.Finite,
     }),
   ),
   message: Schema.optional(Schema.String),
@@ -154,17 +154,8 @@ describe("Assinafy local API", () => {
       Effect.flatMap((server) =>
         Effect.gen(function* () {
           const validInput = createAssinafyRequest();
-          const invalidInput = JSON.parse(
-            JSON.stringify({
-              ...validInput,
-              documents: [
-                {
-                  ...validInput.documents[0],
-                  mimeType: "text/plain",
-                },
-              ],
-            }),
-          );
+          const invalidInput = structuredClone(validInput);
+          Object.defineProperty(invalidInput.documents[0], "mimeType", { value: "text/plain" });
           const result = yield* Effect.result(
             reconcileAssinafySignatureRequest(makeProviderOptions(server.baseUrl), invalidInput),
           );
@@ -182,6 +173,8 @@ describe("Assinafy local API", () => {
 
   it.effect("sends correct create/reconcile path, method, auth, and request payloads", () =>
     Effect.gen(function* () {
+      const callbackContext = yield* Effect.context<never>();
+
       const createInput: AssinafySignatureRequestProps = createAssinafyRequest();
 
       const local = yield* localHttpServer(async (request): Promise<LocalResponse> => {
@@ -221,7 +214,7 @@ describe("Assinafy local API", () => {
           request.method === "POST" &&
           request.pathname === "/v1/accounts/account-local/signers"
         ) {
-          const signerBody = await Effect.runPromise(
+          const signerBody = await Effect.runPromiseWith(callbackContext)(
             Schema.decodeUnknownEffect(AssinafySignerBodySchema)(jsonBody(request.body)),
           );
           const signerId =
@@ -381,6 +374,8 @@ describe("Assinafy local API", () => {
       `rolls ${shouldRollback ? "back" : "does not roll back"} create when assignments returns ${status}`,
       () =>
         Effect.gen(function* () {
+          const callbackContext = yield* Effect.context<never>();
+
           const local = yield* localHttpServer(async (request): Promise<LocalResponse> => {
             if (
               request.method === "POST" &&
@@ -402,7 +397,7 @@ describe("Assinafy local API", () => {
               request.method === "POST" &&
               request.pathname === "/v1/accounts/account-local/signers"
             ) {
-              const signerBody = await Effect.runPromise(
+              const signerBody = await Effect.runPromiseWith(callbackContext)(
                 Schema.decodeUnknownEffect(AssinafySignerBodySchema)(jsonBody(request.body)),
               );
               const signerId =
@@ -464,6 +459,8 @@ describe("Assinafy local API", () => {
 
   it.effect("does not delete document if post-assignment readback fails with 403", () =>
     Effect.gen(function* () {
+      const callbackContext = yield* Effect.context<never>();
+
       const local = yield* localHttpServer(async (request): Promise<LocalResponse> => {
         if (
           request.method === "POST" &&
@@ -485,7 +482,7 @@ describe("Assinafy local API", () => {
           request.method === "POST" &&
           request.pathname === "/v1/accounts/account-local/signers"
         ) {
-          const signerBody = await Effect.runPromise(
+          const signerBody = await Effect.runPromiseWith(callbackContext)(
             Schema.decodeUnknownEffect(AssinafySignerBodySchema)(jsonBody(request.body)),
           );
           const signerId =

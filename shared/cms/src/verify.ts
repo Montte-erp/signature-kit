@@ -14,7 +14,7 @@ const isUint8Array = (value: unknown): value is Uint8Array =>
 
 const SignedDataVerifyErrorSchema = Schema.Struct({
   name: Schema.Literals(["SignedDataVerifyError"]),
-  code: Schema.Number,
+  code: Schema.Finite,
   signatureVerified: Schema.optional(Schema.NullOr(Schema.Boolean)),
   signerCertificateVerified: Schema.optional(Schema.NullOr(Schema.Boolean)),
 });
@@ -70,13 +70,11 @@ export const verifyDetachedSignedData = (
         }),
     });
     if (contentInfo.contentType !== CmsOid.signedData) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.decodeError,
-          reason: "CMS ContentInfo is not signedData.",
-          operation: CmsOperationValue.verify,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.decodeError,
+        reason: "CMS ContentInfo is not signedData.",
+        operation: CmsOperationValue.verify,
+      });
     }
 
     const signed = yield* Effect.try({
@@ -89,23 +87,19 @@ export const verifyDetachedSignedData = (
         }),
     });
     if (signed.signerInfos.length !== 1) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.decodeError,
-          reason: "CMS SignedData must contain exactly one SignerInfo.",
-          operation: CmsOperationValue.verify,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.decodeError,
+        reason: "CMS SignedData must contain exactly one SignerInfo.",
+        operation: CmsOperationValue.verify,
+      });
     }
 
     if (signed.encapContentInfo.eContentType !== CmsOid.data) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.decodeError,
-          reason: "CMS SignedData eContentType is not id-data.",
-          operation: CmsOperationValue.verify,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.decodeError,
+        reason: "CMS SignedData eContentType is not id-data.",
+        operation: CmsOperationValue.verify,
+      });
     }
     if (signed.encapContentInfo.eContent !== undefined) {
       return {
@@ -132,29 +126,20 @@ export const verifyDetachedSignedData = (
     const serial = signerSerialHex(signed);
     const checkChain = trustedCerts.length > 0;
 
-    const verification = yield* Effect.tryPromise({
-      try: () =>
-        signed.verify({
-          signer: 0,
-          data: new Uint8Array(valid.content).buffer,
-          checkChain,
-          trustedCerts,
-          passedWhenNotRevValues: false,
-          extendedMode: true,
-        }),
-      catch: (cause) => cause,
-    }).pipe(
-      Effect.catch((cause) =>
+    const verification = yield* Effect.promise(() =>
+      signed.verify({
+        signer: 0,
+        data: new Uint8Array(valid.content).buffer,
+        checkChain,
+        trustedCerts,
+        passedWhenNotRevValues: false,
+        extendedMode: true,
+      }),
+    ).pipe(
+      Effect.catchDefect((cause) =>
         Schema.decodeUnknownEffect(SignedDataVerifyErrorSchema)(cause).pipe(
           Effect.matchEffect({
-            onFailure: () =>
-              Effect.fail(
-                new CmsError({
-                  code: CmsErrorCodeValue.verifyError,
-                  reason: "pkijs SignedData verification failed unexpectedly.",
-                  operation: CmsOperationValue.verify,
-                }),
-              ),
+            onFailure: () => Effect.die(cause),
             onSuccess: (error) =>
               Effect.succeed({
                 signatureVerified: error.signatureVerified === true,

@@ -1,5 +1,5 @@
-import type { Asn1Error } from "@signature-kit/asn1";
 import {
+  type Asn1Error,
   type Asn1Node,
   childrenOf,
   decode,
@@ -53,7 +53,10 @@ const kdfYield = Effect.sleep("0 millis");
 
 type KdfBudget = { remaining: number };
 
-const boundedIterations = (iterations: number, label: string): Effect.Effect<number, CryptoError> =>
+const boundedIterations = (
+  iterations: number,
+  label: string,
+): Effect.Effect<number, CryptoError> =>
   Number.isSafeInteger(iterations) && iterations >= 1 && iterations <= MAX_KDF_ITERATIONS
     ? Effect.succeed(iterations)
     : Effect.fail(
@@ -360,12 +363,10 @@ const verifyMac = (
     const computed = hmac(algorithm, macKey, authSafeData);
 
     if (!constantTimeEquals(computed, expectedDigest)) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.wrongPassword,
-          operation: CryptoOperationValue.pkcs12Mac,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.wrongPassword,
+        operation: CryptoOperationValue.pkcs12Mac,
+      });
     }
   });
 
@@ -423,13 +424,11 @@ const decryptPbes2 = (
 
     const kdfOid = yield* oidString(yield* elementAt(kdfInfo, 0, "KDF OID"));
     if (kdfOid !== OID_PBKDF2) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.unsupportedAlgorithm,
-          reason: `Unsupported KDF: ${kdfOid}`,
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.unsupportedAlgorithm,
+        reason: `Unsupported KDF: ${kdfOid}`,
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
 
     const pbkdf2Params = yield* childrenOf(yield* elementAt(kdfInfo, 1, "PBKDF2-params"));
@@ -467,13 +466,11 @@ const decryptPbes2 = (
       const key = yield* pbkdf2Kdf(prf, passwordBytes, salt, iterations, 24, budget);
       return yield* tripleDesCbcDecrypt(key, iv, encryptedData);
     }
-    return yield* Effect.fail(
-      new CryptoError({
-        code: CryptoErrorCodeValue.unsupportedAlgorithm,
-        reason: `Unsupported encryption scheme: ${encOid}`,
-        operation: CryptoOperationValue.pkcs12Decode,
-      }),
-    );
+    return yield* new CryptoError({
+      code: CryptoErrorCodeValue.unsupportedAlgorithm,
+      reason: `Unsupported encryption scheme: ${encOid}`,
+      operation: CryptoOperationValue.pkcs12Decode,
+    });
   });
 
 const decryptPbe = (
@@ -551,13 +548,11 @@ const decryptEncryptedData = (
 
     const encryptedContentNode = yield* elementAt(eci, 2, "encrypted content");
     if (encryptedContentNode.class !== "context" || encryptedContentNode.tag !== 0) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.corruptedFile,
-          reason: "Expected [0] IMPLICIT encrypted content.",
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.corruptedFile,
+        reason: "Expected [0] IMPLICIT encrypted content.",
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
     const encryptedContent =
       encryptedContentNode.kind === "constructed"
@@ -600,13 +595,11 @@ const readLocalKeyId = (
     const attributesNode = bagFields[2];
     if (attributesNode === undefined) return null;
     if (attributesNode.kind !== "constructed") {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.corruptedFile,
-          reason: "PKCS#12 bag attributes are not constructed.",
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.corruptedFile,
+        reason: "PKCS#12 bag attributes are not constructed.",
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
     let localKeyId: string | null = null;
     let hasLocalKeyId = false;
@@ -620,32 +613,26 @@ const readLocalKeyId = (
         valuesNode.kind !== "constructed" ||
         valuesNode.children.length !== 1
       ) {
-        return yield* Effect.fail(
-          new CryptoError({
-            code: CryptoErrorCodeValue.corruptedFile,
-            reason: "PKCS#12 localKeyId attribute must contain one value.",
-            operation: CryptoOperationValue.pkcs12Decode,
-          }),
-        );
+        return yield* new CryptoError({
+          code: CryptoErrorCodeValue.corruptedFile,
+          reason: "PKCS#12 localKeyId attribute must contain one value.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        });
       }
       const valueNode = valuesNode.children[0];
       if (valueNode === undefined) {
-        return yield* Effect.fail(
-          new CryptoError({
-            code: CryptoErrorCodeValue.corruptedFile,
-            reason: "PKCS#12 localKeyId attribute has no value.",
-            operation: CryptoOperationValue.pkcs12Decode,
-          }),
-        );
+        return yield* new CryptoError({
+          code: CryptoErrorCodeValue.corruptedFile,
+          reason: "PKCS#12 localKeyId attribute has no value.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        });
       }
       if (hasLocalKeyId) {
-        return yield* Effect.fail(
-          new CryptoError({
-            code: CryptoErrorCodeValue.corruptedFile,
-            reason: "PKCS#12 bag contains multiple localKeyId attributes.",
-            operation: CryptoOperationValue.pkcs12Decode,
-          }),
-        );
+        return yield* new CryptoError({
+          code: CryptoErrorCodeValue.corruptedFile,
+          reason: "PKCS#12 bag contains multiple localKeyId attributes.",
+          operation: CryptoOperationValue.pkcs12Decode,
+        });
       }
       localKeyId = bytesToHex(yield* readOctetString(valueNode));
       hasLocalKeyId = true;
@@ -697,24 +684,20 @@ const validatePrivateKeyInfo = (pkcs8: Uint8Array): Effect.Effect<void, Pkcs12Er
       ),
     );
     if (node.class !== "universal" || node.kind !== "constructed" || node.tag !== 0x10) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.corruptedFile,
-          reason: "Decrypted private key is not a PKCS#8 SEQUENCE.",
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.corruptedFile,
+        reason: "Decrypted private key is not a PKCS#8 SEQUENCE.",
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
 
     const fields = node.children;
     if (fields.length < 3 || fields.length > 4) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.corruptedFile,
-          reason: "Decrypted private key has an invalid PKCS#8 field count.",
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.corruptedFile,
+        reason: "Decrypted private key has an invalid PKCS#8 field count.",
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
 
     const versionNode = yield* elementAt(fields, 0, "PKCS#8 version");
@@ -724,22 +707,18 @@ const validatePrivateKeyInfo = (pkcs8: Uint8Array): Effect.Effect<void, Pkcs12Er
       versionNode.tag !== 0x02 ||
       versionNode.bytes.length === 0
     ) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.corruptedFile,
-          reason: "Decrypted private key has an invalid PKCS#8 version.",
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.corruptedFile,
+        reason: "Decrypted private key has an invalid PKCS#8 version.",
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
     if ((yield* integerBigInt(versionNode)) !== 0n) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.corruptedFile,
-          reason: "Unsupported decrypted PKCS#8 version.",
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.corruptedFile,
+        reason: "Unsupported decrypted PKCS#8 version.",
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
 
     const algorithmNode = yield* elementAt(fields, 1, "PKCS#8 AlgorithmIdentifier");
@@ -748,22 +727,18 @@ const validatePrivateKeyInfo = (pkcs8: Uint8Array): Effect.Effect<void, Pkcs12Er
       algorithmNode.kind !== "constructed" ||
       algorithmNode.tag !== 0x10
     ) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.corruptedFile,
-          reason: "Decrypted private key has an invalid AlgorithmIdentifier.",
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.corruptedFile,
+        reason: "Decrypted private key has an invalid AlgorithmIdentifier.",
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
     if (algorithmNode.children.length < 1 || algorithmNode.children.length > 2) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.corruptedFile,
-          reason: "Decrypted private key has an invalid AlgorithmIdentifier field count.",
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.corruptedFile,
+        reason: "Decrypted private key has an invalid AlgorithmIdentifier field count.",
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
     const algorithmOid = yield* elementAt(algorithmNode.children, 0, "PKCS#8 algorithm OID");
     if (
@@ -771,25 +746,21 @@ const validatePrivateKeyInfo = (pkcs8: Uint8Array): Effect.Effect<void, Pkcs12Er
       algorithmOid.kind !== "primitive" ||
       algorithmOid.tag !== 0x06
     ) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.corruptedFile,
-          reason: "Decrypted private key has an invalid PKCS#8 algorithm OID.",
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.corruptedFile,
+        reason: "Decrypted private key has an invalid PKCS#8 algorithm OID.",
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
     yield* oidString(algorithmOid);
 
     const privateKeyNode = yield* elementAt(fields, 2, "PKCS#8 private key");
     if (privateKeyNode.class !== "universal" || privateKeyNode.tag !== 0x04) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.corruptedFile,
-          reason: "Decrypted private key has an invalid PKCS#8 private key field.",
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.corruptedFile,
+        reason: "Decrypted private key has an invalid PKCS#8 private key field.",
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
     yield* readOctetString(privateKeyNode);
 
@@ -798,13 +769,11 @@ const validatePrivateKeyInfo = (pkcs8: Uint8Array): Effect.Effect<void, Pkcs12Er
       attributes !== undefined &&
       (attributes.class !== "context" || attributes.kind !== "constructed" || attributes.tag !== 0)
     ) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.corruptedFile,
-          reason: "Decrypted private key has invalid PKCS#8 attributes.",
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.corruptedFile,
+        reason: "Decrypted private key has invalid PKCS#8 attributes.",
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
   });
 
@@ -841,13 +810,11 @@ const decryptShroudedKeyBag = (
     );
 
     if (pkcs8[0] !== 0x30) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.wrongPassword,
-          reason: "Decrypted private key is not valid PKCS#8.",
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.wrongPassword,
+        reason: "Decrypted private key is not valid PKCS#8.",
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
     yield* validatePrivateKeyInfo(pkcs8);
     return pkcs8;
@@ -872,35 +839,29 @@ export const parsePkcs12 = (
       versionNode.kind !== "primitive" ||
       versionNode.tag !== 0x02
     ) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.invalidFormat,
-          reason: "Expected universal INTEGER PFX version.",
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.invalidFormat,
+        reason: "Expected universal INTEGER PFX version.",
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
     const version = yield* integerBigInt(versionNode);
     if (version !== 3n) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.invalidFormat,
-          reason: `Unsupported PFX version: ${version}.`,
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.invalidFormat,
+        reason: `Unsupported PFX version: ${version}.`,
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
 
     const authSafe = yield* childrenOf(yield* elementAt(pfxChildren, 1, "authSafe ContentInfo"));
     const authSafeOid = yield* oidString(yield* elementAt(authSafe, 0, "authSafe OID"));
     if (authSafeOid !== OID_DATA) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.invalidFormat,
-          reason: `Expected data ContentInfo in authSafe, got ${authSafeOid}.`,
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.invalidFormat,
+        reason: `Expected data ContentInfo in authSafe, got ${authSafeOid}.`,
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
 
     const authSafeContent = yield* unwrapContextTag(
@@ -952,22 +913,18 @@ export const parsePkcs12 = (
     }
 
     if (certificates.length === 0) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.noCertificate,
-          reason: "No certificate in PKCS#12.",
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.noCertificate,
+        reason: "No certificate in PKCS#12.",
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
     if (keyBags.length === 0) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.noPrivateKey,
-          reason: "No private key in PKCS#12.",
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.noPrivateKey,
+        reason: "No private key in PKCS#12.",
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
 
     const matchingPairs: Array<{
@@ -1008,13 +965,11 @@ export const parsePkcs12 = (
     }
 
     if (selectedPair === undefined) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.corruptedFile,
-          reason: "PKCS#12 has no unambiguous private-key/certificate pairing.",
-          operation: CryptoOperationValue.pkcs12Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.corruptedFile,
+        reason: "PKCS#12 has no unambiguous private-key/certificate pairing.",
+        operation: CryptoOperationValue.pkcs12Decode,
+      });
     }
 
     const selectedKey = selectedPair.key;

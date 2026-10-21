@@ -32,7 +32,7 @@ if (typeof document === "undefined") {
     let root: Root | undefined;
 
     const ensureLoaded = async () => {
-      if (doc) return;
+      if (doc !== undefined) return;
       const pdfjs = await loadPdfjs();
       const bytes = await makeDummyPdf({ pages: 1, size: A4, label: "Browser dummy" });
       doc = await pdfjs.getDocument({ data: bytes.slice() }).promise;
@@ -121,7 +121,7 @@ if (typeof document === "undefined") {
       layer.dispatchEvent(pointerDown);
       layer.dispatchEvent(pointerUp);
       await waitForFrames(() => placements.length > 0, "a placement from a deliberate click");
-      const [fx, fy] = placements[0]!;
+      const [fx, fy] = placements[0];
       expect(fx).toBeGreaterThanOrEqual(0);
       expect(fx).toBeLessThanOrEqual(1);
       expect(fy).toBeGreaterThanOrEqual(0);

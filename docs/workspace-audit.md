@@ -54,3 +54,57 @@ This is not a claim that every package or test satisfies every written rule.
 - Static checks still combine a handwritten text normalizer and regex checks with TypeScript AST inspection. Template interpolation, aliases, and scope resolution need a dedicated parser-based migration and regression cases.
 - The Alchemy test helper supplies a handwritten plan-status session. Replacing it requires validating the installed native Alchemy test runtime and preserving local provider isolation.
 - Broad docs exemptions in static checks and existing React lifecycle patterns need separate assessment against the package's browser contract. Rules copied from another product are not sufficient evidence to rewrite them.
+
+
+## Dependency and feature update - 2026-10-21
+
+Updated all direct dependencies to their current releases, including stable Effect 4, Vitest 5, React 19.3, Alchemy v2, Nx, Oxlint, Oxfmt, and the documentation stack. The Effect Oxlint integration uses the upstream-supported pinned combination; the installed-binary regression test remains part of the local suite. General TypeScript, import, promise, and Unicorn rules were reviewed and enabled with warnings denied. SignatureKit retains its own architecture policies. Scripts and the root Vitest config now pass through lint too. The continuation audit added native Effect antipattern checks, Schema.Finite checks, native control-flow simplifications, strict boolean checks, and JSX accessibility checks. Actual application/test boundaries retain explicit provide exceptions; raw negative SDK tests can inspect upstream rejections. Published library source cannot use unknown Promise errors. Existing zero-argument service methods retain their public contracts instead of breaking consumers to satisfy a style suggestion.
+
+Compatibility constraints are deliberate:
+
+- TypeScript 7.0.2 owns `tsc`, builds, and type checks. Following [the official Nx side-by-side configuration](https://nx.dev/docs/kb/typescript-7), the `typescript` alias resolves to Microsoft's `@typescript/typescript6` compatibility package for existing compiler-API consumers. No custom compiler wrapper or Nx provider was introduced.
+- CMS and ITI use ASN.1 v4 while PKI.js retains its compatible transitive version. SDK values cross this boundary as DER bytes, and RFC 3161 requests use the native `@peculiar/asn1-tsp` contract. No ASN.1 override is required. An isolated installation of all 17 locally packed packages validates the committed PAdES fixture with every conformance attribute valid; only internal SignatureKit package versions are selected from local tarballs.
+- The Waku override keeps Fumapress and the app on one runtime, avoiding duplicate root contexts.
+- The Hono Node adapter patch forwards the native Request `duplex` getter in both ESM and CommonJS builds. Real local HTTP GET and POST tests failed before the patch and passed afterward. The patch fixes production dynamic-route failures without changing runtimes or patching globals in tests.
+
+Added capabilities:
+
+- XML verification validates the declared signature method against its RSA URI catalog before reaching WebCrypto. Documented XML SDK rejections are schema-decoded; unexpected SDK causes remain defects rather than generic typed wrappers.
+- `inspectCertificateValidity` reports the validity state, evaluation time, remaining milliseconds, and whole days until expiry. It validates intervals and uses the Effect clock. Certificate parsing uses the same clock for its validity snapshot.
+- `verifyPdfSignatures` exposes each signature's cryptographic result, revision coverage, chain result, revocation status, byte range, signer serial number, and revision end. Aggregate verification shares that implementation. Tests cover two real A1 signatures and tampering.
+- Every remote signer exposes `waitFor*SignatureRequest`, with a validated positive finite Duration and native Schedule polling. Final states include unsuccessful outcomes. Read failures propagate, interruption stops polling, and applications own deadlines and retry policy.
+
+Migrated Fumapress types, metadata, and feed integration to the installed contracts. Framework routes own the locale redirect and robots response. Converted 156 documentation links to canonical localized URLs and retained the build's link-validation gate. The registry derives its pinned external versions from the docs manifest. PDF.js cleanup now uses the owning loading task. Browser fixtures use native Vite inline assets; the page-visibility regression uses the real IntersectionObserver.
+
+Verification recorded locally:
+
+- Public package build and static/type checks, including docs and tests.
+- 600 local tests in 68 files; 73 Chromium tests in 17 files. The final local rerun used `bun run test --maxWorkers=4` after a concurrent site build caused the workspace-graph audit to exceed its five-second timeout; the complete rerun passed without changing the test timeout.
+- One server integration test and five performance tests across three files.
+- Live ITI validation with the committed public fixture: expected HTTP 406 and untrusted-certificate outcome, not an approved certificate claim.
+- Production site build with link validation; dry-run packing of all 17 public packages; frozen-lockfile installation. An independent temporary consumer installs those 17 actual tarballs outside the workspace and passes PDF conformance without external dependency overrides.
+- Nine HTTP probes against the built production server: locale redirect, both home pages, English PDF docs, Portuguese certificate docs, robots, sitemap, and both localized RSS feeds. Every final response was HTTP 200; XML responses parsed successfully. The test server was stopped afterward.
+
+The new Tegami entry records the dependency migration and added APIs. The existing pending publish lock was preserved. No remote signer creation calls, npm publication, Git push, CI run, or deployment was performed in this round. Existing mock-based tests listed above remain migration debt; this work does not claim to remove every historical violation.
+
+## Branded stamps, PDF handling, and browser workers - 2026-10-21
+
+The PDF badge contract now supports PNG logos and handwritten marks with independent, proportional image placement. The demo exposes logo upload/removal, title and color controls, a larger initial stamp, and a preview rendered from the actual PDF API. The preview is acquired only in the stamp step, cancels on replacement/unmount, releases PDF.js loading/render tasks, and displays a localized error when rendering fails.
+
+`PdfWorker` uses native Effect RPC. Its browser layer owns worker lifetime through acquire/release and terminates on scope closure. PDF preparation and preview rendering run in the worker; progress callbacks remain in the page. Original PDF buffers and signing dates survive the transport. Certificate/password material is outside the worker request contract.
+
+Reproduced failures and fixes:
+
+- Structured batch stamps passed both badge and legacy ink/border options into a lower-level API that rejected that combination. The batch owner now normalizes handwritten content into the badge and leaves its visual theme in charge of the frame.
+- A badge at or below its padding could generate an unusable drawing. It now returns a typed stamp failure.
+- Premeasured values such as `TrustSign Tests` were wrapped again by PDF drawing and overlapped the next row. The drawing call now preserves the single line already measured by the layout. A PDF text-stream regression failed before the fix and passed afterward.
+- React StrictMode replay disposed the signer controller permanently, silently blocking file input. Explicit activation on mount and lifecycle checks for pending placement leases retain cleanup while allowing the replay. A Chromium test with a real PDF failed before the fix and passed afterward, with no SDK doubles.
+- Custom demo routes were localized twice by the installed Fumapress contract. The registration now uses explicit `lang` and unprefixed paths; production route and browser probes exercise the actual pages.
+
+Validation includes 604 local tests, 80 Chromium tests, all package builds/static/type checks, server integration, performance, live ITI fixture validation, site build/link validation, and packing. New worker tests execute real browser workers and real A1 signing/verification; they cover malformed PDFs, invalid images/dimensions, date preservation, interruption, subsequent sessions, progress, and caller-buffer preservation. Existing historical mocks are not represented as new worker evidence.
+
+The collaborative browser also completed a production-local flow with a four-page rotated/cropped PDF, public A1 fixture, custom logo/title, and download. The downloaded file has one cryptographically valid signature with complete revision coverage. Verification supplied no trusted roots; certificate-chain trust and revocation were not established. Raster inspection exposed the text wrapping regression; the corrected renderer was inspected again with the same logo/name content.
+
+No npm publication, push, CI run, deployment, or live remote-signer writes were performed for these changes.
+
+The final production build returned HTTP 200 for ten probes: root locale redirect, both home pages, the Portuguese signing demo, both relevant documentation pages, robots, sitemap, and both localized RSS feeds. XML responses parsed successfully and the production-local test server was stopped. Frozen-lockfile installation and all 17 package packing targets passed.

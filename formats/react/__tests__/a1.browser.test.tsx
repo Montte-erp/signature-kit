@@ -1,3 +1,5 @@
+import { Effect } from "effect";
+import { readA1FixtureFromBrowser } from "../../../tooling/testing/fixtures.browser";
 import * as React from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
@@ -53,13 +55,6 @@ const makeDocuments = (prefix: string): A1SignerInput["documents"] => [
   { id: `${prefix}-1`, name: `${prefix}-1.pdf`, pdf: createPdf() },
   { id: `${prefix}-2`, name: `${prefix}-2.pdf`, pdf: createPdf() },
 ];
-
-const readA1FixtureFromBrowser = async (name: "ecpf"): Promise<Uint8Array> => {
-  const fixtureUrl = new URL(`../../../signers/a1/__tests__/fixtures/${name}.p12`, import.meta.url);
-  const response = await fetch(fixtureUrl);
-  expect(response.ok).toBe(true);
-  return new Uint8Array(await response.arrayBuffer());
-};
 
 type MountedSigner = {
   readonly getHook: () => A1SignerHook | null;
@@ -166,7 +161,7 @@ if (typeof document === "undefined") {
   });
 
   it("keeps first batch rows when a concurrent sign call is rejected", async () => {
-    const pfx = await readA1FixtureFromBrowser("ecpf");
+    const pfx = await Effect.runPromise(readA1FixtureFromBrowser("ecpf"));
     const probe = mountSigner();
     cleanup = probe.cleanup;
 

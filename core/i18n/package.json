@@ -29,7 +29,7 @@
     "test": "vitest run --root ../.. core/i18n/__tests__"
   },
   "dependencies": {
-    "effect": "4.0.0-beta.86"
+    "effect": "4.0.5"
   },
   "devDependencies": {
     "@signature-kit/crypto": "^0.2.1",

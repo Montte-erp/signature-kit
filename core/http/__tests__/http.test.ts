@@ -342,6 +342,8 @@ describe("SignatureHttpClient", () => {
 
   it.effect("preserves rate-limit metadata when an accepted response body times out", () =>
     Effect.gen(function* () {
+      const callbackContext = yield* Effect.context<never>();
+
       vi.useFakeTimers();
       vi.stubGlobal("fetch", () =>
         Promise.resolve(
@@ -364,7 +366,7 @@ describe("SignatureHttpClient", () => {
         ),
       ).pipe(Effect.provide(signatureHttpClientLive));
       const result = yield* Effect.promise(() => {
-        const pending = Effect.runPromise(Effect.result(request));
+        const pending = Effect.runPromiseWith(callbackContext)(Effect.result(request));
         return vi.advanceTimersByTimeAsync(10).then(() => pending);
       });
 

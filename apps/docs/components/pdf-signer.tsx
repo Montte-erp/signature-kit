@@ -1,5 +1,6 @@
 "use client";
 
+import type { Layer } from "effect";
 import { Duration, Effect, Exit, Redacted, Result } from "effect";
 
 import {
@@ -20,10 +21,9 @@ import { useForm, useSelector } from "@tanstack/react-form";
 
 import type { A1CertificateProfile } from "@signature-kit/a1/config";
 import { a1SignaturesLayer, parseA1CertificateProfile } from "@signature-kit/a1/signer";
-import { rubricRectForPage } from "@signature-kit/pdf/stamp";
+import { isSafePdfStampPng, rubricRectForPage } from "@signature-kit/pdf/stamp";
 import {
   createPdfSignatureBuilderStateFromBytes,
-  preparePdfSigningBatch,
   readPdfBlobBytes,
   signPdfSignatureBatch,
 } from "@signature-kit/pdf/workflow";
@@ -38,6 +38,7 @@ import {
   parsePdfTextBoxesBrowser,
 } from "@signature-kit/pdf/liteparse-browser";
 import type {
+  PdfError,
   PdfSignatureBadge,
   PdfSignatureBuilderState,
   PdfSignatureFieldDraft,
@@ -46,6 +47,10 @@ import type {
   PdfTextBox,
 } from "@signature-kit/pdf/config";
 
+import { PdfWorker } from "@signature-kit/pdf/worker";
+import { pdfWorkerBrowserLayer } from "@signature-kit/pdf/worker-browser";
+
+import { PdfStampPreview } from "./pdf-stamp-preview";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -95,8 +100,8 @@ const SIGNATURE_DRAFT: PdfSignatureFieldDraft = {
   id: SIGNATURE_FIELD_ID,
   type: "signature",
   roleId: SIGNER_ROLE.id,
-  width: 240,
-  height: 72,
+  width: 320,
+  height: 128,
   label: "A1 signature",
   required: true,
 };
@@ -116,6 +121,8 @@ type SignerFormValues = {
   readonly password: string;
   readonly rubricSource: RubricSource;
   readonly typedText: string;
+  readonly stampTitle: string;
+  readonly stampColor: string;
   readonly stampName: boolean;
   readonly stampDate: boolean;
   readonly rubricEveryPage: boolean;
@@ -125,6 +132,8 @@ const signerFormDefaults: SignerFormValues = {
   password: "",
   rubricSource: "cert",
   typedText: "",
+  stampTitle: "",
+  stampColor: "#3B5BDB",
   stampName: true,
   stampDate: true,
   rubricEveryPage: false,
@@ -287,7 +296,7 @@ const deriveInitials = (name: string): string => {
     .trim()
     .split(/\s+/)
     .filter((w) => w.length > 0 && !CONNECTORS.has(w.toLowerCase()))
-    .map((w) => w[0]!.toUpperCase())
+    .map((w) => w[0].toUpperCase())
     .join("");
   return out || name.trim().slice(0, 2).toUpperCase();
 };
@@ -296,7 +305,8 @@ const inkScale = (min: number): number =>
   Math.max(min, Math.min(3, (typeof window !== "undefined" && window.devicePixelRatio) || 2));
 
 const ensureFontLoaded = (spec: string): Promise<void> => {
-  if (typeof document === "undefined" || !document.fonts?.load) return Promise.resolve();
+  if (typeof document === "undefined" || document.fonts?.load === undefined)
+    return Promise.resolve();
   return Effect.runPromise(
     Effect.tryPromise({
       try: () => document.fonts.load(spec),
@@ -314,7 +324,7 @@ const ensureFontLoaded = (spec: string): Promise<void> => {
 
 async function renderHandwritingPng(text: string): Promise<string | undefined> {
   const t = text.trim();
-  if (!t) return undefined;
+  if (!(t.length > 0)) return undefined;
   const family = caveat.style.fontFamily;
   const fontPx = 64;
   const padX = 24;
@@ -343,7 +353,7 @@ async function renderHandwritingPng(text: string): Promise<string | undefined> {
 
 async function renderRubricaInitialsPng(initials: string): Promise<string | undefined> {
   const t = initials.trim();
-  if (!t) return undefined;
+  if (!(t.length > 0)) return undefined;
   const family = caveat.style.fontFamily;
   const W = 150;
   const H = 64;
@@ -389,6 +399,7 @@ function DocumentCanvas({
   controller: PdfSignerController;
   activeDoc: DocEntry;
   stampPreview: {
+    logoDataUrl?: string;
     inkDataUrl?: string;
     rubricaDataUrl?: string;
     lines: string[];
@@ -484,7 +495,7 @@ function DocumentCanvas({
   const place = async (pageIndex: number, fracX: number, fracY: number) => {
     if (controller.isDocumentMutationLocked()) return;
     const page = pages[pageIndex];
-    if (!page) return;
+    if (page === undefined) return;
     const lease = await controller.acquirePlacementLease();
     if (lease === undefined) return;
     if (controller.isDocumentMutationLocked(lease.owner)) {
@@ -515,7 +526,8 @@ function DocumentCanvas({
         return;
       }
       const field = placed.success.fields.find((candidate) => candidate.id === SIGNATURE_FIELD_ID);
-      if (field) onTemplateChange(activeDoc.id, placed.success, field.rect, lease.owner);
+      if (field !== undefined)
+        onTemplateChange(activeDoc.id, placed.success, field.rect, lease.owner);
       const selectedExit = await controller.runPlacementEffect(
         store.selectField(SIGNATURE_FIELD_ID),
       );
@@ -546,7 +558,7 @@ function DocumentCanvas({
         pages.map((page, index) => {
           const isPlacedPage = placedField !== undefined && placedField.rect.pageIndex === index;
           const ghost =
-            !isPlacedPage && rubricEveryPage && placedField
+            !isPlacedPage && rubricEveryPage && placedField !== undefined
               ? {
                   rect: rubricRectForPage(page, activeDoc.pageTextBoxes[index] ?? []),
                   label: m.signer_ghost_repeat({ count: pages.length }),
@@ -657,16 +669,16 @@ function Step({
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
             {title}
-            {optional ? (
+            {optional === true ? (
               <span className="text-[10px] font-normal text-muted-foreground">
                 {m.signer_step_optional()}
               </span>
             ) : null}
           </span>
-          {done && summary ? (
+          {done && summary !== undefined && summary.length > 0 ? (
             <span className="mt-0.5 truncate text-[11px] text-muted-foreground">{summary}</span>
           ) : null}
-          {locked && hint ? (
+          {locked && hint !== undefined && hint.length > 0 ? (
             <span className="mt-0.5 truncate text-[11px] text-muted-foreground">{hint}</span>
           ) : null}
         </span>
@@ -750,7 +762,7 @@ function DocList({
                   <Loader2 className="size-3 animate-spin" />
                 ) : queued.has(d.id) ? (
                   m.signer_queued()
-                ) : d.rect ? (
+                ) : d.rect !== undefined ? (
                   m.signer_doc_page({ page: d.rect.pageIndex + 1 })
                 ) : (
                   m.signer_doc_not_placed()
@@ -807,7 +819,7 @@ function BatchResults({
       <ul className="flex flex-col gap-1.5">
         {docs.map((d) => {
           const row = rows[d.id];
-          const status: BatchRow["status"] | "skipped" = !d.rect
+          const status: BatchRow["status"] | "skipped" = !(d.rect !== undefined)
             ? "skipped"
             : (row?.status ?? "queued");
           return (
@@ -875,11 +887,16 @@ function BatchResults({
   );
 }
 
-type PdfSignerProps = { className?: string; inDialog?: boolean };
+type PdfSignerProps = {
+  className?: string;
+  inDialog?: boolean;
+  preparationLayer?: Layer.Layer<PdfWorker, PdfError>;
+};
 
 function PdfSignerContent({
   className,
   inDialog,
+  preparationLayer,
   controller,
 }: PdfSignerProps & { controller: PdfSignerController }) {
   const signerRuntimeStore = controller.runtimeStore;
@@ -898,6 +915,7 @@ function PdfSignerContent({
   const busy = useSyncStore(signerRuntimeStore, (state) => state.busy);
   const status = useSyncStore(signerRuntimeStore, (state) => state.status);
   const error = useSyncStore(signerRuntimeStore, (state) => state.error);
+  const logoDataUrl = useSyncStore(signerRuntimeStore, (state) => state.logoDataUrl);
   const signatureDataUrl = useSyncStore(signerRuntimeStore, (state) => state.signatureDataUrl);
   const rubricaDataUrl = useSyncStore(signerRuntimeStore, (state) => state.rubricaDataUrl);
   const rows = useSyncStore(signerRuntimeStore, (state) => state.rows);
@@ -910,6 +928,8 @@ function PdfSignerContent({
   const password = useSelector(form.store, (state) => state.values.password);
   const rubricSource = useSelector(form.store, (state) => state.values.rubricSource);
   const typedText = useSelector(form.store, (state) => state.values.typedText ?? "");
+  const stampTitle = useSelector(form.store, (state) => state.values.stampTitle);
+  const stampColor = useSelector(form.store, (state) => state.values.stampColor);
   const stampName = useSelector(form.store, (state) => state.values.stampName);
   const stampDate = useSelector(form.store, (state) => state.values.stampDate);
   const rubricEveryPage = useSelector(form.store, (state) => state.values.rubricEveryPage);
@@ -922,11 +942,20 @@ function PdfSignerContent({
   const activeDoc = docs.find((d) => d.id === activeDocId);
   const placedCount = docs.filter((d) => d.rect).length;
   const unplacedCount = docs.length - placedCount;
-  const nextUnplacedId = docs.find((d) => !d.rect && d.id !== activeDocId)?.id;
+  const nextUnplacedId = docs.find((d) => !(d.rect !== undefined) && d.id !== activeDocId)?.id;
 
-  const previewBadge = visibleStampBadge(profile, undefined, stampName, stampDate);
+  const personalizeBadge = (badge: PdfSignatureBadge): PdfSignatureBadge => ({
+    ...badge,
+    header: { text: stampTitle.trim() || badge.header.text },
+    theme: { borderColor: stampColor, headerColor: stampColor },
+    ...(logoDataUrl === undefined ? {} : { logoPng: dataUrlToBytes(logoDataUrl) }),
+  });
+  const previewBadge = personalizeBadge(
+    visibleStampBadge(profile, undefined, stampName, stampDate),
+  );
   const previewLines = visibleStampPreviewLines(previewBadge);
   const stampPreview = {
+    logoDataUrl,
     inkDataUrl: signatureDataUrl,
     rubricaDataUrl,
     lines: previewLines,
@@ -1123,8 +1152,7 @@ function PdfSignerContent({
     clearBanners();
     updateSignerRuntime((state) => {
       const remaining = state.docs.filter((d) => d.id !== docId);
-      const rows = { ...state.rows };
-      delete rows[docId];
+      const rows = Object.fromEntries(Object.entries(state.rows).filter(([id]) => id !== docId));
       return {
         ...state,
         docs: remaining,
@@ -1149,7 +1177,7 @@ function PdfSignerContent({
     }
     captureDocsEvent("pdf_signer_auto_place_started", {
       document_count: currentDocs.length,
-      unplaced_count: currentDocs.filter((doc) => !doc.rect).length,
+      unplaced_count: currentDocs.filter((doc) => !(doc.rect !== undefined)).length,
     });
     patchSignerRuntime({
       error: "",
@@ -1233,7 +1261,7 @@ function PdfSignerContent({
   const onPfxFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
     if (isDocumentMutationLocked()) return;
-    if (!file) return;
+    if (!(file !== undefined)) return;
     captureDocsEvent("pdf_signer_certificate_selected", {
       file_size: file.size,
     });
@@ -1274,7 +1302,7 @@ function PdfSignerContent({
       captureDocsEvent("pdf_signer_sign_blocked", { reason: "no_signature_placement" });
       return patchSignerRuntime({ error: m.signer_error_no_signature() });
     }
-    if (!pfxBytes) {
+    if (!(pfxBytes !== undefined)) {
       captureDocsEvent("pdf_signer_sign_blocked", { reason: "missing_certificate" });
       return patchSignerRuntime({ error: m.signer_error_certificate_required() });
     }
@@ -1294,7 +1322,7 @@ function PdfSignerContent({
     patchSignerRuntime({ error: "", busy: true, status: m.signer_status_reading_identity() });
 
     let certValue = profile;
-    if (!certValue) {
+    if (!(certValue !== undefined)) {
       const certificateExit = await controller.runWorkflowEffect(
         Effect.result(
           parseA1CertificateProfile({
@@ -1317,15 +1345,12 @@ function PdfSignerContent({
     }
 
     const now = new Date();
-    const badge = visibleStampBadge(
-      certValue,
-      now.toLocaleString(getLocale()),
-      stampName,
-      stampDate,
+    const badge = personalizeBadge(
+      visibleStampBadge(certValue, now.toLocaleString(getLocale()), stampName, stampDate),
     );
     const marksExit = await controller.runWorkflowEffect(
       Effect.result(
-        rubricSource === "type" && typedText.trim()
+        rubricSource === "type" && typedText.trim().length > 0
           ? Effect.all(
               {
                 sig: Effect.tryPromise({
@@ -1339,7 +1364,7 @@ function PdfSignerContent({
               },
               { concurrency: 2 },
             )
-          : rubricSource === "cert" && certValue.subject
+          : rubricSource === "cert" && certValue.subject.length > 0
             ? Effect.all(
                 {
                   sig: Effect.tryPromise({
@@ -1361,8 +1386,8 @@ function PdfSignerContent({
     const marks = marksExit.value;
     const sig = Result.isSuccess(marks) ? marks.success.sig : undefined;
     const rub = Result.isSuccess(marks) ? marks.success.rub : undefined;
-    const mainPng = sig ? dataUrlToBytes(sig) : undefined;
-    const rubricaPng = rub ? dataUrlToBytes(rub) : undefined;
+    const mainPng = sig !== undefined && sig.length > 0 ? dataUrlToBytes(sig) : undefined;
+    const rubricaPng = rub !== undefined && rub.length > 0 ? dataUrlToBytes(rub) : undefined;
     const initialRows: Record<string, BatchRow> = Object.fromEntries(
       placed.map((d) => [d.id, { status: "queued" }]),
     );
@@ -1374,56 +1399,59 @@ function PdfSignerContent({
 
     const preparationExit = await controller.runWorkflowEffect(
       Effect.result(
-        preparePdfSigningBatch(
-          {
-            documents: placed.flatMap((d) =>
-              d.rect === undefined
-                ? []
-                : [
-                    {
-                      id: d.id,
-                      pdf: d.pdfBytes,
-                      template: d.template,
-                      fieldId: SIGNATURE_FIELD_ID,
-                      rect: d.rect,
-                      pageDimensions: Array.from(d.pageDims),
-                      pageTextBoxes: d.pageTextBoxes.map((page) => Array.from(page)),
-                    },
-                  ],
-            ),
-            stamp: {
-              badge,
-              border: false,
-              rubricEveryPage,
-              ...(mainPng === undefined ? {} : { inkPng: mainPng }),
-              ...(rubricaPng === undefined ? {} : { rubricaPng }),
+        Effect.gen(function* () {
+          const worker = yield* PdfWorker;
+          return yield* worker.prepare(
+            {
+              documents: placed.flatMap((d) =>
+                d.rect === undefined
+                  ? []
+                  : [
+                      {
+                        id: d.id,
+                        pdf: d.pdfBytes,
+                        template: d.template,
+                        fieldId: SIGNATURE_FIELD_ID,
+                        rect: d.rect,
+                        pageDimensions: Array.from(d.pageDims),
+                        pageTextBoxes: d.pageTextBoxes.map((page) => Array.from(page)),
+                      },
+                    ],
+              ),
+              stamp: {
+                badge,
+                border: false,
+                rubricEveryPage,
+                ...(mainPng === undefined ? {} : { inkPng: mainPng }),
+                ...(rubricaPng === undefined ? {} : { rubricaPng }),
+              },
+              signing: {
+                reason: "Signed in the browser with SignatureKit",
+                name: certValue.subject,
+                location: "Browser",
+                signingTime: now,
+                signatureLength: 16384,
+                policy: "pades-ades",
+              },
             },
-            signing: {
-              reason: "Signed in the browser with SignatureKit",
-              name: certValue.subject,
-              location: "Browser",
-              signingTime: now,
-              signatureLength: 16384,
-              policy: "pades-ades",
+            {
+              onItemSettled: (result, index, total) => {
+                if (!controller.isCurrentWorkflow(generation)) return;
+                updateSignerRuntime((state) => ({
+                  ...state,
+                  run: { kind: "signing", current: index + 1, total },
+                  rows: {
+                    ...state.rows,
+                    [result.id]: result.ok
+                      ? { status: "queued" }
+                      : { status: "failed", error: result.error.message },
+                  },
+                }));
+              },
+              yieldAfterItem: () => Effect.sleep("0 millis"),
             },
-          },
-          {
-            onItemSettled: (result, index, total) => {
-              if (!controller.isCurrentWorkflow(generation)) return;
-              updateSignerRuntime((state) => ({
-                ...state,
-                run: { kind: "signing", current: index + 1, total },
-                rows: {
-                  ...state.rows,
-                  [result.id]: result.ok
-                    ? { status: "queued" }
-                    : { status: "failed", error: result.error.message },
-                },
-              }));
-            },
-            yieldAfterItem: () => Effect.sleep("0 millis"),
-          },
-        ),
+          );
+        }).pipe(Effect.provide(preparationLayer ?? pdfWorkerBrowserLayer())),
       ),
       generation,
     );
@@ -1479,7 +1507,7 @@ function PdfSignerContent({
                   : { status: "failed", error: result.error.message },
               };
               const upcoming = items[index + 1];
-              if (upcoming && next[upcoming.id]?.status === "queued") {
+              if (upcoming !== undefined && next[upcoming.id]?.status === "queued") {
                 next[upcoming.id] = { status: "signing" };
               }
               return {
@@ -1537,7 +1565,7 @@ function PdfSignerContent({
   const downloadOne = (docId: string) => {
     const d = docs.find((x) => x.id === docId);
     const row = rows[docId];
-    if (d && row?.status === "signed") {
+    if (d !== undefined && row?.status === "signed") {
       captureDocsEvent("pdf_signer_signed_pdf_downloaded", {
         document_count: 1,
       });
@@ -1568,7 +1596,7 @@ function PdfSignerContent({
 
   const loadProfileThenAdvance = async () => {
     if (isDocumentMutationLocked()) return;
-    if (!pfxBytes || password.length === 0) return;
+    if (!(pfxBytes !== undefined) || password.length === 0) return;
     const generation = controller.beginWorkflow();
     captureDocsEvent("pdf_signer_certificate_profile_started");
     patchSignerRuntime({ busy: true, status: m.signer_status_reading_identity() });
@@ -1629,7 +1657,7 @@ function PdfSignerContent({
                 : "todo";
 
   const stampBits = [
-    ...(signatureDataUrl ? [m.signer_bit_mark()] : []),
+    ...(signatureDataUrl !== undefined && signatureDataUrl.length > 0 ? [m.signer_bit_mark()] : []),
     ...(stampName ? [m.signer_bit_name()] : []),
     ...(stampDate ? [m.signer_bit_date()] : []),
     m.signer_bit_qr(),
@@ -1647,19 +1675,19 @@ function PdfSignerContent({
         <div
           className={cn(
             "min-w-0 bg-background pb-1",
-            inDialog ? "min-h-0" : "sticky top-0 z-10 self-start @4xl:top-0",
+            inDialog === true ? "min-h-0" : "sticky top-0 z-10 self-start @4xl:top-0",
           )}
         >
           <div className="mb-2 flex items-center justify-between gap-2">
             <span className="text-xs font-medium text-muted-foreground">
               {m.signer_doc_label()}
             </span>
-            {activeDoc ? (
+            {activeDoc !== undefined ? (
               <span className="truncate text-xs text-muted-foreground">{activeDoc.name}</span>
             ) : null}
           </div>
           <Card className="min-h-64 rounded-lg border-border bg-muted/30 p-3 shadow-none">
-            {!activeDoc ? (
+            {!(activeDoc !== undefined) ? (
               <Label className="flex h-64 cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border text-center text-sm font-normal text-muted-foreground hover:bg-input/30 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50">
                 <FileUp className="size-6 opacity-60" />
                 <span>{m.signer_dropzone()}</span>
@@ -1671,7 +1699,9 @@ function PdfSignerContent({
                   data-analytics-sensitive
                   className="sr-only"
                   disabled={documentMutationLocked}
-                  onChange={onPdfFiles}
+                  onChange={(event) => {
+                    void onPdfFiles(event);
+                  }}
                 />
               </Label>
             ) : (
@@ -1687,7 +1717,7 @@ function PdfSignerContent({
               />
             )}
           </Card>
-          {shownStatus ? (
+          {shownStatus.length > 0 ? (
             <p
               role="status"
               aria-live="polite"
@@ -1697,7 +1727,7 @@ function PdfSignerContent({
               {shownStatus}
             </p>
           ) : null}
-          {nextUnplacedId ? (
+          {nextUnplacedId !== undefined && nextUnplacedId.length > 0 ? (
             <Button
               type="button"
               variant="outline"
@@ -1775,13 +1805,15 @@ function PdfSignerContent({
               data-ph-no-autocapture
               data-analytics-sensitive
               className="sr-only"
-              onChange={onPdfFiles}
+              onChange={(event) => {
+                void onPdfFiles(event);
+              }}
               disabled={documentMutationLocked}
             />
             <p className="text-[11px] leading-relaxed text-muted-foreground">
               {docs.length === 0
                 ? m.signer_step1_hint_empty()
-                : activeDoc && !activeDoc.rect
+                : activeDoc !== undefined && !(activeDoc.rect !== undefined)
                   ? m.signer_step1_hint_place()
                   : placedCount < docs.length
                     ? m.signer_step1_hint_some()
@@ -1799,8 +1831,8 @@ function PdfSignerContent({
             }}
             hint={m.signer_step2_hint()}
             summary={
-              profile
-                ? `${profile.subject}${profile.document ? ` · ${profile.document}` : ""}`
+              profile !== undefined
+                ? `${profile.subject}${profile.document.length > 0 ? ` · ${profile.document}` : ""}`
                 : m.signer_step2_summary_loaded()
             }
           >
@@ -1813,7 +1845,7 @@ function PdfSignerContent({
               className="gap-1.5 text-xs text-foreground"
             >
               <Lock className="size-3.5" data-icon="inline-start" />
-              {pfxBytes ? m.signer_replace_pfx() : m.signer_upload_pfx()}
+              {pfxBytes !== undefined ? m.signer_replace_pfx() : m.signer_upload_pfx()}
             </Button>
             <input
               ref={pfxInputRef}
@@ -1822,7 +1854,9 @@ function PdfSignerContent({
               data-ph-no-autocapture
               data-analytics-sensitive
               className="sr-only"
-              onChange={onPfxFile}
+              onChange={(event) => {
+                void onPfxFile(event);
+              }}
               disabled={documentMutationLocked}
             />
             <form
@@ -1869,10 +1903,10 @@ function PdfSignerContent({
               <code className="mx-1 font-mono text-foreground">Redacted</code>
               {m.signer_step2_note_b()}
             </p>
-            {profile ? (
+            {profile !== undefined ? (
               <p className="rounded-md border border-border bg-muted/40 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
                 {profile.subject}
-                {profile.document ? ` · ${profile.document}` : ""}
+                {profile.document.length > 0 ? ` · ${profile.document}` : ""}
               </p>
             ) : null}
             <Button
@@ -1895,7 +1929,11 @@ function PdfSignerContent({
               headerRefs.current[3] = el;
             }}
             hint={m.signer_step3_hint()}
-            summary={stampBits.length ? stampBits.join(" · ") : m.signer_step3_summary_none()}
+            summary={
+              stampBits.length !== 0 && !Number.isNaN(stampBits.length)
+                ? stampBits.join(" · ")
+                : m.signer_step3_summary_none()
+            }
           >
             <p className="text-[11px] leading-relaxed text-muted-foreground">
               {m.signer_step3_intro()}
@@ -1956,7 +1994,7 @@ function PdfSignerContent({
                         />
                       )}
                     </form.Field>
-                    {signatureDataUrl ? (
+                    {signatureDataUrl !== undefined && signatureDataUrl.length > 0 ? (
                       <div className="flex h-16 items-center justify-center rounded-md border border-border bg-white">
                         <img
                           src={signatureDataUrl}
@@ -1967,7 +2005,7 @@ function PdfSignerContent({
                         />
                       </div>
                     ) : null}
-                    {typedText.trim() ? (
+                    {typedText.trim().length > 0 ? (
                       <p className="text-[11px] text-muted-foreground">
                         {m.signer_initials_label()}{" "}
                         <span className="font-mono text-foreground">
@@ -1976,14 +2014,16 @@ function PdfSignerContent({
                       </p>
                     ) : null}
                   </div>
-                ) : !profile ? (
+                ) : !(profile !== undefined) ? (
                   <p className="text-[11px] leading-relaxed text-muted-foreground">
-                    {pfxBytes ? m.signer_cert_hint_continue() : m.signer_cert_hint_add()}
+                    {pfxBytes !== undefined
+                      ? m.signer_cert_hint_continue()
+                      : m.signer_cert_hint_add()}
                   </p>
                 ) : (
                   <div className="flex flex-col gap-2">
                     <div className="flex h-16 items-center justify-center rounded-md border border-border bg-white">
-                      {signatureDataUrl ? (
+                      {signatureDataUrl !== undefined && signatureDataUrl.length > 0 ? (
                         <img
                           src={signatureDataUrl}
                           alt=""
@@ -2002,6 +2042,111 @@ function PdfSignerContent({
                   </div>
                 )}
               </div>
+            </div>
+
+            {activeStep === 3 ? (
+              <PdfStampPreview
+                width={activeDoc?.rect?.width ?? SIGNATURE_DRAFT.width}
+                height={activeDoc?.rect?.height ?? SIGNATURE_DRAFT.height}
+                badge={{
+                  ...previewBadge,
+                  ...(signatureDataUrl === undefined
+                    ? {}
+                    : { signaturePng: dataUrlToBytes(signatureDataUrl) }),
+                }}
+                preparationLayer={preparationLayer}
+              />
+            ) : null}
+            <form.Field name="stampTitle">
+              {(field) => (
+                <div className="grid gap-2">
+                  <Label htmlFor="stamp-title">{m.signer_stamp_custom_title()}</Label>
+                  <Input
+                    id="stamp-title"
+                    value={field.state.value}
+                    placeholder={m.signer_stamp_title()}
+                    maxLength={100}
+                    disabled={busy}
+                    onChange={(event) => field.handleChange(event.currentTarget.value)}
+                  />
+                </div>
+              )}
+            </form.Field>
+            <form.Field name="stampColor">
+              {(field) => (
+                <div className="grid gap-2">
+                  <Label htmlFor="stamp-color">{m.signer_stamp_color()}</Label>
+                  <Input
+                    id="stamp-color"
+                    type="color"
+                    value={field.state.value}
+                    disabled={busy}
+                    onChange={(event) => field.handleChange(event.currentTarget.value)}
+                  />
+                </div>
+              )}
+            </form.Field>
+            <div className="grid gap-2">
+              <Label htmlFor="stamp-logo">{m.signer_stamp_logo()}</Label>
+              <Input
+                id="stamp-logo"
+                type="file"
+                accept="image/png"
+                disabled={busy}
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  event.currentTarget.value = "";
+                  if (file === undefined) return;
+                  const generation = controller.beginPreview();
+                  void controller.runPreviewEffect(
+                    Effect.gen(function* () {
+                      if (file.size > 16 * 1024 * 1024) {
+                        patchSignerRuntime({ error: m.signer_stamp_logo_invalid() });
+                        return;
+                      }
+                      const bytes = yield* Effect.promise(() => file.arrayBuffer()).pipe(
+                        Effect.map((buffer) => new Uint8Array(buffer)),
+                      );
+                      if (!(yield* isSafePdfStampPng(bytes))) {
+                        patchSignerRuntime({ error: m.signer_stamp_logo_invalid() });
+                        return;
+                      }
+                      const dataUrl = yield* Effect.promise(
+                        () =>
+                          new Promise<string>((resolve, reject) => {
+                            const reader = new FileReader();
+                            reader.onload = () =>
+                              typeof reader.result === "string"
+                                ? resolve(reader.result)
+                                : reject(reader.error);
+                            reader.onerror = () => reject(reader.error);
+                            reader.readAsDataURL(file);
+                          }),
+                      );
+                      if (controller.isCurrentPreview(generation))
+                        patchSignerRuntime({ logoDataUrl: dataUrl, error: "" });
+                    }),
+                    generation,
+                  );
+                }}
+              />
+              {logoDataUrl === undefined ? null : (
+                <>
+                  <img
+                    src={logoDataUrl}
+                    alt={m.signer_stamp_logo()}
+                    className="h-12 max-w-full object-contain"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => patchSignerRuntime({ logoDataUrl: undefined })}
+                  >
+                    {m.signer_stamp_logo_remove()}
+                  </Button>
+                </>
+              )}
             </div>
 
             <form.Field name="stampName">
@@ -2133,7 +2278,7 @@ function PdfSignerContent({
             )}
           </Step>
 
-          {error ? (
+          {error.length > 0 ? (
             <p
               role="alert"
               aria-live="assertive"
@@ -2150,6 +2295,10 @@ function PdfSignerContent({
 }
 class PdfSignerBoundary extends React.Component<PdfSignerProps> {
   readonly controller = createPdfSignerController();
+
+  componentDidMount(): void {
+    this.controller.activate();
+  }
 
   componentWillUnmount(): void {
     this.controller.dispose();

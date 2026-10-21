@@ -99,13 +99,11 @@ describe("errorMessage", () => {
   });
 
   it("rejects a malformed fallback locale at the schema boundary before lookup", () => {
-    const malformedOptions = JSON.parse(
-      JSON.stringify({
-        locale: "pt-BR",
-        catalogs: [signatureKitErrorMessages],
-        fallbackLocale: "es-ES",
-      }),
-    );
+    const malformedOptions = {
+      locale: "pt-BR",
+      catalogs: [signatureKitErrorMessages],
+      fallbackLocale: "es-ES",
+    };
 
     const result = Schema.decodeUnknownResult(ErrorMessageOptionsSchema)(malformedOptions);
 

@@ -96,7 +96,7 @@ export const ItiConformanceReportSchema = Schema.Struct({
   standard: Schema.Literal(ITI_PADES_AD_RB_SIGNATURE_TYPE),
   outcome: ItiConformanceOutcomeSchema,
   approved: Schema.Boolean,
-  signatureCount: Schema.Number,
+  signatureCount: Schema.Finite,
   signatures: Schema.Array(ItiSignatureConformanceSchema),
 });
 export type ItiConformanceReport = (typeof ItiConformanceReportSchema)["Type"];
@@ -188,7 +188,8 @@ const exactAttributeValue = (attributes: readonly pkijs.Attribute[], type: strin
   if (matching.length !== 1 || attribute === undefined || attribute.values.length !== 1) {
     return undefined;
   }
-  return attribute.values[0];
+  const value = attribute.values[0];
+  return value === undefined ? undefined : asn1js.fromBER(value.toBER(false)).result;
 };
 
 const sequenceChildren = (value: unknown) =>
@@ -356,7 +357,7 @@ const validateCmsAttributes = (
         signingCertificate,
         certificateHash,
         signerCertificateDer,
-      ).pipe(Effect.catch(() => Effect.succeed(false))),
+      ).pipe(Effect.orElseSucceed(() => false)),
     };
   });
 
@@ -462,7 +463,7 @@ export const validatePdfConformance = (
         const newest = index === signatures.length - 1;
         const byteRangeEnd = signature.byteRange[2] + signature.byteRange[3];
         const revisionComplete = yield* isCompletePdfRevision(valid.pdf, byteRangeEnd).pipe(
-          Effect.catch(() => Effect.succeed(false)),
+          Effect.orElseSucceed(() => false),
         );
         const structureValid =
           signature.startsAtZero &&

@@ -60,6 +60,24 @@ Use `signPdfSignatureBatch(items, callbacks)` when one A1 certificate signs many
 ## Related
 
 <Cards>
-  <Card title="PDF/PAdES" href="../signing/pdf">Detached CMS signing and placeholder sizing for PDF documents.</Card>
+  <Card title="PDF/PAdES" href="/en-US/docs/signing/pdf">Detached CMS signing and placeholder sizing for PDF documents.</Card>
   <Card title="Live A1 demo" href="/pt-BR/assine-documentos-gratis">Run the existing browser signer with the same boundary.</Card>
 </Cards>
+
+
+## Prepare in a Web Worker
+
+`PdfWorker` prepares documents and renders stamp previews in a worker using native Effect RPC. The browser layer terminates the worker when its scope closes; interrupting the Effect cancels the session. Progress callbacks run on the page, and callers retain their original bytes. Certificates and passwords are outside this protocol: provide the A1 layer at the signing boundary.
+
+```ts
+import type { PdfSigningBatchPreparationInput } from "@signature-kit/pdf/config"
+import { PdfWorker } from "@signature-kit/pdf/worker"
+import { pdfWorkerBrowserLayer } from "@signature-kit/pdf/worker-browser"
+import { Effect } from "effect"
+
+const prepare = (input: PdfSigningBatchPreparationInput) =>
+  Effect.gen(function* () {
+    const worker = yield* PdfWorker
+    return yield* worker.prepare(input)
+  }).pipe(Effect.provide(pdfWorkerBrowserLayer()))
+```

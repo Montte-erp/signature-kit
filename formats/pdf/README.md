@@ -70,6 +70,19 @@ const program = Effect.gen(function* () {
 }).pipe(Effect.provide(a1SignaturesLayer({ pfx, password: Redacted.make("secret") })));
 ```
 
+## Inspect each PDF signature
+
+`verifyPdfSignatures` returns signatures in revision order. Each result includes the signer serial number, cryptographic validity, revision coverage, chain validity, revocation status, byte range, and revision end. Earlier signatures can remain valid while `coversFileEnd` is false because later signatures add revisions. Structural failures still fail the Effect. `verifyPdf` retains its aggregate result and verifies every signature through the same implementation. Chain validity is evaluated against the supplied roots; revocation marked `not_checked` is not proof of revocation checking.
+
+```ts
+import { verifyPdfSignatures } from "@signature-kit/pdf/verify";
+
+declare const pdf: Uint8Array;
+declare const trustedRoots: Uint8Array[];
+
+const verification = verifyPdfSignatures({ pdf, trustedRoots });
+```
+
 ## Errors and i18n
 
 PDF failures use the `PdfError` code catalog and `pdfErrorMessages`; CMS and signer failures can also surface from signing workflows. Applications can render localized copy through `@signature-kit/i18n` with the catalogs for every package they call.

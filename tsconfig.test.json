@@ -9,8 +9,9 @@
     "jsx": "react-jsx",
     "noEmit": true,
     "rootDir": ".",
-    "types": ["bun"],
-    "tsBuildInfoFile": ".cache/test-typecheck.tsbuildinfo"
+    "types": ["bun", "vite/client"],
+    "tsBuildInfoFile": ".cache/test-typecheck.tsbuildinfo",
+    "allowImportingTsExtensions": true
   },
   "include": [
     "core/**/__tests__/**/*.ts",

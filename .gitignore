@@ -11,3 +11,4 @@ coverage/
 
 # vitest browser screenshot attachments
 .vitest-attachments/
+.vitest/

@@ -39,7 +39,7 @@ function rc2ExpandKey(key: Uint8Array, pkeySz: number): number[] {
     L[i] = PITABLE[L[i + 1]! ^ L[i + t8]!]!;
   }
 
-  const K: number[] = new Array(64);
+  const K: number[] = [];
   for (let i = 0; i < 64; i++) {
     K[i] = L[i * 2]! | (L[i * 2 + 1]! << 8);
   }

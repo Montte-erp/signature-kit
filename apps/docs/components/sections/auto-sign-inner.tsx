@@ -317,7 +317,8 @@ const resetDemo = (): void => {
 
 function downloadDoc(doc: AutoDoc): void {
   const demo = demoDoc(doc.id);
-  if (demo === undefined || !doc.pdfBytes || doc.outputLocale !== getLocale()) return;
+  if (demo === undefined || !(doc.pdfBytes !== undefined) || doc.outputLocale !== getLocale())
+    return;
   captureDocsEvent("auto_sign_demo_downloaded", {
     document_id: doc.id,
     signed: doc.signed ?? false,
@@ -394,7 +395,7 @@ function AutoDocCanvas({
     [bytes],
   );
 
-  if (bytes && pdfDoc) {
+  if (bytes !== undefined && pdfDoc !== null) {
     return (
       <div ref={mountPdf}>
         <PdfPage
@@ -439,7 +440,8 @@ export function AutoSignInner() {
   const activeDoc = docs[activeIndex] ?? docs[0];
   const activeDemo = activeDoc === undefined ? undefined : demoDoc(activeDoc.id);
   const activeOutputCurrent = activeDoc?.outputLocale === locale;
-  const activePhase = activeDoc && activeOutputCurrent ? status[activeDoc.id] : "queued";
+  const activePhase =
+    activeDoc !== undefined && activeOutputCurrent ? status[activeDoc.id] : "queued";
 
   const documentValues = docs.map((doc, docIndex) => `${doc.id}-${docIndex}`);
   const documentPanelIds = docs.map(
@@ -476,7 +478,7 @@ export function AutoSignInner() {
           <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/70">
             {activeIndex + 1} / {count}
           </span>
-          {activeDoc?.signed && activeOutputCurrent ? (
+          {activeDoc?.signed === true && activeOutputCurrent ? (
             <Button
               type="button"
               variant="ghost"
@@ -518,7 +520,7 @@ export function AutoSignInner() {
               forceMount
               className="m-0 min-w-0 p-0"
             >
-              {docIndex === activeIndex && activeDoc ? (
+              {docIndex === activeIndex && activeDoc !== undefined ? (
                 <AutoDocCanvas
                   key={activeDoc.id}
                   doc={activeDoc}

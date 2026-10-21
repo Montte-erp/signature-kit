@@ -9,7 +9,18 @@ import { SignatureHttpClient, normalizedBaseUrl } from "@signature-kit/http";
 import type { SignatureHttpClientService, SignatureHttpRequest } from "@signature-kit/http";
 import { Resource } from "alchemy";
 import * as Provider from "alchemy/Provider";
-import { Context, Effect, Layer, Match, Option, Redacted, Schema, Stream } from "effect";
+import {
+  Context,
+  Duration,
+  Effect,
+  Layer,
+  Match,
+  Option,
+  Redacted,
+  Schedule,
+  Schema,
+  Stream,
+} from "effect";
 
 const ClicksignSchemaName = {
   providerOptions: "ClicksignProviderOptions",
@@ -61,7 +72,7 @@ export const ClicksignSignerSchema = Schema.Struct({
   name: Schema.NonEmptyString,
   email: Schema.NonEmptyString,
   role: Schema.optional(ClicksignSignerRoleSchema),
-  routingOrder: Schema.optional(Schema.Number),
+  routingOrder: Schema.optional(Schema.Finite),
 });
 export type ClicksignSigner = (typeof ClicksignSignerSchema)["Type"];
 
@@ -193,9 +204,9 @@ const ClicksignListResultSchema = Schema.Struct({
 });
 
 const ClicksignPageInfosSchema = Schema.Struct({
-  total_pages: Schema.optional(Schema.Union([Schema.Number, Schema.String])),
-  current_page: Schema.optional(Schema.Union([Schema.Number, Schema.String])),
-  next_page: Schema.optional(Schema.Union([Schema.Number, Schema.String, Schema.Null])),
+  total_pages: Schema.optional(Schema.Union([Schema.Finite, Schema.String])),
+  current_page: Schema.optional(Schema.Union([Schema.Finite, Schema.String])),
+  next_page: Schema.optional(Schema.Union([Schema.Finite, Schema.String, Schema.Null])),
   last_page: Schema.optional(Schema.Boolean),
 });
 
@@ -655,13 +666,11 @@ const createClicksignSignatureRequest = (
           ),
         { concurrency: 4 },
       ).pipe(
-        Effect.catch((error) =>
-          shouldRollbackClicksignCreate(error)
-            ? deleteClicksignSignatureRequestInternal(http, options, baseUrl, documentKey).pipe(
-                Effect.catch(() => Effect.void),
-                Effect.flatMap(() => Effect.fail(error)),
-              )
-            : Effect.fail(error),
+        Effect.catchIf(shouldRollbackClicksignCreate, (error) =>
+          deleteClicksignSignatureRequestInternal(http, options, baseUrl, documentKey).pipe(
+            Effect.ignore,
+            Effect.flatMap(() => Effect.fail(error)),
+          ),
         ),
         Effect.flatMap((requestSignatureKeys) =>
           input.send === false
@@ -842,3 +851,39 @@ export const downloadClicksignSignedDocument = (
     const http = yield* SignatureHttpClient;
     return yield* downloadClicksignSignedDocumentInternal(http, valid, clicksignBaseUrl(valid), id);
   });
+
+export const waitForClicksignSignatureRequest = Effect.fn(function* (
+  options: ClicksignProviderOptions,
+  id: string,
+  pollInterval: Duration.Duration,
+): Effect.fn.Return<ClicksignSignatureRequestAttributes, SignatureKitError, SignatureHttpClient> {
+  const interval = yield* Schema.decodeUnknownEffect(
+    Schema.Duration.check(
+      Schema.makeFilter((value) => Duration.isFinite(value) && Duration.isPositive(value)),
+    ),
+  )(pollInterval).pipe(
+    Effect.mapError(
+      (issue) =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.invalidInput,
+          retryable: false,
+          provider: PROVIDER,
+          operation: SignatureKitOperationValue.schemaDecode,
+          schemaName: "ClicksignPollInterval",
+          issueMessage: String(issue),
+          reason: "Polling requires a positive, finite interval.",
+        }),
+    ),
+  );
+  return yield* getClicksignSignatureRequest(options, id).pipe(
+    Effect.repeat({
+      while: (request) =>
+        Match.value(request.state).pipe(
+          Match.whenOr("draft", "sent", () => true),
+          Match.whenOr("completed", "cancelled", "deleted", "declined", "expired", () => false),
+          Match.exhaustive,
+        ),
+      schedule: Schedule.spaced(interval),
+    }),
+  );
+});

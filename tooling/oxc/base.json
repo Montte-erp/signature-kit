@@ -1,12 +1,12 @@
 {
   "$schema": "../../node_modules/@effect/tsgo/oxlint-schema.json",
-  "plugins": ["typescript", "import", "effecttsgo"],
+  "plugins": ["typescript", "import", "effecttsgo", "unicorn"],
   "categories": {
     "correctness": "error"
   },
   "rules": {
     "no-debugger": "error",
-    "no-unused-vars": "warn",
+    "no-unused-vars": "error",
     "no-console": "off",
     "no-undef": "off",
     "no-restricted-imports": [
@@ -32,7 +32,106 @@
     "effecttsgo/effect-map-void": "error",
     "effecttsgo/flat-map-to-map": "error",
     "effecttsgo/sync-to-succeed": "error",
-    "effecttsgo/any-unknown-in-error-context": "off"
+    "effecttsgo/any-unknown-in-error-context": "off",
+    "import/namespace": "warn",
+    "typescript/no-base-to-string": "warn",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-unsafe-type-assertion": "error",
+    "typescript/consistent-type-assertions": [
+      "error",
+      {
+        "assertionStyle": "never"
+      }
+    ],
+    "typescript/no-import-type-side-effects": "error",
+    "typescript/no-floating-promises": "error",
+    "typescript/switch-exhaustiveness-check": "error",
+    "typescript/no-unnecessary-type-assertion": "error",
+    "typescript/no-inferrable-types": "error",
+    "typescript/ban-ts-comment": "error",
+    "typescript/no-dynamic-delete": "error",
+    "import/no-duplicates": [
+      "error",
+      {
+        "preferInline": false
+      }
+    ],
+    "import/no-self-import": "error",
+    "import/no-mutable-exports": "error",
+    "import/no-commonjs": "error",
+    "unicorn/prefer-node-protocol": "error",
+    "unicorn/prefer-array-some": "error",
+    "unicorn/prefer-structured-clone": "error",
+    "unicorn/no-instanceof-builtins": "error",
+    "unicorn/no-unnecessary-await": "error",
+    "unicorn/prefer-string-starts-ends-with": "error",
+    "import/no-cycle": [
+      "error",
+      {
+        "ignoreTypes": true
+      }
+    ],
+    "typescript/no-misused-promises": "warn",
+    "unicorn/no-useless-spread": "warn",
+    "eslint/prefer-const": "error",
+    "eslint/no-var": "error",
+    "eslint/no-useless-rename": "error",
+    "eslint/no-useless-concat": "error",
+    "eslint/no-else-return": "error",
+    "eslint/no-lonely-if": "error",
+    "eslint/no-throw-literal": "error",
+    "eslint/default-param-last": "error",
+    "eslint/no-return-assign": "error",
+    "eslint/no-sequences": "error",
+    "effecttsgo/unstable-api-usage": "off",
+    "effecttsgo/catch-unfailable-effect": "error",
+    "effecttsgo/effect-fn-iife": "error",
+    "effecttsgo/effect-gen-uses-adapter": "error",
+    "effecttsgo/effect-in-failure": "error",
+    "effecttsgo/effect-in-void-success": "error",
+    "effecttsgo/global-error-in-effect-catch": "error",
+    "effecttsgo/global-error-in-effect-failure": "error",
+    "effecttsgo/layer-merge-all-with-dependencies": "error",
+    "effecttsgo/lazy-promise-in-effect-sync": "error",
+    "effecttsgo/leaking-requirements": "error",
+    "effecttsgo/multiple-effect-provide": "error",
+    "effecttsgo/prefer-unsafe-constructor": "error",
+    "effecttsgo/return-effect-in-gen": "error",
+    "effecttsgo/run-effect-inside-effect": "error",
+    "effecttsgo/schema-sync-in-effect": "error",
+    "effecttsgo/scope-in-layer-effect": "error",
+    "effecttsgo/strict-effect-provide": "error",
+    "effecttsgo/try-catch-in-effect-gen": "error",
+    "effecttsgo/unknown-in-effect-catch": "error",
+    "effecttsgo/catch-all-to-map-error": "error",
+    "effecttsgo/catch-chain-to-first-success-of": "error",
+    "effecttsgo/catch-tag-to-catch-reason": "error",
+    "effecttsgo/catch-to-ignore": "error",
+    "effecttsgo/catch-to-or-else-succeed": "error",
+    "effecttsgo/effect-do-notation": "error",
+    "effecttsgo/nested-effect-gen-yield": "error",
+    "effecttsgo/unnecessary-arrow-block": "error",
+    "effecttsgo/unnecessary-fail-yieldable-error": "error",
+    "effecttsgo/strict-boolean-expressions": "error",
+    "effecttsgo/acquire-release-disposable": "error",
+    "effecttsgo/all-of-map-to-for-each": "error",
+    "effecttsgo/catch-all-tag-dispatch-to-catch-tag": "error",
+    "effecttsgo/catch-conditional-refail-to-catch-if": "error",
+    "effecttsgo/catch-die-to-or-die": "error",
+    "effecttsgo/flat-map-conditional-to-filter-or-fail": "error",
+    "effecttsgo/map-some-to-as-some": "error",
+    "effecttsgo/match-effect-to-map-both": "error",
+    "effecttsgo/match-effect-to-match": "error",
+    "effecttsgo/obsolete-match-import": "error",
+    "effecttsgo/obsolete-schema-import": "error",
+    "effecttsgo/option-match-to-from-option": "error",
+    "effecttsgo/prefer-succeed-some-or-none": "error",
+    "effecttsgo/provide-layer-succeed-to-provide-service": "error",
+    "effecttsgo/race-first-with-sleep-to-timeout": "error",
+    "effecttsgo/run-of-exit-to-run-exit": "error",
+    "effecttsgo/schema-sync": "error",
+    "effecttsgo/timeout-catch-tag-to-timeout-or-else": "error",
+    "effecttsgo/schema-number": "error"
   },
   "ignorePatterns": [
     "dist/**",
@@ -42,5 +141,28 @@
     "node_modules/**",
     "outputs/**"
   ],
-  "extends": ["../../node_modules/@effect/tsgo/oxlint-presets/correctness.json"]
+  "extends": ["../../node_modules/@effect/tsgo/oxlint-presets/correctness.json"],
+  "options": {
+    "typeAware": true
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/__tests__/**",
+        "**/scripts/**",
+        "**/apps/docs/**",
+        "**/formats/react/src/a1.ts"
+      ],
+      "rules": {
+        "effecttsgo/strict-effect-provide": "off"
+      }
+    },
+    {
+      "files": ["**/__tests__/**"],
+      "rules": {
+        "effecttsgo/multiple-effect-provide": "off",
+        "effecttsgo/unknown-in-effect-catch": "off"
+      }
+    }
+  ]
 }

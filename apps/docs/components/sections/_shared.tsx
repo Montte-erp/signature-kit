@@ -51,14 +51,14 @@ interface SectionHeadingProps {
 export function SectionHeading({ eyebrow, title, lead, className, id }: SectionHeadingProps) {
   return (
     <div className={cn("max-w-3xl", className)}>
-      {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
+      {eyebrow !== undefined && eyebrow.length > 0 ? <Eyebrow>{eyebrow}</Eyebrow> : null}
       <h2
         id={id}
         className="mt-3 text-3xl font-medium tracking-tight text-balance text-foreground sm:text-4xl"
       >
         {title}
       </h2>
-      {lead ? (
+      {lead !== undefined && lead !== null && lead !== false && lead !== "" && lead !== 0 ? (
         <p className="mt-4 max-w-[60ch] text-sm leading-relaxed text-pretty text-muted-foreground sm:text-base">
           {lead}
         </p>

@@ -28,8 +28,8 @@ describe("generateFormalContractPdf (react-pdf / pdfx)", () => {
       const doc = await PDFDocument.load(bytes);
       expect(doc.getPageCount()).toBeGreaterThanOrEqual(1);
       const [page] = doc.getPages();
-      expect(page!.getWidth()).toBeCloseTo(595.28, 0);
-      expect(page!.getHeight()).toBeCloseTo(841.89, 0);
+      expect(page.getWidth()).toBeCloseTo(595.28, 0);
+      expect(page.getHeight()).toBeCloseTo(841.89, 0);
     },
     15000,
   );

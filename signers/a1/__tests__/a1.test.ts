@@ -8,7 +8,7 @@ import {
 import { parseCertificate } from "@signature-kit/certificates";
 import { SignatureHttpClient, signatureHttpClientLive } from "@signature-kit/http";
 import type { SignatureHttpClientService } from "@signature-kit/http";
-import { Effect, Layer, Redacted, Result } from "effect";
+import { Effect, Redacted, Result } from "effect";
 import { TestClock } from "effect/testing";
 import { readA1Fixture } from "../../../tooling/testing/fixtures";
 import {
@@ -177,25 +177,23 @@ describe("A1 signatures", () => {
         ),
       ];
 
-      const result = yield* Effect.gen(function* () {
-        const adapter = yield* loadA1SignerAdapter({ pfx, password: PASSWORD });
-        return yield* Effect.forEach(
-          payloads,
-          (content) =>
-            adapter.sign({ content, algorithm: "rsa-sha256" }).pipe(
-              Effect.flatMap((artifact) =>
-                adapter
-                  .verify({
-                    content,
-                    signature: artifact.signature,
-                    algorithm: artifact.algorithm,
-                  })
-                  .pipe(Effect.map((verification) => ({ artifact, verification }))),
-              ),
+      const adapter = yield* loadA1SignerAdapter({ pfx, password: PASSWORD });
+      const result = yield* Effect.forEach(
+        payloads,
+        (content) =>
+          adapter.sign({ content, algorithm: "rsa-sha256" }).pipe(
+            Effect.flatMap((artifact) =>
+              adapter
+                .verify({
+                  content,
+                  signature: artifact.signature,
+                  algorithm: artifact.algorithm,
+                })
+                .pipe(Effect.map((verification) => ({ artifact, verification }))),
             ),
-          { concurrency: 1 },
-        );
-      });
+          ),
+        { concurrency: 1 },
+      );
 
       expect(result.every(({ artifact }) => artifact.signature.byteLength > 0)).toBe(true);
       expect(result.every(({ verification }) => verification.valid)).toBe(true);
@@ -231,16 +229,12 @@ describe("A1 signatures", () => {
     Effect.gen(function* () {
       const pfx = yield* readA1Fixture("ecpf");
       yield* setTestClockForCertificate(pfx);
-      const result = yield* Effect.gen(function* () {
-        const adapter = yield* loadA1SignerAdapter({ pfx, password: PASSWORD });
-        const first = yield* adapter.importSigningKey("rsa-sha256");
-        const second = yield* adapter.importSigningKey("rsa-sha256");
-        const sha512 = yield* adapter.importSigningKey("rsa-sha512");
-        return { first, second, sha512 };
-      });
-
-      expect(result.first).toBe(result.second);
-      expect(result.first).not.toBe(result.sha512);
+      const adapter = yield* loadA1SignerAdapter({ pfx, password: PASSWORD });
+      const first = yield* adapter.importSigningKey("rsa-sha256");
+      const second = yield* adapter.importSigningKey("rsa-sha256");
+      const sha512 = yield* adapter.importSigningKey("rsa-sha512");
+      expect(first).toBe(second);
+      expect(first).not.toBe(sha512);
     }),
   );
 
@@ -306,7 +300,7 @@ describe("A1 signatures", () => {
 
       const result = yield* Effect.result(
         fetchA1Pkcs12({ url: requestUrl }).pipe(
-          Effect.provide(Layer.succeed(SignatureHttpClient, failingHttpClient)),
+          Effect.provideService(SignatureHttpClient, failingHttpClient),
         ),
       );
 

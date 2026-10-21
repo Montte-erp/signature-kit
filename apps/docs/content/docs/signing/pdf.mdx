@@ -185,17 +185,59 @@ result.signerSerialNumber // string | null — serial of the signer certificate
 
 PDF signing and verification fail with codes from the `pdf.*` family (`PdfError`); failures from the A1 signer that provides `Signatures` arrive as `signature-kit.*`.
 
-- [`pdf.SIGN_FAILED`](./errors) — unsupported `hashAlgorithm` (only `sha384` is rejected).
-- [`pdf.SIGNATURE_TOO_LARGE`](./errors) — the CMS exceeded the reserved space; increase `signatureLength`.
-- [`pdf.SIGNATURE_PLACEMENT_FAILED`](./errors) — automatic placement found no space or received invalid dimensions.
-- [`pdf.INVALID_PDF`](./errors) — the bytes don't form a valid PDF to sign or verify.
-- [`pdf.PLACEHOLDER_NOT_FOUND`](./errors) — `verifyPdf` found no `/ByteRange`, e.g. an unsigned PDF.
-- [`signature-kit.WRONG_PASSWORD`](./errors) — wrong A1 password when providing the signatures service.
+- [`pdf.SIGN_FAILED`](/en-US/docs/signing/errors) — unsupported `hashAlgorithm` (only `sha384` is rejected).
+- [`pdf.SIGNATURE_TOO_LARGE`](/en-US/docs/signing/errors) — the CMS exceeded the reserved space; increase `signatureLength`.
+- [`pdf.SIGNATURE_PLACEMENT_FAILED`](/en-US/docs/signing/errors) — automatic placement found no space or received invalid dimensions.
+- [`pdf.INVALID_PDF`](/en-US/docs/signing/errors) — the bytes don't form a valid PDF to sign or verify.
+- [`pdf.PLACEHOLDER_NOT_FOUND`](/en-US/docs/signing/errors) — `verifyPdf` found no `/ByteRange`, e.g. an unsigned PDF.
+- [`signature-kit.WRONG_PASSWORD`](/en-US/docs/signing/errors) — wrong A1 password when providing the signatures service.
 
 ## Continue from here
 
 <Cards>
-  <Card title="XML-DSig" href="./xml">The other format over the same Signatures seam, for NF-e XML.</Card>
-  <Card title="Provider APIs" href="../providers/request-shape">Provider packages for Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso.</Card>
-  <Card title="Typed error channel" href="./errors">The catalog of pdf.* and signature-kit.* codes that can fail.</Card>
+  <Card title="XML-DSig" href="/en-US/docs/signing/xml">The other format over the same Signatures seam, for NF-e XML.</Card>
+  <Card title="Provider APIs" href="/en-US/docs/providers/request-shape">Provider packages for Clicksign, Assinafy, ZapSign, DocuSeal, and Documenso.</Card>
+  <Card title="Typed error channel" href="/en-US/docs/signing/errors">The catalog of pdf.* and signature-kit.* codes that can fail.</Card>
 </Cards>
+
+## Inspect each PDF signature
+
+`verifyPdfSignatures` returns signatures in revision order. Each result includes the signer serial number, cryptographic validity, revision coverage, chain validity, revocation status, byte range, and revision end. Earlier signatures can remain valid while `coversFileEnd` is false because later signatures add revisions. Structural failures still fail the Effect. `verifyPdf` retains its aggregate result and verifies every signature through the same implementation. Chain validity is evaluated against the supplied roots; revocation marked `not_checked` is not proof of revocation checking.
+
+```ts
+import { verifyPdfSignatures } from "@signature-kit/pdf/verify";
+
+declare const pdf: Uint8Array;
+declare const trustedRoots: Uint8Array[];
+
+const verification = verifyPdfSignatures({ pdf, trustedRoots });
+```
+
+
+## Brand your stamp
+
+`PdfSignatureBadge` accepts `logoPng`, `signaturePng`, a title, rows, footer, QR code, and colors. Images retain their aspect ratio; the logo and QR occupy a column separate from handwriting. PNGs are checked before embedding (up to 16 MB and 16 megapixels). A badge with no usable area inside its padding fails with `pdf.STAMP_FAILED`.
+
+The demo supports logo upload, title and color controls, and an actual PDF stamp preview before signing. The initial size is 320 × 128 points; placement respects the visible page area, including CropBox and rotation.
+
+```ts
+import type { PdfSignatureBadge } from "@signature-kit/pdf/config"
+import { stampPdfVisibleSignature } from "@signature-kit/pdf/stamp"
+
+const badge = {
+  logoPng,
+  signaturePng,
+  header: { text: "ACME" },
+  rows: [[{ label: "Signer", value: "João Silva" }]],
+  footer: [{ text: "Contract signed digitally" }],
+  qr: { text: "https://example.com/verify" },
+  theme: { borderColor: "#1D4ED8", headerColor: "#1D4ED8" },
+} satisfies PdfSignatureBadge
+
+const stamped = stampPdfVisibleSignature({
+  pdf,
+  pageIndex: 0,
+  rect: { pageIndex: 0, x: 24, y: 24, width: 320, height: 128 },
+  badge,
+})
+```

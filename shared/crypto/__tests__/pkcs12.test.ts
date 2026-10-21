@@ -1,3 +1,4 @@
+import * as TestClock from "effect/testing/TestClock";
 import { webcrypto } from "node:crypto";
 import { describe, expect, it } from "@effect/vitest";
 import { childrenOf, decode, encode, oidString } from "@signature-kit/asn1";
@@ -54,7 +55,9 @@ const integerNode = (value: number): Asn1Node => {
     bytes.unshift(remaining & 0xff);
     remaining = Math.floor(remaining / 0x100);
   } while (remaining > 0);
-  if ((bytes[0]! & 0x80) !== 0) bytes.unshift(0);
+  const first = bytes.at(0);
+  if (first === undefined) expect.fail("An integer must contain a byte.");
+  if ((first & 0x80) !== 0) bytes.unshift(0);
   return {
     kind: "primitive",
     class: "universal",
@@ -88,8 +91,7 @@ const encodeOid = (oid: string): Uint8Array => {
       block.unshift(remaining & 0x7f);
       remaining = Math.floor(remaining / 0x80);
     } while (remaining > 0);
-    for (let index = 0; index < block.length - 1; index++) block[index]! |= 0x80;
-    encoded.push(...block);
+    encoded.push(...block.map((byte, index) => (index < block.length - 1 ? byte | 0x80 : byte)));
   }
   return new Uint8Array(encoded);
 };
@@ -608,10 +610,8 @@ describe("parsePkcs12 hardening", () => {
     Effect.gen(function* () {
       const pfxDer = yield* readA1Fixture("ecpf");
       const malicious = yield* withMacIterations(pfxDer, LIMIT);
-      const outcome = yield* Effect.promise(() =>
-        Effect.runPromise(
-          Effect.result(parsePkcs12(malicious, PASSWORD)).pipe(Effect.timeoutOption("50 millis")),
-        ),
+      const outcome = yield* TestClock.withLive(
+        Effect.result(parsePkcs12(malicious, PASSWORD)).pipe(Effect.timeoutOption("50 millis")),
       );
       expect(Option.isNone(outcome)).toBe(true);
     }),

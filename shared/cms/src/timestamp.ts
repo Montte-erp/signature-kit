@@ -1,3 +1,6 @@
+import { AsnConvert, OctetString } from "@peculiar/asn1-schema";
+import { MessageImprint, TimeStampReq, TimeStampReqVersion } from "@peculiar/asn1-tsp";
+import { AlgorithmIdentifier } from "@peculiar/asn1-x509";
 import * as asn1js from "asn1js";
 import { Effect, Schema } from "effect";
 import * as pkijs from "pkijs";
@@ -96,17 +99,26 @@ const timestampSigningCertificateAttribute = (
   const contentType = contentTypeAttributes.length === 1 ? contentTypeAttributes[0] : undefined;
   const messageDigest =
     messageDigestAttributes.length === 1 ? messageDigestAttributes[0] : undefined;
+  const contentTypeValue = contentType?.values[0];
+  const parsedContentType =
+    contentTypeValue === undefined
+      ? undefined
+      : asn1js.fromBER(contentTypeValue.toBER(false)).result;
   if (
     contentType === undefined ||
     contentType.values.length !== 1 ||
-    !(contentType.values[0] instanceof asn1js.ObjectIdentifier) ||
-    contentType.values[0].valueBlock.toString() !== TSA_TST_INFO_CONTENT_TYPE ||
+    !(parsedContentType instanceof asn1js.ObjectIdentifier) ||
+    parsedContentType.valueBlock.toString() !== TSA_TST_INFO_CONTENT_TYPE ||
     messageDigest === undefined ||
     messageDigest.values.length !== 1
   ) {
     return undefined;
   }
-  const messageDigestBytes = octetStringBytes(messageDigest.values[0]);
+  const messageDigestValue = messageDigest.values[0];
+  const messageDigestBytes =
+    messageDigestValue === undefined
+      ? undefined
+      : octetStringBytes(asn1js.fromBER(messageDigestValue.toBER(false)).result);
   if (messageDigestBytes === undefined || messageDigestBytes.byteLength === 0) return undefined;
   const signingCertificate = signedAttributes.attributes.filter(
     (attribute) =>
@@ -127,12 +139,16 @@ const isTimestampAuthorityCertificate = (certificate: pkijs.Certificate): boolea
     (extension) => extension.extnID === TSA_KEY_USAGE_OID,
   );
   const keyUsageExtension = keyUsage?.[0];
+  const parsedKeyUsage =
+    keyUsageExtension === undefined
+      ? undefined
+      : asn1js.fromBER(keyUsageExtension.extnValue.valueBlock.valueHexView).result;
   const keyUsagePermitsSigning =
     keyUsage === undefined ||
     keyUsage.length === 0 ||
     (keyUsage.length === 1 &&
-      keyUsageExtension?.parsedValue instanceof asn1js.BitString &&
-      ((keyUsageExtension.parsedValue.valueBlock.valueHexView[0] ?? 0) & 0xc0) !== 0);
+      parsedKeyUsage instanceof asn1js.BitString &&
+      ((parsedKeyUsage.valueBlock.valueHexView[0] ?? 0) & 0xc0) !== 0);
   return (
     extendedKeyUsage?.length === 1 &&
     extendedKeyUsageExtension?.critical === true &&
@@ -150,7 +166,7 @@ const signingCertificateMatches = (
   Effect.gen(function* () {
     const value = attribute.values[0];
     if (value === undefined) return false;
-    const signingCertificate = sequenceChildren(value);
+    const signingCertificate = sequenceChildren(asn1js.fromBER(value.toBER(false)).result);
     const certificateEntries =
       signingCertificate === undefined ? undefined : sequenceChildren(signingCertificate[0]);
     const certificateEntry = certificateEntries?.[0];
@@ -168,12 +184,12 @@ const signingCertificateMatches = (
     return bytesEqual(hash.hash, certificateHash);
   });
 
-const timestampNonce = (): Effect.Effect<asn1js.Integer, CmsError> =>
+const timestampNonce = (): Effect.Effect<Uint8Array<ArrayBuffer>, CmsError> =>
   Effect.try({
     try: () => {
       const bytes = crypto.getRandomValues(new Uint8Array(16));
       bytes[0] = (bytes[0] ?? 0) & 0x7f;
-      return new asn1js.Integer({ valueHex: new Uint8Array(bytes).buffer });
+      return bytes;
     },
     catch: () =>
       new CmsError({
@@ -330,18 +346,18 @@ export const requestTimestamp = (
 
     const requestDer = yield* Effect.try({
       try: () => {
-        const request = new pkijs.TimeStampReq({
-          version: 1,
-          messageImprint: new pkijs.MessageImprint({
-            hashAlgorithm: new pkijs.AlgorithmIdentifier({
-              algorithmId: hashAlgorithmOid(valid.hashAlgorithm),
+        const request = new TimeStampReq({
+          version: TimeStampReqVersion.v1,
+          messageImprint: new MessageImprint({
+            hashAlgorithm: new AlgorithmIdentifier({
+              algorithm: hashAlgorithmOid(valid.hashAlgorithm),
             }),
-            hashedMessage: new asn1js.OctetString({ valueHex: new Uint8Array(imprint).buffer }),
+            hashedMessage: new OctetString(new Uint8Array(imprint)),
           }),
-          nonce,
+          nonce: nonce.buffer,
           certReq: true,
         });
-        return new Uint8Array(request.toSchema().toBER(false));
+        return new Uint8Array(AsnConvert.serialize(request));
       },
       catch: () =>
         new CmsError({
@@ -354,26 +370,22 @@ export const requestTimestamp = (
     const response = yield* downloadTimestamp(valid, requestDer);
 
     if (response._tag === "TsaRequestAbort") {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.timestampError,
-          reason: response.timedOut
-            ? `TSA request to ${diagnosticUrl} timed out.`
-            : `TSA request to ${diagnosticUrl} was aborted.`,
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.timestampError,
+        reason: response.timedOut
+          ? `TSA request to ${diagnosticUrl} timed out.`
+          : `TSA request to ${diagnosticUrl} was aborted.`,
 
-          operation: CmsOperationValue.timestamp,
-        }),
-      );
+        operation: CmsOperationValue.timestamp,
+      });
     }
 
     if (response._tag === "TsaHttpFailure") {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.timestampError,
-          reason: `TSA request to ${diagnosticUrl} failed with HTTP ${response.status}.`,
-          operation: CmsOperationValue.timestamp,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.timestampError,
+        reason: `TSA request to ${diagnosticUrl} failed with HTTP ${response.status}.`,
+        operation: CmsOperationValue.timestamp,
+      });
     }
 
     const responseBytes = response.responseBytes;
@@ -433,37 +445,31 @@ export const requestTimestamp = (
     });
 
     if (parsed._tag === "TsaResponseTrailingBytes") {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.timestampError,
-          reason: "TSA response contains trailing bytes.",
-          operation: CmsOperationValue.timestamp,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.timestampError,
+        reason: "TSA response contains trailing bytes.",
+        operation: CmsOperationValue.timestamp,
+      });
     }
 
     if (
       parsed.status !== pkijs.PKIStatus.granted &&
       parsed.status !== pkijs.PKIStatus.grantedWithMods
     ) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.timestampError,
-          reason: `TSA did not grant a timestamp token; PKIStatus=${parsed.status}.`,
-          operation: CmsOperationValue.timestamp,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.timestampError,
+        reason: `TSA did not grant a timestamp token; PKIStatus=${parsed.status}.`,
+        operation: CmsOperationValue.timestamp,
+      });
     }
 
     const { token, signed, tstInfo } = parsed;
     if (token === undefined || signed === undefined || tstInfo === undefined) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.timestampError,
-          reason: "TSA did not return a timestamp token with TSTInfo.",
-          operation: CmsOperationValue.timestamp,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.timestampError,
+        reason: "TSA did not return a timestamp token with TSTInfo.",
+        operation: CmsOperationValue.timestamp,
+      });
     }
 
     if (
@@ -471,47 +477,39 @@ export const requestTimestamp = (
       signed.encapContentInfo.eContentType !== TSA_TST_INFO_CONTENT_TYPE ||
       signed.signerInfos.length !== 1
     ) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.timestampError,
-          reason: "TSA did not return a valid signed RFC 3161 timestamp token.",
-          operation: CmsOperationValue.timestamp,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.timestampError,
+        reason: "TSA did not return a valid signed RFC 3161 timestamp token.",
+        operation: CmsOperationValue.timestamp,
+      });
     }
 
     const signingCertificateAttribute = timestampSigningCertificateAttribute(signed);
     if (signingCertificateAttribute === undefined) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.timestampError,
-          reason: "TSA timestamp token is missing required signed attributes.",
-          operation: CmsOperationValue.timestamp,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.timestampError,
+        reason: "TSA timestamp token is missing required signed attributes.",
+        operation: CmsOperationValue.timestamp,
+      });
     }
 
-    if (!tstInfo.nonce?.isEqual(nonce)) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.timestampError,
-          reason: "TSA timestamp nonce does not match the request.",
-          operation: CmsOperationValue.timestamp,
-        }),
-      );
+    if (tstInfo.nonce === undefined || !bytesEqual(tstInfo.nonce.valueBlock.valueHexView, nonce)) {
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.timestampError,
+        reason: "TSA timestamp nonce does not match the request.",
+        operation: CmsOperationValue.timestamp,
+      });
     }
 
     if (
       tstInfo.messageImprint.hashAlgorithm.algorithmId !== hashAlgorithmOid(valid.hashAlgorithm) ||
       !bytesEqual(tstInfo.messageImprint.hashedMessage.valueBlock.valueHexView, imprint)
     ) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.timestampError,
-          reason: "TSA timestamp message imprint does not match the request.",
-          operation: CmsOperationValue.timestamp,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.timestampError,
+        reason: "TSA timestamp message imprint does not match the request.",
+        operation: CmsOperationValue.timestamp,
+      });
     }
 
     const verification = yield* Effect.tryPromise({
@@ -539,13 +537,11 @@ export const requestTimestamp = (
       verification.signatureVerified !== true ||
       verification.signerCertificateVerified !== true
     ) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.timestampError,
-          reason: "TSA timestamp token signature or certificate chain is invalid.",
-          operation: CmsOperationValue.timestamp,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.timestampError,
+        reason: "TSA timestamp token signature or certificate chain is invalid.",
+        operation: CmsOperationValue.timestamp,
+      });
     }
 
     const signerCertificate = verification.signerCertificate;
@@ -554,13 +550,11 @@ export const requestTimestamp = (
       signerCertificate === undefined ||
       !isTimestampAuthorityCertificate(signerCertificate)
     ) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.timestampError,
-          reason: "TSA signer certificate is not a critical timestamping-only certificate.",
-          operation: CmsOperationValue.timestamp,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.timestampError,
+        reason: "TSA signer certificate is not a critical timestamping-only certificate.",
+        operation: CmsOperationValue.timestamp,
+      });
     }
 
     const signerCertificateDer = yield* Effect.try({
@@ -577,13 +571,11 @@ export const requestTimestamp = (
       signerCertificateDer,
     );
     if (!signingCertificateBound) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.timestampError,
-          reason: "TSA signing-certificate attribute does not bind the signer certificate.",
-          operation: CmsOperationValue.timestamp,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.timestampError,
+        reason: "TSA signing-certificate attribute does not bind the signer certificate.",
+        operation: CmsOperationValue.timestamp,
+      });
     }
 
     return new Uint8Array(token.toSchema().toBER(false));

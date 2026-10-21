@@ -93,76 +93,64 @@ export const parseIcpBrasilPadesPolicy = (
   Effect.gen(function* () {
     const root = yield* decode(policyDer);
     if (root.kind !== "constructed" || root.class !== "universal" || root.tag !== 0x10) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.policyError,
-          reason: "ICP-Brasil policy DER root is not a universal SEQUENCE.",
-          operation: CmsOperationValue.policy,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.policyError,
+        reason: "ICP-Brasil policy DER root is not a universal SEQUENCE.",
+        operation: CmsOperationValue.policy,
+      });
     }
     const policyFields = yield* childrenOf(root);
     const algorithmIdentifier = policyFields[0];
     const policyHashNode = policyFields[2];
     if (algorithmIdentifier === undefined || policyHashNode === undefined) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.policyError,
-          reason: "ICP-Brasil policy DER does not contain algorithm and hash fields.",
-          operation: CmsOperationValue.policy,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.policyError,
+        reason: "ICP-Brasil policy DER does not contain algorithm and hash fields.",
+        operation: CmsOperationValue.policy,
+      });
     }
     if (
       algorithmIdentifier.kind !== "constructed" ||
       algorithmIdentifier.class !== "universal" ||
       algorithmIdentifier.tag !== 0x10
     ) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.policyError,
-          reason: "ICP-Brasil policy DER algorithm identifier is not a universal SEQUENCE.",
-          operation: CmsOperationValue.policy,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.policyError,
+        reason: "ICP-Brasil policy DER algorithm identifier is not a universal SEQUENCE.",
+        operation: CmsOperationValue.policy,
+      });
     }
     if (
       policyHashNode.kind !== "primitive" ||
       policyHashNode.class !== "universal" ||
       policyHashNode.tag !== 0x04
     ) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.policyError,
-          reason: "ICP-Brasil policy DER hash is not a universal OCTET STRING.",
-          operation: CmsOperationValue.policy,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.policyError,
+        reason: "ICP-Brasil policy DER hash is not a universal OCTET STRING.",
+        operation: CmsOperationValue.policy,
+      });
     }
 
     const algorithmFields = yield* childrenOf(algorithmIdentifier);
     const algorithmOidNode = algorithmFields[0];
     if (algorithmOidNode === undefined) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.policyError,
-          reason: "ICP-Brasil policy DER does not contain a hash algorithm OID.",
-          operation: CmsOperationValue.policy,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.policyError,
+        reason: "ICP-Brasil policy DER does not contain a hash algorithm OID.",
+        operation: CmsOperationValue.policy,
+      });
     }
     if (
       algorithmOidNode.kind !== "primitive" ||
       algorithmOidNode.class !== "universal" ||
       algorithmOidNode.tag !== 0x06
     ) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.policyError,
-          reason: "ICP-Brasil policy DER hash algorithm is not a universal OID.",
-          operation: CmsOperationValue.policy,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.policyError,
+        reason: "ICP-Brasil policy DER hash algorithm is not a universal OID.",
+        operation: CmsOperationValue.policy,
+      });
     }
 
     const algorithmOid = yield* oidString(algorithmOidNode);
@@ -295,25 +283,21 @@ export const fetchIcpBrasilPadesPolicy = (
     );
     const response = yield* downloadIcpBrasilPadesPolicy(valid.timeoutMillis);
     if (response._tag === "PolicyRequestAbort") {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.policyError,
-          reason: response.timedOut
-            ? "Timed out downloading the ICP-Brasil PAdES AD-RB policy."
-            : "ICP-Brasil PAdES AD-RB policy download was aborted.",
-          operation: CmsOperationValue.policy,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.policyError,
+        reason: response.timedOut
+          ? "Timed out downloading the ICP-Brasil PAdES AD-RB policy."
+          : "ICP-Brasil PAdES AD-RB policy download was aborted.",
+        operation: CmsOperationValue.policy,
+      });
     }
 
     if (response._tag === "PolicyHttpFailure") {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.policyError,
-          reason: `ICP-Brasil PAdES policy download failed with HTTP ${response.status}.`,
-          operation: CmsOperationValue.policy,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.policyError,
+        reason: `ICP-Brasil PAdES policy download failed with HTTP ${response.status}.`,
+        operation: CmsOperationValue.policy,
+      });
     }
 
     const policy = yield* parseIcpBrasilPadesPolicy(response.policyDer);
@@ -321,13 +305,11 @@ export const fetchIcpBrasilPadesPolicy = (
       policy.policyHashAlgorithm !== ICP_BRASIL_AD_RB_V11_POLICY_HASH_ALGORITHM ||
       !bytesEqual(policy.policyHash, ICP_BRASIL_AD_RB_V11_POLICY_HASH)
     ) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.policyError,
-          reason: "Downloaded ICP-Brasil PAdES AD-RB policy does not match the pinned policy hash.",
-          operation: CmsOperationValue.policy,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.policyError,
+        reason: "Downloaded ICP-Brasil PAdES AD-RB policy does not match the pinned policy hash.",
+        operation: CmsOperationValue.policy,
+      });
     }
     return policy;
   });

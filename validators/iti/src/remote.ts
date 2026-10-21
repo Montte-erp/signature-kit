@@ -103,7 +103,7 @@ const ItiPartialValidationResponseSchema = Schema.Struct({
 });
 
 const ItiUntrustedCertificateResponseSchema = Schema.Struct({
-  errorCode: Schema.Number,
+  errorCode: Schema.Finite,
   hash: Schema.NonEmptyString,
   nome: Schema.NonEmptyString,
 });
@@ -154,7 +154,7 @@ export const ItiRemoteUntrustedCertificateReportSchema = Schema.Struct({
   validator: Schema.Literal(ItiOperation.remote),
   outcome: Schema.Literal("untrusted_certificate"),
   approved: Schema.Literal(false),
-  errorCode: Schema.Number,
+  errorCode: Schema.Finite,
   hash: Schema.NonEmptyString,
   name: Schema.NonEmptyString,
   conformance: ItiConformanceReportSchema,

@@ -65,7 +65,9 @@
       "@signature-kit/xml/config": ["../../formats/xml/src/config.ts"],
       "@signature-kit/xml/sign": ["../../formats/xml/src/sign.ts"],
       "@signature-kit/xml/verify": ["../../formats/xml/src/verify.ts"],
-      "@signature-kit/xml/runtime": ["../../formats/xml/src/runtime.ts"]
+      "@signature-kit/xml/runtime": ["../../formats/xml/src/runtime.ts"],
+      "@signature-kit/pdf/worker": ["../../formats/pdf/src/worker.ts"],
+      "@signature-kit/pdf/worker-browser": ["../../formats/pdf/src/worker-browser.ts"]
     }
   },
   "display": "Default"

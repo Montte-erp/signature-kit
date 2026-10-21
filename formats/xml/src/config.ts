@@ -74,12 +74,17 @@ export const XmlOperationValue = {
   verify: "xml.verify",
 } satisfies Record<string, XmlOperation>;
 
-export const XmlSchemaNameSchema = Schema.Literals(["XmlSigningRequest", "XmlVerificationRequest"]);
+export const XmlSchemaNameSchema = Schema.Literals([
+  "XmlSigningRequest",
+  "XmlVerificationRequest",
+  "XmlSignatureMethod",
+]);
 export type XmlSchemaName = (typeof XmlSchemaNameSchema)["Type"];
 
 export const XmlSchemaNameValue = {
   signingRequest: "XmlSigningRequest",
   verificationRequest: "XmlVerificationRequest",
+  signatureMethod: "XmlSignatureMethod",
 } satisfies Record<string, XmlSchemaName>;
 
 export const XmlCanonicalizationSchema = Schema.Literals(["exclusive", "inclusive"]);
@@ -88,6 +93,12 @@ export const XmlCanonicalizationValue = {
   exclusive: "exclusive",
   inclusive: "inclusive",
 } satisfies Record<string, XmlCanonicalization>;
+
+export const XmlSignatureMethodSchema = Schema.Literals([
+  "http://www.w3.org/2000/09/xmldsig#rsa-sha1",
+  "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
+  "http://www.w3.org/2001/04/xmldsig-more#rsa-sha512",
+]);
 
 export const XmlHashAlgorithmSchema = Schema.Literals(["SHA-1", "SHA-256", "SHA-512"]);
 export type XmlHashAlgorithm = (typeof XmlHashAlgorithmSchema)["Type"];
@@ -146,19 +157,22 @@ export type XmlVerificationRequest = (typeof XmlVerificationRequestSchema)["Type
 
 export const XmlVerificationResultSchema = Schema.Struct({
   valid: Schema.Boolean,
-  signatureCount: Schema.Number,
+  signatureCount: Schema.Finite,
   referenceUris: Schema.Array(Schema.String),
 });
 export type XmlVerificationResult = (typeof XmlVerificationResultSchema)["Type"];
 
-export class XmlError extends Schema.TaggedErrorClass<XmlError>()("XmlError", {
-  code: XmlErrorCodeSchema,
-  retryable: Schema.Boolean,
-  reason: Schema.optional(Schema.String),
-  operation: Schema.optional(XmlOperationSchema),
-  schemaName: Schema.optional(XmlSchemaNameSchema),
-  issueMessage: Schema.optional(Schema.String),
-}) {
+export class XmlError extends Schema.TaggedError<XmlError, { readonly brand: unique symbol }>()(
+  "XmlError",
+  {
+    code: XmlErrorCodeSchema,
+    retryable: Schema.Boolean,
+    reason: Schema.optional(Schema.String),
+    operation: Schema.optional(XmlOperationSchema),
+    schemaName: Schema.optional(XmlSchemaNameSchema),
+    issueMessage: Schema.optional(Schema.String),
+  },
+) {
   get message(): string {
     return this.reason ?? xmlErrorMessages["en-US"][this.code];
   }

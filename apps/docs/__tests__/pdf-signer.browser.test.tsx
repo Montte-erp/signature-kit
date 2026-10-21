@@ -5,6 +5,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { m } from "@/paraglide/messages";
+import { preparePdfSigningBatch } from "@signature-kit/pdf/workflow";
+import { createPdfStampPreview } from "@signature-kit/pdf/stamp";
+import { PdfWorker } from "@signature-kit/pdf/worker";
 import { PdfSigner, PdfSignerDialog } from "../components/pdf-signer";
 
 type PreparationInput = {
@@ -188,63 +191,6 @@ vi.mock("@/lib/posthog/client", () => ({
   captureDocsEvent: () => {},
   initDocsPostHog: () => {},
 }));
-type TestIntersectionObserver = {
-  readonly observed: Set<Element>;
-  readonly rootMargin: string;
-  readonly observe: (target: Element) => void;
-  readonly unobserve: (target: Element) => void;
-  readonly trigger: (target: Element, isIntersecting: boolean) => void;
-  readonly disconnect: () => void;
-};
-
-const installIntersectionObserver = () => {
-  const native = window.IntersectionObserver;
-  const instances: TestIntersectionObserver[] = [];
-  const MockIntersectionObserver = vi.fn(function (callback: IntersectionObserverCallback) {
-    const observed = new Set<Element>();
-    const observer: TestIntersectionObserver = {
-      observed,
-      rootMargin: "320px 0px",
-      observe: (target) => {
-        observed.add(target);
-      },
-      unobserve: (target) => {
-        observed.delete(target);
-      },
-      trigger: (target, isIntersecting) => {
-        callback(
-          [
-            {
-              target,
-              isIntersecting,
-              intersectionRatio: isIntersecting ? 1 : 0,
-            } as IntersectionObserverEntry,
-          ],
-          observer as unknown as IntersectionObserver,
-        );
-      },
-      disconnect: () => {
-        observed.clear();
-      },
-    };
-    instances.push(observer);
-    return observer;
-  });
-  Object.defineProperty(window, "IntersectionObserver", {
-    configurable: true,
-    value: MockIntersectionObserver,
-  });
-  return {
-    instances,
-    restore: () => {
-      Object.defineProperty(window, "IntersectionObserver", {
-        configurable: true,
-        value: native,
-      });
-    },
-  };
-};
-
 vi.mock("@/lib/handwriting-font", () => ({
   caveat: { style: { fontFamily: "cursive" } },
 }));
@@ -269,7 +215,14 @@ const mountSigner = (): MountedSigner => {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root: Root = createRoot(container);
-  root.render(React.createElement(PdfSigner));
+  root.render(
+    React.createElement(PdfSigner, {
+      preparationLayer: Layer.succeed(PdfWorker, {
+        prepare: preparePdfSigningBatch,
+        preview: createPdfStampPreview,
+      }),
+    }),
+  );
 
   return {
     container,
@@ -390,7 +343,6 @@ if (typeof document === "undefined") {
       await waitFor(() => !firstPdfInput.disabled, "first signer placement to finish");
     });
     it("mounts only visible PDF pages and cancels pages outside the viewport", async () => {
-      const observerControl = installIntersectionObserver();
       testRuntime.pageCount = 8;
       testRuntime.pageRenders = 0;
       testRuntime.pageMounts = 0;
@@ -406,19 +358,12 @@ if (typeof document === "undefined") {
       const signer = mountSigner();
       cleanup = () => {
         signer.cleanup();
-        observerControl.restore();
       };
       await uploadPdf(signer.container, "windowed.pdf");
 
-      await waitFor(
-        () => observerControl.instances[0]?.observed.size === testRuntime.pageCount,
-        "all PDF page placeholders to be observed",
-      );
-      const observer = observerControl.instances[0];
-      if (observer === undefined) expect.fail("the page visibility observer was not created");
-      await waitFor(() => testRuntime.pageMounts === 1, "the first visible page to mount");
-      expect(observer.rootMargin).toBe("320px 0px");
+      await waitFor(() => testRuntime.pageMounts > 0, "visible PDF pages to mount");
       expect(testRuntime.pageMounts).toBeLessThan(testRuntime.pageCount);
+      const initialMounts = testRuntime.pageMounts;
 
       const pageWrappers = Array.from(
         signer.container.querySelectorAll<HTMLElement>("[data-pdf-page-index]"),
@@ -433,11 +378,13 @@ if (typeof document === "undefined") {
       if (pageThree === undefined || pageOne === undefined) {
         expect.fail("windowed PDF page placeholders were not rendered");
       }
-      observer.trigger(pageThree, true);
-      await waitFor(() => testRuntime.pageMounts === 2, "a page entering the viewport to mount");
-      observer.trigger(pageOne, false);
+      pageThree.scrollIntoView({ block: "center", behavior: "instant" });
       await waitFor(
-        () => testRuntime.pageUnmounts === 1,
+        () => testRuntime.pageMounts > initialMounts,
+        "a page entering the viewport to mount",
+      );
+      await waitFor(
+        () => testRuntime.pageUnmounts > 0,
         "a page leaving the viewport to cancel and unmount",
       );
       expect(

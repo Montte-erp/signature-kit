@@ -179,82 +179,71 @@ export function SignatureDialog({
     activeRun.current = currentRun;
     setActionState({ status: "running" });
 
-    const program = Effect.result(
-      Effect.tryPromise<SignatureDialogExecution, unknown>({
-        try: async (signal) => {
-          if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
+    const program = Effect.promise<SignatureDialogExecution>(async (signal) => {
+      if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
 
-          if (passwordToSave !== undefined) {
-            await Promise.resolve(onSavePassword?.(passwordToSave));
-            if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
-          }
+      if (passwordToSave !== undefined) {
+        await Promise.resolve(onSavePassword?.(passwordToSave));
+        if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
+      }
 
-          const resolvedPassword = passwordToUse ?? getSavedPassword?.() ?? "";
-          if (resolvedPassword.length === 0) {
-            if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
-            return { status: "needs-password" };
-          }
+      const resolvedPassword = passwordToUse ?? getSavedPassword?.() ?? "";
+      if (resolvedPassword.length === 0) {
+        if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
+        return { status: "needs-password" };
+      }
 
-          const matchers = pdfTextAnchorMatchersFromProps(anchorTokens, anchorDigits);
-          const anchorSize = anchorStampSize ?? stamp?.stampSize ?? DEFAULT_PDF_ANCHOR_STAMP_SIZE;
-          const documents = (await buildDocuments()).map((document) =>
-            withAnchorFallback(document, matchers, anchorSize),
-          );
-          if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
+      const matchers = pdfTextAnchorMatchersFromProps(anchorTokens, anchorDigits);
+      const anchorSize = anchorStampSize ?? stamp?.stampSize ?? DEFAULT_PDF_ANCHOR_STAMP_SIZE;
+      const documents = (await buildDocuments()).map((document) =>
+        withAnchorFallback(document, matchers, anchorSize),
+      );
+      if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
 
-          const result = await signer.sign({
-            documents,
-            credentials: { pfx, password: resolvedPassword },
-            signing,
-            ...(stamp === undefined ? {} : { stamp }),
-          });
-          if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
+      const result = await signer.sign({
+        documents,
+        credentials: { pfx, password: resolvedPassword },
+        signing,
+        ...(stamp === undefined ? {} : { stamp }),
+      });
+      if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
 
-          if (!result.ok) {
-            if (result.error.code !== SignatureKitErrorCodeValue.wrongPassword) {
-              return { status: "completed" };
-            }
-
-            const outcomes = await Promise.allSettled([
-              onWrongPassword?.(),
-              onSavePassword?.(null),
-            ]);
-            if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
-            const rejectedOutcome = outcomes.find(
-              (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected",
-            );
-            return rejectedOutcome === undefined
-              ? { status: "needs-password" }
-              : { status: "failed", error: rejectedOutcome.reason };
-          }
-
-          if (result.rows.some(isWrongPasswordRow)) {
-            const outcomes = await Promise.allSettled([
-              onWrongPassword?.(),
-              onSavePassword?.(null),
-            ]);
-            if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
-            const rejectedOutcome = outcomes.find(
-              (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected",
-            );
-            return rejectedOutcome === undefined
-              ? { status: "needs-password" }
-              : { status: "failed", error: rejectedOutcome.reason };
-          }
-
-          const signed = signedRows(result.rows);
-          if (signed.length > 0) {
-            if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
-            await Promise.resolve(onSigned(signed));
-            if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
-          }
+      if (!result.ok) {
+        if (result.error.code !== SignatureKitErrorCodeValue.wrongPassword) {
           return { status: "completed" };
-        },
-        catch: (error) => error,
-      }),
-    );
+        }
 
-    void Effect.runPromise(Effect.exit(program), { signal: currentRun.controller.signal }).then(
+        const outcomes = await Promise.allSettled([onWrongPassword?.(), onSavePassword?.(null)]);
+        if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
+        const rejectedOutcome = outcomes.find(
+          (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected",
+        );
+        return rejectedOutcome === undefined
+          ? { status: "needs-password" }
+          : { status: "failed", error: rejectedOutcome.reason };
+      }
+
+      if (result.rows.some(isWrongPasswordRow)) {
+        const outcomes = await Promise.allSettled([onWrongPassword?.(), onSavePassword?.(null)]);
+        if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
+        const rejectedOutcome = outcomes.find(
+          (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected",
+        );
+        return rejectedOutcome === undefined
+          ? { status: "needs-password" }
+          : { status: "failed", error: rejectedOutcome.reason };
+      }
+
+      const signed = signedRows(result.rows);
+      if (signed.length > 0) {
+        if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
+        await Promise.resolve(onSigned(signed));
+        if (!isOwner(currentRun) || signal.aborted) return { status: "cancelled" };
+      }
+      return { status: "completed" };
+    });
+
+    void Effect.runPromiseExit(program, { signal: currentRun.controller.signal }).then(
       (exit) => {
         if (!isOwner(currentRun)) return;
         activeRun.current = null;
@@ -263,15 +252,10 @@ export function SignatureDialog({
           return;
         }
 
-        if (exit.value._tag === "Failure") {
-          setActionState({ status: "failed", error: exit.value.failure });
-          return;
-        }
-
-        if (exit.value.success.status === "needs-password") setNeedsPassword(true);
-        if (exit.value.success.status === "failed") {
+        if (exit.value.status === "needs-password") setNeedsPassword(true);
+        if (exit.value.status === "failed") {
           setNeedsPassword(true);
-          setActionState({ status: "failed", error: exit.value.success.error });
+          setActionState({ status: "failed", error: exit.value.error });
           return;
         }
         setActionState({ status: "idle" });

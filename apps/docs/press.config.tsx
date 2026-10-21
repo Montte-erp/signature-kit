@@ -65,7 +65,7 @@ const baseConfig = defineConfig({
             : page.url;
       return (
         <>
-          {page.data.description ? (
+          {page.data.description !== undefined && page.data.description.length > 0 ? (
             <meta name="description" content={page.data.description} />
           ) : null}
           <link rel="canonical" href={absoluteUrl(page.url)} />
@@ -86,7 +86,7 @@ const baseConfig = defineConfig({
           <meta property="og:url" content={absoluteUrl(page.url)} />
           <meta property="og:locale" content={OG_LOCALE[locale]} />
           <meta name="twitter:title" content={page.data.title} />
-          {page.data.description ? (
+          {page.data.description !== undefined && page.data.description.length > 0 ? (
             <meta name="twitter:description" content={page.data.description} />
           ) : null}
         </>
@@ -161,7 +161,7 @@ export default baseConfig
               }}
             >
               <div style={{ fontSize: "72px", fontWeight: 800 }}>{page.data.title}</div>
-              {page.data.description ? (
+              {page.data.description !== undefined && page.data.description.length > 0 ? (
                 <div
                   style={{
                     borderBottom: "10px dashed rgba(255, 150, 255, 0.3)",

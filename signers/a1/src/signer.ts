@@ -1,13 +1,13 @@
-import { Signatures } from "@signature-kit/signatures";
-import { SignatureHttpClient } from "@signature-kit/http";
-import type { Certificate, SignatureAlgorithm, SignerAdapter } from "@signature-kit/signatures";
 import {
+  Signatures,
   SignatureKitError,
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
   SignInputSchema,
   VerifyInputSchema,
 } from "@signature-kit/signatures";
+import { SignatureHttpClient } from "@signature-kit/http";
+import type { Certificate, SignatureAlgorithm, SignerAdapter } from "@signature-kit/signatures";
 import { daysUntilExpiry, parseCertificate, toSignerIdentity } from "@signature-kit/certificates";
 import { pemToDer } from "@signature-kit/crypto/pem";
 import { Clock, Effect, Layer, Match, Redacted, Schema } from "effect";
@@ -145,16 +145,17 @@ const loadA1Certificate = (
   options: A1SignerOptions,
 ): Effect.Effect<Certificate, SignatureKitError> =>
   Schema.decodeUnknownEffect(A1SignerOptionsSchema)(options).pipe(
-    Effect.mapError((issue) => {
-      return new SignatureKitError({
-        code: SignatureKitErrorCodeValue.invalidInput,
-        retryable: false,
-        reason: "Invalid A1 signer options.",
-        operation: SignatureKitOperationValue.schemaDecode,
-        schemaName: "A1SignerOptions",
-        issueMessage: String(issue),
-      });
-    }),
+    Effect.mapError(
+      (issue) =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.invalidInput,
+          retryable: false,
+          reason: "Invalid A1 signer options.",
+          operation: SignatureKitOperationValue.schemaDecode,
+          schemaName: "A1SignerOptions",
+          issueMessage: String(issue),
+        }),
+    ),
     Effect.flatMap((valid) => parseCertificate(valid.pfx, valid.password)),
   );
 
@@ -164,34 +165,28 @@ const certificateProfile = (
   Effect.gen(function* () {
     const currentTime = yield* Clock.currentTimeMillis;
     if (currentTime > certificate.validity.notAfter.getTime()) {
-      return yield* Effect.fail(
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.certificateExpired,
-          retryable: false,
-          reason: `A1 certificate expired at ${certificate.validity.notAfter.toISOString()}.`,
-        }),
-      );
+      return yield* new SignatureKitError({
+        code: SignatureKitErrorCodeValue.certificateExpired,
+        retryable: false,
+        reason: `A1 certificate expired at ${certificate.validity.notAfter.toISOString()}.`,
+      });
     }
 
     if (currentTime < certificate.validity.notBefore.getTime()) {
-      return yield* Effect.fail(
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.certificateNotYetValid,
-          retryable: false,
-          reason: `A1 certificate is not valid before ${certificate.validity.notBefore.toISOString()}.`,
-        }),
-      );
+      return yield* new SignatureKitError({
+        code: SignatureKitErrorCodeValue.certificateNotYetValid,
+        retryable: false,
+        reason: `A1 certificate is not valid before ${certificate.validity.notBefore.toISOString()}.`,
+      });
     }
 
     const document = certificate.brazilian.cnpj ?? certificate.brazilian.cpf;
     if (document === null) {
-      return yield* Effect.fail(
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.missingBrIdentifier,
-          retryable: false,
-          reason: "A1 certificate does not contain a Brazilian CPF or CNPJ.",
-        }),
-      );
+      return yield* new SignatureKitError({
+        code: SignatureKitErrorCodeValue.missingBrIdentifier,
+        retryable: false,
+        reason: "A1 certificate does not contain a Brazilian CPF or CNPJ.",
+      });
     }
 
     return {
@@ -228,16 +223,17 @@ export const createA1SignerAdapter = (certificate: Certificate): SignerAdapter =
     importSigningKey: signingKey,
     sign: (input) =>
       Schema.decodeUnknownEffect(SignInputSchema)(input).pipe(
-        Effect.mapError((issue) => {
-          return new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            reason: "Invalid sign input.",
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: "SignInput",
-            issueMessage: String(issue),
-          });
-        }),
+        Effect.mapError(
+          (issue) =>
+            new SignatureKitError({
+              code: SignatureKitErrorCodeValue.invalidInput,
+              retryable: false,
+              reason: "Invalid sign input.",
+              operation: SignatureKitOperationValue.schemaDecode,
+              schemaName: "SignInput",
+              issueMessage: String(issue),
+            }),
+        ),
         Effect.flatMap((valid) =>
           signingKey(valid.algorithm).pipe(
             Effect.flatMap((key) => signWithKey(key, valid.algorithm, valid.content)),
@@ -247,16 +243,17 @@ export const createA1SignerAdapter = (certificate: Certificate): SignerAdapter =
       ),
     verify: (input) =>
       Schema.decodeUnknownEffect(VerifyInputSchema)(input).pipe(
-        Effect.mapError((issue) => {
-          return new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            reason: "Invalid verify input.",
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: "VerifyInput",
-            issueMessage: String(issue),
-          });
-        }),
+        Effect.mapError(
+          (issue) =>
+            new SignatureKitError({
+              code: SignatureKitErrorCodeValue.invalidInput,
+              retryable: false,
+              reason: "Invalid verify input.",
+              operation: SignatureKitOperationValue.schemaDecode,
+              schemaName: "VerifyInput",
+              issueMessage: String(issue),
+            }),
+        ),
         Effect.flatMap((valid) =>
           verificationKey(valid.algorithm).pipe(
             Effect.flatMap((key) =>
@@ -320,16 +317,14 @@ export const fetchA1Pkcs12 = (
             ...(valid.headers === undefined ? {} : { headers: valid.headers }),
           })
           .pipe(
-            Effect.flatMap((bytes) =>
-              bytes.byteLength === 0
-                ? Effect.fail(
-                    new SignatureKitError({
-                      code: SignatureKitErrorCodeValue.emptyFile,
-                      retryable: false,
-                      reason: "The fetched A1 certificate is empty.",
-                    }),
-                  )
-                : Effect.succeed(bytes),
+            Effect.filterOrFail(
+              (bytes) => bytes.byteLength !== 0,
+              () =>
+                new SignatureKitError({
+                  code: SignatureKitErrorCodeValue.emptyFile,
+                  retryable: false,
+                  reason: "The fetched A1 certificate is empty.",
+                }),
             ),
           ),
       ),

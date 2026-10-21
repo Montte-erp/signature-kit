@@ -12,9 +12,14 @@ import {
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
 } from "@signature-kit/signatures";
-import type { BrazilianFields, Certificate, SignerIdentity } from "@signature-kit/signatures";
+import type {
+  BrazilianFields,
+  Certificate,
+  CertificateValidity,
+  SignerIdentity,
+} from "@signature-kit/signatures";
 import type { Redacted } from "effect";
-import { Effect, Match, Schema } from "effect";
+import { Clock, Effect, Match, Schema } from "effect";
 
 const OID_COMMON_NAME = "2.5.4.3";
 const OID_COUNTRY = "2.5.4.6";
@@ -82,19 +87,18 @@ export const parseCertificate = (
     );
     const pfx = certificateBytes(validSource);
     if (pfx.length === 0) {
-      return yield* Effect.fail(
-        new SignatureKitError({ code: SignatureKitErrorCodeValue.emptyFile, retryable: false }),
-      );
+      return yield* new SignatureKitError({
+        code: SignatureKitErrorCodeValue.emptyFile,
+        retryable: false,
+      });
     }
     if (!isLikelyPkcs12(pfx)) {
       const detected = detectFileType(pfx);
-      return yield* Effect.fail(
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.invalidFormat,
-          retryable: false,
-          reason: `The file does not appear to be a PKCS#12 certificate${detected === null ? "" : ` (detected: ${detected})`}.`,
-        }),
-      );
+      return yield* new SignatureKitError({
+        code: SignatureKitErrorCodeValue.invalidFormat,
+        retryable: false,
+        reason: `The file does not appear to be a PKCS#12 certificate${detected === null ? "" : ` (detected: ${detected})`}.`,
+      });
     }
 
     const pkcs12 = yield* parsePkcs12(pfx, password).pipe(
@@ -115,6 +119,7 @@ export const parseCertificate = (
       { concurrency: "unbounded" },
     );
 
+    const validityInspection = yield* inspectCertificateValidity(x509.validity);
     return yield* Schema.decodeUnknownEffect(CertificateSchema)({
       serialNumber: x509.serialNumber,
       subject: x509.subject,
@@ -122,7 +127,7 @@ export const parseCertificate = (
       validity: x509.validity,
       fingerprint,
       subjectAltName: x509.subjectAltName,
-      isValid: isValidityRangeCurrent(x509.validity),
+      isValid: validityInspection.status === "valid",
       brazilian: extractBrazilianFields(x509.subject.raw, x509.subjectAltName),
       certPem,
       certificateDer: pkcs12.certificate,
@@ -167,6 +172,63 @@ export const toSignerIdentity = (cert: Certificate): SignerIdentity => {
     ...(document === null ? {} : { document }),
   };
 };
+
+export const CertificateValidityStatusSchema = Schema.Literals(["notYetValid", "valid", "expired"]);
+export type CertificateValidityStatus = (typeof CertificateValidityStatusSchema)["Type"];
+
+export const CertificateValidityInspectionSchema = Schema.Struct({
+  status: CertificateValidityStatusSchema,
+  evaluatedAt: Schema.Date,
+  remainingMillis: Schema.Finite,
+  daysUntilExpiry: Schema.Int,
+});
+export type CertificateValidityInspection = (typeof CertificateValidityInspectionSchema)["Type"];
+
+export const inspectCertificateValidity = Effect.fn(function* (validity: CertificateValidity) {
+  const valid = yield* Schema.decodeUnknownEffect(CertificateValiditySchema)(validity).pipe(
+    Effect.mapError(
+      (issue) =>
+        new SignatureKitError({
+          code: SignatureKitErrorCodeValue.invalidInput,
+          retryable: false,
+          operation: SignatureKitOperationValue.schemaDecode,
+          schemaName: "CertificateValidity",
+          issueMessage: String(issue),
+          reason: "Invalid certificate validity interval.",
+        }),
+    ),
+  );
+  const notBefore = valid.notBefore.getTime();
+  const notAfter = valid.notAfter.getTime();
+  if (notBefore > notAfter) {
+    return yield* new SignatureKitError({
+      code: SignatureKitErrorCodeValue.invalidInput,
+      retryable: false,
+      operation: SignatureKitOperationValue.schemaDecode,
+      schemaName: "CertificateValidity",
+      reason: "Certificate validity starts after its expiration.",
+    });
+  }
+  const now = yield* Clock.currentTimeMillis;
+  const status: CertificateValidityStatus = Match.value(now).pipe(
+    Match.when(
+      (time) => time < notBefore,
+      (): CertificateValidityStatus => "notYetValid",
+    ),
+    Match.when(
+      (time) => time > notAfter,
+      (): CertificateValidityStatus => "expired",
+    ),
+    Match.orElse((): CertificateValidityStatus => "valid"),
+  );
+  const remainingMillis = notAfter - now;
+  return {
+    status,
+    evaluatedAt: new Date(now),
+    remainingMillis,
+    daysUntilExpiry: Math.floor(remainingMillis / (1000 * 60 * 60 * 24)),
+  } satisfies CertificateValidityInspection;
+});
 
 export const isCertificateValid = (cert: Certificate): boolean =>
   isValidityRangeCurrent(cert.validity);
@@ -453,38 +515,32 @@ const parseValidity = (
 ): Effect.Effect<{ readonly notBefore: Date; readonly notAfter: Date }, SignatureKitError> =>
   Effect.gen(function* () {
     if (!isUniversalSequence(node) || node.children.length !== 2) {
-      return yield* Effect.fail(
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.x509ParseFailed,
-          retryable: false,
-          reason: "Invalid Validity structure.",
-          operation: SignatureKitOperationValue.x509Parse,
-        }),
-      );
+      return yield* new SignatureKitError({
+        code: SignatureKitErrorCodeValue.x509ParseFailed,
+        retryable: false,
+        reason: "Invalid Validity structure.",
+        operation: SignatureKitOperationValue.x509Parse,
+      });
     }
     const before = node.children[0];
     const after = node.children[1];
     if (before === undefined || after === undefined) {
-      return yield* Effect.fail(
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.x509ParseFailed,
-          retryable: false,
-          reason: "Missing validity dates.",
-          operation: SignatureKitOperationValue.x509Parse,
-        }),
-      );
+      return yield* new SignatureKitError({
+        code: SignatureKitErrorCodeValue.x509ParseFailed,
+        retryable: false,
+        reason: "Missing validity dates.",
+        operation: SignatureKitOperationValue.x509Parse,
+      });
     }
     const notBefore = yield* parseTime(before);
     const notAfter = yield* parseTime(after);
     if (notBefore.getTime() > notAfter.getTime()) {
-      return yield* Effect.fail(
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.x509ParseFailed,
-          retryable: false,
-          reason: "Invalid Validity interval.",
-          operation: SignatureKitOperationValue.x509Parse,
-        }),
-      );
+      return yield* new SignatureKitError({
+        code: SignatureKitErrorCodeValue.x509ParseFailed,
+        retryable: false,
+        reason: "Invalid Validity interval.",
+        operation: SignatureKitOperationValue.x509Parse,
+      });
     }
     return { notBefore, notAfter };
   });
@@ -624,25 +680,21 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
   Effect.gen(function* () {
     const cert = yield* decode(der);
     if (!isUniversalSequence(cert) || cert.children.length < 3) {
-      return yield* Effect.fail(
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.x509ParseFailed,
-          retryable: false,
-          reason: "Invalid X.509 certificate: expected SEQUENCE.",
-          operation: SignatureKitOperationValue.x509Parse,
-        }),
-      );
+      return yield* new SignatureKitError({
+        code: SignatureKitErrorCodeValue.x509ParseFailed,
+        retryable: false,
+        reason: "Invalid X.509 certificate: expected SEQUENCE.",
+        operation: SignatureKitOperationValue.x509Parse,
+      });
     }
     const tbsCert = cert.children[0];
     if (tbsCert === undefined || !isUniversalSequence(tbsCert)) {
-      return yield* Effect.fail(
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.x509ParseFailed,
-          retryable: false,
-          reason: "Invalid TBSCertificate.",
-          operation: SignatureKitOperationValue.x509Parse,
-        }),
-      );
+      return yield* new SignatureKitError({
+        code: SignatureKitErrorCodeValue.x509ParseFailed,
+        retryable: false,
+        reason: "Invalid TBSCertificate.",
+        operation: SignatureKitOperationValue.x509Parse,
+      });
     }
     const tbs = tbsCert.children;
     let idx = 0;
@@ -662,14 +714,12 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
         versionNode.bytes[0] === undefined ||
         versionNode.bytes[0] > 2
       ) {
-        return yield* Effect.fail(
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.x509ParseFailed,
-            retryable: false,
-            reason: "Invalid TBSCertificate version.",
-            operation: SignatureKitOperationValue.x509Parse,
-          }),
-        );
+        return yield* new SignatureKitError({
+          code: SignatureKitErrorCodeValue.x509ParseFailed,
+          retryable: false,
+          reason: "Invalid TBSCertificate version.",
+          operation: SignatureKitOperationValue.x509Parse,
+        });
       }
       idx++;
     }
@@ -681,14 +731,12 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
       serialNode.class !== "universal" ||
       serialNode.tag !== 0x02
     ) {
-      return yield* Effect.fail(
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.x509ParseFailed,
-          retryable: false,
-          reason: "Missing or invalid serial number.",
-          operation: SignatureKitOperationValue.x509Parse,
-        }),
-      );
+      return yield* new SignatureKitError({
+        code: SignatureKitErrorCodeValue.x509ParseFailed,
+        retryable: false,
+        reason: "Missing or invalid serial number.",
+        operation: SignatureKitOperationValue.x509Parse,
+      });
     }
     const serialNumber = bytesToHex(serialNode.bytes);
 
@@ -701,66 +749,56 @@ export const parseX509 = (der: Uint8Array): Effect.Effect<X509Info, SignatureKit
       !isUniversalSequence(issuerNode) ||
       issuerNode.children.length === 0
     ) {
-      return yield* Effect.fail(
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.x509ParseFailed,
-          retryable: false,
-          reason: "Missing or invalid issuer.",
-          operation: SignatureKitOperationValue.x509Parse,
-        }),
-      );
+      return yield* new SignatureKitError({
+        code: SignatureKitErrorCodeValue.x509ParseFailed,
+        retryable: false,
+        reason: "Missing or invalid issuer.",
+        operation: SignatureKitOperationValue.x509Parse,
+      });
     }
     const issuer = yield* parseName(issuerNode);
     if (formatDN(issuer) === "") {
-      return yield* Effect.fail(
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.x509ParseFailed,
-          retryable: false,
-          reason: "Missing or invalid issuer.",
-          operation: SignatureKitOperationValue.x509Parse,
-        }),
-      );
+      return yield* new SignatureKitError({
+        code: SignatureKitErrorCodeValue.x509ParseFailed,
+        retryable: false,
+        reason: "Missing or invalid issuer.",
+        operation: SignatureKitOperationValue.x509Parse,
+      });
     }
 
     const validityNode = tbs[idx];
     idx++;
     if (validityNode === undefined) {
-      return yield* Effect.fail(
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.x509ParseFailed,
-          retryable: false,
-          reason: "Missing validity.",
-          operation: SignatureKitOperationValue.x509Parse,
-        }),
-      );
+      return yield* new SignatureKitError({
+        code: SignatureKitErrorCodeValue.x509ParseFailed,
+        retryable: false,
+        reason: "Missing validity.",
+        operation: SignatureKitOperationValue.x509Parse,
+      });
     }
     const validity = yield* parseValidity(validityNode);
 
     const subjectNode = tbs[idx];
     idx++;
     if (subjectNode === undefined) {
-      return yield* Effect.fail(
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.x509ParseFailed,
-          retryable: false,
-          reason: "Missing subject.",
-          operation: SignatureKitOperationValue.x509Parse,
-        }),
-      );
+      return yield* new SignatureKitError({
+        code: SignatureKitErrorCodeValue.x509ParseFailed,
+        retryable: false,
+        reason: "Missing subject.",
+        operation: SignatureKitOperationValue.x509Parse,
+      });
     }
     const subject = yield* parseName(subjectNode);
 
     const spkiNode = tbs[idx];
     idx++;
     if (spkiNode === undefined || !isUniversalSequence(spkiNode)) {
-      return yield* Effect.fail(
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.x509ParseFailed,
-          retryable: false,
-          reason: "Missing SubjectPublicKeyInfo.",
-          operation: SignatureKitOperationValue.x509Parse,
-        }),
-      );
+      return yield* new SignatureKitError({
+        code: SignatureKitErrorCodeValue.x509ParseFailed,
+        retryable: false,
+        reason: "Missing SubjectPublicKeyInfo.",
+        operation: SignatureKitOperationValue.x509Parse,
+      });
     }
     const publicKeyDer = encode(spkiNode);
 

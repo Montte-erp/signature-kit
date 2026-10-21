@@ -75,6 +75,25 @@ export const downloadSigned = (envelopeId: string) =>
   );
 ```
 
+## Wait for a final state
+
+`waitForDocumensoSignatureRequest(options, id, pollInterval)` reads immediately and polls while the request is `draft` or `sent`. It returns the provider's final state, including cancellation, rejection, deletion, or expiry; inspect `state` before downloading. The interval must be positive and finite. Read failures propagate immediately without automatic retry. Interruption cancels the active read and stops future polls. The caller owns the deadline:
+
+```ts
+import { waitForDocumensoSignatureRequest } from "@signature-kit/documenso";
+import { signatureHttpClientLive } from "@signature-kit/http";
+import { Duration, Effect } from "effect";
+import type { DocumensoProviderOptions } from "@signature-kit/documenso";
+
+declare const options: DocumensoProviderOptions;
+declare const requestId: string;
+
+const program = waitForDocumensoSignatureRequest(options, requestId, Duration.seconds(2)).pipe(
+  Effect.timeout(Duration.minutes(5)),
+  Effect.provide(signatureHttpClientLive),
+);
+```
+
 ## Errors and i18n
 
 Invalid inputs, remote HTTP failures, unsupported operations, and invalid response shapes fail as `SignatureKitError` from `@signature-kit/signatures`. Applications can render localized copy through `errorMessage` from `@signature-kit/i18n` with the `signatureKitErrorMessages` catalog from `@signature-kit/signatures`.

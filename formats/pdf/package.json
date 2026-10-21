@@ -58,6 +58,14 @@
     "./byte-range": {
       "types": "./dist/byte-range.d.ts",
       "import": "./dist/byte-range.js"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.ts",
+      "import": "./dist/worker.js"
+    },
+    "./worker-browser": {
+      "types": "./dist/worker-browser.d.ts",
+      "import": "./dist/worker-browser.js"
     }
   },
   "publishConfig": {
@@ -67,12 +75,13 @@
     "test": "vitest run --root ../.. formats/pdf/__tests__ --exclude '**/*.browser.test.*' --exclude '**/*.performance.test.*'"
   },
   "dependencies": {
-    "@cantoo/pdf-lib": "2.7.2",
-    "@llamaindex/liteparse-wasm": "^2.5.1",
+    "@cantoo/pdf-lib": "2.11.1",
+    "@effect/platform-browser": "4.0.5",
+    "@llamaindex/liteparse-wasm": "^2.16.0",
     "@signature-kit/cms": "^0.2.1",
     "@signature-kit/i18n": "^0.1.0",
     "@signature-kit/signatures": "^0.1.0",
-    "effect": "4.0.0-beta.86",
+    "effect": "4.0.5",
     "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {

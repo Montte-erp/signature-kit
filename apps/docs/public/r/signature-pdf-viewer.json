@@ -10,9 +10,9 @@
   ],
   "dependencies": [
     "@signature-kit/pdf",
-    "effect@4.0.0-beta.86",
+    "effect@4.0.5",
     "lucide-react",
-    "react-pdf@10.4.1"
+    "react-pdf@11.0.0"
   ],
   "files": [
     {

@@ -1,7 +1,7 @@
 {
   "$schema": "../../node_modules/@effect/tsgo/oxlint-schema.json",
   "extends": ["./base.json"],
-  "plugins": ["typescript", "import", "react", "effecttsgo"],
+  "plugins": ["typescript", "import", "react", "effecttsgo", "jsx-a11y", "unicorn"],
   "rules": {
     "react/rules-of-hooks": "error",
     "react/exhaustive-deps": "error",
@@ -28,7 +28,25 @@
     "react/iframe-missing-sandbox": "error",
     "react/style-prop-object": "error",
     "react/checked-requires-onchange-or-readonly": "error",
-    "react/no-object-type-as-default-prop": "error"
+    "react/no-object-type-as-default-prop": "error",
+    "jsx-a11y/prefer-tag-over-role": "off",
+    "jsx-a11y/no-autofocus": "off",
+    "jsx-a11y/heading-has-content": "off",
+    "jsx-a11y/control-has-associated-label": "off",
+    "jsx-a11y/no-noninteractive-element-interactions": "off",
+    "jsx-a11y/no-noninteractive-tabindex": [
+      "error",
+      {
+        "roles": ["tabpanel", "region", "log", "group"],
+        "tags": ["ul", "ol", "pre"]
+      }
+    ],
+    "jsx-a11y/no-noninteractive-element-to-interactive-role": "error",
+    "jsx-a11y/anchor-ambiguous-text": "error",
+    "react/button-has-type": "error",
+    "react/jsx-no-script-url": "error",
+    "react/self-closing-comp": "error",
+    "react/jsx-boolean-value": "error"
   },
   "ignorePatterns": ["**/.next/**", "**/paraglide/**", "**/.source/**"]
 }

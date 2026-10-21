@@ -34,23 +34,19 @@ export const base64ToBytes = (
   Effect.gen(function* () {
     const clean = base64.replace(/[\t\n\r ]/g, "");
     if (!/^[A-Za-z0-9+/]*={0,2}$/.test(clean)) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.invalidFormat,
-          reason: "Base64 input contains invalid characters.",
-          operation: CryptoOperationValue.base64Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.invalidFormat,
+        reason: "Base64 input contains invalid characters.",
+        operation: CryptoOperationValue.base64Decode,
+      });
     }
     const hasPadding = clean.endsWith("=");
     if (clean.length % 4 === 1 || (hasPadding && clean.length % 4 !== 0)) {
-      return yield* Effect.fail(
-        new CryptoError({
-          code: CryptoErrorCodeValue.invalidFormat,
-          reason: "Base64 input has an invalid length.",
-          operation: CryptoOperationValue.base64Decode,
-        }),
-      );
+      return yield* new CryptoError({
+        code: CryptoErrorCodeValue.invalidFormat,
+        reason: "Base64 input has an invalid length.",
+        operation: CryptoOperationValue.base64Decode,
+      });
     }
 
     const normalized = clean.padEnd(Math.ceil(clean.length / 4) * 4, "=");
@@ -67,13 +63,11 @@ export const base64ToBytes = (
         offset + 4 === normalized.length &&
         ((padding === 2 && (second & 0x0f) !== 0) || (padding === 1 && (third & 0x03) !== 0))
       ) {
-        return yield* Effect.fail(
-          new CryptoError({
-            code: CryptoErrorCodeValue.invalidFormat,
-            reason: "Base64 input has non-zero padding bits.",
-            operation: CryptoOperationValue.base64Decode,
-          }),
-        );
+        return yield* new CryptoError({
+          code: CryptoErrorCodeValue.invalidFormat,
+          reason: "Base64 input has non-zero padding bits.",
+          operation: CryptoOperationValue.base64Decode,
+        });
       }
       const chunk = (first << 18) | (second << 12) | (third << 6) | fourth;
 

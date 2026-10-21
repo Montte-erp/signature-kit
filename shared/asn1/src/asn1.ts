@@ -5,7 +5,7 @@ export type Asn1Class = (typeof Asn1ClassSchema)["Type"];
 
 export const Asn1PrimitiveSchema = Schema.Struct({
   kind: Schema.Literals(["primitive"]),
-  tag: Schema.Number,
+  tag: Schema.Finite,
   class: Asn1ClassSchema,
   bytes: Schema.Uint8Array,
 });
@@ -28,7 +28,7 @@ export type Asn1Constructed = Extract<Asn1Node, { readonly kind: "constructed" }
 
 export const Asn1ConstructedSchema: Schema.Schema<Asn1Constructed> = Schema.Struct({
   kind: Schema.Literals(["constructed"]),
-  tag: Schema.Number,
+  tag: Schema.Finite,
   class: Asn1ClassSchema,
   children: Schema.Array(Schema.suspend(() => Asn1NodeSchema)),
 });
@@ -66,10 +66,13 @@ export const asn1ErrorMessages = {
   },
 } satisfies Record<Asn1ErrorMessageLocale, Record<Asn1ErrorCode, string>>;
 
-export class Asn1Error extends Schema.TaggedErrorClass<Asn1Error>()("Asn1Error", {
-  code: Asn1ErrorCodeSchema,
-  reason: Schema.optional(Schema.String),
-}) {
+export class Asn1Error extends Schema.TaggedError<Asn1Error, { readonly brand: unique symbol }>()(
+  "Asn1Error",
+  {
+    code: Asn1ErrorCodeSchema,
+    reason: Schema.optional(Schema.String),
+  },
+) {
   get message(): string {
     return this.reason ?? asn1ErrorMessages["en-US"][this.code];
   }
@@ -91,22 +94,18 @@ type Tlv = { readonly node: Asn1Node; readonly next: number };
 const decodeRoot = (data: Uint8Array): Effect.Effect<Asn1Node, Asn1Error> =>
   Effect.gen(function* () {
     if (data.length === 0) {
-      return yield* Effect.fail(
-        new Asn1Error({
-          code: Asn1ErrorCodeValue.decodeError,
-          reason: "Cannot decode empty data",
-        }),
-      );
+      return yield* new Asn1Error({
+        code: Asn1ErrorCodeValue.decodeError,
+        reason: "Cannot decode empty data",
+      });
     }
 
     const tlv = yield* decodeTlv(data, 0, 0);
     if (tlv.next !== data.length) {
-      return yield* Effect.fail(
-        new Asn1Error({
-          code: Asn1ErrorCodeValue.decodeError,
-          reason: "Non-canonical ASN.1 encoding: extra trailing bytes",
-        }),
-      );
+      return yield* new Asn1Error({
+        code: Asn1ErrorCodeValue.decodeError,
+        reason: "Non-canonical ASN.1 encoding: extra trailing bytes",
+      });
     }
 
     return tlv.node;
@@ -115,21 +114,17 @@ const decodeRoot = (data: Uint8Array): Effect.Effect<Asn1Node, Asn1Error> =>
 const decodeTlv = (data: Uint8Array, start: number, depth: number): Effect.Effect<Tlv, Asn1Error> =>
   Effect.gen(function* () {
     if (depth > MAX_NESTING_DEPTH) {
-      return yield* Effect.fail(
-        new Asn1Error({
-          code: Asn1ErrorCodeValue.decodeError,
-          reason: "Maximum ASN.1 nesting depth exceeded",
-        }),
-      );
+      return yield* new Asn1Error({
+        code: Asn1ErrorCodeValue.decodeError,
+        reason: "Maximum ASN.1 nesting depth exceeded",
+      });
     }
     let offset = start;
     if (offset >= data.length)
-      return yield* Effect.fail(
-        new Asn1Error({
-          code: Asn1ErrorCodeValue.decodeError,
-          reason: "Unexpected end of data while reading tag",
-        }),
-      );
+      return yield* new Asn1Error({
+        code: Asn1ErrorCodeValue.decodeError,
+        reason: "Unexpected end of data while reading tag",
+      });
 
     const startByte = data[offset]!;
     offset++;
@@ -146,50 +141,40 @@ const decodeTlv = (data: Uint8Array, start: number, depth: number): Effect.Effec
       let firstTagByte = true;
       while ((byte & 0x80) !== 0) {
         if (offset >= data.length)
-          return yield* Effect.fail(
-            new Asn1Error({
-              code: Asn1ErrorCodeValue.decodeError,
-              reason: "Truncated long-form tag",
-            }),
-          );
+          return yield* new Asn1Error({
+            code: Asn1ErrorCodeValue.decodeError,
+            reason: "Truncated long-form tag",
+          });
         byte = data[offset]!;
         offset++;
         const tagPart = byte & 0x7f;
         if (firstTagByte && tagPart === 0)
-          return yield* Effect.fail(
-            new Asn1Error({
-              code: Asn1ErrorCodeValue.decodeError,
-              reason: "Non-minimal high-tag encoding",
-            }),
-          );
+          return yield* new Asn1Error({
+            code: Asn1ErrorCodeValue.decodeError,
+            reason: "Non-minimal high-tag encoding",
+          });
         if (tag > Math.floor((MAX_HIGH_TAG_NUMBER - tagPart) / 128))
-          return yield* Effect.fail(
-            new Asn1Error({
-              code: Asn1ErrorCodeValue.decodeError,
-              reason: "Tag number exceeds supported range",
-            }),
-          );
+          return yield* new Asn1Error({
+            code: Asn1ErrorCodeValue.decodeError,
+            reason: "Tag number exceeds supported range",
+          });
         tag = tag * 128 + tagPart;
         firstTagByte = false;
       }
       if (tag < 31)
-        return yield* Effect.fail(
-          new Asn1Error({
-            code: Asn1ErrorCodeValue.decodeError,
-            reason: "Non-minimal high-tag encoding",
-          }),
-        );
+        return yield* new Asn1Error({
+          code: Asn1ErrorCodeValue.decodeError,
+          reason: "Non-minimal high-tag encoding",
+        });
     } else {
       tag = lowBits;
     }
 
     if (offset >= data.length) {
-      return yield* Effect.fail(
-        new Asn1Error({
-          code: Asn1ErrorCodeValue.decodeError,
-          reason: "Unexpected end of data while reading length",
-        }),
-      );
+      return yield* new Asn1Error({
+        code: Asn1ErrorCodeValue.decodeError,
+        reason: "Unexpected end of data while reading length",
+      });
     }
 
     const lengthByte = data[offset]!;
@@ -204,66 +189,52 @@ const decodeTlv = (data: Uint8Array, start: number, depth: number): Effect.Effec
     } else {
       const numLengthBytes = lengthByte & 0x7f;
       if (numLengthBytes === 0)
-        return yield* Effect.fail(
-          new Asn1Error({
-            code: Asn1ErrorCodeValue.decodeError,
-            reason: "Invalid length encoding",
-          }),
-        );
+        return yield* new Asn1Error({
+          code: Asn1ErrorCodeValue.decodeError,
+          reason: "Invalid length encoding",
+        });
       if (offset + numLengthBytes > data.length) {
-        return yield* Effect.fail(
-          new Asn1Error({
-            code: Asn1ErrorCodeValue.decodeError,
-            reason: "Truncated length encoding",
-          }),
-        );
+        return yield* new Asn1Error({
+          code: Asn1ErrorCodeValue.decodeError,
+          reason: "Truncated length encoding",
+        });
       }
       if (data[offset] === 0)
-        return yield* Effect.fail(
-          new Asn1Error({
-            code: Asn1ErrorCodeValue.decodeError,
-            reason: "Non-minimal length encoding",
-          }),
-        );
+        return yield* new Asn1Error({
+          code: Asn1ErrorCodeValue.decodeError,
+          reason: "Non-minimal length encoding",
+        });
       for (let i = 0; i < numLengthBytes; i++) {
         length = length * 256 + data[offset]!;
         offset++;
       }
       if (length < 128)
-        return yield* Effect.fail(
-          new Asn1Error({
-            code: Asn1ErrorCodeValue.decodeError,
-            reason: "Non-minimal length encoding",
-          }),
-        );
+        return yield* new Asn1Error({
+          code: Asn1ErrorCodeValue.decodeError,
+          reason: "Non-minimal length encoding",
+        });
       if (length > data.length)
-        return yield* Effect.fail(
-          new Asn1Error({
-            code: Asn1ErrorCodeValue.decodeError,
-            reason: "Length exceeds available data",
-          }),
-        );
+        return yield* new Asn1Error({
+          code: Asn1ErrorCodeValue.decodeError,
+          reason: "Length exceeds available data",
+        });
     }
 
     if (indefinite) {
       if (!constructed) {
-        return yield* Effect.fail(
-          new Asn1Error({
-            code: Asn1ErrorCodeValue.decodeError,
-            reason: "Indefinite length on primitive encoding is invalid",
-          }),
-        );
+        return yield* new Asn1Error({
+          code: Asn1ErrorCodeValue.decodeError,
+          reason: "Indefinite length on primitive encoding is invalid",
+        });
       }
       const children: Asn1Node[] = [];
       let childOffset = offset;
       while (true) {
         if (childOffset + 1 >= data.length) {
-          return yield* Effect.fail(
-            new Asn1Error({
-              code: Asn1ErrorCodeValue.decodeError,
-              reason: "Truncated indefinite-length encoding: missing end-of-content",
-            }),
-          );
+          return yield* new Asn1Error({
+            code: Asn1ErrorCodeValue.decodeError,
+            reason: "Truncated indefinite-length encoding: missing end-of-content",
+          });
         }
         if (data[childOffset] === 0x00 && data[childOffset + 1] === 0x00) {
           childOffset += 2;
@@ -278,12 +249,10 @@ const decodeTlv = (data: Uint8Array, start: number, depth: number): Effect.Effec
 
     const endOffset = offset + length;
     if (endOffset > data.length) {
-      return yield* Effect.fail(
-        new Asn1Error({
-          code: Asn1ErrorCodeValue.decodeError,
-          reason: `Truncated value: expected ${length} bytes, ${data.length - offset} available`,
-        }),
-      );
+      return yield* new Asn1Error({
+        code: Asn1ErrorCodeValue.decodeError,
+        reason: `Truncated value: expected ${length} bytes, ${data.length - offset} available`,
+      });
     }
 
     if (constructed) {
@@ -292,12 +261,10 @@ const decodeTlv = (data: Uint8Array, start: number, depth: number): Effect.Effec
       while (childOffset < endOffset) {
         const child = yield* decodeTlv(data, childOffset, depth + 1);
         if (child.next > endOffset)
-          return yield* Effect.fail(
-            new Asn1Error({
-              code: Asn1ErrorCodeValue.decodeError,
-              reason: "Child TLV exceeds definite-length parent boundary",
-            }),
-          );
+          return yield* new Asn1Error({
+            code: Asn1ErrorCodeValue.decodeError,
+            reason: "Child TLV exceeds definite-length parent boundary",
+          });
         children.push(child.node);
         childOffset = child.next;
       }
@@ -410,12 +377,10 @@ const decodeBase128Vlq = (
     let value = 0;
     let firstByte = true;
     if (offset >= data.length) {
-      return yield* Effect.fail(
-        new Asn1Error({
-          code: Asn1ErrorCodeValue.oidError,
-          reason: "Truncated VLQ in OID",
-        }),
-      );
+      return yield* new Asn1Error({
+        code: Asn1ErrorCodeValue.oidError,
+        reason: "Truncated VLQ in OID",
+      });
     }
 
     while ((byte & 0x80) !== 0) {
@@ -423,31 +388,25 @@ const decodeBase128Vlq = (
       offset += 1;
       const component = byte & 0x7f;
       if (firstByte && (byte & 0x80) !== 0 && component === 0) {
-        return yield* Effect.fail(
-          new Asn1Error({
-            code: Asn1ErrorCodeValue.oidError,
-            reason: "Non-minimal VLQ encoding in OID",
-          }),
-        );
+        return yield* new Asn1Error({
+          code: Asn1ErrorCodeValue.oidError,
+          reason: "Non-minimal VLQ encoding in OID",
+        });
       }
       if (value > Math.floor((Number.MAX_SAFE_INTEGER - component) / 128)) {
-        return yield* Effect.fail(
-          new Asn1Error({
-            code: Asn1ErrorCodeValue.oidError,
-            reason: "VLQ value exceeds safe integer range in OID",
-          }),
-        );
+        return yield* new Asn1Error({
+          code: Asn1ErrorCodeValue.oidError,
+          reason: "VLQ value exceeds safe integer range in OID",
+        });
       }
       value = value * 128 + component;
       firstByte = false;
 
       if ((byte & 0x80) !== 0 && offset >= data.length) {
-        return yield* Effect.fail(
-          new Asn1Error({
-            code: Asn1ErrorCodeValue.oidError,
-            reason: "Truncated VLQ in OID",
-          }),
-        );
+        return yield* new Asn1Error({
+          code: Asn1ErrorCodeValue.oidError,
+          reason: "Truncated VLQ in OID",
+        });
       }
     }
 
@@ -457,12 +416,10 @@ const decodeBase128Vlq = (
 const decodeOidBytes = (data: Uint8Array): Effect.Effect<string, Asn1Error> =>
   Effect.gen(function* () {
     if (data.length === 0) {
-      return yield* Effect.fail(
-        new Asn1Error({
-          code: Asn1ErrorCodeValue.oidError,
-          reason: "Empty OID data",
-        }),
-      );
+      return yield* new Asn1Error({
+        code: Asn1ErrorCodeValue.oidError,
+        reason: "Empty OID data",
+      });
     }
 
     const first = yield* decodeBase128Vlq(data, 0);

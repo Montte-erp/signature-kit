@@ -1,17 +1,10 @@
+import { readA1FixtureFromBrowser } from "../../../tooling/testing/fixtures.browser";
 import { describe, expect, it } from "vitest";
 import { loadA1SignerAdapter, parseA1CertificateProfile } from "../src/signer";
 import { Effect, Redacted } from "effect";
 
 const PASSWORD = Redacted.make("changeit");
 const textEncoder = new TextEncoder();
-
-const readA1FixtureFromBrowser = (name: "ecpf" | "ecnpj"): Effect.Effect<Uint8Array> =>
-  Effect.promise(async () => {
-    const fixtureUrl = new URL(`./fixtures/${name}.p12`, import.meta.url);
-    const response = await fetch(fixtureUrl);
-    expect(response.ok).toBe(true);
-    return new Uint8Array(await response.arrayBuffer());
-  });
 
 if (typeof document === "undefined") {
   describe.skip("A1 browser integration", () => {

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { pdfjs } from "react-pdf";
 import { describe, expect, it } from "vitest";
 
@@ -11,21 +12,23 @@ const PARAGRAPHS = [
   "Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium.",
 ];
 
-const extractFirstPageText = async (bytes: Uint8Array): Promise<string> => {
-  await loadPdfjs();
-  const loadingTask = pdfjs.getDocument({ data: bytes.slice() });
-  const documentProxy = await loadingTask.promise;
-  try {
-    const page = await documentProxy.getPage(1);
-    const content = await page.getTextContent();
-    return content.items
-      .map((item) => ("str" in item ? item.str : ""))
-      .filter((text) => text.length > 0)
-      .join(" ");
-  } finally {
-    await documentProxy.destroy();
-  }
-};
+const extractFirstPageText = (bytes: Uint8Array): Promise<string> =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      yield* Effect.promise(loadPdfjs);
+      const loadingTask = yield* Effect.acquireRelease(
+        Effect.sync(() => pdfjs.getDocument({ data: bytes.slice() })),
+        (task) => Effect.promise(() => task.destroy()),
+      );
+      const documentProxy = yield* Effect.promise(() => loadingTask.promise);
+      const page = yield* Effect.promise(() => documentProxy.getPage(1));
+      const content = yield* Effect.promise(() => page.getTextContent());
+      return content.items
+        .map((item) => ("str" in item ? item.str : ""))
+        .filter((text) => text.length > 0)
+        .join(" ");
+    }).pipe(Effect.scoped),
+  );
 
 if (typeof document === "undefined") {
   describe.skip("generateFormalContractPdf (browser)", () => {

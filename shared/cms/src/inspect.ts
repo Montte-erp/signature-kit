@@ -409,16 +409,14 @@ const inspectAttribute = (
 ): Effect.Effect<CmsSignedAttribute, CmsError> =>
   Effect.gen(function* () {
     const nested = yield* Effect.forEach(attribute.values, valueOids);
-    const signaturePolicyId =
-      attribute.type === CmsOid.signaturePolicy
-        ? yield* Effect.gen(function* () {
-            for (const value of attribute.values) {
-              const valuePolicyId = yield* signaturePolicyIdFromValue(value);
-              if (valuePolicyId !== null) return valuePolicyId;
-            }
-            return null;
-          })
-        : undefined;
+    let signaturePolicyId: CmsSignedAttribute["signaturePolicyId"];
+    if (attribute.type === CmsOid.signaturePolicy) {
+      signaturePolicyId = null;
+      for (const value of attribute.values) {
+        signaturePolicyId = yield* signaturePolicyIdFromValue(value);
+        if (signaturePolicyId !== null) break;
+      }
+    }
 
     return {
       type: attribute.type,
@@ -459,22 +457,18 @@ export const inspectDetachedSignedData = (
         }),
     });
     if (contentInfo === undefined) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.decodeError,
-          reason: "CMS ContentInfo contains trailing bytes.",
-          operation: CmsOperationValue.parse,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.decodeError,
+        reason: "CMS ContentInfo contains trailing bytes.",
+        operation: CmsOperationValue.parse,
+      });
     }
     if (contentInfo.contentType !== CmsOid.signedData) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.decodeError,
-          reason: "CMS ContentInfo is not signedData.",
-          operation: CmsOperationValue.parse,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.decodeError,
+        reason: "CMS ContentInfo is not signedData.",
+        operation: CmsOperationValue.parse,
+      });
     }
     const signed = yield* Effect.try({
       try: () => new pkijs.SignedData({ schema: contentInfo.content }),
@@ -488,13 +482,11 @@ export const inspectDetachedSignedData = (
 
     const signerInfo = signed.signerInfos[0];
     if (signerInfo === undefined) {
-      return yield* Effect.fail(
-        new CmsError({
-          code: CmsErrorCodeValue.decodeError,
-          reason: "CMS SignedData does not contain a signer info.",
-          operation: CmsOperationValue.parse,
-        }),
-      );
+      return yield* new CmsError({
+        code: CmsErrorCodeValue.decodeError,
+        reason: "CMS SignedData does not contain a signer info.",
+        operation: CmsOperationValue.parse,
+      });
     }
 
     const attributes = yield* Effect.forEach(

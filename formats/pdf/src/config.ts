@@ -10,7 +10,7 @@ import {
 } from "@signature-kit/cms/config";
 import { SignatureKitError } from "@signature-kit/signatures";
 
-const nonEmptyString: Schema.ConstraintDecoder<string> = Schema.NonEmptyString;
+const nonEmptyString = Schema.NonEmptyString;
 const finiteNumber = Schema.Number.check(Schema.isFinite());
 const nonNegativeInteger = Schema.Number.check(
   Schema.isFinite(),
@@ -211,14 +211,17 @@ export const PdfSchemaNameValue = {
   pdfMergeDocuments: "PdfMergeDocuments",
 } satisfies Record<string, PdfSchemaName>;
 
-export class PdfError extends Schema.TaggedErrorClass<PdfError>()("PdfError", {
-  code: PdfErrorCodeSchema,
-  retryable: Schema.Boolean,
-  reason: Schema.optional(Schema.String),
-  operation: Schema.optional(PdfOperationSchema),
-  schemaName: Schema.optional(PdfSchemaNameSchema),
-  issueMessage: Schema.optional(Schema.String),
-}) {
+export class PdfError extends Schema.TaggedError<PdfError, { readonly brand: unique symbol }>()(
+  "PdfError",
+  {
+    code: PdfErrorCodeSchema,
+    retryable: Schema.Boolean,
+    reason: Schema.optional(Schema.String),
+    operation: Schema.optional(PdfOperationSchema),
+    schemaName: Schema.optional(PdfSchemaNameSchema),
+    issueMessage: Schema.optional(Schema.String),
+  },
+) {
   get message(): string {
     return this.reason ?? pdfErrorMessages["en-US"][this.code];
   }
@@ -241,7 +244,7 @@ export type PdfCoordinateTuple = (typeof PdfCoordinateTupleSchema)["Type"];
 
 export const PdfRubricPagesSchema = Schema.Union([
   Schema.Literals(["all"]),
-  Schema.Array(Schema.Number),
+  Schema.Array(Schema.Finite),
 ]);
 export type PdfRubricPages = (typeof PdfRubricPagesSchema)["Type"];
 
@@ -458,10 +461,10 @@ export const PdfAutoSignaturePlacementSchema = Schema.Struct({
   page: Schema.optional(PdfSignaturePlacementPageSchema),
   pageIndex: Schema.optional(nonNegativeInteger),
   anchor: Schema.optional(PdfSignatureAnchorSchema),
-  width: Schema.optional(Schema.Number),
-  height: Schema.optional(Schema.Number),
-  margin: Schema.optional(Schema.Number),
-  gap: Schema.optional(Schema.Number),
+  width: Schema.optional(Schema.Finite),
+  height: Schema.optional(Schema.Finite),
+  margin: Schema.optional(Schema.Finite),
+  gap: Schema.optional(Schema.Finite),
 }).check(
   Schema.makeFilter((input) =>
     input.page !== undefined && input.pageIndex !== undefined
@@ -523,7 +526,7 @@ export const PdfSigningRequestSchema = Schema.Struct({
   contactInfo: Schema.optional(Schema.String),
   name: Schema.optional(Schema.String),
   location: Schema.optional(Schema.String),
-  signingTime: Schema.optional(Schema.DateValid),
+  signingTime: Schema.optional(Schema.Date),
   signatureLength: Schema.optional(PdfSignatureByteLengthSchema),
   hashAlgorithm: Schema.optional(CmsHashAlgorithmSchema),
   policy: Schema.optional(PdfSignaturePolicySchema),
@@ -729,6 +732,8 @@ export const PdfSignatureBadgeFooterSegmentSchema = Schema.Struct({
 });
 export type PdfSignatureBadgeFooterSegment = (typeof PdfSignatureBadgeFooterSegmentSchema)["Type"];
 export const PdfSignatureBadgeSchema = Schema.Struct({
+  logoPng: Schema.optional(Schema.Uint8Array),
+  signaturePng: Schema.optional(Schema.Uint8Array),
   header: Schema.Struct({ text: nonEmptyString }),
   rows: Schema.Array(Schema.Array(PdfSignatureBadgeRowItemSchema)),
   footer: Schema.Array(PdfSignatureBadgeFooterSegmentSchema),
@@ -739,7 +744,7 @@ export type PdfSignatureBadge = (typeof PdfSignatureBadgeSchema)["Type"];
 
 export const PdfVisibleStampInputSchema = Schema.Struct({
   pdf: Schema.Uint8Array,
-  pageIndex: Schema.Number,
+  pageIndex: Schema.Finite,
   rect: PdfSignatureRectSchema,
   inkPng: Schema.optional(Schema.Uint8Array),
   lines: Schema.optional(Schema.Array(Schema.String)),
@@ -779,7 +784,7 @@ export type PdfVisibleStampInput = (typeof PdfVisibleStampInputSchema)["Type"];
 export const PdfRubricPageStampInputSchema = Schema.Struct({
   pdf: Schema.Uint8Array,
   pageDimensions: Schema.Array(PdfSignaturePageSchema),
-  pages: Schema.Array(Schema.Number),
+  pages: Schema.Array(Schema.Finite),
   pageTextBoxes: Schema.optional(Schema.Array(Schema.Array(PdfTextBoxSchema))),
   lines: Schema.optional(Schema.Array(Schema.String)),
   imagePng: Schema.optional(Schema.Uint8Array),
@@ -983,7 +988,7 @@ export const PdfSigningInputSchema = Schema.Struct({
   contactInfo: Schema.optional(Schema.String),
   name: Schema.optional(Schema.String),
   location: Schema.optional(Schema.String),
-  signingTime: Schema.optional(Schema.DateValid),
+  signingTime: Schema.optional(Schema.Date),
   signatureLength: Schema.optional(PdfSignatureByteLengthSchema),
   hashAlgorithm: Schema.optional(CmsHashAlgorithmSchema),
   policy: Schema.optional(PdfSignaturePolicySchema),
@@ -1008,7 +1013,7 @@ export const PdfSigningBatchSigningOptionsSchema = Schema.Struct({
   contactInfo: Schema.optional(Schema.String),
   name: Schema.optional(Schema.String),
   location: Schema.optional(Schema.String),
-  signingTime: Schema.optional(Schema.DateValid),
+  signingTime: Schema.optional(Schema.Date),
   signatureLength: Schema.optional(PdfSignatureByteLengthSchema),
   hashAlgorithm: Schema.optional(CmsHashAlgorithmSchema),
   policy: Schema.optional(PdfSignaturePolicySchema),
@@ -1139,6 +1144,20 @@ export const PdfVerificationRequestSchema = Schema.Struct({
 });
 export type PdfVerificationRequest = (typeof PdfVerificationRequestSchema)["Type"];
 
+export const PdfSignatureVerificationResultSchema = Schema.Struct({
+  signatureIndex: nonNegativeInteger,
+  valid: Schema.Boolean,
+  cryptographicValid: Schema.Boolean,
+  coverageValid: Schema.Boolean,
+  chainValid: Schema.Boolean,
+  revocationStatus: CmsRevocationStatusSchema,
+  byteRange: PdfByteRangeSchema,
+  signerSerialNumber: Schema.NullOr(Schema.String),
+  revisionEnd: nonNegativeInteger,
+  coversFileEnd: Schema.Boolean,
+});
+export type PdfSignatureVerificationResult = (typeof PdfSignatureVerificationResultSchema)["Type"];
+
 export const PdfVerificationResultSchema = Schema.Struct({
   valid: Schema.Boolean,
   chainValid: Schema.Boolean,
@@ -1148,3 +1167,10 @@ export const PdfVerificationResultSchema = Schema.Struct({
   signerSerialNumber: Schema.NullOr(Schema.String),
 });
 export type PdfVerificationResult = (typeof PdfVerificationResultSchema)["Type"];
+
+export const PdfStampPreviewInputSchema = Schema.Struct({
+  badge: PdfSignatureBadgeSchema,
+  width: positiveFiniteNumber,
+  height: positiveFiniteNumber,
+});
+export type PdfStampPreviewInput = (typeof PdfStampPreviewInputSchema)["Type"];

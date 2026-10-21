@@ -43,10 +43,10 @@ const SBOX_INV = new Uint8Array([
 function gmul(a: number, b: number): number {
   let p = 0;
   for (let i = 0; i < 8; i++) {
-    if (b & 1) p ^= a;
+    if ((b & 1) !== 0) p ^= a;
     const hiBit = a & 0x80;
     a = (a << 1) & 0xff;
-    if (hiBit) a ^= 0x1b;
+    if (hiBit !== 0) a ^= 0x1b;
     b >>= 1;
   }
   return p;

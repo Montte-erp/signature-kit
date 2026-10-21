@@ -195,7 +195,9 @@ export function ProviderCarousel({ items, panels, locale }: ProviderCarouselProp
             type="button"
             variant="ghost"
             size="sm"
-            onClick={handleCopy}
+            onClick={() => {
+              void handleCopy();
+            }}
             aria-label={
               copied ? m.showcase_copied({}, { locale }) : m.showcase_copy({}, { locale })
             }

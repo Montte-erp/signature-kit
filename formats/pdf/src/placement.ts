@@ -1,5 +1,12 @@
-import type { PDFDocument, PDFPage } from "@cantoo/pdf-lib";
-import { PDFArray, PDFDict, PDFName, PDFNumber, type PDFObject } from "@cantoo/pdf-lib";
+import {
+  type PDFDocument,
+  type PDFPage,
+  PDFArray,
+  PDFDict,
+  PDFName,
+  PDFNumber,
+  type PDFObject,
+} from "@cantoo/pdf-lib";
 import { Effect } from "effect";
 import { PdfError, PdfErrorCodeValue, PdfOperationValue } from "./config.js";
 import type {
@@ -19,9 +26,6 @@ const DEFAULT_AUTO_HEIGHT = 54;
 const DEFAULT_AUTO_MARGIN = 36;
 const DEFAULT_AUTO_GAP = 8;
 const DEFAULT_AUTO_ANCHOR: PdfSignatureAnchor = "bottom-right";
-
-export const clampCoordinate = (value: number, min: number, max: number): number =>
-  Math.min(max, Math.max(min, value));
 
 type PdfRectangle = {
   readonly left: number;
@@ -419,14 +423,12 @@ const chooseAutoRect = (
     const horizontal = yield* placementAxis(bounds.left, maxLeft, width + gap);
     const vertical = yield* placementAxis(bounds.top, maxTop, height + gap);
     if (horizontal.positions > Math.floor(MAX_AUTO_PLACEMENT_CANDIDATES / vertical.positions)) {
-      return yield* Effect.fail(
-        new PdfError({
-          code: PdfErrorCodeValue.signaturePlacementFailed,
-          retryable: false,
-          reason: "Automatic signature placement grid is too dense.",
-          operation: PdfOperationValue.placeholder,
-        }),
-      );
+      return yield* new PdfError({
+        code: PdfErrorCodeValue.signaturePlacementFailed,
+        retryable: false,
+        reason: "Automatic signature placement grid is too dense.",
+        operation: PdfOperationValue.placeholder,
+      });
     }
     const candidateCount = horizontal.positions * vertical.positions;
     if (
@@ -434,14 +436,12 @@ const chooseAutoRect = (
       (obstacles.length > 0 &&
         candidateCount > Math.floor(MAX_AUTO_PLACEMENT_COMPARISONS / obstacles.length))
     ) {
-      return yield* Effect.fail(
-        new PdfError({
-          code: PdfErrorCodeValue.signaturePlacementFailed,
-          retryable: false,
-          reason: "Automatic signature placement scan exceeds the supported comparison budget.",
-          operation: PdfOperationValue.placeholder,
-        }),
-      );
+      return yield* new PdfError({
+        code: PdfErrorCodeValue.signaturePlacementFailed,
+        retryable: false,
+        reason: "Automatic signature placement scan exceeds the supported comparison budget.",
+        operation: PdfOperationValue.placeholder,
+      });
     }
 
     let bestRect: PlacementRectangle | undefined;
@@ -454,14 +454,12 @@ const chooseAutoRect = (
           ? horizontal.start + column * horizontal.step
           : horizontal.end;
       if (previousLeft !== undefined && left <= previousLeft) {
-        return yield* Effect.fail(
-          new PdfError({
-            code: PdfErrorCodeValue.signaturePlacementFailed,
-            retryable: false,
-            reason: "Automatic signature placement grid cannot advance at the selected precision.",
-            operation: PdfOperationValue.placeholder,
-          }),
-        );
+        return yield* new PdfError({
+          code: PdfErrorCodeValue.signaturePlacementFailed,
+          retryable: false,
+          reason: "Automatic signature placement grid cannot advance at the selected precision.",
+          operation: PdfOperationValue.placeholder,
+        });
       }
       previousLeft = left;
 
@@ -470,15 +468,12 @@ const chooseAutoRect = (
         const top =
           row < vertical.regularPositions ? vertical.start + row * vertical.step : vertical.end;
         if (previousTop !== undefined && top <= previousTop) {
-          return yield* Effect.fail(
-            new PdfError({
-              code: PdfErrorCodeValue.signaturePlacementFailed,
-              retryable: false,
-              reason:
-                "Automatic signature placement grid cannot advance at the selected precision.",
-              operation: PdfOperationValue.placeholder,
-            }),
-          );
+          return yield* new PdfError({
+            code: PdfErrorCodeValue.signaturePlacementFailed,
+            retryable: false,
+            reason: "Automatic signature placement grid cannot advance at the selected precision.",
+            operation: PdfOperationValue.placeholder,
+          });
         }
         previousTop = top;
 

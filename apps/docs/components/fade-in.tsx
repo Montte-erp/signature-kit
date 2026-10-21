@@ -12,7 +12,7 @@ interface FadeInProps {
 
 export const FadeIn = ({ children, className, delay = 0, y = 12 }: FadeInProps) => {
   const reduce = useReducedMotion();
-  const offset = reduce ? 0 : y;
+  const offset = reduce === true ? 0 : y;
   return (
     <motion.div
       className={className}

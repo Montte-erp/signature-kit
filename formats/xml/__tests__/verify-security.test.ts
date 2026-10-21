@@ -92,7 +92,7 @@ describe("XML-DSig verification hardening", () => {
     }),
   );
 
-  it.effect("returns an XmlError instead of a defect for a backend algorithm rejection", () =>
+  it.effect("rejects unsupported signature methods before backend verification", () =>
     Effect.gen(function* () {
       const pfx = yield* readA1Fixture("ecpf");
       const layer = a1SignaturesLayer({ pfx, password: PASSWORD });
@@ -124,6 +124,8 @@ describe("XML-DSig verification hardening", () => {
         expect(typedFailure).toBeDefined();
         if (typedFailure !== undefined) {
           expect(typedFailure.error.code).toBe("xml.VERIFY_FAILED");
+          expect(typedFailure.error.schemaName).toBe("XmlSignatureMethod");
+          expect(typedFailure.error.issueMessage).toContain("rsa-sha256");
         }
       }
     }),

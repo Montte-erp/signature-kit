@@ -44,8 +44,9 @@ describe("A1 signer performance", () => {
       );
 
       const startedAt = performance.now();
-      const artifacts = yield* Effect.all(
-        payloads.map((content) =>
+      const artifacts = yield* Effect.forEach(
+        payloads,
+        (content) =>
           signer.sign({ content, algorithm: "rsa-sha256" }).pipe(
             Effect.flatMap((artifact) =>
               signer
@@ -57,7 +58,6 @@ describe("A1 signer performance", () => {
                 .pipe(Effect.map((verification) => ({ artifact, verification }))),
             ),
           ),
-        ),
         { concurrency: 1 },
       );
       const elapsedMillis = millisecondsSince(startedAt);

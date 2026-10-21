@@ -3,8 +3,14 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  assetsInclude: ["**/*.p12"],
   optimizeDeps: {
-    include: ["react/jsx-dev-runtime"],
+    include: [
+      "react/jsx-dev-runtime",
+      "@effect/platform-browser/BrowserRuntime",
+      "@effect/platform-browser/BrowserWorkerRunner",
+      "effect/rpc/RpcServer",
+    ],
     exclude: [
       "@aws-sdk/credential-provider-web-identity",
       "@aws-sdk/credential-providers",
@@ -28,7 +34,6 @@ export default defineConfig({
       optimizer: {
         client: { enabled: false },
         ssr: { enabled: false },
-        web: { enabled: false },
       },
     },
     browser: {

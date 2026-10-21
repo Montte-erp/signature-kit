@@ -86,7 +86,7 @@ export const ExtractedPdfSignatureSchema = Schema.Struct({
   byteRange: PdfByteRangeSchema,
   signedData: Schema.Uint8Array,
   signature: Schema.Uint8Array,
-  signatureCount: Schema.Number,
+  signatureCount: Schema.Finite,
   startsAtZero: Schema.Boolean,
   coversFileEnd: Schema.Boolean,
 });
@@ -141,17 +141,15 @@ export const inflateZlibBounded = (
         operation: PdfOperationValue.verify,
       }),
   }).pipe(
-    Effect.flatMap((output) =>
-      output === undefined
-        ? Effect.fail(
-            new PdfError({
-              code: PdfErrorCodeValue.invalidPdf,
-              retryable: false,
-              reason: "Failed to decompress bounded zlib data.",
-              operation: PdfOperationValue.verify,
-            }),
-          )
-        : Effect.succeed(output),
+    Effect.filterOrFail(
+      (output) => output !== undefined,
+      () =>
+        new PdfError({
+          code: PdfErrorCodeValue.invalidPdf,
+          retryable: false,
+          reason: "Failed to decompress bounded zlib data.",
+          operation: PdfOperationValue.verify,
+        }),
     ),
   );
 };
@@ -1350,26 +1348,25 @@ const hydratePdfRevisionStructure = (
   operation: PdfOperation,
 ): Effect.Effect<PdfRevisionStructure, PdfError> =>
   Effect.gen(function* () {
-    if (structure.resourceLimitExceeded)
-      return yield* Effect.fail(invalidCrossReferenceStream(operation));
+    if (structure.resourceLimitExceeded) return yield* invalidCrossReferenceStream(operation);
     const crossReferenceByOffset = new Map(structure.crossReferenceByOffset);
     let entryCount = 0;
     for (const source of crossReferenceByOffset.values()) {
       if (source.kind === "table") entryCount += source.entries.size;
     }
     if (entryCount > MAX_TOTAL_CROSS_REFERENCE_ENTRIES) {
-      return yield* Effect.fail(invalidCrossReferenceStream(operation));
+      return yield* invalidCrossReferenceStream(operation);
     }
     for (const [offset, stream] of structure.xrefStreams) {
       let streamEntryCount = 0;
       for (const [, count] of stream.ranges) streamEntryCount += count;
       if (entryCount + streamEntryCount > MAX_TOTAL_CROSS_REFERENCE_ENTRIES) {
-        return yield* Effect.fail(invalidCrossReferenceStream(operation));
+        return yield* invalidCrossReferenceStream(operation);
       }
       const entries = yield* xrefStreamEntries(pdf, stream, operation);
       entryCount += entries.size;
       const source = crossReferenceByOffset.get(offset);
-      if (source === undefined) return yield* Effect.fail(invalidCrossReferenceStream(operation));
+      if (source === undefined) return yield* invalidCrossReferenceStream(operation);
       crossReferenceByOffset.set(offset, { ...source, entries });
     }
     for (const source of crossReferenceByOffset.values()) {
@@ -1382,7 +1379,7 @@ const hydratePdfRevisionStructure = (
         (supplemental.previousOffset !== undefined &&
           supplemental.previousOffset !== source.previousOffset)
       ) {
-        return yield* Effect.fail(invalidCrossReferenceStream(operation));
+        return yield* invalidCrossReferenceStream(operation);
       }
       const entries = new Map(supplemental.entries);
       for (const [objectNumber, entry] of source.entries) entries.set(objectNumber, entry);
@@ -1533,10 +1530,10 @@ export const isCompletePdfRevision = (
           }),
       }).pipe(
         Effect.map(() => true),
-        Effect.catch(() => Effect.succeed(false)),
+        Effect.orElseSucceed(() => false),
       );
     }),
-    Effect.catch(() => Effect.succeed(false)),
+    Effect.orElseSucceed(() => false),
   );
 };
 
@@ -1582,17 +1579,15 @@ const indirectNumberValues = (
             operation,
           }),
       }).pipe(
-        Effect.flatMap((numbers) =>
-          numbers === undefined
-            ? Effect.fail(
-                new PdfError({
-                  code: PdfErrorCodeValue.placeholderNotFound,
-                  retryable: false,
-                  reason: "Exceeded the indirect PDF stream-length budget.",
-                  operation,
-                }),
-              )
-            : Effect.succeed(numbers),
+        Effect.filterOrFail(
+          (numbers) => numbers !== undefined,
+          () =>
+            new PdfError({
+              code: PdfErrorCodeValue.placeholderNotFound,
+              retryable: false,
+              reason: "Exceeded the indirect PDF stream-length budget.",
+              operation,
+            }),
         ),
       ),
     ),
@@ -2104,17 +2099,15 @@ const verificationSignatureDictionaries = (
   Effect.gen(function* () {
     const parsed = yield* parsePdfSignatureDictionaryResult(pdf, operation);
     if (parsed.streamParsingFailed || parsed.streamParsingUncertain) {
-      return yield* Effect.fail(
-        new PdfError({
-          code: PdfErrorCodeValue.placeholderNotFound,
-          retryable: false,
-          reason: "Failed to locate the end of a PDF stream.",
-          operation,
-        }),
-      );
+      return yield* new PdfError({
+        code: PdfErrorCodeValue.placeholderNotFound,
+        retryable: false,
+        reason: "Failed to locate the end of a PDF stream.",
+        operation,
+      });
     }
     if (parsed.resourceLimitExceeded) {
-      return yield* Effect.fail(exhaustedSignatureReachability(operation));
+      return yield* exhaustedSignatureReachability(operation);
     }
     if (parsed.dictionaries.length === 0) return parsed.dictionaries;
 
@@ -2201,14 +2194,12 @@ const verificationSignatureDictionaries = (
       );
       for (const dictionary of invalidByteRangeCandidates) {
         if (finalReachable.has(pdfReferenceKey(dictionary.reference))) {
-          return yield* Effect.fail(
-            new PdfError({
-              code: PdfErrorCodeValue.placeholderNotFound,
-              retryable: false,
-              reason: "A reachable signature dictionary has an invalid /ByteRange.",
-              operation,
-            }),
-          );
+          return yield* new PdfError({
+            code: PdfErrorCodeValue.placeholderNotFound,
+            retryable: false,
+            reason: "A reachable signature dictionary has an invalid /ByteRange.",
+            operation,
+          });
         }
       }
     }
@@ -2389,26 +2380,22 @@ export const preparePdfByteRange = (
       }
     }
     if (signature === undefined) {
-      return yield* Effect.fail(
-        new PdfError({
-          code: PdfErrorCodeValue.placeholderNotFound,
-          retryable: false,
-          reason: "No /ByteRange placeholder found.",
-          operation: PdfOperationValue.sign,
-        }),
-      );
+      return yield* new PdfError({
+        code: PdfErrorCodeValue.placeholderNotFound,
+        retryable: false,
+        reason: "No /ByteRange placeholder found.",
+        operation: PdfOperationValue.sign,
+      });
     }
 
     const contents = signature.contents;
     if (contents === undefined) {
-      return yield* Effect.fail(
-        new PdfError({
-          code: PdfErrorCodeValue.placeholderNotFound,
-          retryable: false,
-          reason: "No /Contents placeholder found.",
-          operation: PdfOperationValue.sign,
-        }),
-      );
+      return yield* new PdfError({
+        code: PdfErrorCodeValue.placeholderNotFound,
+        retryable: false,
+        reason: "No /Contents placeholder found.",
+        operation: PdfOperationValue.sign,
+      });
     }
 
     const contentsStart = contents.valueStart;
@@ -2419,14 +2406,12 @@ export const preparePdfByteRange = (
       pdf[contentsStart] !== LEFT_ANGLE ||
       pdf[contentsEnd] !== RIGHT_ANGLE
     ) {
-      return yield* Effect.fail(
-        new PdfError({
-          code: PdfErrorCodeValue.placeholderNotFound,
-          retryable: false,
-          reason: "Malformed /Contents placeholder.",
-          operation: PdfOperationValue.sign,
-        }),
-      );
+      return yield* new PdfError({
+        code: PdfErrorCodeValue.placeholderNotFound,
+        retryable: false,
+        reason: "Malformed /Contents placeholder.",
+        operation: PdfOperationValue.sign,
+      });
     }
 
     const byteRange: PdfByteRange = [
@@ -2441,14 +2426,12 @@ export const preparePdfByteRange = (
     ]);
     const byteRangeLength = signature.byteRange.valueEnd - signature.byteRange.keyStart;
     if (actualByteRange.byteLength > byteRangeLength) {
-      return yield* Effect.fail(
-        new PdfError({
-          code: PdfErrorCodeValue.placeholderNotFound,
-          retryable: false,
-          reason: "The /ByteRange placeholder is too small.",
-          operation: PdfOperationValue.sign,
-        }),
-      );
+      return yield* new PdfError({
+        code: PdfErrorCodeValue.placeholderNotFound,
+        retryable: false,
+        reason: "The /ByteRange placeholder is too small.",
+        operation: PdfOperationValue.sign,
+      });
     }
 
     const paddedByteRange = new Uint8Array(byteRangeLength);
@@ -2588,14 +2571,12 @@ const extractPdfSignatureFromDictionary = (
       byteRange[2] <= byteRange[0] + byteRange[1] ||
       rangeEnd > pdf.byteLength
     ) {
-      return yield* Effect.fail(
-        new PdfError({
-          code: PdfErrorCodeValue.placeholderNotFound,
-          retryable: false,
-          reason: "Malformed /ByteRange values.",
-          operation: PdfOperationValue.verify,
-        }),
-      );
+      return yield* new PdfError({
+        code: PdfErrorCodeValue.placeholderNotFound,
+        retryable: false,
+        reason: "Malformed /ByteRange values.",
+        operation: PdfOperationValue.verify,
+      });
     }
     const signedData = concatBytes([
       pdf.subarray(byteRange[0], byteRange[0] + byteRange[1]),
@@ -2615,26 +2596,22 @@ const extractPdfSignatureFromDictionary = (
       pdf[contentsStart] !== LEFT_ANGLE ||
       pdf[contentsEnd] !== RIGHT_ANGLE
     ) {
-      return yield* Effect.fail(
-        new PdfError({
-          code: PdfErrorCodeValue.placeholderNotFound,
-          retryable: false,
-          reason: "Malformed signature /Contents range.",
-          operation: PdfOperationValue.verify,
-        }),
-      );
+      return yield* new PdfError({
+        code: PdfErrorCodeValue.placeholderNotFound,
+        retryable: false,
+        reason: "Malformed signature /Contents range.",
+        operation: PdfOperationValue.verify,
+      });
     }
     const paddedSignature = yield* decodeSignatureHex(pdf, contentsStart + 1, contentsEnd);
     const derLength = derSequenceTotalLength(paddedSignature);
     if (derLength !== undefined && !hasOnlyZeroBytesFrom(paddedSignature, derLength)) {
-      return yield* Effect.fail(
-        new PdfError({
-          code: PdfErrorCodeValue.placeholderNotFound,
-          retryable: false,
-          reason: "Non-zero bytes after DER signature contents.",
-          operation: PdfOperationValue.verify,
-        }),
-      );
+      return yield* new PdfError({
+        code: PdfErrorCodeValue.placeholderNotFound,
+        retryable: false,
+        reason: "Non-zero bytes after DER signature contents.",
+        operation: PdfOperationValue.verify,
+      });
     }
     const signature =
       derLength === undefined
@@ -2729,14 +2706,12 @@ export const extractPdfSignature = (
     const signatures = yield* extractPdfSignatures(pdf);
     const last = signatures[signatures.length - 1];
     if (last === undefined) {
-      return yield* Effect.fail(
-        new PdfError({
-          code: PdfErrorCodeValue.placeholderNotFound,
-          retryable: false,
-          reason: "Failed to locate /ByteRange.",
-          operation: PdfOperationValue.verify,
-        }),
-      );
+      return yield* new PdfError({
+        code: PdfErrorCodeValue.placeholderNotFound,
+        retryable: false,
+        reason: "Failed to locate /ByteRange.",
+        operation: PdfOperationValue.verify,
+      });
     }
     return last;
   });

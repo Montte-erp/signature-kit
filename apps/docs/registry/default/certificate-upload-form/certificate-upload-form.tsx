@@ -58,7 +58,9 @@ export function CertificateUploadForm({
     <form
       data-slot="certificate-upload-form"
       className={cn("flex flex-col gap-4", className)}
-      onSubmit={submit}
+      onSubmit={(event) => {
+        void submit(event);
+      }}
     >
       <form.Field name="file">
         {(field) => (

@@ -1,7 +1,6 @@
 import { PDFDocument, type PDFPage } from "@cantoo/pdf-lib";
 import type { CmsError } from "@signature-kit/cms/config";
-import type { SignatureKitError } from "@signature-kit/signatures";
-import type { Signatures } from "@signature-kit/signatures";
+import type { SignatureKitError, Signatures } from "@signature-kit/signatures";
 import { signPdf as signPdfDocument } from "./sign.js";
 import { findPdfTextAnchors } from "./anchors.js";
 import type { LiteParseWorkerFactory } from "./liteparse-browser.js";
@@ -98,16 +97,17 @@ const loadPdfSignatureDocumentWithPages = (
   options?: PdfDocumentLoadOptions,
 ): Effect.Effect<PdfLoadedSignatureDocument, PdfError> =>
   Schema.decodeUnknownEffect(PdfDocumentInputSchema)(input).pipe(
-    Effect.mapError((issue) => {
-      return new PdfError({
-        code: PdfErrorCodeValue.invalidBuilderInput,
-        retryable: false,
-        reason: "PDF document input failed schema validation.",
-        operation: PdfOperationValue.loadDocument,
-        schemaName: PdfSchemaNameValue.pdfDocumentInput,
-        issueMessage: String(issue),
-      });
-    }),
+    Effect.mapError(
+      (issue) =>
+        new PdfError({
+          code: PdfErrorCodeValue.invalidBuilderInput,
+          retryable: false,
+          reason: "PDF document input failed schema validation.",
+          operation: PdfOperationValue.loadDocument,
+          schemaName: PdfSchemaNameValue.pdfDocumentInput,
+          issueMessage: String(issue),
+        }),
+    ),
     Effect.flatMap((valid) =>
       Effect.tryPromise({
         try: async () => {
@@ -142,19 +142,16 @@ const loadPdfSignatureDocumentWithPages = (
           }),
       }),
     ),
-    Effect.flatMap((loaded) => {
-      if (loaded.document.pages.length === 0) {
-        return Effect.fail(
-          new PdfError({
-            code: PdfErrorCodeValue.emptyTemplate,
-            retryable: false,
-            reason: "PDF has no pages available for signature placement.",
-            operation: PdfOperationValue.loadDocument,
-          }),
-        );
-      }
-      return Effect.succeed(loaded);
-    }),
+    Effect.filterOrFail(
+      (loaded) => loaded.document.pages.length !== 0,
+      () =>
+        new PdfError({
+          code: PdfErrorCodeValue.emptyTemplate,
+          retryable: false,
+          reason: "PDF has no pages available for signature placement.",
+          operation: PdfOperationValue.loadDocument,
+        }),
+    ),
   );
 
 export const loadPdfSignatureDocument = (
@@ -348,16 +345,17 @@ export const createPdfSignatureTemplateFromBytes = (
   options?: PdfDocumentLoadOptions,
 ): Effect.Effect<PdfSignatureTemplate, PdfError> =>
   Schema.decodeUnknownEffect(PdfTemplateInputSchema)(input).pipe(
-    Effect.mapError((issue) => {
-      return new PdfError({
-        code: PdfErrorCodeValue.invalidBuilderInput,
-        retryable: false,
-        reason: "PDF template input failed schema validation.",
-        operation: PdfOperationValue.createTemplateFromBytes,
-        schemaName: PdfSchemaNameValue.pdfTemplateInput,
-        issueMessage: String(issue),
-      });
-    }),
+    Effect.mapError(
+      (issue) =>
+        new PdfError({
+          code: PdfErrorCodeValue.invalidBuilderInput,
+          retryable: false,
+          reason: "PDF template input failed schema validation.",
+          operation: PdfOperationValue.createTemplateFromBytes,
+          schemaName: PdfSchemaNameValue.pdfTemplateInput,
+          issueMessage: String(issue),
+        }),
+    ),
     Effect.flatMap((valid) =>
       loadPdfSignatureDocument(
         {
@@ -384,16 +382,17 @@ export const createPdfSignatureBuilderStateFromBytes = (
   options?: PdfDocumentLoadOptions,
 ): Effect.Effect<PdfSignatureBuilderState, PdfError> =>
   Schema.decodeUnknownEffect(PdfSignatureBuilderInputSchema)(input).pipe(
-    Effect.mapError((issue) => {
-      return new PdfError({
-        code: PdfErrorCodeValue.invalidBuilderInput,
-        retryable: false,
-        reason: "PDF signature builder input failed schema validation.",
-        operation: PdfOperationValue.createBuilderStateFromBytes,
-        schemaName: PdfSchemaNameValue.pdfSignatureBuilderInput,
-        issueMessage: String(issue),
-      });
-    }),
+    Effect.mapError(
+      (issue) =>
+        new PdfError({
+          code: PdfErrorCodeValue.invalidBuilderInput,
+          retryable: false,
+          reason: "PDF signature builder input failed schema validation.",
+          operation: PdfOperationValue.createBuilderStateFromBytes,
+          schemaName: PdfSchemaNameValue.pdfSignatureBuilderInput,
+          issueMessage: String(issue),
+        }),
+    ),
     Effect.flatMap((valid) =>
       loadPdfSignatureDocument(
         {
@@ -575,16 +574,17 @@ export const signPdfSignatureField = (
   input: PdfSigningInput,
 ): Effect.Effect<Uint8Array, PdfError | CmsError | SignatureKitError, Signatures> =>
   Schema.decodeUnknownEffect(PdfSigningInputSchema)(input).pipe(
-    Effect.mapError((issue) => {
-      return new PdfError({
-        code: PdfErrorCodeValue.invalidBuilderInput,
-        retryable: false,
-        reason: "PDF signing input failed schema validation.",
-        operation: PdfOperationValue.signField,
-        schemaName: PdfSchemaNameValue.pdfSigningInput,
-        issueMessage: String(issue),
-      });
-    }),
+    Effect.mapError(
+      (issue) =>
+        new PdfError({
+          code: PdfErrorCodeValue.invalidBuilderInput,
+          retryable: false,
+          reason: "PDF signing input failed schema validation.",
+          operation: PdfOperationValue.signField,
+          schemaName: PdfSchemaNameValue.pdfSigningInput,
+          issueMessage: String(issue),
+        }),
+    ),
     Effect.flatMap((valid) =>
       signatureFieldGeometryFromTemplate(valid.template, valid.fieldId).pipe(
         Effect.flatMap(({ pageDimensions, signatureRect }) =>
@@ -703,9 +703,17 @@ const stampMainSignatureForPreparedDocument = (
       pdf,
       stamps: [{ pageIndex: signatureRect.pageIndex, rect: signatureRect }],
       ...(lines.length === 0 ? {} : { lines }),
-      ...(stamp.badge === undefined ? {} : { badge: stamp.badge }),
-      ...(stamp.inkPng === undefined ? {} : { inkPng: stamp.inkPng }),
-      ...(stamp.border === undefined ? {} : { border: stamp.border }),
+      ...(stamp.badge === undefined
+        ? {
+            ...(stamp.inkPng === undefined ? {} : { inkPng: stamp.inkPng }),
+            ...(stamp.border === undefined ? {} : { border: stamp.border }),
+          }
+        : {
+            badge: {
+              ...stamp.badge,
+              ...(stamp.inkPng === undefined ? {} : { signaturePng: stamp.inkPng }),
+            },
+          }),
       ...(stamp.qr === undefined ? {} : { qr: stamp.qr }),
     },
     forIncrementalUpdate,
@@ -1036,19 +1044,17 @@ export const signPdfSignatureBatch = (
   items: ReadonlyArray<PdfSigningBatchItem>,
   callbacks: PdfSignatureBatchCallbacks = {},
 ): Effect.Effect<ReadonlyArray<PdfBatchResult>, never, Signatures> =>
-  Effect.forEach(
-    items,
-    (item, index): Effect.Effect<PdfBatchResult, never, Signatures> =>
-      signPdfSignatureField(item.input).pipe(
-        Effect.match({
-          onSuccess: (signedPdf): PdfBatchResult => ({ id: item.id, ok: true, signedPdf }),
-          onFailure: (error): PdfBatchResult => ({ id: item.id, ok: false, error }),
-        }),
-        Effect.tap((result) =>
-          Effect.sync(() => callbacks.onItemSettled?.(result, index, items.length)).pipe(
-            Effect.exit,
-            Effect.asVoid,
-          ),
+  Effect.forEach(items, (item, index): Effect.Effect<PdfBatchResult, never, Signatures> =>
+    signPdfSignatureField(item.input).pipe(
+      Effect.match({
+        onSuccess: (signedPdf): PdfBatchResult => ({ id: item.id, ok: true, signedPdf }),
+        onFailure: (error): PdfBatchResult => ({ id: item.id, ok: false, error }),
+      }),
+      Effect.tap((result) =>
+        Effect.sync(() => callbacks.onItemSettled?.(result, index, items.length)).pipe(
+          Effect.exit,
+          Effect.asVoid,
         ),
       ),
+    ),
   );

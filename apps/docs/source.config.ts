@@ -12,6 +12,7 @@ export const docs = defineDocs({
   dir: "content/docs",
   docs: {
     schema: pageSchema,
+    postprocess: { includeProcessedMarkdown: true },
   },
   meta: {
     schema: metaSchema,
@@ -27,6 +28,7 @@ export const blog = defineDocs({
   dir: "content/blog",
   docs: {
     schema: blogSchema,
+    postprocess: { includeProcessedMarkdown: true },
   },
   meta: {
     schema: blogMetaSchema,

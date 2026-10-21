@@ -31,18 +31,18 @@ export const SignatureHttpRequestSchema = Schema.Struct({
   headers: Schema.optional(SignatureHttpHeadersSchema),
   diagnosticUrl: Schema.optional(Schema.NonEmptyString),
   body: Schema.optional(SignatureHttpBodySchema),
-  acceptedStatuses: Schema.optional(Schema.Array(Schema.Number)),
+  acceptedStatuses: Schema.optional(Schema.Array(Schema.Finite)),
   timeoutMillis: Schema.optional(SignatureHttpTimeoutMillisSchema),
 });
 export type SignatureHttpRequest = (typeof SignatureHttpRequestSchema)["Type"];
 
 export const SignatureHttpJsonResponseSchema = <Body extends Schema.Top>(body: Body) =>
   Schema.Struct({
-    status: Schema.Number,
+    status: Schema.Finite,
     body,
   });
 export type SignatureHttpJsonResponse<A> = Schema.Struct.Type<{
-  readonly status: typeof Schema.Number;
+  readonly status: typeof Schema.Finite;
   readonly body: Schema.Schema<A>;
 }>;
 

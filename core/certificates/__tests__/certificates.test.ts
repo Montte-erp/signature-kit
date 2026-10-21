@@ -1,3 +1,4 @@
+import * as TestClock from "effect/testing/TestClock";
 import { describe, expect, it } from "@effect/vitest";
 import { readFile } from "node:fs/promises";
 import {
@@ -173,6 +174,7 @@ describe("certificates", () => {
 
   it.effect("extracts subject issuer validity fingerprint and Brazilian identity", () =>
     Effect.gen(function* () {
+      yield* TestClock.setTime(Date.now());
       const pfx = yield* readFixture("test-certificate.pfx");
       const cert = yield* parseCertificate(pfx, testPassword);
 

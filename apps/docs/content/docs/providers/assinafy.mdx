@@ -66,7 +66,26 @@ Invalid input, remote HTTP failures, and invalid response shapes fail as `Signat
 ## Related
 
 <Cards>
-  <Card title="Clicksign" href="./clicksign">v1 document + signer flow, one document per request.</Card>
-  <Card title="ZapSign" href="./zapsign">Bearer-token PDF upload with first signing URL.</Card>
-  <Card title="Remote requests" href="../concepts/remote-signature-requests">Why remote providers are not local Signatures backends.</Card>
+  <Card title="Clicksign" href="/en-US/docs/providers/clicksign">v1 document + signer flow, one document per request.</Card>
+  <Card title="ZapSign" href="/en-US/docs/providers/zapsign">Bearer-token PDF upload with first signing URL.</Card>
+  <Card title="Remote requests" href="/en-US/docs/concepts/remote-signature-requests">Why remote providers are not local Signatures backends.</Card>
 </Cards>
+
+## Wait for a final state
+
+`waitForAssinafySignatureRequest(options, id, pollInterval)` reads immediately and polls while the request is `draft` or `sent`. It returns the provider's final state, including cancellation, rejection, deletion, or expiry; inspect `state` before downloading. The interval must be positive and finite. Read failures propagate immediately without automatic retry. Interruption cancels the active read and stops future polls. The caller owns the deadline:
+
+```ts
+import { waitForAssinafySignatureRequest } from "@signature-kit/assinafy";
+import { signatureHttpClientLive } from "@signature-kit/http";
+import { Duration, Effect } from "effect";
+import type { AssinafyProviderOptions } from "@signature-kit/assinafy";
+
+declare const options: AssinafyProviderOptions;
+declare const requestId: string;
+
+const program = waitForAssinafySignatureRequest(options, requestId, Duration.seconds(2)).pipe(
+  Effect.timeout(Duration.minutes(5)),
+  Effect.provide(signatureHttpClientLive),
+);
+```

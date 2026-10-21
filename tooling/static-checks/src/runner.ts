@@ -57,7 +57,11 @@ export const runFileDeclarativeChecks = (
   let failed = false;
 
   for (const [index, context] of contexts.entries()) {
-    if (!context.line || context.line.startsWith("*") || context.line.startsWith("//")) {
+    if (
+      context.line.length === 0 ||
+      context.line.startsWith("*") ||
+      context.line.startsWith("//")
+    ) {
       continue;
     }
 
