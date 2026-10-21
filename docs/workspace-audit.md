@@ -108,3 +108,9 @@ The collaborative browser also completed a production-local flow with a four-pag
 No npm publication, push, CI run, deployment, or live remote-signer writes were performed for these changes.
 
 The final production build returned HTTP 200 for ten probes: root locale redirect, both home pages, the Portuguese signing demo, both relevant documentation pages, robots, sitemap, and both localized RSS feeds. XML responses parsed successfully and the production-local test server was stopped. Frozen-lockfile installation and all 17 package packing targets passed.
+
+## Clean-install CI resolution - 2026-10-21
+
+A fresh Bun cache reproduced the Nx sync failure: the virtual-store fallback resolved TypeScript 7, which does not expose `readConfigFile`, instead of the root TypeScript 6 API alias. Disable the isolated linker's fallback hoisting so undeclared tooling imports resolve through the explicit root dependencies. The compiler aliases and declared transitive dependencies remain intact. Publicly hoist the existing `events` browser polyfill required by the PDF renderer's queue; the production site build exercises that resolution. The existing native `nx sync:check` gate fails before this change and passes after a clean frozen-lockfile installation with it.
+
+After the correction, package builds, complete static/type checks, all 604 local tests, 80 Chromium tests, server integration, the production site build, packing all 17 packages, and five performance tests passed locally. CI remains a separate validation of the pushed revision.
