@@ -45,6 +45,7 @@ export const buildContentSite = Effect.fn(function* (options: typeof ContentSite
   yield* Effect.promise(() =>
     build({
       configFile: false,
+      oxc: { jsx: { development: false } },
       root: appRoot,
       define: {
         __SITE_BUILD_ID__: JSON.stringify(buildId),
