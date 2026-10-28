@@ -34,9 +34,15 @@ it("prepares four real demonstration PDFs when their native section becomes visi
         demo.scrollIntoView();
         yield* Effect.promise(() =>
           expect
-            .poll(() => demo.querySelectorAll('[data-demo-state="ready"]').length, {
-              timeout: 15000,
-            })
+            .poll(
+              () => {
+                expect(page.title, page.body.textContent ?? "").not.toBe("Application Crash");
+                return demo.querySelectorAll('[data-demo-state="ready"]').length;
+              },
+              {
+                timeout: 15000,
+              },
+            )
             .toBe(4),
         );
         expect(demo.textContent).toContain("O passo criptográfico CMS aqui é ilustrativo");
