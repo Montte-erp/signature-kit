@@ -109,7 +109,11 @@ export const Message = defineMessageUnion({
   LoadedInk: { source: Stamp.InkSource, id: Schema.optional(Schema.NonEmptyString) },
   RejectedInk: {},
   RequiredPassword: {},
-  SignedDocuments: { documents: Schema.Array(SigningDocument) },
+  SignedDocuments: {
+    documents: Schema.Array(SigningDocument),
+    source: Stamp.InkSource,
+    inkId: Schema.optional(Schema.NonEmptyString),
+  },
   FailedSignature: { documents: Schema.Array(SigningDocument), issue: SigningIssue },
   ClickedDownload: { id: Schema.NonEmptyString },
   DownloadedDocument: {},
@@ -569,7 +573,16 @@ const SignDocuments = Command.define("SignSessionDocuments", {
       const signingTime = new Date(time);
       const images = yield* SigningImages;
       const logo = yield* images.logo;
-      const ink = preferences.inkSource === "typed" ? yield* images.ink : Option.none();
+      const name =
+        preferences.inkSource === "certificate"
+          ? profile.subject
+          : yield* Effect.sync(
+              () => document.querySelector<HTMLInputElement>("#stamp-handwriting")?.value,
+            );
+      if (name === undefined)
+        return yield* Effect.die("The selected handwritten source must be available at signing");
+      const inkId = yield* images.setHandwriting(Redacted.make(name));
+      const ink = yield* images.ink;
       const baseBadge = Stamp.signatureBadge(preferences, profile, signingTime);
       const badge = Option.isNone(logo)
         ? baseBadge
@@ -597,7 +610,7 @@ const SignDocuments = Command.define("SignSessionDocuments", {
       const updated = yield* session.documents;
       const failed = results.find(Result.isFailure);
       return failed === undefined
-        ? Message.SignedDocuments({ documents: updated })
+        ? Message.SignedDocuments({ documents: updated, source: preferences.inkSource, inkId })
         : Message.FailedSignature({
             documents: updated,
             issue: { _tag: failed.failure._tag, code: failed.failure.code },
@@ -1079,18 +1092,22 @@ export const update = (
     }),
     SignedDocuments: ({
       documents,
+      source,
+      inkId,
     }): Update.Return<
       Model,
       Message,
       SigningSession | PdfPreview | SigningImages | SigningIdentity
-    > => ({
-      model: {
-        ...updateDocuments(model, documents),
-        busy: false,
-        activity: "idle",
-        identityReady: true,
-      },
-    }),
+    > =>
+      foldStamp(
+        {
+          ...updateDocuments(model, documents),
+          busy: false,
+          activity: "idle",
+          identityReady: true,
+        },
+        Stamp.Message.LoadedInk({ source, id: inkId }),
+      ),
     FailedSignature: ({
       documents,
       issue,

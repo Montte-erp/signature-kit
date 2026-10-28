@@ -66,6 +66,9 @@ export const signingImagesLayer = Layer.effect(
                 yield* Ref.set(ink, Option.none());
                 return undefined;
               }
+              const current = yield* Ref.get(ink);
+              if (Option.isSome(current) && Redacted.value(current.value.name) === text)
+                return current.value.id;
               const font = "600 64px 'Caveat Variable'";
               yield* Effect.promise(() => document.fonts.load(font));
               const canvas = yield* Effect.acquireRelease(

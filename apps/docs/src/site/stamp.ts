@@ -191,7 +191,7 @@ export const update = (
     ChangedHandwriting: () => ({ model, outMessage: OutMessage.RequestedHandwriting() }),
     LoadedInk: ({ source, id }) => ({
       model:
-        model.inkSource === source
+        model.inkSource === source && (model.inkId !== id || id === undefined)
           ? { ...model, inkId: id, inkPreview: id === undefined ? "idle" : "loading" }
           : model,
     }),
