@@ -24,7 +24,7 @@ export const Model = Schema.Struct({
   signer: Signer.Model,
   provider: ProviderFilename,
   manager: PackageManager,
-  copyRevision: Schema.Number,
+  copyRevision: Schema.Int,
   copied: Schema.optional(CopyTarget),
   copyFailed: Schema.optional(CopyTarget),
 });
@@ -35,14 +35,14 @@ export const Message = defineMessageUnion({
   SelectedProvider: { filename: ProviderFilename },
   SelectedManager: { manager: PackageManager },
   ClickedCopy: { target: CopyTarget, text: Schema.String },
-  CopiedText: { target: CopyTarget, revision: Schema.Number },
-  RejectedCopy: { target: CopyTarget, revision: Schema.Number },
-  ClearedCopy: { revision: Schema.Number },
+  CopiedText: { target: CopyTarget, revision: Schema.Int },
+  RejectedCopy: { target: CopyTarget, revision: Schema.Int },
+  ClearedCopy: { revision: Schema.Int },
 });
 export type Message = typeof Message.Type;
 
 const CopyText = Command.define("CopyLandingText", {
-  args: { target: CopyTarget, text: Schema.String, revision: Schema.Number },
+  args: { target: CopyTarget, text: Schema.String, revision: Schema.Int },
   messages: [Message.CopiedText, Message.RejectedCopy],
   execute: Effect.fn(function* ({ target, text, revision }) {
     const clipboard = yield* Clipboard.Clipboard;
@@ -56,7 +56,7 @@ const CopyText = Command.define("CopyLandingText", {
 });
 
 const ClearCopy = Command.define("ClearLandingCopyFeedback", {
-  args: { revision: Schema.Number },
+  args: { revision: Schema.Int },
   messages: [Message.ClearedCopy],
   execute: ({ revision }) =>
     Effect.sleep(Duration.millis(1800)).pipe(Effect.as(Message.ClearedCopy({ revision }))),
