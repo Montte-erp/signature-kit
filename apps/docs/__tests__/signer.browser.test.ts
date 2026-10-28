@@ -344,6 +344,31 @@ describe("Foldkit signing dialog", () => {
           yield* Effect.promise(() =>
             expect.poll(() => [identity.checked, date.checked]).toEqual([false, false]),
           );
+          yield* Effect.promise(() =>
+            expect
+              .poll(
+                () => {
+                  const overlay = page.querySelector<HTMLCanvasElement>(
+                    "#signing-placement-mark canvas",
+                  );
+                  const pixels = overlay
+                    ?.getContext("2d")
+                    ?.getImageData(0, 0, overlay.width, overlay.height).data;
+                  if (pixels === undefined) return false;
+                  for (let index = 0; index < pixels.length; index += 4) {
+                    if (
+                      pixels[index] === 20 &&
+                      pixels[index + 1] === 83 &&
+                      pixels[index + 2] === 45
+                    )
+                      return true;
+                  }
+                  return false;
+                },
+                { timeout: 10000 },
+              )
+              .toBe(true),
+          );
           const rubric = page.querySelector<HTMLInputElement>("#signing-rubric");
           if (rubric === null) expect.fail("The native signer must expose rubric options");
           rubric.click();
