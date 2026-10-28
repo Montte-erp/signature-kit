@@ -1,10 +1,12 @@
 import { Effect, Layer, Schema, ScopedCache } from "effect";
 import { PdfError, PdfErrorCodeValue, PdfOperationValue } from "@signature-kit/pdf/config";
 
+import type { PdfError as PdfErrorType } from "@signature-kit/pdf/config";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { createPdfStampPreview } from "@signature-kit/pdf/stamp";
 
 import { PdfPreview } from "./pdf-preview.ts";
+import { AutoDocuments, AutoPreview } from "./auto-documents.ts";
 import { SigningSession } from "./signing-session.ts";
 
 const PdfJsException = Schema.Struct({
@@ -19,10 +21,10 @@ const PdfJsException = Schema.Struct({
   message: Schema.String,
 });
 
-export const pdfPreviewBrowserLayer = Layer.effect(
-  PdfPreview,
+export const makePdfPreview = (
+  sourceDocument: (id: string) => Effect.Effect<Uint8Array, PdfErrorType>,
+) =>
   Effect.gen(function* () {
-    const session = yield* SigningSession;
     const loadSdk = yield* Effect.cached(Effect.promise(() => import("pdfjs-dist")));
     const openDocument = Effect.fn(function* (data: Uint8Array) {
       const sdk = yield* loadSdk;
@@ -121,7 +123,7 @@ export const pdfPreviewBrowserLayer = Layer.effect(
     });
     const documents = yield* ScopedCache.make({
       capacity: 8,
-      lookup: (id: string) => session.sourceDocument(id).pipe(Effect.flatMap(openDocument)),
+      lookup: (id: string) => sourceDocument(id).pipe(Effect.flatMap(openDocument)),
     });
     return PdfPreview.of({
       clear: ScopedCache.invalidateAll(documents),
@@ -136,5 +138,20 @@ export const pdfPreviewBrowserLayer = Layer.effect(
         yield* paintPage(document, 0, canvas, Math.max(2, window.devicePixelRatio));
       }),
     });
+  });
+
+export const pdfPreviewBrowserLayer = Layer.effect(
+  PdfPreview,
+  Effect.gen(function* () {
+    const session = yield* SigningSession;
+    return yield* makePdfPreview(session.sourceDocument);
+  }),
+);
+
+export const autoPreviewBrowserLayer = Layer.effect(
+  AutoPreview,
+  Effect.gen(function* () {
+    const documents = yield* AutoDocuments;
+    return yield* makePdfPreview(documents.sourceDocument);
   }),
 );

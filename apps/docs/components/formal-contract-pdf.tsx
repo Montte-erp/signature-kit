@@ -1,6 +1,12 @@
 "use client";
 
 import { deriveSignerInitials } from "@signature-kit/pdf/stamp";
+import type {
+  FormalContractOptions,
+  SignatureVariant,
+  SignedMark,
+} from "../lib/formal-contract.ts";
+import { SignatureVariant as SignatureVariantSchema } from "../lib/formal-contract.ts";
 import { Document, Page, StyleSheet, Text, View, pdf } from "@react-pdf/renderer";
 
 const PAGE_W = 595.28;
@@ -12,14 +18,7 @@ const BLOCK_TOP = PAGE_H - 196;
 const SIG_W = 260;
 const SIG_LEFT = (PAGE_W - SIG_W) / 2;
 
-export type SignatureVariant = "line" | "field" | "witnessed" | "initials";
-
-export const SIGNATURE_VARIANTS: ReadonlyArray<SignatureVariant> = [
-  "line",
-  "field",
-  "witnessed",
-  "initials",
-];
+export const SIGNATURE_VARIANTS = SignatureVariantSchema.literals;
 
 export interface FormalSignatureRect {
   readonly pageIndex: number;
@@ -36,12 +35,6 @@ export const formalSignatureRect: FormalSignatureRect = {
   width: SIG_W,
   height: 36,
 };
-
-export interface SignedMark {
-  readonly name: string;
-  readonly document: string;
-  readonly date: string;
-}
 
 const PARTY_NAME = "Maria A. Costa";
 const PARTY_DOCUMENT = "CPF/CNPJ: 000.000.000-00";
@@ -315,13 +308,6 @@ function SignatureComponent({
     case "line":
       return <SignatureLineVariant signed={signed} />;
   }
-}
-
-export interface FormalContractOptions {
-  readonly title: string;
-  readonly paragraphs: ReadonlyArray<string>;
-  readonly variant: SignatureVariant;
-  readonly signed?: SignedMark;
 }
 
 const keyedParagraphs = (paragraphs: ReadonlyArray<string>) => {

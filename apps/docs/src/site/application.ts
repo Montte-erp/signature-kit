@@ -1,3 +1,4 @@
+import { autoDocumentsLayer } from "./auto-documents.ts";
 import { Effect, Layer, Option, Schema } from "effect";
 import * as Mount from "foldkit/mount";
 import * as Command from "foldkit/command";
@@ -271,6 +272,7 @@ export const contentApplication = {
     Http.layer,
     BrowserKeyValueStore.layerLocalStorage,
     signingSessionLayer,
+    autoDocumentsLayer,
     signingIdentityLayer,
     signingImagesLayer,
     contentDiagramsBrowserLayer,

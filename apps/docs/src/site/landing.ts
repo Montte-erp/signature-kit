@@ -1,3 +1,4 @@
+import * as AutoDemo from "./auto-demo.ts";
 import { Array as EffectArray, Duration, Effect, Match, Option, Schema } from "effect";
 import * as Clipboard from "@effect/platform-browser/Clipboard";
 import * as Command from "foldkit/command";
@@ -23,6 +24,7 @@ const CopyTarget = Schema.Literals(["hero", "install", "provider", "example"]);
 export const Model = Schema.Struct({
   locale: SiteLocale,
   signer: Signer.Model,
+  autoDemo: AutoDemo.Model,
   provider: ProviderFilename,
   manager: PackageManager,
   copyRevision: Schema.Int,
@@ -33,6 +35,7 @@ export type Model = typeof Model.Type;
 
 export const Message = defineMessageUnion({
   GotSignerMessage: { message: Signer.Message },
+  GotAutoDemoMessage: { message: AutoDemo.Message },
   SelectedProvider: { filename: ProviderFilename },
   SelectedManager: { manager: PackageManager },
   ClickedCopy: { target: CopyTarget, text: Schema.String },
@@ -69,6 +72,7 @@ export const init = (
 ): Model => ({
   locale,
   signer: Signer.init(locale, presentation),
+  autoDemo: AutoDemo.init(locale),
   provider: "clicksign.ts",
   manager: "bun",
   copyRevision: 0,
@@ -79,6 +83,13 @@ const foldSigner = Update.foldChild({
   read: (model: Model) => Option.some(model.signer),
   write: (model, signer) => ({ ...model, signer }),
   toParentMessage: (message) => Message.GotSignerMessage({ message }),
+});
+
+const foldAutoDemo = Update.foldChild({
+  update: AutoDemo.update,
+  read: (model: Model) => Option.some(model.autoDemo),
+  write: (model, autoDemo) => ({ ...model, autoDemo }),
+  toParentMessage: (message) => Message.GotAutoDemoMessage({ message }),
 });
 
 export const update = (
@@ -97,6 +108,7 @@ export const update = (
     >
   >(message, {
     GotSignerMessage: ({ message }) => foldSigner(model, message),
+    GotAutoDemoMessage: ({ message }) => foldAutoDemo(model, message),
     SelectedProvider: ({ filename }) => ({
       model: {
         ...model,
@@ -150,10 +162,16 @@ export const homeEntry = (locale: typeof SiteLocale.Type): ContentEntry => ({
   },
 });
 
-export const subscriptions = Subscription.lift(Signer.subscriptions)<Model, Message>({
-  read: (model) => Option.some(model.signer),
-  toParentMessage: (message) => Message.GotSignerMessage({ message }),
-});
+export const subscriptions = Subscription.aggregate(
+  Subscription.lift(Signer.subscriptions)<Model, Message>({
+    read: (model) => Option.some(model.signer),
+    toParentMessage: (message) => Message.GotSignerMessage({ message }),
+  }),
+  Subscription.lift(AutoDemo.subscriptions)<Model, Message>({
+    read: (model) => Option.some(model.autoDemo),
+    toParentMessage: (message) => Message.GotAutoDemoMessage({ message }),
+  }),
+);
 
 export const view = Submodel.defineView<Model, Message>((model, h) => {
   const options = { locale: model.locale };
@@ -241,6 +259,12 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
         model: model.signer,
         view: Signer.view,
         toParentMessage: (message) => Message.GotSignerMessage({ message }),
+      }),
+      h.submodel({
+        slotId: "home-auto",
+        model: model.autoDemo,
+        view: AutoDemo.view,
+        toParentMessage: (message) => Message.GotAutoDemoMessage({ message }),
       }),
       h.nav(
         [
