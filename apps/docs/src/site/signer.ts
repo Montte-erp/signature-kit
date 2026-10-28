@@ -153,8 +153,41 @@ export const Message = defineMessageUnion({
   OpenedDialog: {},
   ClosedSession: {},
   CompletedCancelLoadSigningDocuments: {},
+  MountedPlacedStamp: {},
+  CopiedPlacedStamp: {},
 });
 export type Message = typeof Message.Type;
+
+const MountPlacedStamp = Mount.define("MountPlacedStampPreview", {
+  messages: [Message.MountedPlacedStamp],
+  execute: ({ element }) =>
+    Effect.gen(function* () {
+      yield* Effect.acquireRelease(Effect.succeed(element), (canvas) =>
+        Effect.sync(() => {
+          canvas.setAttribute("width", "0");
+          canvas.setAttribute("height", "0");
+        }),
+      );
+      return Message.MountedPlacedStamp();
+    }),
+});
+
+const CopyPlacedStamp = Command.define("CopyPlacedStampPreview", {
+  messages: [Message.CopiedPlacedStamp],
+  execute: Effect.gen(function* () {
+    const source = document.querySelector<HTMLCanvasElement>("#stamp-preview-canvas");
+    const target = document.querySelector<HTMLCanvasElement>("#signing-placement-mark canvas");
+    if (source === null || target === null || source.width === 0 || source.height === 0)
+      return Message.CopiedPlacedStamp();
+    target.width = source.width;
+    target.height = source.height;
+    const context = target.getContext("2d");
+    if (context === null)
+      return yield* Effect.die("A placed stamp preview requires a canvas 2D context");
+    yield* Effect.sync(() => context.drawImage(source, 0, 0));
+    return Message.CopiedPlacedStamp();
+  }),
+});
 
 const OpenDialog = Command.define("OpenSigningDialog", {
   messages: [Message.OpenedDialog],
@@ -699,6 +732,21 @@ const updateDocuments = (model: Model, documents: readonly SigningDocument[]): M
   };
 };
 
+const StampLifecycle = Schema.Union([
+  Stamp.Message.MountedInk,
+  Stamp.Message.LostInk,
+  Stamp.Message.InkPreviewLoaded,
+  Stamp.Message.InkPreviewFailed,
+  Stamp.Message.MountedLogo,
+  Stamp.Message.LostLogo,
+  Stamp.Message.LogoPreviewLoaded,
+  Stamp.Message.LogoPreviewFailed,
+  Stamp.Message.MountedStamp,
+  Stamp.Message.StartedStampPreview,
+  Stamp.Message.RenderedStampPreview,
+  Stamp.Message.FailedStampPreview,
+]);
+
 const foldStamp = Update.foldChild({
   update: Stamp.update,
   read: (model: Model) => Option.some(model.stamp),
@@ -1079,22 +1127,19 @@ export const update = (
       foldStamp({ ...model, busy: false }, Stamp.Message.RejectedLogo({ code })),
     RemovedLogo: () => foldStamp({ ...model, busy: false }, Stamp.Message.RemovedLogo()),
     UnchangedLogo: () => ({ model: { ...model, busy: false } }),
-    GotStampMessage: ({ message }) =>
-      model.busy &&
-      message._tag !== "MountedInk" &&
-      message._tag !== "LostInk" &&
-      message._tag !== "InkPreviewLoaded" &&
-      message._tag !== "InkPreviewFailed" &&
-      message._tag !== "MountedLogo" &&
-      message._tag !== "LostLogo" &&
-      message._tag !== "LogoPreviewLoaded" &&
-      message._tag !== "LogoPreviewFailed" &&
-      message._tag !== "MountedStamp" &&
-      message._tag !== "StartedStampPreview" &&
-      message._tag !== "RenderedStampPreview" &&
-      message._tag !== "FailedStampPreview"
-        ? { model }
-        : foldStamp(model, message),
+    GotStampMessage: ({ message }) => {
+      if (model.busy && !Schema.is(StampLifecycle)(message)) return { model };
+      return message._tag === "RenderedStampPreview"
+        ? Update.combine<
+            Model,
+            Message,
+            SigningSession | PdfPreview | SigningImages | SigningIdentity
+          >(model, [foldStamp(message), (next) => ({ model: next, commands: [CopyPlacedStamp()] })])
+        : foldStamp(model, message);
+    },
+    MountedPlacedStamp: () =>
+      model.stamp.previewState === "ready" ? { model, commands: [CopyPlacedStamp()] } : { model },
+    CopiedPlacedStamp: () => ({ model }),
     RequiredPassword: (): Update.Return<
       Model,
       Message,
@@ -1477,7 +1522,17 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
                                     : `translate(${model.drag.x - model.drag.startX}px, ${model.drag.y - model.drag.startY}px)`,
                               }),
                             ],
-                            ["A1"],
+                            [
+                              h.canvas([
+                                h.Style({
+                                  width: "100%",
+                                  height: "100%",
+                                  display: "block",
+                                  pointerEvents: "none",
+                                }),
+                                h.OnMount(MountPlacedStamp()),
+                              ]),
+                            ],
                           )
                         : h.empty,
                     ],
