@@ -1,4 +1,6 @@
-import { Layer, Option, Schema } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
+import * as Mount from "foldkit/mount";
+import * as Command from "foldkit/command";
 import type { Document, HtmlBuilder } from "foldkit/html";
 import * as Update from "foldkit/update";
 import * as Subscription from "foldkit/subscription";
@@ -18,6 +20,7 @@ import * as FreeSigning from "./free-signing.ts";
 import { signingImagesLayer } from "./signing-images.ts";
 import type { SigningImages } from "./signing-images.ts";
 import * as Search from "./search.ts";
+import { ContentDiagrams, contentDiagramsBrowserLayer } from "./content-diagrams.ts";
 
 import { freeSigningPath, localizedSitePath, SiteLocale } from "../../lib/site-route.ts";
 import { m } from "../../paraglide/messages.js";
@@ -42,11 +45,29 @@ const ContentModel = Schema.Struct({
 });
 type ContentModel = typeof ContentModel.Type;
 const Message = defineMessageUnion({
+  MountedContent: {},
+  RenderedDiagrams: {},
   GotLandingMessage: { message: Landing.Message },
   GotSearchMessage: { message: Search.Message },
   GotPreferencesMessage: { message: Preferences.Message },
 });
 type Message = typeof Message.Type;
+
+const MountContent = Mount.define("MountPublishedContent", {
+  messages: [Message.MountedContent],
+  execute: Effect.succeed(Message.MountedContent()),
+});
+
+const RenderDiagrams = Command.define("RenderPublishedDiagrams", {
+  messages: [Message.RenderedDiagrams],
+  interrupt: true,
+  execute: Effect.gen(function* () {
+    const diagrams = yield* ContentDiagrams;
+    const root = document.querySelector(".content-body");
+    if (root !== null) yield* diagrams.render(root);
+    return Message.RenderedDiagrams();
+  }),
+});
 
 const foldLanding = Update.foldChild({
   update: Landing.update,
@@ -193,7 +214,11 @@ const view = (model: ContentModel, h: HtmlBuilder<Message>): Document => {
                     model.page.description === undefined
                       ? h.empty
                       : h.p([h.Class("content-description")], [model.page.description]),
-                    h.div([h.Class("content-body"), h.InnerHTML(model.page.html)]),
+                    h.div([
+                      h.Class("content-body"),
+                      h.InnerHTML(model.page.html),
+                      h.OnMount(MountContent()),
+                    ]),
                   ],
                 ),
             model.page.headings.length === 0
@@ -244,6 +269,7 @@ export const contentApplication = {
     BrowserKeyValueStore.layerLocalStorage,
     signingSessionLayer,
     signingImagesLayer,
+    contentDiagramsBrowserLayer,
   ),
   init: (flags: ContentFlags): Update.Return<ContentModel, Message, KeyValueStore.KeyValueStore> =>
     Update.foldChildInit(Preferences.init(flags.locale), {
@@ -266,8 +292,11 @@ export const contentApplication = {
     | SigningSession
     | PdfPreview
     | SigningImages
+    | ContentDiagrams
   > =>
     Message.match(message, {
+      MountedContent: () => ({ model, commands: [RenderDiagrams()] }),
+      RenderedDiagrams: () => ({ model }),
       GotLandingMessage: ({ message }) => foldLanding(model, message),
       GotSearchMessage: ({ message }) => foldSearch(model, message),
       GotPreferencesMessage: ({ message }) => foldPreferences(model, message),

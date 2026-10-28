@@ -98,6 +98,19 @@ h1 {
 .content-body img {
   max-width: 100%;
 }
+.content-diagram {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  overflow-x: auto;
+  border: 1px solid var(--site-border);
+  border-radius: 0.75rem;
+}
+.content-diagram svg {
+  display: block;
+  margin: auto;
+  max-width: 100%;
+  height: auto;
+}
 pre,
 code {
   font-family: "Geist Mono Variable", monospace;
