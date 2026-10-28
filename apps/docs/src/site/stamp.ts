@@ -50,7 +50,7 @@ export const Message = defineMessageUnion({
   LogoPreviewFailed: { id: Schema.NonEmptyString },
   SelectedInkSource: { source: InkSource },
   ChangedHandwriting: {},
-  LoadedInk: { id: Schema.optional(Schema.NonEmptyString) },
+  LoadedInk: { source: InkSource, id: Schema.optional(Schema.NonEmptyString) },
   RejectedInk: {},
   MountedInk: { id: Schema.NonEmptyString },
   LostInk: { id: Schema.NonEmptyString },
@@ -189,9 +189,9 @@ export const update = (
         source === "typed" ? OutMessage.RequestedHandwriting() : OutMessage.ClearedHandwriting(),
     }),
     ChangedHandwriting: () => ({ model, outMessage: OutMessage.RequestedHandwriting() }),
-    LoadedInk: ({ id }) => ({
+    LoadedInk: ({ source, id }) => ({
       model:
-        model.inkSource === "typed"
+        model.inkSource === source
           ? { ...model, inkId: id, inkPreview: id === undefined ? "idle" : "loading" }
           : model,
     }),

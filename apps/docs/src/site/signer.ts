@@ -4,7 +4,7 @@ import * as Dom from "foldkit/dom";
 import * as Mount from "foldkit/mount";
 import { PdfPreview } from "./pdf-preview.ts";
 import * as File from "foldkit/file";
-import { a1SignaturesLayer, parseA1CertificateProfile } from "@signature-kit/a1/signer";
+import { a1SignaturesLayer } from "@signature-kit/a1/signer";
 import { CmsErrorCodeSchema, cmsErrorMessages } from "@signature-kit/cms/config";
 import {
   SignatureKitError,
@@ -19,6 +19,7 @@ import * as Subscription from "foldkit/subscription";
 import * as Update from "foldkit/update";
 import * as Stamp from "./stamp.ts";
 import { SigningImages } from "./signing-images.ts";
+import { SigningIdentity } from "./signing-identity.ts";
 import { maxStampPngBytes } from "@signature-kit/pdf/stamp";
 import { errorMessage } from "@signature-kit/i18n";
 import {
@@ -84,6 +85,7 @@ export const Model = Schema.Struct({
   drag: Schema.optional(PlacementDrag),
   stamp: Stamp.Model,
   certificateReady: Schema.Boolean,
+  identityReady: Schema.Boolean,
   passwordRequired: Schema.Boolean,
 });
 export type Model = typeof Model.Type;
@@ -91,6 +93,9 @@ export type Model = typeof Model.Type;
 export const Message = defineMessageUnion({
   PickedCertificate: {},
   LoadedCertificate: {},
+  ClickedReadIdentity: {},
+  ReadIdentity: { source: Stamp.InkSource, inkId: Schema.optional(Schema.NonEmptyString) },
+  CompletedCancelReadIdentityForClose: {},
   ClickedSign: {},
   GotStampMessage: { message: Stamp.Message },
   LoadedLogo: { id: Schema.NonEmptyString },
@@ -101,7 +106,7 @@ export const Message = defineMessageUnion({
   CompletedCancelLoadHandwriting: {},
   CompletedCancelClearHandwriting: {},
   CompletedCancelHandwritingForClose: {},
-  LoadedInk: { id: Schema.optional(Schema.NonEmptyString) },
+  LoadedInk: { source: Stamp.InkSource, id: Schema.optional(Schema.NonEmptyString) },
   RejectedInk: {},
   RequiredPassword: {},
   SignedDocuments: { documents: Schema.Array(SigningDocument) },
@@ -166,8 +171,10 @@ const CloseSession = Command.define("CloseSigningSession", {
     const session = yield* SigningSession;
     const preview = yield* PdfPreview;
     const images = yield* SigningImages;
+    const identity = yield* SigningIdentity;
     yield* preview.clear;
     yield* session.clear;
+    yield* identity.clear;
     yield* images.clearLogo;
     yield* images.clearInk;
     yield* Effect.sync(() => {
@@ -190,10 +197,10 @@ const LoadHandwriting = Command.define("LoadStampHandwriting", {
     const text = yield* Effect.sync(
       () => document.querySelector<HTMLInputElement>("#stamp-handwriting")?.value,
     );
-    if (text === undefined) return Message.LoadedInk({});
+    if (text === undefined) return Message.LoadedInk({ source: "typed" });
     return yield* images.setHandwriting(Redacted.make(text)).pipe(
       Effect.match({
-        onSuccess: (id) => Message.LoadedInk({ id }),
+        onSuccess: (id) => Message.LoadedInk({ source: "typed", id }),
         onFailure: () => Message.RejectedInk(),
       }),
     );
@@ -201,11 +208,21 @@ const LoadHandwriting = Command.define("LoadStampHandwriting", {
 });
 
 const ClearHandwriting = Command.define("ClearStampHandwriting", {
-  messages: [Message.LoadedInk],
+  messages: [Message.LoadedInk, Message.RejectedInk],
   execute: Effect.gen(function* () {
     const images = yield* SigningImages;
-    yield* images.clearInk;
-    return Message.LoadedInk({});
+    const identity = yield* SigningIdentity;
+    const cached = yield* identity.credentials;
+    if (Option.isNone(cached)) {
+      yield* images.clearInk;
+      return Message.LoadedInk({ source: "certificate" });
+    }
+    return yield* images.setHandwriting(Redacted.make(cached.value.profile.subject)).pipe(
+      Effect.match({
+        onSuccess: (id) => Message.LoadedInk({ source: "certificate", id }),
+        onFailure: () => Message.RejectedInk(),
+      }),
+    );
   }),
 });
 
@@ -458,7 +475,13 @@ const LoadCertificate = Command.define("LoadSigningCertificate", {
             reason: "The selected A1 certificate file could not be read.",
           }),
       ),
-      Effect.flatMap((bytes) => session.setCertificate(Redacted.make(new Uint8Array(bytes)))),
+      Effect.flatMap((bytes) =>
+        Effect.gen(function* () {
+          const identity = yield* SigningIdentity;
+          yield* identity.clear;
+          yield* session.setCertificate(Redacted.make(new Uint8Array(bytes)));
+        }),
+      ),
       Effect.matchEffect({
         onSuccess: () => Effect.succeed(Message.LoadedCertificate()),
         onFailure: (issue) =>
@@ -472,12 +495,51 @@ const LoadCertificate = Command.define("LoadSigningCertificate", {
   }),
 });
 
+const ReadIdentity = Command.define("ReadSigningIdentity", {
+  args: { source: Stamp.InkSource },
+  messages: [Message.ReadIdentity, Message.FailedSignature, Message.RequiredPassword],
+  interrupt: true,
+  execute: Effect.fn(function* ({ source }) {
+    const session = yield* SigningSession;
+    const identity = yield* SigningIdentity;
+    const images = yield* SigningImages;
+    const certificate = yield* session.certificate;
+    if (Option.isNone(certificate))
+      return yield* Effect.die("Reading an identity requires the selected certificate");
+    const password = yield* Effect.sync(() => {
+      const input = document.querySelector<HTMLInputElement>("#signing-password");
+      if (input === null) return undefined;
+      const value = input.value;
+      input.value = "";
+      return value.length === 0 ? undefined : Redacted.make(value);
+    });
+    if (password === undefined) return Message.RequiredPassword();
+    return yield* Effect.gen(function* () {
+      const authenticated = yield* identity.authenticate(certificate.value, password);
+      const inkId =
+        source === "certificate"
+          ? yield* images.setHandwriting(Redacted.make(authenticated.profile.subject))
+          : undefined;
+      return Message.ReadIdentity({ source, inkId });
+    }).pipe(
+      Effect.catch((issue) =>
+        session.documents.pipe(
+          Effect.map((documents) =>
+            Message.FailedSignature({ documents, issue: { _tag: issue._tag, code: issue.code } }),
+          ),
+        ),
+      ),
+    );
+  }),
+});
+
 const SignDocuments = Command.define("SignSessionDocuments", {
   args: { preferences: Stamp.Model },
   messages: [Message.SignedDocuments, Message.FailedSignature, Message.RequiredPassword],
   interrupt: true,
   execute: Effect.fn(function* ({ preferences }) {
     const session = yield* SigningSession;
+    const identity = yield* SigningIdentity;
     const certificate = yield* session.certificate;
     if (Option.isNone(certificate))
       return yield* Effect.die("A signing session must have its selected certificate");
@@ -488,10 +550,21 @@ const SignDocuments = Command.define("SignSessionDocuments", {
       input.value = "";
       return value.length === 0 ? undefined : Redacted.make(value);
     });
-    if (password === undefined) return Message.RequiredPassword();
-    const options = { pfx: Redacted.value(certificate.value), password };
+    const cached = yield* identity.credentials;
+    if (password === undefined && Option.isNone(cached)) return Message.RequiredPassword();
     return yield* Effect.gen(function* () {
-      const profile = yield* parseA1CertificateProfile(options);
+      const authenticated =
+        password === undefined
+          ? yield* Option.match(cached, {
+              onNone: () => Effect.die("A password or validated identity must be available"),
+              onSome: Effect.succeed,
+            })
+          : yield* identity.authenticate(certificate.value, password);
+      const profile = authenticated.profile;
+      const options = {
+        pfx: Redacted.value(authenticated.certificate),
+        password: authenticated.password,
+      };
       const time = yield* Clock.currentTimeMillis;
       const signingTime = new Date(time);
       const images = yield* SigningImages;
@@ -597,6 +670,7 @@ export const init = (
   previewState: "idle",
   stamp: Stamp.init(locale),
   certificateReady: false,
+  identityReady: false,
   passwordRequired: false,
 });
 
@@ -619,7 +693,7 @@ const foldStamp = Update.foldChild({
   write: (model, stamp) => ({ ...model, stamp }),
   toParentMessage: (message) => Message.GotStampMessage({ message }),
   foldOutMessage:
-    (outMessage: Stamp.OutMessage): Update.Step<Model, Message, SigningImages> =>
+    (outMessage: Stamp.OutMessage): Update.Step<Model, Message, SigningImages | SigningIdentity> =>
     (model) =>
       Stamp.OutMessage.match(outMessage, {
         PickedLogo: () => ({ model: { ...model, busy: true }, commands: [LoadLogo()] }),
@@ -638,7 +712,7 @@ const foldStamp = Update.foldChild({
 export const update = (
   model: Model,
   message: Message,
-): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> => {
+): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages | SigningIdentity> => {
   if (!model.open && message._tag !== "ClickedOpen") return { model };
   if (
     model.closing &&
@@ -647,6 +721,7 @@ export const update = (
     message._tag !== "CompletedCancelHandwritingForClose" &&
     message._tag !== "CompletedCancelPlaceSigningDocument" &&
     message._tag !== "CompletedCancelLoadSigningCertificate" &&
+    message._tag !== "CompletedCancelReadIdentityForClose" &&
     message._tag !== "CompletedCancelSignSessionDocuments" &&
     message._tag !== "ClosedSession" &&
     message._tag !== "UnmountedPreview" &&
@@ -680,6 +755,10 @@ export const update = (
       commands: [LoadCertificate.Interrupt(() => Message.CompletedCancelLoadSigningCertificate())],
     }),
     CompletedCancelLoadSigningCertificate: () => ({
+      model,
+      commands: [ReadIdentity.Interrupt(() => Message.CompletedCancelReadIdentityForClose())],
+    }),
+    CompletedCancelReadIdentityForClose: () => ({
       model,
       commands: [SignDocuments.Interrupt(() => Message.CompletedCancelSignSessionDocuments())],
     }),
@@ -742,7 +821,11 @@ export const update = (
     CompletedManualPlacement: ({
       documents,
       code,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> => ({
+    }): Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages | SigningIdentity
+    > => ({
       model: {
         ...updateDocuments(model, documents),
         busy: false,
@@ -751,7 +834,11 @@ export const update = (
     }),
     SelectedPreviewDocument: ({
       id,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> =>
+    }): Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages | SigningIdentity
+    > =>
       model.busy || model.activeDocumentId === id
         ? { model }
         : {
@@ -759,7 +846,11 @@ export const update = (
           },
     SelectedPreviewPage: ({
       pageIndex,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> =>
+    }): Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages | SigningIdentity
+    > =>
       model.busy || model.previewPageIndex === pageIndex
         ? { model }
         : { model: { ...model, previewPageIndex: pageIndex, previewState: "loading" } },
@@ -778,7 +869,11 @@ export const update = (
     RenderedPreview: ({
       id,
       pageIndex,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> =>
+    }): Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages | SigningIdentity
+    > =>
       model.activeDocumentId === id && model.previewPageIndex === pageIndex
         ? { model: { ...model, previewState: "ready" } }
         : { model },
@@ -786,14 +881,18 @@ export const update = (
       id,
       pageIndex,
       code,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> =>
+    }): Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages | SigningIdentity
+    > =>
       model.activeDocumentId === id && model.previewPageIndex === pageIndex
         ? { model: { ...model, previewState: "failed", error: { _tag: "PdfError", code } } }
         : { model },
     ClickedPlaceAll: (): Update.Return<
       Model,
       Message,
-      SigningSession | PdfPreview | SigningImages
+      SigningSession | PdfPreview | SigningImages | SigningIdentity
     > => {
       if (model.busy) return { model };
       const [first, ...remaining] = model.documents;
@@ -813,7 +912,11 @@ export const update = (
     CompletedPlacement: ({
       documents,
       code,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> => {
+    }): Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages | SigningIdentity
+    > => {
       const [next, ...remaining] = model.placementQueue;
       const updated: Model = {
         ...model,
@@ -828,7 +931,7 @@ export const update = (
     PickedDocuments: (): Update.Return<
       Model,
       Message,
-      SigningSession | PdfPreview | SigningImages
+      SigningSession | PdfPreview | SigningImages | SigningIdentity
     > =>
       model.busy || !model.open
         ? { model }
@@ -852,13 +955,21 @@ export const update = (
           },
     LoadedDocuments: ({
       documents,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> => ({
+    }): Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages | SigningIdentity
+    > => ({
       model: { ...updateDocuments(model, documents), busy: false, activity: "idle" },
     }),
     FailedDocuments: ({
       documents,
       code,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> => ({
+    }): Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages | SigningIdentity
+    > => ({
       model: {
         ...updateDocuments(model, documents),
         error: { _tag: "PdfError", code },
@@ -869,7 +980,7 @@ export const update = (
     PickedCertificate: (): Update.Return<
       Model,
       Message,
-      SigningSession | PdfPreview | SigningImages
+      SigningSession | PdfPreview | SigningImages | SigningIdentity
     > =>
       model.busy
         ? { model }
@@ -879,6 +990,7 @@ export const update = (
               busy: true,
               activity: "certificate",
               certificateReady: false,
+              identityReady: false,
               error: undefined,
             },
             commands: [LoadCertificate()],
@@ -886,11 +998,39 @@ export const update = (
     LoadedCertificate: (): Update.Return<
       Model,
       Message,
-      SigningSession | PdfPreview | SigningImages
+      SigningSession | PdfPreview | SigningImages | SigningIdentity
     > => ({
       model: { ...model, busy: false, activity: "idle", certificateReady: true },
     }),
-    ClickedSign: (): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> =>
+    ClickedReadIdentity: (): Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages | SigningIdentity
+    > =>
+      model.busy || !model.certificateReady
+        ? { model }
+        : {
+            model: {
+              ...model,
+              busy: true,
+              activity: "certificate",
+              identityReady: false,
+              error: undefined,
+              passwordRequired: false,
+            },
+            commands: [ReadIdentity({ source: model.stamp.inkSource })],
+          },
+    ReadIdentity: ({ source, inkId }) => {
+      const next: Model = { ...model, busy: false, activity: "idle", identityReady: true };
+      return source === "certificate"
+        ? foldStamp(next, Stamp.Message.LoadedInk({ source, id: inkId }))
+        : { model: next };
+    },
+    ClickedSign: (): Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages | SigningIdentity
+    > =>
       model.busy ||
       !model.certificateReady ||
       !model.documents.some((document) => document.rect !== undefined)
@@ -912,30 +1052,61 @@ export const update = (
       model.stamp.inkSource !== "certificate"
         ? { model }
         : { model, commands: [ClearHandwriting()] },
-    LoadedInk: ({ id }) => foldStamp(model, Stamp.Message.LoadedInk({ id })),
+    LoadedInk: ({ source, id }) => foldStamp(model, Stamp.Message.LoadedInk({ source, id })),
     RejectedInk: () => foldStamp(model, Stamp.Message.RejectedInk()),
     RejectedLogo: ({ code }) =>
       foldStamp({ ...model, busy: false }, Stamp.Message.RejectedLogo({ code })),
     RemovedLogo: () => foldStamp({ ...model, busy: false }, Stamp.Message.RemovedLogo()),
     UnchangedLogo: () => ({ model: { ...model, busy: false } }),
-    GotStampMessage: ({ message }) => (model.busy ? { model } : foldStamp(model, message)),
+    GotStampMessage: ({ message }) =>
+      model.busy &&
+      message._tag !== "MountedInk" &&
+      message._tag !== "LostInk" &&
+      message._tag !== "InkPreviewLoaded" &&
+      message._tag !== "InkPreviewFailed" &&
+      message._tag !== "MountedLogo" &&
+      message._tag !== "LostLogo" &&
+      message._tag !== "LogoPreviewLoaded" &&
+      message._tag !== "LogoPreviewFailed"
+        ? { model }
+        : foldStamp(model, message),
     RequiredPassword: (): Update.Return<
       Model,
       Message,
-      SigningSession | PdfPreview | SigningImages
+      SigningSession | PdfPreview | SigningImages | SigningIdentity
     > => ({
       model: { ...model, busy: false, activity: "idle", passwordRequired: true },
     }),
     SignedDocuments: ({
       documents,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> => ({
-      model: { ...updateDocuments(model, documents), busy: false, activity: "idle" },
+    }): Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages | SigningIdentity
+    > => ({
+      model: {
+        ...updateDocuments(model, documents),
+        busy: false,
+        activity: "idle",
+        identityReady: true,
+      },
     }),
     FailedSignature: ({
       documents,
       issue,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> => ({
-      model: { ...model, documents, error: issue, busy: false, activity: "idle" },
+    }): Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages | SigningIdentity
+    > => ({
+      model: {
+        ...model,
+        documents,
+        error: issue,
+        busy: false,
+        activity: "idle",
+        identityReady: issue._tag === "SignatureKitError" ? false : model.identityReady,
+      },
     }),
     ClickedDownload: ({ id }) =>
       model.busy
@@ -1237,6 +1408,22 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
             h.Autocomplete("off"),
             h.Disabled(model.busy),
           ]),
+          h.button(
+            [
+              h.Id("signing-read-identity"),
+              h.Type("button"),
+              h.Disabled(model.busy || !model.certificateReady),
+              h.OnClick(Message.ClickedReadIdentity()),
+            ],
+            [m.signer_continue({}, options)],
+          ),
+          h.p(
+            [
+              h.Id("signing-identity-status"),
+              h.DataAttribute("verified", String(model.identityReady)),
+            ],
+            [model.identityReady ? m.signer_identity_ready({}, options) : ""],
+          ),
           model.passwordRequired
             ? h.p([h.Attribute("role", "alert")], [m.signer_error_password_required({}, options)])
             : h.empty,

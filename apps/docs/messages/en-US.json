@@ -100,6 +100,7 @@
   "signer_doc_one": "document",
   "signer_doc_many": "documents",
   "signer_continue": "Continue",
+  "signer_identity_ready": "A1 identity read.",
   "signer_aria_page_placement": "Page {page}: press Enter to place the signature at the center, then use the arrow keys to move it. You can also click anywhere on the page.",
   "signer_aria_remove": "Remove {name}",
   "signer_aria_download": "Download {name}",

@@ -16,6 +16,8 @@ import * as Preferences from "./preferences.ts";
 import type { PdfPreview } from "./pdf-preview.ts";
 import { signingSessionLayer } from "./signing-session.ts";
 import type { SigningSession } from "./signing-session.ts";
+import { signingIdentityLayer } from "./signing-identity.ts";
+import type { SigningIdentity } from "./signing-identity.ts";
 import * as Landing from "./landing.ts";
 import * as FreeSigning from "./free-signing.ts";
 import { signingImagesLayer } from "./signing-images.ts";
@@ -269,6 +271,7 @@ export const contentApplication = {
     Http.layer,
     BrowserKeyValueStore.layerLocalStorage,
     signingSessionLayer,
+    signingIdentityLayer,
     signingImagesLayer,
     contentDiagramsBrowserLayer,
     Clipboard.layer,
@@ -292,6 +295,7 @@ export const contentApplication = {
     | HttpClient.HttpClient
     | KeyValueStore.KeyValueStore
     | SigningSession
+    | SigningIdentity
     | PdfPreview
     | SigningImages
     | ContentDiagrams

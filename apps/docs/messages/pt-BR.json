@@ -100,6 +100,7 @@
   "signer_doc_one": "documento",
   "signer_doc_many": "documentos",
   "signer_continue": "Continuar",
+  "signer_identity_ready": "Identidade do A1 lida.",
   "signer_aria_page_placement": "Página {page}: pressione Enter para posicionar a assinatura no centro, depois use as setas para movê-la. Você também pode clicar em qualquer lugar da página.",
   "signer_aria_remove": "Remover {name}",
   "signer_aria_download": "Baixar {name}",

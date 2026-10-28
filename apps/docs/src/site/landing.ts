@@ -5,6 +5,7 @@ import * as Signer from "./signer.ts";
 import type { PdfPreview } from "./pdf-preview.ts";
 import type { SigningImages } from "./signing-images.ts";
 import type { SigningSession } from "./signing-session.ts";
+import type { SigningIdentity } from "./signing-identity.ts";
 import * as Update from "foldkit/update";
 import { defineMessageUnion } from "foldkit/message";
 import * as Submodel from "foldkit/submodel";
@@ -86,10 +87,14 @@ export const update = (
 ): Update.Return<
   Model,
   Message,
-  SigningSession | PdfPreview | SigningImages | Clipboard.Clipboard
+  SigningSession | PdfPreview | SigningImages | SigningIdentity | Clipboard.Clipboard
 > =>
   Message.match<
-    Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages | Clipboard.Clipboard>
+    Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages | SigningIdentity | Clipboard.Clipboard
+    >
   >(message, {
     GotSignerMessage: ({ message }) => foldSigner(model, message),
     SelectedProvider: ({ filename }) => ({
