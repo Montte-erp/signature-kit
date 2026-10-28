@@ -1,4 +1,4 @@
-import { PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, rgb } from "@cantoo/pdf-lib";
+import { PDFDict, PDFDocument, PDFName, PDFNumber, PDFStream, rgb } from "@cantoo/pdf-lib";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { readA1FixtureFromBrowser } from "../../../tooling/testing/fixtures.browser.ts";
@@ -396,7 +396,7 @@ describe("Foldkit signing dialog", () => {
             const objects = pdfPage.node.Resources()?.lookupMaybe(PDFName.of("XObject"), PDFDict);
             return (
               objects?.entries().flatMap(([, reference]) => {
-                const object = parsedPdf.context.lookup(reference, PDFRawStream);
+                const object = parsedPdf.context.lookup(reference, PDFStream);
                 return object.dict.lookupMaybe(PDFName.of("Subtype"), PDFName)?.toString() ===
                   "/Image"
                   ? [
