@@ -581,11 +581,13 @@ const foldStamp = Update.foldChild({
   read: (model: Model) => Option.some(model.stamp),
   write: (model, stamp) => ({ ...model, stamp }),
   toParentMessage: (message) => Message.GotStampMessage({ message }),
-  foldOutMessage: (outMessage) => (model) =>
-    Stamp.OutMessage.match(outMessage, {
-      PickedLogo: () => ({ model: { ...model, busy: true }, commands: [LoadLogo()] }),
-      RemovedLogo: () => ({ model: { ...model, busy: true }, commands: [RemoveLogo()] }),
-    }),
+  foldOutMessage:
+    (outMessage: Stamp.OutMessage): Update.Step<Model, Message, SigningImages> =>
+    (model) =>
+      Stamp.OutMessage.match(outMessage, {
+        PickedLogo: () => ({ model: { ...model, busy: true }, commands: [LoadLogo()] }),
+        RemovedLogo: () => ({ model: { ...model, busy: true }, commands: [RemoveLogo()] }),
+      }),
 });
 
 export const update = (

@@ -114,7 +114,7 @@ export const update = (
   model: Model,
   message: Message,
 ): Update.ReturnWithOutMessage<Model, Message, OutMessage> =>
-  Message.match(message, {
+  Message.match<Update.ReturnWithOutMessage<Model, Message, OutMessage>>(message, {
     PickedLogo: () => ({ model, outMessage: OutMessage.PickedLogo() }),
     ClickedRemoveLogo: () => ({ model, outMessage: OutMessage.RemovedLogo() }),
     LoadedLogo: ({ id }) => ({
