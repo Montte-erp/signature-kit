@@ -71,6 +71,30 @@ describe("Foldkit landing page", () => {
               .poll(() => page.getElementById("home-install-command")?.textContent)
               .toBe("npm install @signature-kit/signatures @signature-kit/a1"),
           );
+          const copy = page.querySelector<HTMLButtonElement>("#home-copy-install");
+          if (copy === null) expect.fail("The native installation command must offer copying");
+          copy.focus();
+          copy.click();
+          yield* Effect.promise(() => expect.poll(() => copy.textContent).toBe("Copiado"));
+          yield* Effect.promise(() =>
+            expect
+              .poll(() => navigator.clipboard.readText())
+              .toBe("npm install @signature-kit/signatures @signature-kit/a1"),
+          );
+          const copyProvider = page.querySelector<HTMLButtonElement>("#home-copy-provider");
+          if (copyProvider === null)
+            expect.fail("The selected provider example must offer copying");
+          copyProvider.focus();
+          copyProvider.click();
+          yield* Effect.promise(() => expect.poll(() => copyProvider.textContent).toBe("Copiado"));
+          yield* Effect.promise(() =>
+            expect
+              .poll(() => navigator.clipboard.readText())
+              .toBe(
+                page.getElementById("home-example-clicksign.ts")?.querySelector("code")
+                  ?.textContent,
+              ),
+          );
           expect(page.querySelector('a[href="/pt-BR/docs/get-started/quickstart"]')).not.toBeNull();
           expect(page.querySelector('a[hreflang="en-US"]')?.getAttribute("href")).toBe("/en-US");
           expect(page.documentElement.lang).toBe("pt-BR");
