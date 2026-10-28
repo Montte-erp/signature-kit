@@ -6,7 +6,6 @@ import type {
   SignatureVariant,
   SignedMark,
 } from "../lib/formal-contract.ts";
-import { SignatureVariant as SignatureVariantSchema } from "../lib/formal-contract.ts";
 import { Document, Page, StyleSheet, Text, View, pdf } from "@react-pdf/renderer";
 
 const PAGE_W = 595.28;
@@ -17,24 +16,6 @@ const CONTENT_W = PAGE_W - MARGIN * 2;
 const BLOCK_TOP = PAGE_H - 196;
 const SIG_W = 260;
 const SIG_LEFT = (PAGE_W - SIG_W) / 2;
-
-export const SIGNATURE_VARIANTS = SignatureVariantSchema.literals;
-
-export interface FormalSignatureRect {
-  readonly pageIndex: number;
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-}
-
-export const formalSignatureRect: FormalSignatureRect = {
-  pageIndex: 0,
-  x: SIG_LEFT,
-  y: BLOCK_TOP,
-  width: SIG_W,
-  height: 36,
-};
 
 const PARTY_NAME = "Maria A. Costa";
 const PARTY_DOCUMENT = "CPF/CNPJ: 000.000.000-00";

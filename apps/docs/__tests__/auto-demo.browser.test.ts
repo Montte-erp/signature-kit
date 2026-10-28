@@ -1,3 +1,4 @@
+import { PDFDocument } from "@cantoo/pdf-lib";
 import type { SiteLocale } from "../lib/site-route.ts";
 import { inspectPdf } from "./pdf-inspection.browser.ts";
 import { Effect } from "effect";
@@ -50,7 +51,7 @@ it("prepares four real demonstration PDFs when their native section becomes visi
   await Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const { demo } = yield* openDemonstration();
+        const { page, demo } = yield* openDemonstration();
         expect(demo.textContent).toContain("O passo criptográfico CMS aqui é ilustrativo");
         const tabs = [...demo.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
         expect(tabs).toHaveLength(4);
@@ -77,6 +78,32 @@ it("prepares four real demonstration PDFs when their native section becomes visi
         }
         expect(images.size).toBe(4);
         expect(demo.querySelector<HTMLButtonElement>("#home-auto-run")?.disabled).toBe(false);
+        page.querySelector<HTMLButtonElement>("#home-open-signer")?.click();
+        yield* Effect.promise(() =>
+          expect
+            .poll(() => page.querySelector<HTMLDialogElement>("#site-signing-dialog")?.open)
+            .toBe(true),
+        );
+        const pdf = yield* Effect.promise(() => PDFDocument.create());
+        pdf.addPage([595, 842]);
+        const bytes = yield* Effect.promise(() => pdf.save());
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File([new Uint8Array(bytes)], "private-upload.pdf", { type: "application/pdf" }),
+        );
+        const input = page.querySelector<HTMLInputElement>("#signing-documents-input");
+        if (input === null) expect.fail("The real signing session must accept its own documents");
+        input.files = transfer.files;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        yield* Effect.promise(() =>
+          expect
+            .poll(() => page.querySelector("#signing-documents")?.textContent)
+            .toContain("private-upload.pdf"),
+        );
+        expect(page.querySelector("#signing-documents")?.textContent).not.toContain(
+          "Contrato de prestação de serviços",
+        );
+        expect(page.querySelector("#signing-documents")?.textContent).not.toContain("Procuração");
       }),
     ),
     { signal },

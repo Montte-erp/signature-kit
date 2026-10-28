@@ -2,7 +2,8 @@ import { Effect } from "effect";
 import { pdfjs } from "react-pdf";
 import { describe, expect, it } from "vitest";
 
-import { SIGNATURE_VARIANTS, generateFormalContractPdf } from "../components/formal-contract-pdf";
+import { generateFormalContractPdf } from "../components/formal-contract-pdf";
+import { SignatureVariant } from "../lib/formal-contract.ts";
 import { loadPdfjs } from "../components/pdf-page";
 import { isPdf } from "./helpers/dummy-pdf";
 
@@ -36,7 +37,7 @@ if (typeof document === "undefined") {
   });
 } else {
   describe("generateFormalContractPdf (real browser / react-pdf)", () => {
-    it.each(SIGNATURE_VARIANTS)(
+    it.each(SignatureVariant.literals)(
       "renders the '%s' variant to valid PDF bytes in Chromium (no hang)",
       async (variant) => {
         const bytes = await generateFormalContractPdf({
@@ -50,7 +51,7 @@ if (typeof document === "undefined") {
       30000,
     );
 
-    it.each(SIGNATURE_VARIANTS)(
+    it.each(SignatureVariant.literals)(
       "preserves uploaded signer metadata in the '%s' variant",
       async (variant) => {
         const signedDocument = "CPF/CNPJ: 999.999.999-99";

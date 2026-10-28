@@ -1,11 +1,8 @@
 import { PDFDocument } from "@cantoo/pdf-lib";
 import { describe, expect, it } from "vitest";
 
-import {
-  SIGNATURE_VARIANTS,
-  formalSignatureRect,
-  generateFormalContractPdf,
-} from "../components/formal-contract-pdf";
+import { generateFormalContractPdf } from "../components/formal-contract-pdf";
+import { SignatureVariant, formalContractSignatureRect } from "../lib/formal-contract.ts";
 import { isPdf } from "./helpers/dummy-pdf";
 
 const PARAGRAPHS = [
@@ -15,7 +12,7 @@ const PARAGRAPHS = [
 ];
 
 describe("generateFormalContractPdf (react-pdf / pdfx)", () => {
-  it.each(SIGNATURE_VARIANTS)(
+  it.each(SignatureVariant.literals)(
     "renders an UNSIGNED '%s' variant to valid A4 PDF bytes (no hang)",
     async (variant) => {
       const bytes = await generateFormalContractPdf({
@@ -34,7 +31,7 @@ describe("generateFormalContractPdf (react-pdf / pdfx)", () => {
     15000,
   );
 
-  it.each(SIGNATURE_VARIANTS)(
+  it.each(SignatureVariant.literals)(
     "renders a SIGNED '%s' variant to valid PDF bytes",
     async (variant) => {
       const bytes = await generateFormalContractPdf({
@@ -54,7 +51,7 @@ describe("generateFormalContractPdf (react-pdf / pdfx)", () => {
   );
 
   it("places the representative signature field inside the bottom of the A4 page", () => {
-    const r = formalSignatureRect;
+    const r = formalContractSignatureRect("line");
     expect(r.pageIndex).toBe(0);
     expect(r.x).toBeGreaterThan(0);
     expect(r.x + r.width).toBeLessThanOrEqual(595.28 - 56 + 0.01);
