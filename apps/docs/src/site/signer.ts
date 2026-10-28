@@ -457,10 +457,15 @@ const PlaceUsingKeyboard = Command.define("PlaceSigningSignatureUsingKeyboard", 
 });
 
 const LoadCertificate = Command.define("LoadSigningCertificate", {
+  args: { source: Stamp.InkSource },
   messages: [Message.LoadedCertificate, Message.FailedSignature],
   interrupt: true,
-  execute: Effect.gen(function* () {
+  execute: Effect.fn(function* ({ source }) {
     const session = yield* SigningSession;
+    const identity = yield* SigningIdentity;
+    const images = yield* SigningImages;
+    yield* identity.clear;
+    if (source === "certificate") yield* images.clearInk;
     const file = yield* Effect.sync(() => {
       const input = document.querySelector<HTMLInputElement>("#signing-certificate-input");
       const file = input?.files?.[0];
@@ -479,13 +484,7 @@ const LoadCertificate = Command.define("LoadSigningCertificate", {
             reason: "The selected A1 certificate file could not be read.",
           }),
       ),
-      Effect.flatMap((bytes) =>
-        Effect.gen(function* () {
-          const identity = yield* SigningIdentity;
-          yield* identity.clear;
-          yield* session.setCertificate(Redacted.make(new Uint8Array(bytes)));
-        }),
-      ),
+      Effect.flatMap((bytes) => session.setCertificate(Redacted.make(new Uint8Array(bytes)))),
       Effect.matchEffect({
         onSuccess: () => Effect.succeed(Message.LoadedCertificate()),
         onFailure: (issue) =>
@@ -999,17 +998,24 @@ export const update = (
     > =>
       model.busy
         ? { model }
-        : {
-            model: {
-              ...model,
-              busy: true,
-              activity: "certificate",
-              certificateReady: false,
-              identityReady: false,
-              error: undefined,
-            },
-            commands: [LoadCertificate()],
-          },
+        : Update.combine<
+            Model,
+            Message,
+            SigningSession | PdfPreview | SigningImages | SigningIdentity
+          >(model, [
+            foldStamp(Stamp.Message.LoadedInk({ source: "certificate" })),
+            (next) => ({
+              model: {
+                ...next,
+                busy: true,
+                activity: "certificate",
+                certificateReady: false,
+                identityReady: false,
+                error: undefined,
+              },
+              commands: [LoadCertificate({ source: next.stamp.inkSource })],
+            }),
+          ]),
     LoadedCertificate: (): Update.Return<
       Model,
       Message,
