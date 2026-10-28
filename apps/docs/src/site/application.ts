@@ -55,7 +55,7 @@ type Message = typeof Message.Type;
 
 const MountContent = Mount.define("MountPublishedContent", {
   messages: [Message.MountedContent],
-  execute: Effect.succeed(Message.MountedContent()),
+  execute: () => Effect.succeed(Message.MountedContent()),
 });
 
 const RenderDiagrams = Command.define("RenderPublishedDiagrams", {
