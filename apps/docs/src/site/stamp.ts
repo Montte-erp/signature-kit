@@ -15,7 +15,7 @@ import { m } from "../../paraglide/messages.js";
 
 export const InkSource = Schema.Literals(["certificate", "typed"]);
 
-export const Model = Schema.Struct({
+export const Preferences = Schema.Struct({
   locale: SiteLocale,
   title: Schema.String,
   color: Schema.String,
@@ -23,15 +23,34 @@ export const Model = Schema.Struct({
   includeDate: Schema.Boolean,
   rubricEveryPage: Schema.Boolean,
   logoId: Schema.optional(Schema.NonEmptyString),
-  logoIssue: Schema.optional(PdfErrorCodeSchema),
-  logoPreview: Schema.Literals(["idle", "loading", "mounted", "ready", "failed"]),
   inkSource: InkSource,
   inkId: Schema.optional(Schema.NonEmptyString),
+});
+export type Preferences = typeof Preferences.Type;
+
+export const Model = Schema.Struct({
+  ...Preferences.fields,
+  logoIssue: Schema.optional(PdfErrorCodeSchema),
+  logoPreview: Schema.Literals(["idle", "loading", "mounted", "ready", "failed"]),
   inkPreview: Schema.Literals(["idle", "loading", "mounted", "ready", "failed"]),
+  previewMounted: Schema.Boolean,
+  previewState: Schema.Literals(["loading", "ready", "failed"]),
 });
 export type Model = typeof Model.Type;
 
-const ViewInputs = Schema.Struct({ disabled: Schema.Boolean });
+export const preferences = (model: Model): Preferences => ({
+  locale: model.locale,
+  title: model.title,
+  color: model.color,
+  includeIdentity: model.includeIdentity,
+  includeDate: model.includeDate,
+  rubricEveryPage: model.rubricEveryPage,
+  logoId: model.logoId,
+  inkSource: model.inkSource,
+  inkId: model.inkId,
+});
+
+const ViewInputs = Schema.Struct({ disabled: Schema.Boolean, active: Schema.Boolean });
 
 export const Message = defineMessageUnion({
   ChangedTitle: { value: Schema.String },
@@ -56,6 +75,10 @@ export const Message = defineMessageUnion({
   LostInk: { id: Schema.NonEmptyString },
   InkPreviewLoaded: { id: Schema.NonEmptyString },
   InkPreviewFailed: { id: Schema.NonEmptyString },
+  MountedStamp: {},
+  StartedStampPreview: {},
+  RenderedStampPreview: {},
+  FailedStampPreview: {},
 });
 export type Message = typeof Message.Type;
 
@@ -66,6 +89,20 @@ export const OutMessage = defineMessageUnion({
   RequestedCertificateHandwriting: {},
 });
 export type OutMessage = typeof OutMessage.Type;
+
+const MountStamp = Mount.define("MountPdfStampPreview", {
+  messages: [Message.MountedStamp],
+  execute: ({ element }) =>
+    Effect.gen(function* () {
+      yield* Effect.acquireRelease(Effect.succeed(element), (canvas) =>
+        Effect.sync(() => {
+          canvas.setAttribute("width", "0");
+          canvas.setAttribute("height", "0");
+        }),
+      );
+      return Message.MountedStamp();
+    }),
+});
 
 const ImageKind = Schema.Literals(["logo", "ink"]);
 
@@ -152,6 +189,8 @@ export const init = (locale: typeof SiteLocale.Type): Model => ({
   logoPreview: "idle",
   inkSource: "certificate",
   inkPreview: "idle",
+  previewMounted: false,
+  previewState: "loading",
 });
 
 export const update = (
@@ -159,6 +198,10 @@ export const update = (
   message: Message,
 ): Update.ReturnWithOutMessage<Model, Message, OutMessage> =>
   Message.match<Update.ReturnWithOutMessage<Model, Message, OutMessage>>(message, {
+    MountedStamp: () => ({ model: { ...model, previewMounted: true } }),
+    StartedStampPreview: () => ({ model: { ...model, previewState: "loading" } }),
+    RenderedStampPreview: () => ({ model: { ...model, previewState: "ready" } }),
+    FailedStampPreview: () => ({ model: { ...model, previewState: "failed" } }),
     SelectedInkSource: ({ source }) => ({
       model: { ...model, inkSource: source, inkId: undefined, inkPreview: "idle" },
       outMessage:
@@ -215,34 +258,42 @@ export const update = (
   });
 
 export const signatureBadge = (
-  model: Model,
-  profile: A1CertificateProfile,
+  model: Preferences,
+  profile: A1CertificateProfile | undefined,
   signingTime: Date,
 ): PdfSignatureBadge => {
   const options = { locale: model.locale };
+  const subject = profile?.subject ?? m.signer_preview_name({}, options);
+  const document = profile?.document ?? m.signer_preview_document({}, options);
   const date = [
     {
       label: m.signer_stamp_date_label({}, options),
-      value: new Intl.DateTimeFormat(model.locale, {
-        dateStyle: "short",
-        timeStyle: "short",
-      }).format(signingTime),
+      value:
+        profile === undefined
+          ? m.signer_preview_date({}, options)
+          : new Intl.DateTimeFormat(model.locale, {
+              dateStyle: "short",
+              timeStyle: "short",
+            }).format(signingTime),
     },
   ];
-  const documentLabel = Match.value(profile.document.replace(/\D/gu, "").length).pipe(
+  const documentLabel = Match.value(document.replace(/\D/gu, "").length).pipe(
     Match.when(11, () => m.signer_stamp_cpf_label({}, options)),
     Match.when(14, () => m.signer_stamp_cnpj_label({}, options)),
     Match.orElse(() => m.signer_preview_document({}, options)),
   );
   const identity = [
-    [{ label: m.signer_stamp_signer_label({}, options), value: profile.subject }],
+    [{ label: m.signer_stamp_signer_label({}, options), value: subject }],
     [
       {
         label: m.signer_stamp_company_label({}, options),
-        value: profile.organization ?? profile.subject,
+        value:
+          profile === undefined
+            ? m.signer_preview_company({}, options)
+            : (profile.organization ?? subject),
       },
     ],
-    [{ label: documentLabel, value: profile.document }, ...(model.includeDate ? date : [])],
+    [{ label: documentLabel, value: document }, ...(model.includeDate ? date : [])],
     [
       {
         label: m.signer_stamp_certificate_label({}, options),
@@ -272,6 +323,19 @@ export const view = Submodel.defineView<Model, Message, typeof ViewInputs.Type>(
       [h.Disabled(inputs.disabled), h.Class("stamp-settings")],
       [
         h.legend([], [m.signer_step_stamp({}, options)]),
+        inputs.active
+          ? h.canvas([
+              h.Id("stamp-preview-canvas"),
+              h.Attribute("role", "img"),
+              h.Attribute("aria-label", m.signer_stamp_preview({}, options)),
+              h.DataAttribute("state", model.previewState),
+              h.Style({ width: "100%", maxWidth: "320px", background: "white" }),
+              h.OnMount(MountStamp()),
+            ])
+          : h.empty,
+        model.previewState === "failed"
+          ? h.p([h.Attribute("role", "alert")], [m.signer_stamp_preview_failed({}, options)])
+          : h.empty,
         h.div(
           [
             h.Attribute("role", "group"),

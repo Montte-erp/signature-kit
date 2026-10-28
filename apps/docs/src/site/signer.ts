@@ -1,4 +1,4 @@
-import { Clock, Effect, Match, Option, Redacted, Result, Schema } from "effect";
+import { Clock, Effect, Match, Option, Redacted, Result, Schema, Stream } from "effect";
 import * as Command from "foldkit/command";
 import * as Dom from "foldkit/dom";
 import * as Mount from "foldkit/mount";
@@ -538,7 +538,7 @@ const ReadIdentity = Command.define("ReadSigningIdentity", {
 });
 
 const SignDocuments = Command.define("SignSessionDocuments", {
-  args: { preferences: Stamp.Model },
+  args: { preferences: Stamp.Preferences },
   messages: [Message.SignedDocuments, Message.FailedSignature, Message.RequiredPassword],
   interrupt: true,
   execute: Effect.fn(function* ({ preferences }) {
@@ -1058,7 +1058,7 @@ export const update = (
               error: undefined,
               passwordRequired: false,
             },
-            commands: [SignDocuments({ preferences: model.stamp })],
+            commands: [SignDocuments({ preferences: Stamp.preferences(model.stamp) })],
           },
     LoadedLogo: ({ id }) => foldStamp({ ...model, busy: false }, Stamp.Message.LoadedLogo({ id })),
     CompletedCancelLoadHandwriting: () =>
@@ -1082,7 +1082,11 @@ export const update = (
       message._tag !== "MountedLogo" &&
       message._tag !== "LostLogo" &&
       message._tag !== "LogoPreviewLoaded" &&
-      message._tag !== "LogoPreviewFailed"
+      message._tag !== "LogoPreviewFailed" &&
+      message._tag !== "MountedStamp" &&
+      message._tag !== "StartedStampPreview" &&
+      message._tag !== "RenderedStampPreview" &&
+      message._tag !== "FailedStampPreview"
         ? { model }
         : foldStamp(model, message),
     RequiredPassword: (): Update.Return<
@@ -1137,11 +1141,84 @@ export const update = (
   });
 };
 
-export const subscriptions = Subscription.lift(Stamp.subscriptions)<Model, Message>({
-  read: (model) => Option.some(model.stamp),
-  toParentMessage: (message) => Message.GotStampMessage({ message }),
-  when: (model) => model.open && !model.closing,
-});
+const stampPreviewSubscriptions = Subscription.make<
+  Model,
+  Message,
+  PdfPreview | SigningImages | SigningIdentity
+>()((entry) => ({
+  stampPreview: entry(
+    { preferences: Schema.OptionFromNullOr(Stamp.Preferences), identityReady: Schema.Boolean },
+    {
+      modelToDependencies: (model) => ({
+        preferences:
+          model.open && !model.closing && model.stamp.previewMounted
+            ? Option.some(Stamp.preferences(model.stamp))
+            : Option.none(),
+        identityReady: model.identityReady,
+      }),
+      dependenciesToStream: ({ preferences, identityReady }) =>
+        Option.match(preferences, {
+          onNone: () => Stream.empty,
+          onSome: (preferences) =>
+            Stream.make(
+              Message.GotStampMessage({ message: Stamp.Message.StartedStampPreview() }),
+            ).pipe(
+              Stream.concat(
+                Stream.fromEffect(
+                  Effect.scoped(
+                    Effect.gen(function* () {
+                      const preview = yield* PdfPreview;
+                      const images = yield* SigningImages;
+                      const identity = yield* SigningIdentity;
+                      const credentials = identityReady
+                        ? yield* identity.credentials
+                        : Option.none();
+                      const logo = yield* images.logo;
+                      const ink = yield* images.ink;
+                      const time = yield* Clock.currentTimeMillis;
+                      const badge = {
+                        ...Stamp.signatureBadge(
+                          preferences,
+                          Option.isNone(credentials) ? undefined : credentials.value.profile,
+                          new Date(time),
+                        ),
+                        ...(Option.isSome(logo) && logo.value.id === preferences.logoId
+                          ? { logoPng: Redacted.value(logo.value.bytes) }
+                          : {}),
+                        ...(Option.isSome(ink) &&
+                        ink.value.id === preferences.inkId &&
+                        (preferences.inkSource === "typed" || identityReady)
+                          ? { signaturePng: Redacted.value(ink.value.bytes) }
+                          : {}),
+                      };
+                      const canvas =
+                        document.querySelector<HTMLCanvasElement>("#stamp-preview-canvas");
+                      if (canvas !== null) yield* preview.renderStamp(badge, canvas);
+                    }),
+                  ).pipe(
+                    Effect.match({
+                      onSuccess: () =>
+                        Message.GotStampMessage({ message: Stamp.Message.RenderedStampPreview() }),
+                      onFailure: () =>
+                        Message.GotStampMessage({ message: Stamp.Message.FailedStampPreview() }),
+                    }),
+                  ),
+                ),
+              ),
+            ),
+        }),
+    },
+  ),
+}));
+
+export const subscriptions = Subscription.aggregate(
+  Subscription.lift(Stamp.subscriptions)<Model, Message>({
+    read: (model) => Option.some(model.stamp),
+    toParentMessage: (message) => Message.GotStampMessage({ message }),
+    when: (model) => model.open && !model.closing,
+  }),
+  stampPreviewSubscriptions,
+);
 
 export const view = Submodel.defineView<Model, Message>((model, h) => {
   const options = { locale: model.locale };
@@ -1450,7 +1527,7 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
             slotId: "signing-stamp",
             model: model.stamp,
             view: Stamp.view,
-            viewInputs: { disabled: model.busy },
+            viewInputs: { disabled: model.busy, active: model.open && !model.closing },
             toParentMessage: (message) => Message.GotStampMessage({ message }),
           }),
           h.button(
