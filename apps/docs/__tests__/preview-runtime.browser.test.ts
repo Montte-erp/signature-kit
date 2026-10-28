@@ -4,7 +4,10 @@ import * as Runtime from "foldkit/runtime";
 import { expect, it } from "vitest";
 
 import { contentApplication, ContentFlags } from "../src/site/application.ts";
-import { pdfPreviewBrowserLayer } from "../src/site/pdf-preview-browser.ts";
+import {
+  autoPreviewBrowserLayer,
+  pdfPreviewBrowserLayer,
+} from "../src/site/pdf-preview-browser.ts";
 
 it("renders real PDF pixels in a scoped Foldkit runtime", async () => {
   await Effect.runPromise(
@@ -27,7 +30,7 @@ it("renders real PDF pixels in a scoped Foldkit runtime", async () => {
               Runtime.makeApplication({
                 ...contentApplication,
                 container: host.querySelector<HTMLElement>("div"),
-                resources: pdfPreviewBrowserLayer.pipe(
+                resources: Layer.merge(pdfPreviewBrowserLayer, autoPreviewBrowserLayer).pipe(
                   Layer.provideMerge(contentApplication.resources),
                 ),
               }),

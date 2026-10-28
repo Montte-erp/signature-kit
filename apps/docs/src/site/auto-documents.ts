@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, Redacted, Ref } from "effect";
 import { PdfError, PdfErrorCodeValue, PdfOperationValue } from "@signature-kit/pdf/config";
 import type { FormalContractOptions } from "../../lib/formal-contract.ts";
-import { PdfPreview } from "./pdf-preview.ts";
+import type { PdfPreview } from "./pdf-preview.ts";
 
 export class AutoDocuments extends Context.Service<
   AutoDocuments,
@@ -35,14 +35,12 @@ export const autoDocumentsLayer = Layer.effect(
       sourceDocument: Effect.fn(function* (id) {
         const bytes = (yield* Ref.get(documents)).get(id);
         if (bytes === undefined)
-          return yield* Effect.fail(
-            new PdfError({
-              code: PdfErrorCodeValue.pdfLoadFailed,
-              operation: PdfOperationValue.loadDocument,
-              retryable: false,
-              reason: "The demonstration PDF has not been prepared.",
-            }),
-          );
+          return yield* new PdfError({
+            code: PdfErrorCodeValue.pdfLoadFailed,
+            operation: PdfOperationValue.loadDocument,
+            retryable: false,
+            reason: "The demonstration PDF has not been prepared.",
+          });
         return Redacted.value(bytes).slice();
       }),
     });

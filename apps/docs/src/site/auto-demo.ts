@@ -2,7 +2,7 @@ import { Effect, Option, Schema, Stream } from "effect";
 import * as Mount from "foldkit/mount";
 import * as Submodel from "foldkit/submodel";
 import * as Subscription from "foldkit/subscription";
-import * as Update from "foldkit/update";
+import type * as Update from "foldkit/update";
 import { defineMessageUnion } from "foldkit/message";
 import { SiteLocale } from "../../lib/site-route.ts";
 import { SignatureVariant } from "../../lib/formal-contract.ts";

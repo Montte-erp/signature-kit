@@ -2,7 +2,10 @@ import { Effect, Layer } from "effect";
 import * as Runtime from "foldkit/runtime";
 import { describe, expect, it } from "vitest";
 
-import { pdfPreviewBrowserLayer } from "../src/site/pdf-preview-browser.ts";
+import {
+  autoPreviewBrowserLayer,
+  pdfPreviewBrowserLayer,
+} from "../src/site/pdf-preview-browser.ts";
 import { contentApplication, ContentFlags } from "../src/site/application";
 
 describe("Foldkit content runtime", () => {
@@ -39,7 +42,7 @@ describe("Foldkit content runtime", () => {
               Runtime.embed(
                 Runtime.makeApplication({
                   ...contentApplication,
-                  resources: pdfPreviewBrowserLayer.pipe(
+                  resources: Layer.merge(pdfPreviewBrowserLayer, autoPreviewBrowserLayer).pipe(
                     Layer.provideMerge(contentApplication.resources),
                   ),
                   container: container.querySelector<HTMLElement>("div"),
