@@ -1,4 +1,9 @@
-import { Match, Schema } from "effect";
+import { Effect, Match, Option, Redacted, Schema, Stream } from "effect";
+import * as Mount from "foldkit/mount";
+import * as Subscription from "foldkit/subscription";
+import { SigningImages } from "./signing-images.ts";
+import { PdfErrorCodeSchema, PdfErrorCodeValue, pdfErrorMessages } from "@signature-kit/pdf/config";
+import { errorMessage } from "@signature-kit/i18n";
 import { defineMessageUnion } from "foldkit/message";
 import * as Submodel from "foldkit/submodel";
 import type * as Update from "foldkit/update";
@@ -15,6 +20,9 @@ export const Model = Schema.Struct({
   includeIdentity: Schema.Boolean,
   includeDate: Schema.Boolean,
   rubricEveryPage: Schema.Boolean,
+  logoId: Schema.optional(Schema.NonEmptyString),
+  logoIssue: Schema.optional(PdfErrorCodeSchema),
+  logoPreview: Schema.Literals(["idle", "loading", "mounted", "ready", "failed"]),
 });
 export type Model = typeof Model.Type;
 
@@ -26,8 +34,71 @@ export const Message = defineMessageUnion({
   ToggledIdentity: {},
   ToggledDate: {},
   ToggledRubric: {},
+  PickedLogo: {},
+  ClickedRemoveLogo: {},
+  LoadedLogo: { id: Schema.NonEmptyString },
+  RejectedLogo: { code: PdfErrorCodeSchema },
+  RemovedLogo: {},
+  MountedLogo: { id: Schema.NonEmptyString },
+  LostLogo: { id: Schema.NonEmptyString },
+  LogoPreviewLoaded: { id: Schema.NonEmptyString },
+  LogoPreviewFailed: { id: Schema.NonEmptyString },
 });
 export type Message = typeof Message.Type;
+
+export const OutMessage = defineMessageUnion({ PickedLogo: {}, RemovedLogo: {} });
+export type OutMessage = typeof OutMessage.Type;
+
+const MountLogo = Mount.define("MountSigningLogo", {
+  args: { id: Schema.NonEmptyString },
+  messages: [Message.MountedLogo],
+  execute: ({ id }) => Effect.succeed(Message.MountedLogo({ id })),
+});
+
+export const subscriptions = Subscription.make<Model, Message, SigningImages>()((entry) => ({
+  logoPreview: entry(
+    { logoId: Schema.OptionFromNullOr(Schema.String) },
+    {
+      modelToDependencies: (model) => ({
+        logoId:
+          model.logoId !== undefined && model.logoPreview !== "loading"
+            ? Option.some(model.logoId)
+            : Option.none(),
+      }),
+      dependenciesToStream: ({ logoId }) =>
+        Option.match(logoId, {
+          onNone: () => Stream.empty,
+          onSome: (id) =>
+            Stream.unwrap(
+              Effect.gen(function* () {
+                const images = yield* SigningImages;
+                const logo = yield* images.logo;
+                if (Option.isNone(logo) || logo.value.id !== id)
+                  return Stream.make(Message.LostLogo({ id }));
+                const element = document.getElementById("stamp-logo-preview");
+                if (element === null) return Stream.empty;
+                const url = yield* Effect.acquireRelease(
+                  Effect.sync(() =>
+                    URL.createObjectURL(
+                      new Blob([new Uint8Array(Redacted.value(logo.value.bytes))], {
+                        type: "image/png",
+                      }),
+                    ),
+                  ),
+                  (url) =>
+                    Effect.sync(() => {
+                      element.removeAttribute("src");
+                      URL.revokeObjectURL(url);
+                    }),
+                );
+                yield* Effect.sync(() => element.setAttribute("src", url));
+                return Stream.never;
+              }),
+            ),
+        }),
+    },
+  ),
+}));
 
 export const init = (locale: typeof SiteLocale.Type): Model => ({
   locale,
@@ -36,10 +107,35 @@ export const init = (locale: typeof SiteLocale.Type): Model => ({
   includeIdentity: true,
   includeDate: true,
   rubricEveryPage: false,
+  logoPreview: "idle",
 });
 
-export const update = (model: Model, message: Message): Update.Return<Model, Message> =>
+export const update = (
+  model: Model,
+  message: Message,
+): Update.ReturnWithOutMessage<Model, Message, OutMessage> =>
   Message.match(message, {
+    PickedLogo: () => ({ model, outMessage: OutMessage.PickedLogo() }),
+    ClickedRemoveLogo: () => ({ model, outMessage: OutMessage.RemovedLogo() }),
+    LoadedLogo: ({ id }) => ({
+      model: { ...model, logoId: id, logoIssue: undefined, logoPreview: "loading" },
+    }),
+    RejectedLogo: ({ code }) => ({ model: { ...model, logoIssue: code } }),
+    RemovedLogo: () => ({
+      model: { ...model, logoId: undefined, logoIssue: undefined, logoPreview: "idle" },
+    }),
+    MountedLogo: ({ id }) => ({
+      model: model.logoId === id ? { ...model, logoPreview: "mounted" } : model,
+    }),
+    LostLogo: ({ id }) => ({
+      model: model.logoId === id ? { ...model, logoId: undefined, logoPreview: "idle" } : model,
+    }),
+    LogoPreviewLoaded: ({ id }) => ({
+      model: model.logoId === id ? { ...model, logoPreview: "ready" } : model,
+    }),
+    LogoPreviewFailed: ({ id }) => ({
+      model: model.logoId === id ? { ...model, logoPreview: "failed" } : model,
+    }),
     ChangedTitle: ({ value }) => ({ model: { ...model, title: value } }),
     ChangedColor: ({ value }) => ({ model: { ...model, color: value } }),
     ToggledIdentity: () => ({ model: { ...model, includeIdentity: !model.includeIdentity } }),
@@ -121,6 +217,70 @@ export const view = Submodel.defineView<Model, Message, typeof ViewInputs.Type>(
           h.Value(model.color),
           h.OnInput((value) => Message.ChangedColor({ value })),
         ]),
+        h.label([h.Attribute("for", "stamp-logo")], [m.signer_stamp_logo({}, options)]),
+        h.input([
+          h.Id("stamp-logo"),
+          h.Type("file"),
+          h.Accept("image/png"),
+          h.OnChange(() => Message.PickedLogo()),
+        ]),
+        model.logoIssue === undefined
+          ? h.empty
+          : h.p(
+              [h.Id("stamp-logo-error"), h.Attribute("role", "alert")],
+              [
+                errorMessage(
+                  { _tag: "PdfError", code: model.logoIssue },
+                  {
+                    locale: model.locale,
+                    catalogs: [pdfErrorMessages],
+                    overrides: {
+                      "en-US": {
+                        [PdfErrorCodeValue.stampFailed]: m.signer_stamp_logo_invalid(
+                          {},
+                          { locale: "en-US" },
+                        ),
+                        [PdfErrorCodeValue.fileReadFailed]: m.signer_stamp_logo_invalid(
+                          {},
+                          { locale: "en-US" },
+                        ),
+                      },
+                      "pt-BR": {
+                        [PdfErrorCodeValue.stampFailed]: m.signer_stamp_logo_invalid(
+                          {},
+                          { locale: "pt-BR" },
+                        ),
+                        [PdfErrorCodeValue.fileReadFailed]: m.signer_stamp_logo_invalid(
+                          {},
+                          { locale: "pt-BR" },
+                        ),
+                      },
+                    },
+                  },
+                ),
+              ],
+            ),
+        model.logoId === undefined
+          ? h.empty
+          : h.img([
+              h.Key(model.logoId),
+              h.Id("stamp-logo-preview"),
+              h.Alt(m.signer_stamp_logo({}, options)),
+              h.Style({ maxWidth: "10rem", maxHeight: "4rem" }),
+              h.DataAttribute("state", model.logoPreview),
+              h.OnMount(MountLogo({ id: model.logoId })),
+              h.OnLoad(Message.LogoPreviewLoaded({ id: model.logoId })),
+              h.OnError(Message.LogoPreviewFailed({ id: model.logoId })),
+            ]),
+        model.logoPreview === "failed"
+          ? h.p([h.Attribute("role", "alert")], [m.signer_stamp_preview_failed({}, options)])
+          : h.empty,
+        model.logoId === undefined
+          ? h.empty
+          : h.button(
+              [h.Id("stamp-logo-remove"), h.Type("button"), h.OnClick(Message.ClickedRemoveLogo())],
+              [m.signer_stamp_logo_remove({}, options)],
+            ),
         h.label(
           [h.Attribute("for", "stamp-name")],
           [

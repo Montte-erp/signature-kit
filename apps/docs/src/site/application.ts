@@ -1,6 +1,7 @@
 import { Layer, Option, Schema } from "effect";
 import type { Document, HtmlBuilder } from "foldkit/html";
 import * as Update from "foldkit/update";
+import * as Subscription from "foldkit/subscription";
 import * as Http from "foldkit/http";
 import { defineMessageUnion } from "foldkit/message";
 import type { HttpClient } from "effect/http";
@@ -14,6 +15,8 @@ import { signingSessionLayer } from "./signing-session.ts";
 import type { SigningSession } from "./signing-session.ts";
 import * as Landing from "./landing.ts";
 import * as FreeSigning from "./free-signing.ts";
+import { signingImagesLayer } from "./signing-images.ts";
+import type { SigningImages } from "./signing-images.ts";
 import * as Search from "./search.ts";
 
 import { freeSigningPath, localizedSitePath, SiteLocale } from "../../lib/site-route.ts";
@@ -231,10 +234,16 @@ const view = (model: ContentModel, h: HtmlBuilder<Message>): Document => {
 export const contentApplication = {
   Flags: ContentFlags,
   Model: ContentModel,
+  subscriptions: Subscription.lift(Landing.subscriptions)<ContentModel, Message>({
+    read: (model) => Option.some(model.landing),
+    toParentMessage: (message) => Message.GotLandingMessage({ message }),
+    when: (model) => model.path === "" || model.path === freeSigningPath,
+  }),
   resources: Layer.mergeAll(
     Http.layer,
     BrowserKeyValueStore.layerLocalStorage,
     signingSessionLayer,
+    signingImagesLayer,
   ),
   init: (flags: ContentFlags): Update.Return<ContentModel, Message, KeyValueStore.KeyValueStore> =>
     Update.foldChildInit(Preferences.init(flags.locale), {
@@ -252,7 +261,11 @@ export const contentApplication = {
   ): Update.Return<
     ContentModel,
     Message,
-    HttpClient.HttpClient | KeyValueStore.KeyValueStore | SigningSession | PdfPreview
+    | HttpClient.HttpClient
+    | KeyValueStore.KeyValueStore
+    | SigningSession
+    | PdfPreview
+    | SigningImages
   > =>
     Message.match(message, {
       GotLandingMessage: ({ message }) => foldLanding(model, message),

@@ -15,10 +15,16 @@ import {
 } from "@signature-kit/signatures";
 import { defineMessageUnion } from "foldkit/message";
 import * as Submodel from "foldkit/submodel";
+import * as Subscription from "foldkit/subscription";
 import * as Update from "foldkit/update";
 import * as Stamp from "./stamp.ts";
+import { SigningImages } from "./signing-images.ts";
+import { maxStampPngBytes } from "@signature-kit/pdf/stamp";
 import { errorMessage } from "@signature-kit/i18n";
 import {
+  PdfError,
+  PdfErrorCodeValue,
+  PdfOperationValue,
   PdfErrorCodeSchema,
   PdfSignaturePlacementInputSchema,
   pdfErrorMessages,
@@ -87,6 +93,11 @@ export const Message = defineMessageUnion({
   LoadedCertificate: {},
   ClickedSign: {},
   GotStampMessage: { message: Stamp.Message },
+  LoadedLogo: { id: Schema.NonEmptyString },
+  RejectedLogo: { code: PdfErrorCodeSchema },
+  RemovedLogo: {},
+  UnchangedLogo: {},
+  CompletedCancelLoadStampLogo: {},
   RequiredPassword: {},
   SignedDocuments: { documents: Schema.Array(SigningDocument) },
   FailedSignature: { documents: Schema.Array(SigningDocument), issue: SigningIssue },
@@ -149,8 +160,10 @@ const CloseSession = Command.define("CloseSigningSession", {
   execute: Effect.fn(function* ({ presentation }) {
     const session = yield* SigningSession;
     const preview = yield* PdfPreview;
+    const images = yield* SigningImages;
     yield* preview.clear;
     yield* session.clear;
+    yield* images.clearLogo;
     yield* Effect.sync(() => {
       const password = document.querySelector<HTMLInputElement>("#signing-password");
       if (password !== null) password.value = "";
@@ -160,6 +173,54 @@ const CloseSession = Command.define("CloseSigningSession", {
       yield* Dom.unlockScroll;
     }
     return Message.ClosedSession();
+  }),
+});
+
+const LoadLogo = Command.define("LoadStampLogo", {
+  messages: [Message.LoadedLogo, Message.RejectedLogo, Message.UnchangedLogo],
+  interrupt: true,
+  execute: Effect.gen(function* () {
+    const images = yield* SigningImages;
+    const file = yield* Effect.sync(() => {
+      const input = document.querySelector<HTMLInputElement>("#stamp-logo");
+      const file = input?.files?.[0];
+      if (input !== null) input.value = "";
+      return file;
+    });
+    if (file === undefined) return Message.UnchangedLogo();
+    if (file.size > maxStampPngBytes)
+      return yield* new PdfError({
+        code: PdfErrorCodeValue.stampFailed,
+        retryable: false,
+        operation: PdfOperationValue.stamp,
+        reason: "The selected logo exceeds the PNG input limit.",
+      });
+    const bytes = yield* File.readAsArrayBuffer(file).pipe(
+      Effect.mapError(
+        () =>
+          new PdfError({
+            code: PdfErrorCodeValue.fileReadFailed,
+            retryable: true,
+            operation: PdfOperationValue.readBlobBytes,
+            reason: "The browser could not read the selected PNG logo.",
+          }),
+      ),
+    );
+    const id = yield* images.setLogo(Redacted.make(new Uint8Array(bytes)));
+    return Message.LoadedLogo({ id });
+  }).pipe(
+    Effect.catchTag("PdfError", (issue) =>
+      Effect.succeed(Message.RejectedLogo({ code: issue.code })),
+    ),
+  ),
+});
+
+const RemoveLogo = Command.define("RemoveStampLogo", {
+  messages: [Message.RemovedLogo],
+  execute: Effect.gen(function* () {
+    const images = yield* SigningImages;
+    yield* images.clearLogo;
+    return Message.RemovedLogo();
   }),
 });
 
@@ -400,7 +461,12 @@ const SignDocuments = Command.define("SignSessionDocuments", {
       const profile = yield* parseA1CertificateProfile(options);
       const time = yield* Clock.currentTimeMillis;
       const signingTime = new Date(time);
-      const badge = Stamp.signatureBadge(preferences, profile, signingTime);
+      const images = yield* SigningImages;
+      const logo = yield* images.logo;
+      const baseBadge = Stamp.signatureBadge(preferences, profile, signingTime);
+      const badge = Option.isNone(logo)
+        ? baseBadge
+        : { ...baseBadge, logoPng: Redacted.value(logo.value.bytes) };
       const documents = yield* session.documents;
       const results = yield* Effect.forEach(
         documents.filter((document) => document.rect !== undefined),
@@ -515,16 +581,22 @@ const foldStamp = Update.foldChild({
   read: (model: Model) => Option.some(model.stamp),
   write: (model, stamp) => ({ ...model, stamp }),
   toParentMessage: (message) => Message.GotStampMessage({ message }),
+  foldOutMessage: (outMessage) => (model) =>
+    Stamp.OutMessage.match(outMessage, {
+      PickedLogo: () => ({ model: { ...model, busy: true }, commands: [LoadLogo()] }),
+      RemovedLogo: () => ({ model: { ...model, busy: true }, commands: [RemoveLogo()] }),
+    }),
 });
 
 export const update = (
   model: Model,
   message: Message,
-): Update.Return<Model, Message, SigningSession | PdfPreview> => {
+): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> => {
   if (!model.open && message._tag !== "ClickedOpen") return { model };
   if (
     model.closing &&
     message._tag !== "CompletedCancelLoadSigningDocuments" &&
+    message._tag !== "CompletedCancelLoadStampLogo" &&
     message._tag !== "CompletedCancelPlaceSigningDocument" &&
     message._tag !== "CompletedCancelLoadSigningCertificate" &&
     message._tag !== "CompletedCancelSignSessionDocuments" &&
@@ -544,6 +616,10 @@ export const update = (
       commands: [LoadDocuments.Interrupt(() => Message.CompletedCancelLoadSigningDocuments())],
     }),
     CompletedCancelLoadSigningDocuments: () => ({
+      model,
+      commands: [LoadLogo.Interrupt(() => Message.CompletedCancelLoadStampLogo())],
+    }),
+    CompletedCancelLoadStampLogo: () => ({
       model,
       commands: [PlaceDocument.Interrupt(() => Message.CompletedCancelPlaceSigningDocument())],
     }),
@@ -614,7 +690,7 @@ export const update = (
     CompletedManualPlacement: ({
       documents,
       code,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview> => ({
+    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> => ({
       model: {
         ...updateDocuments(model, documents),
         busy: false,
@@ -623,7 +699,7 @@ export const update = (
     }),
     SelectedPreviewDocument: ({
       id,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview> =>
+    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> =>
       model.busy || model.activeDocumentId === id
         ? { model }
         : {
@@ -631,7 +707,7 @@ export const update = (
           },
     SelectedPreviewPage: ({
       pageIndex,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview> =>
+    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> =>
       model.busy || model.previewPageIndex === pageIndex
         ? { model }
         : { model: { ...model, previewPageIndex: pageIndex, previewState: "loading" } },
@@ -650,7 +726,7 @@ export const update = (
     RenderedPreview: ({
       id,
       pageIndex,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview> =>
+    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> =>
       model.activeDocumentId === id && model.previewPageIndex === pageIndex
         ? { model: { ...model, previewState: "ready" } }
         : { model },
@@ -658,11 +734,15 @@ export const update = (
       id,
       pageIndex,
       code,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview> =>
+    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> =>
       model.activeDocumentId === id && model.previewPageIndex === pageIndex
         ? { model: { ...model, previewState: "failed", error: { _tag: "PdfError", code } } }
         : { model },
-    ClickedPlaceAll: (): Update.Return<Model, Message, SigningSession | PdfPreview> => {
+    ClickedPlaceAll: (): Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages
+    > => {
       if (model.busy) return { model };
       const [first, ...remaining] = model.documents;
       return first === undefined
@@ -681,7 +761,7 @@ export const update = (
     CompletedPlacement: ({
       documents,
       code,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview> => {
+    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> => {
       const [next, ...remaining] = model.placementQueue;
       const updated: Model = {
         ...model,
@@ -693,7 +773,11 @@ export const update = (
         ? { model: { ...updated, busy: false, activity: "idle" } }
         : { model: updated, commands: [PlaceDocument({ id: next })] };
     },
-    PickedDocuments: (): Update.Return<Model, Message, SigningSession | PdfPreview> =>
+    PickedDocuments: (): Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages
+    > =>
       model.busy || !model.open
         ? { model }
         : {
@@ -716,13 +800,13 @@ export const update = (
           },
     LoadedDocuments: ({
       documents,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview> => ({
+    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> => ({
       model: { ...updateDocuments(model, documents), busy: false, activity: "idle" },
     }),
     FailedDocuments: ({
       documents,
       code,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview> => ({
+    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> => ({
       model: {
         ...updateDocuments(model, documents),
         error: { _tag: "PdfError", code },
@@ -730,7 +814,11 @@ export const update = (
         activity: "idle",
       },
     }),
-    PickedCertificate: (): Update.Return<Model, Message, SigningSession | PdfPreview> =>
+    PickedCertificate: (): Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages
+    > =>
       model.busy
         ? { model }
         : {
@@ -743,10 +831,14 @@ export const update = (
             },
             commands: [LoadCertificate()],
           },
-    LoadedCertificate: (): Update.Return<Model, Message, SigningSession | PdfPreview> => ({
+    LoadedCertificate: (): Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages
+    > => ({
       model: { ...model, busy: false, activity: "idle", certificateReady: true },
     }),
-    ClickedSign: (): Update.Return<Model, Message, SigningSession | PdfPreview> =>
+    ClickedSign: (): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> =>
       model.busy ||
       !model.certificateReady ||
       !model.documents.some((document) => document.rect !== undefined)
@@ -761,19 +853,28 @@ export const update = (
             },
             commands: [SignDocuments({ preferences: model.stamp })],
           },
+    LoadedLogo: ({ id }) => foldStamp({ ...model, busy: false }, Stamp.Message.LoadedLogo({ id })),
+    RejectedLogo: ({ code }) =>
+      foldStamp({ ...model, busy: false }, Stamp.Message.RejectedLogo({ code })),
+    RemovedLogo: () => foldStamp({ ...model, busy: false }, Stamp.Message.RemovedLogo()),
+    UnchangedLogo: () => ({ model: { ...model, busy: false } }),
     GotStampMessage: ({ message }) => (model.busy ? { model } : foldStamp(model, message)),
-    RequiredPassword: (): Update.Return<Model, Message, SigningSession | PdfPreview> => ({
+    RequiredPassword: (): Update.Return<
+      Model,
+      Message,
+      SigningSession | PdfPreview | SigningImages
+    > => ({
       model: { ...model, busy: false, activity: "idle", passwordRequired: true },
     }),
     SignedDocuments: ({
       documents,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview> => ({
+    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> => ({
       model: { ...updateDocuments(model, documents), busy: false, activity: "idle" },
     }),
     FailedSignature: ({
       documents,
       issue,
-    }): Update.Return<Model, Message, SigningSession | PdfPreview> => ({
+    }): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> => ({
       model: { ...model, documents, error: issue, busy: false, activity: "idle" },
     }),
     ClickedDownload: ({ id }) =>
@@ -785,6 +886,12 @@ export const update = (
     ClosedSession: () => ({ model: init(model.locale, model.presentation) }),
   });
 };
+
+export const subscriptions = Subscription.lift(Stamp.subscriptions)<Model, Message>({
+  read: (model) => Option.some(model.stamp),
+  toParentMessage: (message) => Message.GotStampMessage({ message }),
+  when: (model) => model.open && !model.closing,
+});
 
 export const view = Submodel.defineView<Model, Message>((model, h) => {
   const options = { locale: model.locale };

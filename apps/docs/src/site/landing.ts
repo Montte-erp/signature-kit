@@ -1,10 +1,12 @@
 import { Array as EffectArray, Match, Option, Schema } from "effect";
 import * as Signer from "./signer.ts";
 import type { PdfPreview } from "./pdf-preview.ts";
+import type { SigningImages } from "./signing-images.ts";
 import type { SigningSession } from "./signing-session.ts";
 import * as Update from "foldkit/update";
 import { defineMessageUnion } from "foldkit/message";
 import * as Submodel from "foldkit/submodel";
+import * as Subscription from "foldkit/subscription";
 
 import { localizedSitePath, SiteLocale } from "../../lib/site-route.ts";
 import { firstCallExample, providerExamples } from "../../lib/signing-examples.ts";
@@ -49,7 +51,7 @@ const foldSigner = Update.foldChild({
 export const update = (
   model: Model,
   message: Message,
-): Update.Return<Model, Message, SigningSession | PdfPreview> =>
+): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> =>
   Message.match(message, {
     GotSignerMessage: ({ message }) => foldSigner(model, message),
     SelectedProvider: ({ filename }) => ({ model: { ...model, provider: filename } }),
@@ -66,6 +68,11 @@ export const homeEntry = (locale: typeof SiteLocale.Type): ContentEntry => ({
     text: m.hero_subhead({}, { locale }),
     headings: [],
   },
+});
+
+export const subscriptions = Subscription.lift(Signer.subscriptions)<Model, Message>({
+  read: (model) => Option.some(model.signer),
+  toParentMessage: (message) => Message.GotSignerMessage({ message }),
 });
 
 export const view = Submodel.defineView<Model, Message>((model, h) => {

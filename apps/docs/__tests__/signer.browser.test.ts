@@ -242,6 +242,74 @@ describe("Foldkit signing dialog", () => {
               .toBe("true"),
           );
           expect(certificate.value).toBe("");
+          const logo = page.querySelector<HTMLInputElement>("#stamp-logo");
+          if (logo === null) expect.fail("The native stamp must accept a company logo");
+          const invalidLogo = new DataTransfer();
+          invalidLogo.items.add(
+            new File([Uint8Array.of(1, 2, 3)], "invalid.png", { type: "image/png" }),
+          );
+          logo.files = invalidLogo.files;
+          logo.dispatchEvent(new Event("change", { bubbles: true }));
+          yield* Effect.promise(() =>
+            expect
+              .poll(() => page.getElementById("stamp-logo-error")?.textContent)
+              .toBe("Escolha um PNG válido de até 16 MB e 16 megapixels."),
+          );
+          expect(logo.value).toBe("");
+          const logoCanvas = yield* Effect.acquireRelease(
+            Effect.sync(() => document.createElement("canvas")),
+            (canvas) =>
+              Effect.sync(() => {
+                canvas.width = 0;
+                canvas.height = 0;
+              }),
+          );
+          logoCanvas.width = 16;
+          logoCanvas.height = 16;
+          const logoContext = logoCanvas.getContext("2d");
+          if (logoContext === null)
+            return yield* Effect.die("The logo fixture needs a canvas 2D context");
+          logoContext.fillStyle = "#db2777";
+          logoContext.fillRect(0, 0, 16, 16);
+          const logoBlob = yield* Effect.promise(
+            () => new Promise<Blob | null>((resolve) => logoCanvas.toBlob(resolve, "image/png")),
+          );
+          if (logoBlob === null)
+            return yield* Effect.die("The browser must encode the PNG logo fixture");
+          const validLogo = new DataTransfer();
+          validLogo.items.add(new File([logoBlob], "company.png", { type: "image/png" }));
+          logo.files = validLogo.files;
+          logo.dispatchEvent(new Event("change", { bubbles: true }));
+          yield* Effect.promise(() =>
+            expect
+              .poll(
+                () => {
+                  const preview = page.querySelector<HTMLImageElement>("#stamp-logo-preview");
+                  return {
+                    width: preview?.naturalWidth,
+                    html: preview?.outerHTML,
+                    issues: runtimeIssues,
+                  };
+                },
+                { timeout: 10000 },
+              )
+              .toMatchObject({ width: 16 }),
+          );
+          const logoUrl = page.querySelector<HTMLImageElement>("#stamp-logo-preview")?.src;
+          if (logoUrl === undefined)
+            return yield* Effect.die("A loaded logo must have a scoped preview URL");
+          const invalidReplacement = new DataTransfer();
+          invalidReplacement.items.add(
+            new File([Uint8Array.of(1, 2, 3)], "invalid-again.png", { type: "image/png" }),
+          );
+          logo.files = invalidReplacement.files;
+          logo.dispatchEvent(new Event("change", { bubbles: true }));
+          yield* Effect.promise(() =>
+            expect
+              .poll(() => page.getElementById("stamp-logo-error")?.textContent)
+              .toBe("Escolha um PNG válido de até 16 MB e 16 megapixels."),
+          );
+          expect(page.querySelector<HTMLImageElement>("#stamp-logo-preview")?.src).toBe(logoUrl);
           const title = page.querySelector<HTMLInputElement>("#stamp-title");
           const color = page.querySelector<HTMLInputElement>("#stamp-color");
           const identity = page.querySelector<HTMLInputElement>("#stamp-name");
@@ -320,6 +388,16 @@ describe("Foldkit signing dialog", () => {
             }),
           ).toBe(true);
           yield* Effect.promise(() => expect(fetch(artifact.url)).rejects.toThrow());
+          expect(
+            inspected.some((page) => {
+              const pixels = page.image.data;
+              for (let index = 0; index < pixels.length; index += 4) {
+                if (pixels[index] === 219 && pixels[index + 1] === 39 && pixels[index + 2] === 119)
+                  return true;
+              }
+              return false;
+            }),
+          ).toBe(true);
           const remove = page.querySelector<HTMLButtonElement>(
             '#signing-documents button[data-action="remove"]',
           );
@@ -375,6 +453,7 @@ describe("Foldkit signing dialog", () => {
           );
           expect(page.querySelector<HTMLElement>(".site-header")?.inert).toBe(false);
           expect(page.activeElement).toBe(open);
+          yield* Effect.promise(() => expect(fetch(logoUrl)).rejects.toThrow());
           open.click();
           yield* Effect.promise(() =>
             expect
@@ -389,6 +468,7 @@ describe("Foldkit signing dialog", () => {
           ).toBe("false");
           expect(password.value).toBe("");
           expect(runtimeIssues).toEqual([]);
+          expect(page.querySelector("#stamp-logo-preview")).toBeNull();
         }),
       ),
       { signal },

@@ -59,7 +59,7 @@ const RUBRIC_INITIALS_DEFAULT_INK = "#1D4ED8";
 const PORTUGUESE_NAME_CONNECTORS = ["de", "da", "do", "dos", "das", "e"];
 const QR_QUIET_ZONE_MODULES = 4;
 const QR_TEXT_GAP_PT = 6;
-const MAX_PNG_INPUT_BYTES = 16 * 1024 * 1024;
+export const maxStampPngBytes = 16 * 1024 * 1024;
 const MAX_PNG_PIXELS = 16 * 1024 * 1024;
 const MAX_PNG_DECOMPRESSED_BYTES = 64 * 1024 * 1024;
 const MAX_PNG_CHUNKS = 4096;
@@ -1728,7 +1728,7 @@ const pngIdatBytes = (
 };
 
 const pngPreflight = (png: Uint8Array): PngPreflight | undefined => {
-  if (png.byteLength < PNG_IHDR_END || png.byteLength > MAX_PNG_INPUT_BYTES) return undefined;
+  if (png.byteLength < PNG_IHDR_END || png.byteLength > maxStampPngBytes) return undefined;
   if (!PNG_SIGNATURE.every((byte, index) => png[index] === byte)) return undefined;
   if (png[8] !== 0 || png[9] !== 0 || png[10] !== 0 || png[11] !== 13) return undefined;
   if (!pngChunkTypeAt(png, 12, PNG_IHDR_TYPE)) return undefined;
@@ -1783,7 +1783,7 @@ const pngPreflight = (png: Uint8Array): PngPreflight | undefined => {
       return undefined;
     }
     if (pngChunkTypeAt(png, offset + 4, PNG_IDAT_TYPE)) {
-      if (chunks.length >= MAX_PNG_CHUNKS || byteLength > MAX_PNG_INPUT_BYTES - idatByteLength) {
+      if (chunks.length >= MAX_PNG_CHUNKS || byteLength > maxStampPngBytes - idatByteLength) {
         return undefined;
       }
       idatByteLength += byteLength;

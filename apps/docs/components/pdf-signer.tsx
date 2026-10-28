@@ -21,7 +21,7 @@ import { useForm, useSelector } from "@tanstack/react-form";
 
 import type { A1CertificateProfile } from "@signature-kit/a1/config";
 import { a1SignaturesLayer, parseA1CertificateProfile } from "@signature-kit/a1/signer";
-import { isSafePdfStampPng, rubricRectForPage } from "@signature-kit/pdf/stamp";
+import { isSafePdfStampPng, maxStampPngBytes, rubricRectForPage } from "@signature-kit/pdf/stamp";
 import {
   createPdfSignatureBuilderStateFromBytes,
   readPdfBlobBytes,
@@ -2100,7 +2100,7 @@ function PdfSignerContent({
                   const generation = controller.beginPreview();
                   void controller.runPreviewEffect(
                     Effect.gen(function* () {
-                      if (file.size > 16 * 1024 * 1024) {
+                      if (file.size > maxStampPngBytes) {
                         patchSignerRuntime({ error: m.signer_stamp_logo_invalid() });
                         return;
                       }
