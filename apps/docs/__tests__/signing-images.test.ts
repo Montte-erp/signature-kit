@@ -11,6 +11,24 @@ const png = Uint8Array.from(
   (character) => character.charCodeAt(0),
 );
 
+it.effect("keeps rejected handwritten names out of diagnostic metadata", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const images = yield* SigningImages;
+      const prefix = "Private handwritten value ";
+      const rejected = yield* images
+        .setHandwriting(Redacted.make(prefix + "x".repeat(100)))
+        .pipe(Effect.result);
+      if (Result.isSuccess(rejected))
+        return yield* Effect.die("An overlong handwritten name must be rejected");
+      expect(rejected.failure.code).toBe(PdfErrorCodeValue.stampFailed);
+      expect(rejected.failure.issueMessage).not.toContain(prefix);
+      expect(JSON.stringify(rejected.failure)).not.toContain(prefix);
+      expect(Option.isNone(yield* images.ink)).toBe(true);
+    }).pipe(Effect.provide(signingImagesLayer)),
+  ),
+);
+
 it.effect(
   "retains a valid logo after a rejected replacement and releases private images with their scope",
   () =>
