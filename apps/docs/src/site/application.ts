@@ -1,8 +1,8 @@
 import type { AutoDocuments, AutoPreview } from "./auto-documents.ts";
 import { autoDocumentsLayer } from "./auto-documents.ts";
-import { Effect, Layer, Option, Schema } from "effect";
+import { Effect, Layer, Match, Option, Schema, Stream } from "effect";
 import * as Mount from "foldkit/mount";
-import * as Command from "foldkit/command";
+import * as Dom from "foldkit/dom";
 import type { Document, HtmlBuilder } from "foldkit/html";
 import * as Update from "foldkit/update";
 import * as Subscription from "foldkit/subscription";
@@ -25,7 +25,7 @@ import * as FreeSigning from "./free-signing.ts";
 import { signingImagesLayer } from "./signing-images.ts";
 import type { SigningImages } from "./signing-images.ts";
 import * as Search from "./search.ts";
-import { ContentDiagrams, contentDiagramsBrowserLayer } from "./content-diagrams.ts";
+import { ContentDiagrams, contentDiagramsBrowserLayer, DiagramTheme } from "./content-diagrams.ts";
 
 import { freeSigningPath, localizedSitePath, SiteLocale } from "../../lib/site-route.ts";
 import { m } from "../../paraglide/messages.js";
@@ -44,6 +44,8 @@ export type ContentFlags = typeof ContentFlags.Type;
 
 const ContentModel = Schema.Struct({
   ...ContentFlags.fields,
+  contentMounted: Schema.Boolean,
+  systemDark: Schema.Boolean,
   search: Search.Model,
   preferences: Preferences.Model,
   landing: Landing.Model,
@@ -51,6 +53,7 @@ const ContentModel = Schema.Struct({
 type ContentModel = typeof ContentModel.Type;
 const Message = defineMessageUnion({
   MountedContent: {},
+  ChangedSystemTheme: { dark: Schema.Boolean },
   RenderedDiagrams: {},
   GotLandingMessage: { message: Landing.Message },
   GotSearchMessage: { message: Search.Message },
@@ -63,16 +66,41 @@ const MountContent = Mount.define("MountPublishedContent", {
   execute: () => Effect.succeed(Message.MountedContent()),
 });
 
-const RenderDiagrams = Command.define("RenderPublishedDiagrams", {
-  messages: [Message.RenderedDiagrams],
-  interrupt: true,
-  execute: Effect.gen(function* () {
-    const diagrams = yield* ContentDiagrams;
-    const root = document.querySelector(".content-body");
-    if (root !== null) yield* diagrams.render(root);
-    return Message.RenderedDiagrams();
+const articleSubscriptions = Subscription.make<ContentModel, Message, ContentDiagrams>()(
+  (entry) => ({
+    systemTheme: Subscription.persistentEntry(
+      Dom.streamFromMediaQuery({
+        query: "(prefers-color-scheme: dark)",
+        mapMatches: (dark) => Message.ChangedSystemTheme({ dark }),
+      }),
+    ),
+    diagrams: entry(
+      { active: Schema.Boolean, theme: DiagramTheme },
+      {
+        modelToDependencies: (model) => ({
+          active: model.contentMounted && model.preferences.ready,
+          theme: Match.value(model.preferences.theme).pipe(
+            Match.when("system", () =>
+              model.systemDark ? DiagramTheme.literals[1] : DiagramTheme.literals[0],
+            ),
+            Match.orElse((theme) => theme),
+          ),
+        }),
+        dependenciesToStream: ({ active, theme }) =>
+          !active
+            ? Stream.empty
+            : Stream.fromEffect(
+                Effect.gen(function* () {
+                  const diagrams = yield* ContentDiagrams;
+                  const root = document.querySelector(".content-body");
+                  if (root !== null) yield* diagrams.render(root, theme);
+                  return Message.RenderedDiagrams();
+                }),
+              ),
+      },
+    ),
   }),
-});
+);
 
 const foldLanding = Update.foldChild({
   update: Landing.update,
@@ -264,11 +292,14 @@ const view = (model: ContentModel, h: HtmlBuilder<Message>): Document => {
 export const contentApplication = {
   Flags: ContentFlags,
   Model: ContentModel,
-  subscriptions: Subscription.lift(Landing.subscriptions)<ContentModel, Message>({
-    read: (model) => Option.some(model.landing),
-    toParentMessage: (message) => Message.GotLandingMessage({ message }),
-    when: (model) => model.path === "" || model.path === freeSigningPath,
-  }),
+  subscriptions: Subscription.aggregate(
+    articleSubscriptions,
+    Subscription.lift(Landing.subscriptions)<ContentModel, Message>({
+      read: (model) => Option.some(model.landing),
+      toParentMessage: (message) => Message.GotLandingMessage({ message }),
+      when: (model) => model.path === "" || model.path === freeSigningPath,
+    }),
+  ),
   resources: Layer.mergeAll(
     Http.layer,
     BrowserKeyValueStore.layerLocalStorage,
@@ -283,6 +314,8 @@ export const contentApplication = {
     Update.foldChildInit(Preferences.init(flags.locale), {
       toParentModel: (preferences) => ({
         ...flags,
+        contentMounted: false,
+        systemDark: false,
         search: Search.init(flags.locale),
         landing: Landing.init(flags.locale, flags.path === freeSigningPath ? "inline" : "dialog"),
         preferences,
@@ -307,7 +340,8 @@ export const contentApplication = {
     | AutoPreview
   > =>
     Message.match(message, {
-      MountedContent: () => ({ model, commands: [RenderDiagrams()] }),
+      MountedContent: () => ({ model: { ...model, contentMounted: true } }),
+      ChangedSystemTheme: ({ dark }) => ({ model: { ...model, systemDark: dark } }),
       RenderedDiagrams: () => ({ model }),
       GotLandingMessage: ({ message }) => foldLanding(model, message),
       GotSearchMessage: ({ message }) => foldSearch(model, message),
