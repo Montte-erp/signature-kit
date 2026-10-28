@@ -262,5 +262,6 @@
   "site_blog_tags": "Blog tags",
   "site_blog_tags_description": "Explore articles by topic.",
   "site_blog_tag_title": "Tag \"{tag}\"",
-  "site_blog_tag_description": "{count} matching blog posts."
+  "site_blog_tag_description": "{count} matching blog posts.",
+  "site_diagram_fallback": "This diagram could not be displayed. Its source is available below."
 }

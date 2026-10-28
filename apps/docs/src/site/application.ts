@@ -75,10 +75,11 @@ const articleSubscriptions = Subscription.make<ContentModel, Message, ContentDia
       }),
     ),
     diagrams: entry(
-      { active: Schema.Boolean, theme: DiagramTheme },
+      { active: Schema.Boolean, theme: DiagramTheme, locale: SiteLocale },
       {
         modelToDependencies: (model) => ({
           active: model.contentMounted && model.preferences.ready,
+          locale: model.locale,
           theme: Match.value(model.preferences.theme).pipe(
             Match.when("system", () =>
               model.systemDark ? DiagramTheme.literals[1] : DiagramTheme.literals[0],
@@ -86,14 +87,14 @@ const articleSubscriptions = Subscription.make<ContentModel, Message, ContentDia
             Match.orElse((theme) => theme),
           ),
         }),
-        dependenciesToStream: ({ active, theme }) =>
+        dependenciesToStream: ({ active, theme, locale }) =>
           !active
             ? Stream.empty
             : Stream.fromEffect(
                 Effect.gen(function* () {
                   const diagrams = yield* ContentDiagrams;
                   const root = document.querySelector(".content-body");
-                  if (root !== null) yield* diagrams.render(root, theme);
+                  if (root !== null) yield* diagrams.render(root, theme, locale);
                   return Message.RenderedDiagrams();
                 }),
               ),

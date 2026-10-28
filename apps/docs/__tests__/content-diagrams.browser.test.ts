@@ -108,7 +108,7 @@ it("preserves invalid diagram source and still renders its valid neighbor", asyn
           (element) => Effect.sync(() => element.remove()),
         );
         const diagrams = yield* ContentDiagrams;
-        yield* diagrams.render(root, "light");
+        yield* diagrams.render(root, "light", "en-US");
         const fallback = root.querySelector<HTMLElement>(
           '.content-diagram[data-diagram-state="failed"]',
         );
