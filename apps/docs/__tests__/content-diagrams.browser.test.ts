@@ -1,3 +1,4 @@
+import { ContentDiagrams, contentDiagramsBrowserLayer } from "../src/site/content-diagrams.ts";
 import { Effect } from "effect";
 import { expect, it } from "vitest";
 
@@ -82,3 +83,40 @@ it("renders documentation diagrams and follows the selected light or dark theme"
     { signal },
   );
 }, 30000);
+
+it("preserves invalid diagram source and still renders its valid neighbor", async ({ signal }) => {
+  await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const root = yield* Effect.acquireRelease(
+          Effect.sync(() => {
+            const element = document.createElement("section");
+            for (const source of [
+              "flowchart TD\nA -->",
+              "flowchart TD\nA[Valid neighbor] --> B[Still visible]",
+            ]) {
+              const pre = document.createElement("pre");
+              const code = document.createElement("code");
+              code.className = "language-mermaid";
+              code.textContent = source;
+              pre.append(code);
+              element.append(pre);
+            }
+            document.body.append(element);
+            return element;
+          }),
+          (element) => Effect.sync(() => element.remove()),
+        );
+        const diagrams = yield* ContentDiagrams;
+        yield* diagrams.render(root, "light");
+        const fallback = root.querySelector<HTMLElement>(
+          '.content-diagram[data-diagram-state="failed"]',
+        );
+        if (fallback === null) expect.fail("An invalid chart must preserve its readable source");
+        expect(fallback.querySelector("code")?.textContent).toBe("flowchart TD\nA -->");
+        expect(root.querySelector(".content-diagram svg")?.textContent).toContain("Still visible");
+      }),
+    ).pipe(Effect.provide(contentDiagramsBrowserLayer)),
+    { signal },
+  );
+}, 20000);
