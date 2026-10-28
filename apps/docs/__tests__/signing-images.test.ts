@@ -34,10 +34,10 @@ it.effect(
           yield* images.clearLogo;
           expect(Option.isNone(yield* images.logo)).toBe(true);
           yield* images.setLogo(Redacted.make(png));
-          return images.logo;
+          return { logo: images.logo };
         }).pipe(Effect.provide(signingImagesLayer)),
       );
-      expect(Option.isNone(yield* readAfterScope)).toBe(true);
+      expect(Option.isNone(yield* readAfterScope.logo)).toBe(true);
       yield* Effect.scoped(
         Effect.gen(function* () {
           const isolated = yield* SigningImages;
