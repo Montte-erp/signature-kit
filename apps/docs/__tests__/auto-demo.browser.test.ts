@@ -1,6 +1,48 @@
+import type { SiteLocale } from "../lib/site-route.ts";
 import { inspectPdf } from "./pdf-inspection.browser.ts";
 import { Effect } from "effect";
 import { expect, it } from "vitest";
+
+const openDemonstration = Effect.fn(function* (locale: typeof SiteLocale.Type = "pt-BR") {
+  const frame = yield* Effect.acquireRelease(
+    Effect.sync(() => {
+      const element = document.createElement("iframe");
+      element.src = `/${locale}`;
+      element.style.width = "1000px";
+      element.style.height = "700px";
+      document.body.append(element);
+      return element;
+    }),
+    (element) => Effect.sync(() => element.remove()),
+  );
+  yield* Effect.promise(() =>
+    expect
+      .poll(() => frame.contentDocument?.querySelector<HTMLSelectElement>("#site-theme")?.disabled)
+      .toBe(false),
+  );
+  const page = frame.contentDocument;
+  if (page === null) expect.fail("The native home must load");
+  const demo = page.querySelector<HTMLElement>("#home-auto-demo");
+  if (demo === null)
+    expect.fail("The native home must include the automatic signing demonstration");
+  frame.scrollIntoView();
+  demo.scrollIntoView();
+  yield* Effect.promise(() => expect.poll(() => demo.dataset.active).toBe("true"));
+  yield* Effect.promise(() =>
+    expect
+      .poll(
+        () => {
+          expect(page.title, page.body.textContent ?? "").not.toBe("Application Crash");
+          return demo.querySelectorAll('[data-demo-state="ready"]').length;
+        },
+        {
+          timeout: 15000,
+        },
+      )
+      .toBe(4),
+  );
+  return { frame, page, demo };
+});
 
 it("prepares four real demonstration PDFs when their native section becomes visible", async ({
   signal,
@@ -8,46 +50,7 @@ it("prepares four real demonstration PDFs when their native section becomes visi
   await Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const frame = yield* Effect.acquireRelease(
-          Effect.sync(() => {
-            const element = document.createElement("iframe");
-            element.src = "/pt-BR";
-            element.style.width = "1000px";
-            element.style.height = "700px";
-            document.body.append(element);
-            return element;
-          }),
-          (element) => Effect.sync(() => element.remove()),
-        );
-        yield* Effect.promise(() =>
-          expect
-            .poll(
-              () =>
-                frame.contentDocument?.querySelector<HTMLSelectElement>("#site-theme")?.disabled,
-            )
-            .toBe(false),
-        );
-        const page = frame.contentDocument;
-        if (page === null) expect.fail("The native home must load");
-        const demo = page.querySelector<HTMLElement>("#home-auto-demo");
-        if (demo === null)
-          expect.fail("The native home must include the automatic signing demonstration");
-        frame.scrollIntoView();
-        demo.scrollIntoView();
-        yield* Effect.promise(() => expect.poll(() => demo.dataset.active).toBe("true"));
-        yield* Effect.promise(() =>
-          expect
-            .poll(
-              () => {
-                expect(page.title, page.body.textContent ?? "").not.toBe("Application Crash");
-                return demo.querySelectorAll('[data-demo-state="ready"]').length;
-              },
-              {
-                timeout: 15000,
-              },
-            )
-            .toBe(4),
-        );
+        const { demo } = yield* openDemonstration();
         expect(demo.textContent).toContain("O passo criptográfico CMS aqui é ilustrativo");
         const tabs = [...demo.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
         expect(tabs).toHaveLength(4);
@@ -86,37 +89,7 @@ it("stamps the illustrative queue, downloads a real PDF and restores its origina
   await Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const frame = yield* Effect.acquireRelease(
-          Effect.sync(() => {
-            const element = document.createElement("iframe");
-            element.src = "/pt-BR";
-            element.style.width = "1000px";
-            element.style.height = "700px";
-            document.body.append(element);
-            return element;
-          }),
-          (element) => Effect.sync(() => element.remove()),
-        );
-        yield* Effect.promise(() =>
-          expect
-            .poll(
-              () =>
-                frame.contentDocument?.querySelector<HTMLSelectElement>("#site-theme")?.disabled,
-            )
-            .toBe(false),
-        );
-        const page = frame.contentDocument;
-        if (page === null) expect.fail("The native home must load");
-        const demo = page.querySelector<HTMLElement>("#home-auto-demo");
-        if (demo === null) expect.fail("The automatic PDF demonstration must be available");
-        demo.scrollIntoView();
-        yield* Effect.promise(() =>
-          expect
-            .poll(() => demo.querySelectorAll('[data-demo-state="ready"]').length, {
-              timeout: 15000,
-            })
-            .toBe(4),
-        );
+        const { page, demo } = yield* openDemonstration();
         yield* Effect.promise(() =>
           expect
             .poll(
@@ -186,6 +159,69 @@ it("stamps the illustrative queue, downloads a real PDF and restores its origina
         );
         expect(demo.querySelector<HTMLCanvasElement>("#home-auto-preview")?.toDataURL()).toBe(
           original,
+        );
+      }),
+    ),
+    { signal },
+  );
+}, 45000);
+
+it("navigates its linked document panels with the keyboard and previous/next controls", async ({
+  signal,
+}) => {
+  await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { page, demo } = yield* openDemonstration("en-US");
+        expect(demo.querySelector('[role="tablist"]')?.getAttribute("aria-orientation")).toBe(
+          "vertical",
+        );
+        const tabs = [...demo.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+        expect(tabs).toHaveLength(4);
+        for (const tab of tabs) {
+          const panelId = tab.getAttribute("aria-controls");
+          if (panelId === null) expect.fail("Every example tab must identify its document panel");
+          const panel = page.getElementById(panelId);
+          expect(panel?.getAttribute("role")).toBe("tabpanel");
+          expect(panel?.getAttribute("aria-labelledby")).toBe(tab.id);
+        }
+        const first = tabs.at(0);
+        const second = tabs.at(1);
+        const last = tabs.at(-1);
+        if (first === undefined || second === undefined || last === undefined)
+          expect.fail("The four document tabs must be available");
+        first.focus();
+        first.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+        );
+        yield* Effect.promise(() =>
+          expect.poll(() => second.getAttribute("aria-selected")).toBe("true"),
+        );
+        expect(page.activeElement).toBe(second);
+        second.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true }),
+        );
+        yield* Effect.promise(() =>
+          expect.poll(() => last.getAttribute("aria-selected")).toBe("true"),
+        );
+        expect(page.activeElement).toBe(last);
+        last.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Home", bubbles: true, cancelable: true }),
+        );
+        yield* Effect.promise(() =>
+          expect.poll(() => first.getAttribute("aria-selected")).toBe("true"),
+        );
+        const next = demo.querySelector<HTMLButtonElement>("#home-auto-next");
+        const previous = demo.querySelector<HTMLButtonElement>("#home-auto-previous");
+        if (next === null || previous === null)
+          expect.fail("Both document navigation controls must be available");
+        next.click();
+        yield* Effect.promise(() =>
+          expect.poll(() => second.getAttribute("aria-selected")).toBe("true"),
+        );
+        previous.click();
+        yield* Effect.promise(() =>
+          expect.poll(() => first.getAttribute("aria-selected")).toBe("true"),
         );
       }),
     ),
