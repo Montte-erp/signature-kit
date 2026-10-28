@@ -1,4 +1,6 @@
 import { Effect } from "effect";
+import { PDFDict, PDFDocument, PDFName, PDFNumber, PDFStream } from "@cantoo/pdf-lib";
+import { verifyPdfSignatures } from "@signature-kit/pdf/verify";
 import { expect, it } from "vitest";
 import { readA1FixtureFromBrowser } from "../../../tooling/testing/fixtures.browser.ts";
 
@@ -90,6 +92,76 @@ it("reads a real A1 identity, renders its handwritten mark and clears authentica
             )
             .toBeGreaterThan(100),
         );
+        const ink = page.querySelector<HTMLImageElement>("#stamp-ink-preview");
+        if (ink === null) expect.fail("The certificate name must render before signing");
+        const inkDimensions = [ink.naturalWidth, ink.naturalHeight];
+        const input = page.querySelector<HTMLInputElement>("#signing-documents-input");
+        if (input === null) expect.fail("The signer must accept a real PDF");
+        const pdf = yield* Effect.promise(() => PDFDocument.create());
+        pdf.addPage([600, 800]);
+        const pdfBytes = yield* Effect.promise(() => pdf.save());
+        const documents = new DataTransfer();
+        documents.items.add(
+          new File([new Uint8Array(pdfBytes)], "identity.pdf", { type: "application/pdf" }),
+        );
+        input.files = documents.files;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        yield* Effect.promise(() =>
+          expect
+            .poll(() => page.getElementById("signing-documents")?.textContent)
+            .toContain("identity.pdf"),
+        );
+        const place = page.querySelector<HTMLButtonElement>("#signing-place-all");
+        if (place === null) expect.fail("The signer must offer automatic placement");
+        yield* Effect.promise(() => expect.poll(() => place.disabled).toBe(false));
+        place.click();
+        const sign = page.querySelector<HTMLButtonElement>("#signing-sign");
+        if (sign === null) expect.fail("The signer must expose its signing action");
+        yield* Effect.promise(() => expect.poll(() => sign.disabled).toBe(false));
+        expect(password.value).toBe("");
+        sign.click();
+        yield* Effect.promise(() =>
+          expect
+            .poll(() => page.querySelector('#signing-documents [data-signed="true"]')?.textContent)
+            .toContain("identity.pdf"),
+        );
+        const downloaded = Promise.withResolvers<Response>();
+        yield* Effect.acquireRelease(
+          Effect.sync(() => {
+            const observe = () => {
+              const link = page.querySelector<HTMLAnchorElement>("a[download]");
+              if (link !== null) void fetch(link.href).then(downloaded.resolve, downloaded.reject);
+            };
+            page.addEventListener("click", observe);
+            return observe;
+          }),
+          (observe) => Effect.sync(() => page.removeEventListener("click", observe)),
+        );
+        page
+          .querySelector<HTMLButtonElement>('#signing-documents button[data-action="download"]')
+          ?.click();
+        const response = yield* Effect.promise(() => downloaded.promise);
+        const signed = new Uint8Array(yield* Effect.promise(() => response.arrayBuffer()));
+        expect((yield* verifyPdfSignatures({ pdf: signed }))[0]?.valid).toBe(true);
+        const parsed = yield* Effect.promise(() => PDFDocument.load(signed));
+        const embeddedImages = parsed.getPages().flatMap((pdfPage) => {
+          const objects = pdfPage.node.Resources()?.lookupMaybe(PDFName.of("XObject"), PDFDict);
+          return (
+            objects?.entries().flatMap(([, reference]) => {
+              const object = parsed.context.lookup(reference, PDFStream);
+              return object.dict.lookupMaybe(PDFName.of("Subtype"), PDFName)?.toString() ===
+                "/Image"
+                ? [
+                    [
+                      object.dict.lookupMaybe(PDFName.of("Width"), PDFNumber)?.asNumber(),
+                      object.dict.lookupMaybe(PDFName.of("Height"), PDFNumber)?.asNumber(),
+                    ],
+                  ]
+                : [];
+            }) ?? []
+          );
+        });
+        expect(embeddedImages).toContainEqual(inkDimensions);
         page.querySelector<HTMLButtonElement>("#signing-close")?.click();
         yield* Effect.promise(() =>
           expect
