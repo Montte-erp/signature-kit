@@ -1,4 +1,4 @@
-import { Effect, Match, Option, Schema, Stream } from "effect";
+import { Array as EffectArray, Effect, Match, Option, Schema, Stream } from "effect";
 import * as Command from "foldkit/command";
 import * as Mount from "foldkit/mount";
 import * as Submodel from "foldkit/submodel";
@@ -43,7 +43,7 @@ export const Message = defineMessageUnion({
   FailedDownload: {},
   PreparedDocument: { id: ExampleId },
   SelectedDocument: { id: ExampleId },
-  MountedPreview: {},
+  MountedPreview: { id: ExampleId, revision: Schema.Int },
   RenderedPreview: { id: ExampleId, revision: Schema.Int },
   FailedPreview: { id: ExampleId, revision: Schema.Int },
 });
@@ -64,8 +64,9 @@ const Visible = Mount.define("ObserveAutomaticDemo", {
     }),
 });
 const Preview = Mount.define("MountAutomaticPreview", {
+  args: { id: ExampleId, revision: Schema.Int },
   messages: [Message.MountedPreview],
-  execute: ({ element }) =>
+  execute: ({ element, id, revision }) =>
     Effect.gen(function* () {
       yield* Effect.acquireRelease(Effect.succeed(element), (canvas) =>
         Effect.sync(() => {
@@ -73,7 +74,7 @@ const Preview = Mount.define("MountAutomaticPreview", {
           canvas.setAttribute("height", "0");
         }),
       );
-      return Message.MountedPreview();
+      return Message.MountedPreview({ id, revision });
     }),
 });
 
@@ -150,7 +151,14 @@ export const update = (
       model:
         model.busy || model.documents.some((row) => row.state !== "ready")
           ? model
-          : { ...model, running: true, busy: true, failed: false, revision: model.revision + 1 },
+          : {
+              ...model,
+              running: true,
+              busy: true,
+              failed: false,
+              mounted: false,
+              revision: model.revision + 1,
+            },
     }),
     StartedStamp: ({ id, revision }) => ({
       model:
@@ -159,6 +167,7 @@ export const update = (
           : {
               ...model,
               selected: id,
+              mounted: model.selected === id && model.mounted,
               preview: "loading",
               documents: model.documents.map((row) =>
                 row.id === id ? { ...row, state: "stamping" } : row,
@@ -200,6 +209,7 @@ export const update = (
               busy: true,
               failed: false,
               revision: model.revision + 1,
+              mounted: false,
               preview: "loading",
             },
             commands: [ResetDocuments()],
@@ -209,6 +219,7 @@ export const update = (
         ...model,
         busy: false,
         selected: "contract",
+        mounted: model.selected === "contract" && model.mounted,
         preview: "loading",
         documents: model.documents.map((row) => ({ ...row, state: "ready" })),
       },
@@ -232,9 +243,21 @@ export const update = (
       },
     }),
     SelectedDocument: ({ id }) => ({
-      model: model.selected === id ? model : { ...model, selected: id, preview: "loading" },
+      model:
+        model.selected === id || model.busy
+          ? model
+          : {
+              ...model,
+              selected: id,
+              mounted: false,
+              revision: model.revision + 1,
+              preview: "loading",
+            },
     }),
-    MountedPreview: () => ({ model: { ...model, mounted: true } }),
+    MountedPreview: ({ id, revision }) => ({
+      model:
+        id === model.selected && revision === model.revision ? { ...model, mounted: true } : model,
+    }),
     RenderedPreview: ({ id, revision }) => ({
       model:
         model.selected === id && model.revision === revision
@@ -354,6 +377,11 @@ export const subscriptions = Subscription.make<Model, Message, AutoDocuments | A
 
 export const view = Submodel.defineView<Model, Message>((model, h) => {
   const options = { locale: model.locale };
+  const selectedIndex = ExampleId.literals.indexOf(model.selected);
+  const previous =
+    ExampleId.literals[(selectedIndex + ExampleId.literals.length - 1) % ExampleId.literals.length];
+  const next = ExampleId.literals[(selectedIndex + 1) % ExampleId.literals.length];
+  const completed = model.documents.filter((row) => row.state === "stamped").length;
   return h.section(
     [
       h.Id("home-auto-demo"),
@@ -370,66 +398,155 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
       h.h2([], [m.autosign_title({}, options)]),
       h.p([], [m.autosign_lead({}, options)]),
       h.div(
-        [h.Attribute("role", "tablist"), h.Attribute("aria-label", m.autosign_title({}, options))],
-        model.documents.map((row) =>
-          h.button(
-            [
-              h.Type("button"),
-              h.Attribute("role", "tab"),
-              h.Attribute("aria-selected", String(row.id === model.selected)),
-              h.Attribute("data-demo-state", row.state),
-              h.OnClick(Message.SelectedDocument({ id: row.id })),
-            ],
-            [
-              names[row.id]({}, options),
-              " · ",
-              Match.value(row.state).pipe(
-                Match.when("stamped", () => m.autosign_doc_signed({}, options)),
-                Match.when("stamping", () => m.autosign_doc_signing({}, options)),
-                Match.when("ready", () => m.autosign_doc_ready({}, options)),
-                Match.when("failed", () => m.signer_error_generic({}, options)),
-                Match.when("queued", () => m.autosign_doc_generating({}, options)),
-                Match.exhaustive,
-              ),
-            ],
-          ),
-        ),
-      ),
-      h.canvas(
+        [h.Class("auto-demo-layout")],
         [
-          h.Id("home-auto-preview"),
-          h.Attribute("data-state", model.preview),
-          h.OnMount(Preview()),
-          h.Attribute("style", "width:100%;max-width:595px;height:auto"),
+          h.div(
+            [
+              h.Attribute("role", "tablist"),
+              h.Attribute("aria-orientation", "vertical"),
+              h.Attribute("aria-label", m.autosign_title({}, options)),
+            ],
+            model.documents.map((row, index) =>
+              h.button(
+                [
+                  h.Id(`home-auto-tab-${row.id}`),
+                  h.Type("button"),
+                  h.Attribute("role", "tab"),
+                  h.Attribute("aria-selected", String(row.id === model.selected)),
+                  h.Attribute("aria-controls", `home-auto-panel-${row.id}`),
+                  h.Tabindex(model.selected === row.id ? 0 : -1),
+                  h.Disabled(model.busy),
+                  h.Attribute("data-demo-state", row.state),
+                  h.OnKeyDownFocus((key, modifiers) => {
+                    if (model.busy || modifiers.altKey || modifiers.ctrlKey || modifiers.metaKey)
+                      return Option.none();
+                    return Match.value(key).pipe(
+                      Match.when("ArrowDown", () =>
+                        EffectArray.get(
+                          ExampleId.literals,
+                          (index + 1) % ExampleId.literals.length,
+                        ),
+                      ),
+                      Match.when("ArrowUp", () =>
+                        EffectArray.get(
+                          ExampleId.literals,
+                          (index + ExampleId.literals.length - 1) % ExampleId.literals.length,
+                        ),
+                      ),
+                      Match.when("Home", () => EffectArray.head(ExampleId.literals)),
+                      Match.when("End", () => EffectArray.last(ExampleId.literals)),
+                      Match.orElse(() => Option.none()),
+                      Option.map((id) => ({
+                        focusSelector: `#home-auto-tab-${id}`,
+                        message: Message.SelectedDocument({ id }),
+                      })),
+                    );
+                  }),
+                  h.OnClick(Message.SelectedDocument({ id: row.id })),
+                ],
+                [
+                  names[row.id]({}, options),
+                  " · ",
+                  Match.value(row.state).pipe(
+                    Match.when("stamped", () => m.autosign_doc_signed({}, options)),
+                    Match.when("stamping", () => m.autosign_doc_signing({}, options)),
+                    Match.when("ready", () => m.autosign_doc_ready({}, options)),
+                    Match.when("failed", () => m.signer_error_generic({}, options)),
+                    Match.when("queued", () => m.autosign_doc_generating({}, options)),
+                    Match.exhaustive,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          h.div(
+            [h.Class("auto-demo-panels")],
+            model.documents.map((row) =>
+              h.div(
+                [
+                  h.Id(`home-auto-panel-${row.id}`),
+                  h.Attribute("role", "tabpanel"),
+                  h.Attribute("aria-labelledby", `home-auto-tab-${row.id}`),
+                  h.Hidden(row.id !== model.selected),
+                ],
+                row.id !== model.selected
+                  ? []
+                  : [
+                      h.canvas(
+                        [
+                          h.Key(`${row.id}:${model.revision}`),
+                          h.Id("home-auto-preview"),
+                          h.Attribute("data-state", model.preview),
+                          h.OnMount(Preview({ id: row.id, revision: model.revision })),
+                        ],
+                        [],
+                      ),
+                    ],
+              ),
+            ),
+          ),
+        ],
+      ),
+      h.progress(
+        [
+          h.Attribute("max", String(model.documents.length)),
+          h.Attribute("value", String(completed)),
+          h.Attribute("aria-label", m.autosign_title({}, options)),
         ],
         [],
       ),
-      h.button(
+      completed === model.documents.length
+        ? h.p([h.Attribute("role", "status")], [m.autosign_done({}, options)])
+        : h.empty,
+      h.div(
+        [h.Class("auto-demo-controls")],
         [
-          h.Id("home-auto-run"),
-          h.Type("button"),
-          h.Disabled(model.busy || model.documents.some((row) => row.state !== "ready")),
-          h.OnClick(Message.ClickedRun()),
+          h.button(
+            [
+              h.Id("home-auto-run"),
+              h.Type("button"),
+              h.Disabled(model.busy || model.documents.some((row) => row.state !== "ready")),
+              h.OnClick(Message.ClickedRun()),
+            ],
+            [model.running ? m.autosign_running({}, options) : m.autosign_cta({}, options)],
+          ),
+          h.button(
+            [
+              h.Id("home-auto-download"),
+              h.Type("button"),
+              h.Disabled(model.busy || model.documents.some((row) => row.state === "queued")),
+              h.OnClick(Message.ClickedDownload()),
+            ],
+            [m.autosign_download({}, options)],
+          ),
+          h.button(
+            [
+              h.Id("home-auto-reset"),
+              h.Type("button"),
+              h.Disabled(model.busy || model.documents.some((row) => row.state === "queued")),
+              h.OnClick(Message.ClickedReset()),
+            ],
+            [m.autosign_reset({}, options)],
+          ),
+          h.button(
+            [
+              h.Id("home-auto-previous"),
+              h.Type("button"),
+              h.Disabled(model.busy),
+              h.OnClick(Message.SelectedDocument({ id: previous })),
+            ],
+            [m.autosign_prev({}, options)],
+          ),
+          h.button(
+            [
+              h.Id("home-auto-next"),
+              h.Type("button"),
+              h.Disabled(model.busy),
+              h.OnClick(Message.SelectedDocument({ id: next })),
+            ],
+            [m.autosign_next({}, options)],
+          ),
         ],
-        [m.autosign_cta({}, options)],
-      ),
-      h.button(
-        [
-          h.Id("home-auto-download"),
-          h.Type("button"),
-          h.Disabled(model.busy || model.documents.some((row) => row.state === "queued")),
-          h.OnClick(Message.ClickedDownload()),
-        ],
-        [m.autosign_download({}, options)],
-      ),
-      h.button(
-        [
-          h.Id("home-auto-reset"),
-          h.Type("button"),
-          h.Disabled(model.busy || model.documents.some((row) => row.state === "queued")),
-          h.OnClick(Message.ClickedReset()),
-        ],
-        [m.autosign_reset({}, options)],
       ),
       model.failed
         ? h.p([h.Attribute("role", "alert")], [m.signer_error_signing_failed({}, options)])

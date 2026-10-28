@@ -667,3 +667,34 @@ footer {
   border: 1px solid var(--site-border);
   border-radius: 0.5rem;
 }
+
+.auto-demo-layout {
+  display: grid;
+  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr);
+  gap: 1.5rem;
+  margin-block: 1.5rem;
+}
+.auto-demo-layout [role="tablist"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.auto-demo-layout [role="tab"] {
+  text-align: left;
+}
+.auto-demo-panels canvas {
+  width: 100%;
+  max-width: 595px;
+  height: auto;
+}
+.auto-demo-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block: 1rem;
+}
+@media (max-width: 700px) {
+  .auto-demo-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

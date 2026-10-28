@@ -110,7 +110,12 @@ it("stamps the illustrative queue, downloads a real PDF and restores its origina
             .toBe(4),
         );
         expect(demo.textContent).toContain("O passo criptográfico CMS aqui é ilustrativo");
-        demo.querySelector<HTMLButtonElement>('[role="tab"]')?.click();
+        const first = demo.querySelector<HTMLButtonElement>('[role="tab"]');
+        if (first === null) expect.fail("The first document must remain selectable");
+        first.click();
+        yield* Effect.promise(() =>
+          expect.poll(() => first.getAttribute("aria-selected")).toBe("true"),
+        );
         yield* Effect.promise(() =>
           expect
             .poll(
