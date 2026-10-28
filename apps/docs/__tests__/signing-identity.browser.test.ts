@@ -145,6 +145,20 @@ it("reads a real A1 identity, renders its handwritten mark and clears authentica
         const signed = new Uint8Array(yield* Effect.promise(() => response.arrayBuffer()));
         expect((yield* verifyPdfSignatures({ pdf: signed }))[0]?.valid).toBe(true);
         expect(yield* embeddedPdfImageDimensions(signed)).toContainEqual(inkDimensions);
+        const replacement = new DataTransfer();
+        replacement.items.add(new File([new Uint8Array(pfx)], "replacement.p12"));
+        file.files = replacement.files;
+        file.dispatchEvent(new Event("change", { bubbles: true }));
+        yield* Effect.promise(() =>
+          expect
+            .poll(() =>
+              page.getElementById("signing-identity-status")?.getAttribute("data-verified"),
+            )
+            .toBe("false"),
+        );
+        yield* Effect.promise(() =>
+          expect.poll(() => page.querySelector("#stamp-ink-preview")).toBeNull(),
+        );
         page.querySelector<HTMLButtonElement>("#signing-close")?.click();
         yield* Effect.promise(() =>
           expect
