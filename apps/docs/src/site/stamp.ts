@@ -62,109 +62,85 @@ export type Message = typeof Message.Type;
 export const OutMessage = defineMessageUnion({
   PickedLogo: {},
   RemovedLogo: {},
-  RequestedHandwriting: {},
-  ClearedHandwriting: {},
+  RequestedTypedHandwriting: {},
+  RequestedCertificateHandwriting: {},
 });
 export type OutMessage = typeof OutMessage.Type;
 
-const MountLogo = Mount.define("MountSigningLogo", {
-  args: { id: Schema.NonEmptyString },
-  messages: [Message.MountedLogo],
-  execute: ({ id }) => Effect.succeed(Message.MountedLogo({ id })),
+const ImageKind = Schema.Literals(["logo", "ink"]);
+
+const MountImage = Mount.define("MountSigningImage", {
+  args: { kind: ImageKind, id: Schema.NonEmptyString },
+  messages: [Message.MountedLogo, Message.MountedInk],
+  execute: ({ kind, id }) =>
+    Effect.succeed(
+      Match.value(kind).pipe(
+        Match.when("logo", () => Message.MountedLogo({ id })),
+        Match.when("ink", () => Message.MountedInk({ id })),
+        Match.exhaustive,
+      ),
+    ),
 });
 
-const MountInk = Mount.define("MountSigningInk", {
-  args: { id: Schema.NonEmptyString },
-  messages: [Message.MountedInk],
-  execute: ({ id }) => Effect.succeed(Message.MountedInk({ id })),
+export const subscriptions = Subscription.make<Model, Message, SigningImages>()((entry) => {
+  const preview = (kind: typeof ImageKind.Type) =>
+    entry(
+      { id: Schema.OptionFromNullOr(Schema.String) },
+      {
+        modelToDependencies: (model) => {
+          const image = Match.value(kind).pipe(
+            Match.when("logo", () => ({ id: model.logoId, state: model.logoPreview })),
+            Match.when("ink", () => ({ id: model.inkId, state: model.inkPreview })),
+            Match.exhaustive,
+          );
+          return {
+            id:
+              image.id !== undefined && image.state !== "loading"
+                ? Option.some(image.id)
+                : Option.none(),
+          };
+        },
+        dependenciesToStream: ({ id }) =>
+          Option.match(id, {
+            onNone: () => Stream.empty,
+            onSome: (id) =>
+              Stream.unwrap(
+                Effect.gen(function* () {
+                  const images = yield* SigningImages;
+                  const image = yield* images[kind];
+                  if (Option.isNone(image) || image.value.id !== id)
+                    return Stream.make(
+                      Match.value(kind).pipe(
+                        Match.when("logo", () => Message.LostLogo({ id })),
+                        Match.when("ink", () => Message.LostInk({ id })),
+                        Match.exhaustive,
+                      ),
+                    );
+                  const element = document.getElementById(`stamp-${kind}-preview`);
+                  if (element === null) return Stream.empty;
+                  const url = yield* Effect.acquireRelease(
+                    Effect.sync(() =>
+                      URL.createObjectURL(
+                        new Blob([new Uint8Array(Redacted.value(image.value.bytes))], {
+                          type: "image/png",
+                        }),
+                      ),
+                    ),
+                    (url) =>
+                      Effect.sync(() => {
+                        element.removeAttribute("src");
+                        URL.revokeObjectURL(url);
+                      }),
+                  );
+                  yield* Effect.sync(() => element.setAttribute("src", url));
+                  return Stream.never;
+                }),
+              ),
+          }),
+      },
+    );
+  return { logoPreview: preview("logo"), inkPreview: preview("ink") };
 });
-
-export const subscriptions = Subscription.make<Model, Message, SigningImages>()((entry) => ({
-  inkPreview: entry(
-    { inkId: Schema.OptionFromNullOr(Schema.String) },
-    {
-      modelToDependencies: (model) => ({
-        inkId:
-          model.inkId !== undefined && model.inkPreview !== "loading"
-            ? Option.some(model.inkId)
-            : Option.none(),
-      }),
-      dependenciesToStream: ({ inkId }) =>
-        Option.match(inkId, {
-          onNone: () => Stream.empty,
-          onSome: (id) =>
-            Stream.unwrap(
-              Effect.gen(function* () {
-                const images = yield* SigningImages;
-                const ink = yield* images.ink;
-                if (Option.isNone(ink) || ink.value.id !== id)
-                  return Stream.make(Message.LostInk({ id }));
-                const element = document.getElementById("stamp-ink-preview");
-                if (element === null) return Stream.empty;
-                const url = yield* Effect.acquireRelease(
-                  Effect.sync(() =>
-                    URL.createObjectURL(
-                      new Blob([new Uint8Array(Redacted.value(ink.value.bytes))], {
-                        type: "image/png",
-                      }),
-                    ),
-                  ),
-                  (url) =>
-                    Effect.sync(() => {
-                      element.removeAttribute("src");
-                      URL.revokeObjectURL(url);
-                    }),
-                );
-                yield* Effect.sync(() => element.setAttribute("src", url));
-                return Stream.never;
-              }),
-            ),
-        }),
-    },
-  ),
-  logoPreview: entry(
-    { logoId: Schema.OptionFromNullOr(Schema.String) },
-    {
-      modelToDependencies: (model) => ({
-        logoId:
-          model.logoId !== undefined && model.logoPreview !== "loading"
-            ? Option.some(model.logoId)
-            : Option.none(),
-      }),
-      dependenciesToStream: ({ logoId }) =>
-        Option.match(logoId, {
-          onNone: () => Stream.empty,
-          onSome: (id) =>
-            Stream.unwrap(
-              Effect.gen(function* () {
-                const images = yield* SigningImages;
-                const logo = yield* images.logo;
-                if (Option.isNone(logo) || logo.value.id !== id)
-                  return Stream.make(Message.LostLogo({ id }));
-                const element = document.getElementById("stamp-logo-preview");
-                if (element === null) return Stream.empty;
-                const url = yield* Effect.acquireRelease(
-                  Effect.sync(() =>
-                    URL.createObjectURL(
-                      new Blob([new Uint8Array(Redacted.value(logo.value.bytes))], {
-                        type: "image/png",
-                      }),
-                    ),
-                  ),
-                  (url) =>
-                    Effect.sync(() => {
-                      element.removeAttribute("src");
-                      URL.revokeObjectURL(url);
-                    }),
-                );
-                yield* Effect.sync(() => element.setAttribute("src", url));
-                return Stream.never;
-              }),
-            ),
-        }),
-    },
-  ),
-}));
 
 export const init = (locale: typeof SiteLocale.Type): Model => ({
   locale,
@@ -186,9 +162,11 @@ export const update = (
     SelectedInkSource: ({ source }) => ({
       model: { ...model, inkSource: source, inkId: undefined, inkPreview: "idle" },
       outMessage:
-        source === "typed" ? OutMessage.RequestedHandwriting() : OutMessage.ClearedHandwriting(),
+        source === "typed"
+          ? OutMessage.RequestedTypedHandwriting()
+          : OutMessage.RequestedCertificateHandwriting(),
     }),
-    ChangedHandwriting: () => ({ model, outMessage: OutMessage.RequestedHandwriting() }),
+    ChangedHandwriting: () => ({ model, outMessage: OutMessage.RequestedTypedHandwriting() }),
     LoadedInk: ({ source, id }) => ({
       model:
         model.inkSource === source && (model.inkId !== id || id === undefined)
@@ -337,7 +315,7 @@ export const view = Submodel.defineView<Model, Message, typeof ViewInputs.Type>(
               h.Id("stamp-ink-preview"),
               h.Alt(m.signer_signature_mark({}, options)),
               h.Style({ maxWidth: "100%", maxHeight: "5rem", background: "white" }),
-              h.OnMount(MountInk({ id: model.inkId })),
+              h.OnMount(MountImage({ kind: "ink", id: model.inkId })),
               h.OnLoad(Message.InkPreviewLoaded({ id: model.inkId })),
               h.OnError(Message.InkPreviewFailed({ id: model.inkId })),
             ]),
@@ -411,7 +389,7 @@ export const view = Submodel.defineView<Model, Message, typeof ViewInputs.Type>(
               h.Alt(m.signer_stamp_logo({}, options)),
               h.Style({ maxWidth: "10rem", maxHeight: "4rem" }),
               h.DataAttribute("state", model.logoPreview),
-              h.OnMount(MountLogo({ id: model.logoId })),
+              h.OnMount(MountImage({ kind: "logo", id: model.logoId })),
               h.OnLoad(Message.LogoPreviewLoaded({ id: model.logoId })),
               h.OnError(Message.LogoPreviewFailed({ id: model.logoId })),
             ]),

@@ -104,7 +104,7 @@ export const Message = defineMessageUnion({
   UnchangedLogo: {},
   CompletedCancelLoadStampLogo: {},
   CompletedCancelLoadHandwriting: {},
-  CompletedCancelClearHandwriting: {},
+  CompletedCancelLoadCertificateHandwriting: {},
   CompletedCancelHandwritingForClose: {},
   LoadedInk: { source: Stamp.InkSource, id: Schema.optional(Schema.NonEmptyString) },
   RejectedInk: {},
@@ -211,7 +211,7 @@ const LoadHandwriting = Command.define("LoadStampHandwriting", {
   }),
 });
 
-const ClearHandwriting = Command.define("ClearStampHandwriting", {
+const LoadCertificateHandwriting = Command.define("LoadCertificateHandwriting", {
   messages: [Message.LoadedInk, Message.RejectedInk],
   execute: Effect.gen(function* () {
     const images = yield* SigningImages;
@@ -711,13 +711,15 @@ const foldStamp = Update.foldChild({
       Stamp.OutMessage.match(outMessage, {
         PickedLogo: () => ({ model: { ...model, busy: true }, commands: [LoadLogo()] }),
         RemovedLogo: () => ({ model: { ...model, busy: true }, commands: [RemoveLogo()] }),
-        RequestedHandwriting: () => ({
+        RequestedTypedHandwriting: () => ({
           model,
           commands: [LoadHandwriting.Interrupt(() => Message.CompletedCancelLoadHandwriting())],
         }),
-        ClearedHandwriting: () => ({
+        RequestedCertificateHandwriting: () => ({
           model,
-          commands: [LoadHandwriting.Interrupt(() => Message.CompletedCancelClearHandwriting())],
+          commands: [
+            LoadHandwriting.Interrupt(() => Message.CompletedCancelLoadCertificateHandwriting()),
+          ],
         }),
       }),
 });
@@ -1061,10 +1063,10 @@ export const update = (
     LoadedLogo: ({ id }) => foldStamp({ ...model, busy: false }, Stamp.Message.LoadedLogo({ id })),
     CompletedCancelLoadHandwriting: () =>
       model.stamp.inkSource !== "typed" ? { model } : { model, commands: [LoadHandwriting()] },
-    CompletedCancelClearHandwriting: () =>
+    CompletedCancelLoadCertificateHandwriting: () =>
       model.stamp.inkSource !== "certificate"
         ? { model }
-        : { model, commands: [ClearHandwriting()] },
+        : { model, commands: [LoadCertificateHandwriting()] },
     LoadedInk: ({ source, id }) => foldStamp(model, Stamp.Message.LoadedInk({ source, id })),
     RejectedInk: () => foldStamp(model, Stamp.Message.RejectedInk()),
     RejectedLogo: ({ code }) =>

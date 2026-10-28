@@ -1,9 +1,9 @@
-import { PDFDict, PDFDocument, PDFName, PDFNumber, PDFStream, rgb } from "@cantoo/pdf-lib";
+import { PDFDocument, rgb } from "@cantoo/pdf-lib";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { readA1FixtureFromBrowser } from "../../../tooling/testing/fixtures.browser.ts";
 import { verifyPdfSignatures } from "@signature-kit/pdf/verify";
-import { inspectPdf } from "./pdf-inspection.browser.ts";
+import { embeddedPdfImageDimensions, inspectPdf } from "./pdf-inspection.browser.ts";
 
 describe("Foldkit signing dialog", () => {
   it("customizes a visible mark, signs real PDFs and clears its session", async ({ signal }) => {
@@ -391,25 +391,7 @@ describe("Foldkit signing dialog", () => {
           const signedPdf = new Uint8Array(yield* Effect.promise(() => artifact.arrayBuffer()));
           const verification = yield* verifyPdfSignatures({ pdf: signedPdf });
           expect(verification[0]?.valid).toBe(true);
-          const parsedPdf = yield* Effect.promise(() => PDFDocument.load(signedPdf));
-          const embeddedImages = parsedPdf.getPages().flatMap((pdfPage) => {
-            const objects = pdfPage.node.Resources()?.lookupMaybe(PDFName.of("XObject"), PDFDict);
-            return (
-              objects?.entries().flatMap(([, reference]) => {
-                const object = parsedPdf.context.lookup(reference, PDFStream);
-                return object.dict.lookupMaybe(PDFName.of("Subtype"), PDFName)?.toString() ===
-                  "/Image"
-                  ? [
-                      [
-                        object.dict.lookupMaybe(PDFName.of("Width"), PDFNumber)?.asNumber(),
-                        object.dict.lookupMaybe(PDFName.of("Height"), PDFNumber)?.asNumber(),
-                      ],
-                    ]
-                  : [];
-              }) ?? []
-            );
-          });
-          expect(embeddedImages).toContainEqual(inkDimensions);
+          expect(yield* embeddedPdfImageDimensions(signedPdf)).toContainEqual(inkDimensions);
           const inspected = yield* inspectPdf(signedPdf);
           const visibleText = inspected.map((page) => page.text).join("\n");
           expect(visibleText).toContain("Reviewed locally");

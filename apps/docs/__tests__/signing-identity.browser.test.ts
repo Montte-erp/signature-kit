@@ -1,5 +1,6 @@
 import { Effect } from "effect";
-import { PDFDict, PDFDocument, PDFName, PDFNumber, PDFStream } from "@cantoo/pdf-lib";
+import { PDFDocument } from "@cantoo/pdf-lib";
+import { embeddedPdfImageDimensions } from "./pdf-inspection.browser.ts";
 import { verifyPdfSignatures } from "@signature-kit/pdf/verify";
 import { expect, it } from "vitest";
 import { readA1FixtureFromBrowser } from "../../../tooling/testing/fixtures.browser.ts";
@@ -143,25 +144,7 @@ it("reads a real A1 identity, renders its handwritten mark and clears authentica
         const response = yield* Effect.promise(() => downloaded.promise);
         const signed = new Uint8Array(yield* Effect.promise(() => response.arrayBuffer()));
         expect((yield* verifyPdfSignatures({ pdf: signed }))[0]?.valid).toBe(true);
-        const parsed = yield* Effect.promise(() => PDFDocument.load(signed));
-        const embeddedImages = parsed.getPages().flatMap((pdfPage) => {
-          const objects = pdfPage.node.Resources()?.lookupMaybe(PDFName.of("XObject"), PDFDict);
-          return (
-            objects?.entries().flatMap(([, reference]) => {
-              const object = parsed.context.lookup(reference, PDFStream);
-              return object.dict.lookupMaybe(PDFName.of("Subtype"), PDFName)?.toString() ===
-                "/Image"
-                ? [
-                    [
-                      object.dict.lookupMaybe(PDFName.of("Width"), PDFNumber)?.asNumber(),
-                      object.dict.lookupMaybe(PDFName.of("Height"), PDFNumber)?.asNumber(),
-                    ],
-                  ]
-                : [];
-            }) ?? []
-          );
-        });
-        expect(embeddedImages).toContainEqual(inkDimensions);
+        expect(yield* embeddedPdfImageDimensions(signed)).toContainEqual(inkDimensions);
         page.querySelector<HTMLButtonElement>("#signing-close")?.click();
         yield* Effect.promise(() =>
           expect

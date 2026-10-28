@@ -1,5 +1,26 @@
 import { Array as EffectArray, Effect } from "effect";
 import * as PdfJs from "pdfjs-dist";
+import { PDFDict, PDFDocument, PDFName, PDFNumber, PDFStream } from "@cantoo/pdf-lib";
+
+export const embeddedPdfImageDimensions = Effect.fn(function* (bytes: Uint8Array) {
+  const pdf = yield* Effect.promise(() => PDFDocument.load(bytes));
+  return pdf.getPages().flatMap((page) => {
+    const objects = page.node.Resources()?.lookupMaybe(PDFName.of("XObject"), PDFDict);
+    return (
+      objects?.entries().flatMap(([, reference]) => {
+        const object = pdf.context.lookup(reference, PDFStream);
+        return object.dict.lookupMaybe(PDFName.of("Subtype"), PDFName)?.toString() === "/Image"
+          ? [
+              [
+                object.dict.lookupMaybe(PDFName.of("Width"), PDFNumber)?.asNumber(),
+                object.dict.lookupMaybe(PDFName.of("Height"), PDFNumber)?.asNumber(),
+              ],
+            ]
+          : [];
+      }) ?? []
+    );
+  });
+});
 
 export const inspectPdf = Effect.fn(function* (bytes: Uint8Array) {
   return yield* Effect.scoped(
