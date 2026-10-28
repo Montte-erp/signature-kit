@@ -77,7 +77,7 @@ export const contentDiagramsBrowserLayer = Layer.effect(
                     element.style.position = "absolute";
                     element.style.visibility = "hidden";
                     element.style.width = `${root.getBoundingClientRect().width}px`;
-                    root.append(element);
+                    root.ownerDocument.body.append(element);
                     return element;
                   }),
                   (element) => Effect.sync(() => element.remove()),
