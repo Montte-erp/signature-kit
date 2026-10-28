@@ -698,3 +698,21 @@ footer {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.content-code-widget {
+  margin-block: 0.75rem;
+}
+.content-code-managers,
+.article-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.content-code-widget [aria-pressed="true"] {
+  border-color: currentColor;
+  font-weight: 600;
+}
+.article-actions {
+  margin-block: 1rem 1.5rem;
+}

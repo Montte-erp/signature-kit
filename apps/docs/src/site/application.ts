@@ -1,3 +1,5 @@
+import * as ArticleActions from "./article-actions.ts";
+import { mountCodeBlocks } from "./code-block.ts";
 import type { AutoDocuments, AutoPreview } from "./auto-documents.ts";
 import { autoDocumentsLayer } from "./auto-documents.ts";
 import { Effect, Layer, Match, Option, Schema, Stream } from "effect";
@@ -29,7 +31,7 @@ import { ContentDiagrams, contentDiagramsBrowserLayer, DiagramTheme } from "./co
 
 import { freeSigningPath, localizedSitePath, SiteLocale } from "../../lib/site-route.ts";
 import { m } from "../../paraglide/messages.js";
-import { ContentPage, DocumentationGroup } from "../content/config.ts";
+import { ContentDocument, ContentPage, DocumentationGroup } from "../content/config.ts";
 
 export const ContentFlags = Schema.Struct({
   page: ContentPage,
@@ -38,6 +40,7 @@ export const ContentFlags = Schema.Struct({
   locale: SiteLocale,
   path: Schema.String,
   siteUrl: Schema.String,
+  sourceUrl: ContentDocument.fields.sourceUrl,
 });
 
 export type ContentFlags = typeof ContentFlags.Type;
@@ -47,6 +50,7 @@ const ContentModel = Schema.Struct({
   contentMounted: Schema.Boolean,
   systemDark: Schema.Boolean,
   search: Search.Model,
+  articleActions: ArticleActions.Model,
   preferences: Preferences.Model,
   landing: Landing.Model,
 });
@@ -57,13 +61,19 @@ const Message = defineMessageUnion({
   RenderedDiagrams: {},
   GotLandingMessage: { message: Landing.Message },
   GotSearchMessage: { message: Search.Message },
+  GotArticleActionsMessage: { message: ArticleActions.Message },
   GotPreferencesMessage: { message: Preferences.Message },
 });
 type Message = typeof Message.Type;
 
 const MountContent = Mount.define("MountPublishedContent", {
+  args: { locale: SiteLocale },
   messages: [Message.MountedContent],
-  execute: () => Effect.succeed(Message.MountedContent()),
+  execute: ({ element, locale }) =>
+    Effect.gen(function* () {
+      yield* mountCodeBlocks(element, locale);
+      return Message.MountedContent();
+    }),
 });
 
 const articleSubscriptions = Subscription.make<ContentModel, Message, ContentDiagrams>()(
@@ -108,6 +118,13 @@ const foldLanding = Update.foldChild({
   read: (model: ContentModel) => Option.some(model.landing),
   write: (model, landing) => ({ ...model, landing }),
   toParentMessage: (message) => Message.GotLandingMessage({ message }),
+});
+
+const foldArticleActions = Update.foldChild({
+  update: ArticleActions.update,
+  read: (model: ContentModel) => Option.some(model.articleActions),
+  write: (model, articleActions) => ({ ...model, articleActions }),
+  toParentMessage: (message) => Message.GotArticleActionsMessage({ message }),
 });
 
 const foldSearch = Update.foldChild({
@@ -248,10 +265,16 @@ const view = (model: ContentModel, h: HtmlBuilder<Message>): Document => {
                     model.page.description === undefined
                       ? h.empty
                       : h.p([h.Class("content-description")], [model.page.description]),
+                    h.submodel({
+                      slotId: "article-actions",
+                      model: model.articleActions,
+                      view: ArticleActions.view,
+                      toParentMessage: (message) => Message.GotArticleActionsMessage({ message }),
+                    }),
                     h.div([
                       h.Class("content-body"),
                       h.InnerHTML(model.page.html),
-                      h.OnMount(MountContent()),
+                      h.OnMount(MountContent({ locale: model.locale })),
                     ]),
                   ],
                 ),
@@ -318,6 +341,11 @@ export const contentApplication = {
         contentMounted: false,
         systemDark: false,
         search: Search.init(flags.locale),
+        articleActions: ArticleActions.init({
+          locale: flags.locale,
+          path: flags.path,
+          sourceUrl: flags.sourceUrl,
+        }),
         landing: Landing.init(flags.locale, flags.path === freeSigningPath ? "inline" : "dialog"),
         preferences,
       }),
@@ -346,6 +374,7 @@ export const contentApplication = {
       RenderedDiagrams: () => ({ model }),
       GotLandingMessage: ({ message }) => foldLanding(model, message),
       GotSearchMessage: ({ message }) => foldSearch(model, message),
+      GotArticleActionsMessage: ({ message }) => foldArticleActions(model, message),
       GotPreferencesMessage: ({ message }) => foldPreferences(model, message),
     }),
   view,

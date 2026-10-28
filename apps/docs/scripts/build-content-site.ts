@@ -71,9 +71,8 @@ export const buildContentSite = Effect.fn(function* (options: typeof ContentSite
     Effect.forEach(baseSources, (file) =>
       Effect.gen(function* () {
         const localizedFile = `${file.slice(0, -4)}.${locale}.mdx`;
-        const source = yield* Effect.promise(() =>
-          readFile(join(contentRoot, sourceSet.has(localizedFile) ? localizedFile : file), "utf8"),
-        );
+        const sourceFile = sourceSet.has(localizedFile) ? localizedFile : file;
+        const source = yield* Effect.promise(() => readFile(join(contentRoot, sourceFile), "utf8"));
         const { markdown, ...page } = yield* compileContent(source);
         const stem = file.slice(0, -4).split(sep).join("/");
         const path = stem.endsWith("/index") ? stem.slice(0, -6) : stem;
@@ -83,6 +82,9 @@ export const buildContentSite = Effect.fn(function* (options: typeof ContentSite
           page,
           markdown,
           sourceLocale: sourceSet.has(localizedFile) ? locale : baseLocale,
+          sourceUrl:
+            "https://github.com/Montte-erp/signature-kit/blob/main/apps/docs/content/" +
+            sourceFile.split(sep).map(encodeURIComponent).join("/"),
         };
       }),
     ),
@@ -156,6 +158,9 @@ export const buildContentSite = Effect.fn(function* (options: typeof ContentSite
           locale: entry.locale,
           path: entry.path,
           siteUrl: options.siteUrl,
+          sourceUrl: entries.find(
+            (document) => document.locale === entry.locale && document.path === entry.path,
+          )?.sourceUrl,
         };
         const rendered = yield* renderToString(contentApplication, {
           flags,

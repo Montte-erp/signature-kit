@@ -1,3 +1,4 @@
+import { PackageManager, packageInstallCommand } from "../../lib/package-install.ts";
 import type { AutoDocuments, AutoPreview } from "./auto-documents.ts";
 import * as AutoDemo from "./auto-demo.ts";
 import { Array as EffectArray, Duration, Effect, Match, Option, Schema } from "effect";
@@ -19,7 +20,6 @@ import { m } from "../../paraglide/messages.js";
 import type { ContentEntry } from "../content/config.ts";
 
 const ProviderFilename = Schema.Literals(providerExamples.map((provider) => provider.filename));
-const PackageManager = Schema.Literals(["bun", "npm", "pnpm", "yarn"]);
 const CopyTarget = Schema.Literals(["hero", "install", "provider", "example"]);
 
 export const Model = Schema.Struct({
@@ -188,14 +188,10 @@ export const subscriptions = Subscription.aggregate(
 
 export const view = Submodel.defineView<Model, Message>((model, h) => {
   const options = { locale: model.locale };
-  const install =
-    Match.value(model.manager).pipe(
-      Match.when("bun", () => "bun add"),
-      Match.when("npm", () => "npm install"),
-      Match.when("pnpm", () => "pnpm add"),
-      Match.when("yarn", () => "yarn add"),
-      Match.exhaustive,
-    ) + " @signature-kit/signatures @signature-kit/a1";
+  const install = packageInstallCommand(
+    model.manager,
+    "@signature-kit/signatures @signature-kit/a1",
+  );
   const capabilities = [
     {
       title: m.cap1_title({}, options),

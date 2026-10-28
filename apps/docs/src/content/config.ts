@@ -49,6 +49,7 @@ export const ContentDocument = Schema.Struct({
   ...ContentEntry.fields,
   markdown: Schema.String,
   sourceLocale: SiteLocale,
+  sourceUrl: Schema.optional(Schema.NonEmptyString),
 });
 
 export type ContentDocument = typeof ContentDocument.Type;

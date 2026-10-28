@@ -263,5 +263,10 @@
   "site_blog_tags_description": "Explore os artigos por assunto.",
   "site_blog_tag_title": "Tag \"{tag}\"",
   "site_blog_tag_description": "{count} posts de blog correspondentes.",
-  "site_diagram_fallback": "Não foi possível exibir este diagrama. O código-fonte está disponível abaixo."
+  "site_diagram_fallback": "Não foi possível exibir este diagrama. O código-fonte está disponível abaixo.",
+  "site_package_manager": "Gerenciador de pacotes",
+  "site_page_actions": "Ações da página",
+  "site_copy_markdown": "Copiar Markdown",
+  "site_view_markdown": "Ver Markdown",
+  "site_view_source": "Ver código-fonte"
 }

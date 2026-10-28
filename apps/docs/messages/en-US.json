@@ -263,5 +263,10 @@
   "site_blog_tags_description": "Explore articles by topic.",
   "site_blog_tag_title": "Tag \"{tag}\"",
   "site_blog_tag_description": "{count} matching blog posts.",
-  "site_diagram_fallback": "This diagram could not be displayed. Its source is available below."
+  "site_diagram_fallback": "This diagram could not be displayed. Its source is available below.",
+  "site_package_manager": "Package manager",
+  "site_page_actions": "Page actions",
+  "site_copy_markdown": "Copy Markdown",
+  "site_view_markdown": "View Markdown",
+  "site_view_source": "View source"
 }
