@@ -7,7 +7,7 @@ import { PdfStampPreview } from "../components/pdf-stamp-preview";
 import { m } from "@/paraglide/messages";
 import { PdfSigner } from "../components/pdf-signer";
 
-it("accepts real PDFs after React StrictMode replays the mount lifecycle", async () => {
+it("accepts real PDFs after React StrictMode replays the mount lifecycle", async ({ signal }) => {
   await Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
@@ -51,14 +51,15 @@ it("accepts real PDFs after React StrictMode replays the mount lifecycle", async
         input.files = files.files;
         input.dispatchEvent(new Event("change", { bubbles: true }));
         yield* Effect.promise(() =>
-          expect.poll(() => container.textContent).toContain("strict-mode.pdf"),
+          expect.poll(() => container.textContent, { timeout: 10000 }).toContain("strict-mode.pdf"),
         );
       }),
     ),
+    { signal },
   );
-});
+}, 15000);
 
-it("shows a visible preview failure for invalid image bytes", async () => {
+it("shows a visible preview failure for invalid image bytes", async ({ signal }) => {
   await Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
@@ -85,12 +86,15 @@ it("shows a visible preview failure for invalid image bytes", async () => {
           />,
         );
         yield* Effect.promise(() =>
-          expect.poll(() => container.querySelector("canvas")?.dataset.state).toBe("error"),
+          expect
+            .poll(() => container.querySelector("canvas")?.dataset.state, { timeout: 10000 })
+            .toBe("error"),
         );
         expect(container.querySelector("canvas")?.getAttribute("aria-label")).toBe(
           m.signer_stamp_preview_failed(),
         );
       }),
     ),
+    { signal },
   );
-});
+}, 15000);

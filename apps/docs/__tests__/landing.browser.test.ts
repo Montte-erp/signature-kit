@@ -1,0 +1,84 @@
+import { Effect } from "effect";
+import { describe, expect, it } from "vitest";
+
+describe("Foldkit landing page", () => {
+  it("hydrates localized provider and installation controls from the generated home", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const frame = yield* Effect.acquireRelease(
+            Effect.sync(() => {
+              const element = document.createElement("iframe");
+              element.style.width = "390px";
+              element.src = "/pt-BR";
+              document.body.append(element);
+              return element;
+            }),
+            (element) => Effect.sync(() => element.remove()),
+          );
+          yield* Effect.promise(() =>
+            expect
+              .poll(() => frame.contentDocument?.querySelector("h1")?.textContent)
+              .toBe("Um ponto único de assinatura tipado para cada documento."),
+          );
+          const page = frame.contentDocument;
+          if (page === null) expect.fail("The generated home must load in the frame");
+          yield* Effect.promise(() =>
+            expect
+              .poll(() => page.querySelector<HTMLSelectElement>("#site-theme")?.disabled)
+              .toBe(false),
+          );
+          const provider = page.querySelector<HTMLButtonElement>("#home-provider-assinafy");
+          if (provider === null) expect.fail("The home must offer the Assinafy example");
+          provider.click();
+          yield* Effect.promise(() =>
+            expect.poll(() => provider.getAttribute("aria-selected")).toBe("true"),
+          );
+          expect(page.getElementById("home-example-clicksign.ts")?.hidden).toBe(true);
+          expect(page.getElementById("home-example-assinafy.ts")?.hidden).toBe(false);
+          expect(page.getElementById("home-example-assinafy.ts")?.textContent).toContain(
+            "AssinafySignatureRequest",
+          );
+          provider.focus();
+          provider.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }),
+          );
+          yield* Effect.promise(() =>
+            expect
+              .poll(() =>
+                page.getElementById("home-provider-zapsign")?.getAttribute("aria-selected"),
+              )
+              .toBe("true"),
+          );
+          expect(page.activeElement?.id).toBe("home-provider-zapsign");
+          page.activeElement?.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true }),
+          );
+          yield* Effect.promise(() =>
+            expect.poll(() => page.activeElement?.id).toBe("home-provider-documenso"),
+          );
+          page.activeElement?.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }),
+          );
+          yield* Effect.promise(() =>
+            expect.poll(() => page.activeElement?.id).toBe("home-provider-clicksign"),
+          );
+          const npm = page.querySelector<HTMLButtonElement>("#home-install-npm");
+          if (npm === null) expect.fail("The home must offer npm installation");
+          npm.click();
+          yield* Effect.promise(() =>
+            expect
+              .poll(() => page.getElementById("home-install-command")?.textContent)
+              .toBe("npm install @signature-kit/signatures @signature-kit/a1"),
+          );
+          expect(page.querySelector('a[href="/pt-BR/docs/get-started/quickstart"]')).not.toBeNull();
+          expect(page.querySelector('a[hreflang="en-US"]')?.getAttribute("href")).toBe("/en-US");
+          expect(page.documentElement.lang).toBe("pt-BR");
+          expect(page.documentElement.scrollWidth).toBeLessThanOrEqual(
+            page.documentElement.clientWidth,
+          );
+        }),
+      ),
+    );
+  });
+});

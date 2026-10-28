@@ -448,6 +448,10 @@ const referenceDiagnostics = (
   const internalDependencyNames = new Set(
     workspacePackage.dependencies.filter((dependencyName) => packagesByName.has(dependencyName)),
   );
+  const declaredDependencyNames = new Set([
+    ...workspacePackage.dependencies,
+    ...workspacePackage.devDependencies,
+  ]);
   const referenceNames = new Set(
     workspacePackage.tsconfigReferences.flatMap((directory) => {
       const referencedPackage = packagesByDirectory.get(directory);
@@ -467,7 +471,7 @@ const referenceDiagnostics = (
   );
 
   const undeclaredReferences = [...referenceNames].flatMap((dependencyName) =>
-    internalDependencyNames.has(dependencyName)
+    declaredDependencyNames.has(dependencyName)
       ? []
       : [
           {

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -143,6 +144,67 @@ describe("workspace layer checks", () => {
       message:
         "@signature-kit/docs imports @signature-kit/crypto without declaring it in package.json.",
     });
+  });
+
+  it("accepts project references for test dependencies while rejecting their use in runtime source", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const root = yield* Effect.acquireRelease(
+            Effect.promise(() => mkdtemp(join(tmpdir(), "signature-kit-layers-"))),
+            (directory) => Effect.promise(() => rm(directory, { recursive: true, force: true })),
+          );
+          yield* Effect.promise(() =>
+            writePackage(
+              root,
+              "core/certificates",
+              "@signature-kit/certificates",
+              {},
+              [],
+              "export const certificate = true;\n",
+            ),
+          );
+          yield* Effect.promise(() =>
+            writePackage(
+              root,
+              "apps/docs",
+              "@signature-kit/docs",
+              {},
+              ["../../core/certificates"],
+              "export const app = true;\n",
+            ),
+          );
+          yield* Effect.promise(() =>
+            writeJson(join(root, "apps/docs/package.json"), {
+              name: "@signature-kit/docs",
+              private: true,
+              type: "module",
+              dependencies: {},
+              devDependencies: { "@signature-kit/certificates": "workspace:*" },
+            }),
+          );
+          yield* Effect.promise(() => mkdir(join(root, "apps/docs/__tests__")));
+          yield* Effect.promise(() =>
+            writeFile(
+              join(root, "apps/docs/__tests__/certificate.test.ts"),
+              "import { certificate } from '@signature-kit/certificates';\nexport const fixture = certificate;\n",
+            ),
+          );
+          expect(collectWorkspaceLayerDiagnostics(root)).toEqual([]);
+          yield* Effect.promise(() =>
+            writeFile(
+              join(root, "apps/docs/src/index.ts"),
+              "import { certificate } from '@signature-kit/certificates';\nexport const app = certificate;\n",
+            ),
+          );
+          expect(collectWorkspaceLayerDiagnostics(root)).toContainEqual({
+            path: "apps/docs/src/index.ts",
+            message:
+              "@signature-kit/docs imports @signature-kit/certificates without declaring it in package.json.",
+          });
+        }),
+      ),
+    );
   });
 
   it("requires package dependencies and tsconfig references to stay aligned", async () => {

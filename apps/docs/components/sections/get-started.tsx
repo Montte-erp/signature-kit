@@ -19,27 +19,7 @@ const INSTALL: ReadonlyArray<{
   { value: "yarn", label: "yarn", code: "yarn add @signature-kit/signatures @signature-kit/a1" },
 ];
 
-const FIRST_CALL = `import { a1SignaturesLayer } from "@signature-kit/a1/signer"
-import { signatures } from "@signature-kit/signatures"
-import { Effect, Redacted } from "effect"
-
-const layer = a1SignaturesLayer({
-  pfx,
-  password: Redacted.make(process.env.A1_PASSWORD ?? ""),
-})
-
-const program = Effect.gen(function* () {
-  const identity = yield* signatures.inspect()
-
-  const artifact = yield* signatures.sign({
-    content,
-    algorithm: "rsa-sha256",
-  })
-
-  return { identity, artifact }
-}).pipe(Effect.provide(layer))
-
-const { identity, artifact } = await Effect.runPromise(program)`;
+import { firstCallExample } from "../../lib/signing-examples.ts";
 
 const FLUSH = "!my-0 min-w-0 max-w-full border-0 bg-transparent shadow-none";
 const INDEX_CHIP =
@@ -104,7 +84,7 @@ export function GetStarted() {
               </div>
 
               <div className="flex min-w-0 flex-1 flex-col p-4">
-                <CodeBlock code={FIRST_CALL} lang="ts" className={FLUSH} />
+                <CodeBlock code={firstCallExample} lang="ts" className={FLUSH} />
               </div>
               <div className="mt-auto border-t border-border bg-muted/30 px-4 py-3">
                 <p className="text-sm leading-relaxed text-pretty text-muted-foreground">
