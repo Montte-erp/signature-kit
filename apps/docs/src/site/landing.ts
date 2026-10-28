@@ -1,3 +1,4 @@
+import type { AutoDocuments, AutoPreview } from "./auto-documents.ts";
 import * as AutoDemo from "./auto-demo.ts";
 import { Array as EffectArray, Duration, Effect, Match, Option, Schema } from "effect";
 import * as Clipboard from "@effect/platform-browser/Clipboard";
@@ -98,13 +99,25 @@ export const update = (
 ): Update.Return<
   Model,
   Message,
-  SigningSession | PdfPreview | SigningImages | SigningIdentity | Clipboard.Clipboard
+  | SigningSession
+  | PdfPreview
+  | SigningImages
+  | SigningIdentity
+  | Clipboard.Clipboard
+  | AutoDocuments
+  | AutoPreview
 > =>
   Message.match<
     Update.Return<
       Model,
       Message,
-      SigningSession | PdfPreview | SigningImages | SigningIdentity | Clipboard.Clipboard
+      | SigningSession
+      | PdfPreview
+      | SigningImages
+      | SigningIdentity
+      | Clipboard.Clipboard
+      | AutoDocuments
+      | AutoPreview
     >
   >(message, {
     GotSignerMessage: ({ message }) => foldSigner(model, message),

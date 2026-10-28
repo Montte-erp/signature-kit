@@ -1,3 +1,4 @@
+import type { AutoDocuments, AutoPreview } from "./auto-documents.ts";
 import { autoDocumentsLayer } from "./auto-documents.ts";
 import { Effect, Layer, Option, Schema } from "effect";
 import * as Mount from "foldkit/mount";
@@ -302,6 +303,8 @@ export const contentApplication = {
     | SigningImages
     | ContentDiagrams
     | Clipboard.Clipboard
+    | AutoDocuments
+    | AutoPreview
   > =>
     Message.match(message, {
       MountedContent: () => ({ model, commands: [RenderDiagrams()] }),

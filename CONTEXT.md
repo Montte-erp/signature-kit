@@ -25,9 +25,11 @@ site; package services continue to return Effect values.
 
 The Foldkit application owns navigation, preferences, search and signing-demo
 interaction. Its models describe public metadata and progress. SigningSession
-owns ephemeral documents and certificate material. SigningImages owns private PNG
-assets; native subscriptions own their preview URLs. PdfPreview owns scoped PDF.js
-workers and rendered-document caching. Commands invoke those services at browser
+owns ephemeral documents and certificate material. SigningIdentity owns validated
+certificate credentials. SigningImages owns private PNG assets; native subscriptions
+own their preview URLs. AutoDocuments isolates generated examples from user uploads.
+Each PDF preview service owns its scoped PDF.js workers and document cache.
+Commands invoke those services at browser
 event boundaries. PDF preparation, placement, stamping, rubrics and cryptographic
 signing remain in the format and signer packages.
 
