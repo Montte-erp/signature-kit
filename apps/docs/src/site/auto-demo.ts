@@ -164,7 +164,13 @@ export const subscriptions = Subscription.make<Model, Message, AutoDocuments | A
 export const view = Submodel.defineView<Model, Message>((model, h) => {
   const options = { locale: model.locale };
   return h.section(
-    [h.Id("home-auto-demo"), h.Class("landing-section"), h.OnMount(Visible())],
+    [
+      h.Id("home-auto-demo"),
+      h.Class("landing-section"),
+      h.Attribute("aria-busy", String(model.documents.some((row) => row.state !== "ready"))),
+      h.Attribute("data-active", String(model.active)),
+      h.OnMount(Visible()),
+    ],
     [
       h.p([h.Class("eyebrow")], [m.autosign_eyebrow({}, options)]),
       h.h2([], [m.autosign_title({}, options)]),

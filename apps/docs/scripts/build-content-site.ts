@@ -46,7 +46,10 @@ export const buildContentSite = Effect.fn(function* (options: typeof ContentSite
     build({
       configFile: false,
       root: appRoot,
-      define: { __SITE_BUILD_ID__: JSON.stringify(buildId) },
+      define: {
+        __SITE_BUILD_ID__: JSON.stringify(buildId),
+        "process.env.NODE_ENV": JSON.stringify("production"),
+      },
       resolve: { tsconfigPaths: true },
       logLevel: "warn",
       build: {

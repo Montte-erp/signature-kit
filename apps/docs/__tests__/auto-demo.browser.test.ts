@@ -31,7 +31,9 @@ it("prepares four real demonstration PDFs when their native section becomes visi
         const demo = page.querySelector<HTMLElement>("#home-auto-demo");
         if (demo === null)
           expect.fail("The native home must include the automatic signing demonstration");
+        frame.scrollIntoView();
         demo.scrollIntoView();
+        yield* Effect.promise(() => expect.poll(() => demo.dataset.active).toBe("true"));
         yield* Effect.promise(() =>
           expect
             .poll(
