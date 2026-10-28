@@ -496,6 +496,7 @@ const SignDocuments = Command.define("SignSessionDocuments", {
       const signingTime = new Date(time);
       const images = yield* SigningImages;
       const logo = yield* images.logo;
+      const ink = preferences.inkSource === "typed" ? yield* images.ink : Option.none();
       const baseBadge = Stamp.signatureBadge(preferences, profile, signingTime);
       const badge = Option.isNone(logo)
         ? baseBadge
@@ -510,7 +511,10 @@ const SignDocuments = Command.define("SignSessionDocuments", {
               { policy: "pades-ades", name: profile.subject, signingTime },
               {
                 badge,
-                rubricInitials: profile.subject,
+                ...(Option.isNone(ink) ? {} : { inkPng: Redacted.value(ink.value.bytes) }),
+                rubricInitials: Option.isNone(ink)
+                  ? profile.subject
+                  : Redacted.value(ink.value.name),
                 rubricEveryPage: preferences.rubricEveryPage,
                 border: false,
               },
