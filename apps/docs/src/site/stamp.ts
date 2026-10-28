@@ -13,6 +13,8 @@ import type { PdfSignatureBadge } from "@signature-kit/pdf/config";
 import { SiteLocale } from "../../lib/site-route.ts";
 import { m } from "../../paraglide/messages.js";
 
+export const InkSource = Schema.Literals(["certificate", "typed"]);
+
 export const Model = Schema.Struct({
   locale: SiteLocale,
   title: Schema.String,
@@ -23,6 +25,9 @@ export const Model = Schema.Struct({
   logoId: Schema.optional(Schema.NonEmptyString),
   logoIssue: Schema.optional(PdfErrorCodeSchema),
   logoPreview: Schema.Literals(["idle", "loading", "mounted", "ready", "failed"]),
+  inkSource: InkSource,
+  inkId: Schema.optional(Schema.NonEmptyString),
+  inkPreview: Schema.Literals(["idle", "loading", "mounted", "ready", "failed"]),
 });
 export type Model = typeof Model.Type;
 
@@ -43,10 +48,23 @@ export const Message = defineMessageUnion({
   LostLogo: { id: Schema.NonEmptyString },
   LogoPreviewLoaded: { id: Schema.NonEmptyString },
   LogoPreviewFailed: { id: Schema.NonEmptyString },
+  SelectedInkSource: { source: InkSource },
+  ChangedHandwriting: {},
+  LoadedInk: { id: Schema.optional(Schema.NonEmptyString) },
+  RejectedInk: {},
+  MountedInk: { id: Schema.NonEmptyString },
+  LostInk: { id: Schema.NonEmptyString },
+  InkPreviewLoaded: { id: Schema.NonEmptyString },
+  InkPreviewFailed: { id: Schema.NonEmptyString },
 });
 export type Message = typeof Message.Type;
 
-export const OutMessage = defineMessageUnion({ PickedLogo: {}, RemovedLogo: {} });
+export const OutMessage = defineMessageUnion({
+  PickedLogo: {},
+  RemovedLogo: {},
+  RequestedHandwriting: {},
+  ClearedHandwriting: {},
+});
 export type OutMessage = typeof OutMessage.Type;
 
 const MountLogo = Mount.define("MountSigningLogo", {
@@ -55,7 +73,55 @@ const MountLogo = Mount.define("MountSigningLogo", {
   execute: ({ id }) => Effect.succeed(Message.MountedLogo({ id })),
 });
 
+const MountInk = Mount.define("MountSigningInk", {
+  args: { id: Schema.NonEmptyString },
+  messages: [Message.MountedInk],
+  execute: ({ id }) => Effect.succeed(Message.MountedInk({ id })),
+});
+
 export const subscriptions = Subscription.make<Model, Message, SigningImages>()((entry) => ({
+  inkPreview: entry(
+    { inkId: Schema.OptionFromNullOr(Schema.String) },
+    {
+      modelToDependencies: (model) => ({
+        inkId:
+          model.inkId !== undefined && model.inkPreview !== "loading"
+            ? Option.some(model.inkId)
+            : Option.none(),
+      }),
+      dependenciesToStream: ({ inkId }) =>
+        Option.match(inkId, {
+          onNone: () => Stream.empty,
+          onSome: (id) =>
+            Stream.unwrap(
+              Effect.gen(function* () {
+                const images = yield* SigningImages;
+                const ink = yield* images.ink;
+                if (Option.isNone(ink) || ink.value.id !== id)
+                  return Stream.make(Message.LostInk({ id }));
+                const element = document.getElementById("stamp-ink-preview");
+                if (element === null) return Stream.empty;
+                const url = yield* Effect.acquireRelease(
+                  Effect.sync(() =>
+                    URL.createObjectURL(
+                      new Blob([new Uint8Array(Redacted.value(ink.value.bytes))], {
+                        type: "image/png",
+                      }),
+                    ),
+                  ),
+                  (url) =>
+                    Effect.sync(() => {
+                      element.removeAttribute("src");
+                      URL.revokeObjectURL(url);
+                    }),
+                );
+                yield* Effect.sync(() => element.setAttribute("src", url));
+                return Stream.never;
+              }),
+            ),
+        }),
+    },
+  ),
   logoPreview: entry(
     { logoId: Schema.OptionFromNullOr(Schema.String) },
     {
@@ -108,6 +174,8 @@ export const init = (locale: typeof SiteLocale.Type): Model => ({
   includeDate: true,
   rubricEveryPage: false,
   logoPreview: "idle",
+  inkSource: "certificate",
+  inkPreview: "idle",
 });
 
 export const update = (
@@ -115,6 +183,31 @@ export const update = (
   message: Message,
 ): Update.ReturnWithOutMessage<Model, Message, OutMessage> =>
   Message.match<Update.ReturnWithOutMessage<Model, Message, OutMessage>>(message, {
+    SelectedInkSource: ({ source }) => ({
+      model: { ...model, inkSource: source, inkId: undefined, inkPreview: "idle" },
+      outMessage:
+        source === "typed" ? OutMessage.RequestedHandwriting() : OutMessage.ClearedHandwriting(),
+    }),
+    ChangedHandwriting: () => ({ model, outMessage: OutMessage.RequestedHandwriting() }),
+    LoadedInk: ({ id }) => ({
+      model:
+        model.inkSource === "typed"
+          ? { ...model, inkId: id, inkPreview: id === undefined ? "idle" : "loading" }
+          : model,
+    }),
+    RejectedInk: () => ({ model: { ...model, inkPreview: "failed" } }),
+    MountedInk: ({ id }) => ({
+      model: model.inkId === id ? { ...model, inkPreview: "mounted" } : model,
+    }),
+    LostInk: ({ id }) => ({
+      model: model.inkId === id ? { ...model, inkId: undefined, inkPreview: "idle" } : model,
+    }),
+    InkPreviewLoaded: ({ id }) => ({
+      model: model.inkId === id ? { ...model, inkPreview: "ready" } : model,
+    }),
+    InkPreviewFailed: ({ id }) => ({
+      model: model.inkId === id ? { ...model, inkPreview: "failed" } : model,
+    }),
     PickedLogo: () => ({ model, outMessage: OutMessage.PickedLogo() }),
     ClickedRemoveLogo: () => ({ model, outMessage: OutMessage.RemovedLogo() }),
     LoadedLogo: ({ id }) => ({
@@ -201,6 +294,56 @@ export const view = Submodel.defineView<Model, Message, typeof ViewInputs.Type>(
       [h.Disabled(inputs.disabled), h.Class("stamp-settings")],
       [
         h.legend([], [m.signer_step_stamp({}, options)]),
+        h.div(
+          [
+            h.Attribute("role", "group"),
+            h.Attribute("aria-label", m.signer_signature_mark({}, options)),
+          ],
+          [
+            h.button(
+              [
+                h.Id("stamp-source-type"),
+                h.Type("button"),
+                h.Attribute("aria-pressed", String(model.inkSource === "typed")),
+                h.OnClick(Message.SelectedInkSource({ source: "typed" })),
+              ],
+              [m.signer_mark_type({}, options)],
+            ),
+            h.button(
+              [
+                h.Id("stamp-source-certificate"),
+                h.Type("button"),
+                h.Attribute("aria-pressed", String(model.inkSource === "certificate")),
+                h.OnClick(Message.SelectedInkSource({ source: "certificate" })),
+              ],
+              [m.signer_mark_cert({}, options)],
+            ),
+          ],
+        ),
+        model.inkSource === "typed"
+          ? h.input([
+              h.Id("stamp-handwriting"),
+              h.Type("text"),
+              h.Attribute("maxlength", "100"),
+              h.Attribute("aria-label", m.signer_type_aria({}, options)),
+              h.Placeholder(m.signer_type_placeholder({}, options)),
+              h.OnInput(() => Message.ChangedHandwriting()),
+            ])
+          : h.p([], [m.signer_cert_hint_continue({}, options)]),
+        model.inkId === undefined
+          ? h.empty
+          : h.img([
+              h.Key(model.inkId),
+              h.Id("stamp-ink-preview"),
+              h.Alt(m.signer_signature_mark({}, options)),
+              h.Style({ maxWidth: "100%", maxHeight: "5rem", background: "white" }),
+              h.OnMount(MountInk({ id: model.inkId })),
+              h.OnLoad(Message.InkPreviewLoaded({ id: model.inkId })),
+              h.OnError(Message.InkPreviewFailed({ id: model.inkId })),
+            ]),
+        model.inkPreview === "failed"
+          ? h.p([h.Attribute("role", "alert")], [m.signer_stamp_preview_failed({}, options)])
+          : h.empty,
         h.label([h.Attribute("for", "stamp-title")], [m.signer_stamp_custom_title({}, options)]),
         h.input([
           h.Id("stamp-title"),

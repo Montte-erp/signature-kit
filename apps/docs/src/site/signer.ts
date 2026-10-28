@@ -98,6 +98,11 @@ export const Message = defineMessageUnion({
   RemovedLogo: {},
   UnchangedLogo: {},
   CompletedCancelLoadStampLogo: {},
+  CompletedCancelLoadHandwriting: {},
+  CompletedCancelClearHandwriting: {},
+  CompletedCancelHandwritingForClose: {},
+  LoadedInk: { id: Schema.optional(Schema.NonEmptyString) },
+  RejectedInk: {},
   RequiredPassword: {},
   SignedDocuments: { documents: Schema.Array(SigningDocument) },
   FailedSignature: { documents: Schema.Array(SigningDocument), issue: SigningIssue },
@@ -164,6 +169,7 @@ const CloseSession = Command.define("CloseSigningSession", {
     yield* preview.clear;
     yield* session.clear;
     yield* images.clearLogo;
+    yield* images.clearInk;
     yield* Effect.sync(() => {
       const password = document.querySelector<HTMLInputElement>("#signing-password");
       if (password !== null) password.value = "";
@@ -173,6 +179,33 @@ const CloseSession = Command.define("CloseSigningSession", {
       yield* Dom.unlockScroll;
     }
     return Message.ClosedSession();
+  }),
+});
+
+const LoadHandwriting = Command.define("LoadStampHandwriting", {
+  messages: [Message.LoadedInk, Message.RejectedInk],
+  interrupt: true,
+  execute: Effect.gen(function* () {
+    const images = yield* SigningImages;
+    const text = yield* Effect.sync(
+      () => document.querySelector<HTMLInputElement>("#stamp-handwriting")?.value,
+    );
+    if (text === undefined) return Message.LoadedInk({});
+    return yield* images.setHandwriting(Redacted.make(text)).pipe(
+      Effect.match({
+        onSuccess: (id) => Message.LoadedInk({ id }),
+        onFailure: () => Message.RejectedInk(),
+      }),
+    );
+  }),
+});
+
+const ClearHandwriting = Command.define("ClearStampHandwriting", {
+  messages: [Message.LoadedInk],
+  execute: Effect.gen(function* () {
+    const images = yield* SigningImages;
+    yield* images.clearInk;
+    return Message.LoadedInk({});
   }),
 });
 
@@ -587,6 +620,14 @@ const foldStamp = Update.foldChild({
       Stamp.OutMessage.match(outMessage, {
         PickedLogo: () => ({ model: { ...model, busy: true }, commands: [LoadLogo()] }),
         RemovedLogo: () => ({ model: { ...model, busy: true }, commands: [RemoveLogo()] }),
+        RequestedHandwriting: () => ({
+          model,
+          commands: [LoadHandwriting.Interrupt(() => Message.CompletedCancelLoadHandwriting())],
+        }),
+        ClearedHandwriting: () => ({
+          model,
+          commands: [LoadHandwriting.Interrupt(() => Message.CompletedCancelClearHandwriting())],
+        }),
       }),
 });
 
@@ -599,6 +640,7 @@ export const update = (
     model.closing &&
     message._tag !== "CompletedCancelLoadSigningDocuments" &&
     message._tag !== "CompletedCancelLoadStampLogo" &&
+    message._tag !== "CompletedCancelHandwritingForClose" &&
     message._tag !== "CompletedCancelPlaceSigningDocument" &&
     message._tag !== "CompletedCancelLoadSigningCertificate" &&
     message._tag !== "CompletedCancelSignSessionDocuments" &&
@@ -622,6 +664,10 @@ export const update = (
       commands: [LoadLogo.Interrupt(() => Message.CompletedCancelLoadStampLogo())],
     }),
     CompletedCancelLoadStampLogo: () => ({
+      model,
+      commands: [LoadHandwriting.Interrupt(() => Message.CompletedCancelHandwritingForClose())],
+    }),
+    CompletedCancelHandwritingForClose: () => ({
       model,
       commands: [PlaceDocument.Interrupt(() => Message.CompletedCancelPlaceSigningDocument())],
     }),
@@ -856,6 +902,14 @@ export const update = (
             commands: [SignDocuments({ preferences: model.stamp })],
           },
     LoadedLogo: ({ id }) => foldStamp({ ...model, busy: false }, Stamp.Message.LoadedLogo({ id })),
+    CompletedCancelLoadHandwriting: () =>
+      model.stamp.inkSource !== "typed" ? { model } : { model, commands: [LoadHandwriting()] },
+    CompletedCancelClearHandwriting: () =>
+      model.stamp.inkSource !== "certificate"
+        ? { model }
+        : { model, commands: [ClearHandwriting()] },
+    LoadedInk: ({ id }) => foldStamp(model, Stamp.Message.LoadedInk({ id })),
+    RejectedInk: () => foldStamp(model, Stamp.Message.RejectedInk()),
     RejectedLogo: ({ code }) =>
       foldStamp({ ...model, busy: false }, Stamp.Message.RejectedLogo({ code })),
     RemovedLogo: () => foldStamp({ ...model, busy: false }, Stamp.Message.RemovedLogo()),
