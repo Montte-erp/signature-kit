@@ -1,4 +1,4 @@
-import { PDFDocument, rgb } from "@cantoo/pdf-lib";
+import { PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, rgb } from "@cantoo/pdf-lib";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { readA1FixtureFromBrowser } from "../../../tooling/testing/fixtures.browser.ts";
@@ -310,6 +310,25 @@ describe("Foldkit signing dialog", () => {
               .toBe("Escolha um PNG válido de até 16 MB e 16 megapixels."),
           );
           expect(page.querySelector<HTMLImageElement>("#stamp-logo-preview")?.src).toBe(logoUrl);
+          page.querySelector<HTMLButtonElement>("#stamp-source-type")?.click();
+          yield* Effect.promise(() =>
+            expect.poll(() => page.getElementById("stamp-handwriting")).not.toBeNull(),
+          );
+          const handwriting = page.querySelector<HTMLInputElement>("#stamp-handwriting");
+          if (handwriting === null)
+            expect.fail("The signer must accept the typed handwritten name");
+          handwriting.value = "Maria da Costa";
+          handwriting.dispatchEvent(new InputEvent("input", { bubbles: true }));
+          yield* Effect.promise(() =>
+            expect
+              .poll(
+                () => page.querySelector<HTMLImageElement>("#stamp-ink-preview")?.naturalWidth ?? 0,
+              )
+              .toBeGreaterThan(100),
+          );
+          const inkPreview = page.querySelector<HTMLImageElement>("#stamp-ink-preview");
+          if (inkPreview === null) expect.fail("The handwritten mark must render before signing");
+          const inkDimensions = [inkPreview.naturalWidth, inkPreview.naturalHeight];
           const title = page.querySelector<HTMLInputElement>("#stamp-title");
           const color = page.querySelector<HTMLInputElement>("#stamp-color");
           const identity = page.querySelector<HTMLInputElement>("#stamp-name");
@@ -372,6 +391,25 @@ describe("Foldkit signing dialog", () => {
           const signedPdf = new Uint8Array(yield* Effect.promise(() => artifact.arrayBuffer()));
           const verification = yield* verifyPdfSignatures({ pdf: signedPdf });
           expect(verification[0]?.valid).toBe(true);
+          const parsedPdf = yield* Effect.promise(() => PDFDocument.load(signedPdf));
+          const embeddedImages = parsedPdf.getPages().flatMap((pdfPage) => {
+            const objects = pdfPage.node.Resources()?.lookupMaybe(PDFName.of("XObject"), PDFDict);
+            return (
+              objects?.entries().flatMap(([, reference]) => {
+                const object = parsedPdf.context.lookup(reference, PDFRawStream);
+                return object.dict.lookupMaybe(PDFName.of("Subtype"), PDFName)?.toString() ===
+                  "/Image"
+                  ? [
+                      [
+                        object.dict.lookupMaybe(PDFName.of("Width"), PDFNumber)?.asNumber(),
+                        object.dict.lookupMaybe(PDFName.of("Height"), PDFNumber)?.asNumber(),
+                      ],
+                    ]
+                  : [];
+              }) ?? []
+            );
+          });
+          expect(embeddedImages).toContainEqual(inkDimensions);
           const inspected = yield* inspectPdf(signedPdf);
           const visibleText = inspected.map((page) => page.text).join("\n");
           expect(visibleText).toContain("Reviewed locally");
