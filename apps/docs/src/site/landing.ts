@@ -1,4 +1,6 @@
-import { Array as EffectArray, Match, Option, Schema } from "effect";
+import { Array as EffectArray, Duration, Effect, Match, Option, Schema } from "effect";
+import * as Clipboard from "@effect/platform-browser/Clipboard";
+import * as Command from "foldkit/command";
 import * as Signer from "./signer.ts";
 import type { PdfPreview } from "./pdf-preview.ts";
 import type { SigningImages } from "./signing-images.ts";
@@ -15,12 +17,16 @@ import type { ContentEntry } from "../content/config.ts";
 
 const ProviderFilename = Schema.Literals(providerExamples.map((provider) => provider.filename));
 const PackageManager = Schema.Literals(["bun", "npm", "pnpm", "yarn"]);
+const CopyTarget = Schema.Literals(["hero", "install", "provider", "example"]);
 
 export const Model = Schema.Struct({
   locale: SiteLocale,
   signer: Signer.Model,
   provider: ProviderFilename,
   manager: PackageManager,
+  copyRevision: Schema.Number,
+  copied: Schema.optional(CopyTarget),
+  copyFailed: Schema.optional(CopyTarget),
 });
 export type Model = typeof Model.Type;
 
@@ -28,8 +34,33 @@ export const Message = defineMessageUnion({
   GotSignerMessage: { message: Signer.Message },
   SelectedProvider: { filename: ProviderFilename },
   SelectedManager: { manager: PackageManager },
+  ClickedCopy: { target: CopyTarget, text: Schema.String },
+  CopiedText: { target: CopyTarget, revision: Schema.Number },
+  RejectedCopy: { target: CopyTarget, revision: Schema.Number },
+  ClearedCopy: { revision: Schema.Number },
 });
 export type Message = typeof Message.Type;
+
+const CopyText = Command.define("CopyLandingText", {
+  args: { target: CopyTarget, text: Schema.String, revision: Schema.Number },
+  messages: [Message.CopiedText, Message.RejectedCopy],
+  execute: Effect.fn(function* ({ target, text, revision }) {
+    const clipboard = yield* Clipboard.Clipboard;
+    return yield* clipboard.writeString(text).pipe(
+      Effect.match({
+        onSuccess: () => Message.CopiedText({ target, revision }),
+        onFailure: () => Message.RejectedCopy({ target, revision }),
+      }),
+    );
+  }),
+});
+
+const ClearCopy = Command.define("ClearLandingCopyFeedback", {
+  args: { revision: Schema.Number },
+  messages: [Message.ClearedCopy],
+  execute: ({ revision }) =>
+    Effect.sleep(Duration.millis(1800)).pipe(Effect.as(Message.ClearedCopy({ revision }))),
+});
 
 export const init = (
   locale: typeof SiteLocale.Type,
@@ -39,6 +70,7 @@ export const init = (
   signer: Signer.init(locale, presentation),
   provider: "clicksign.ts",
   manager: "bun",
+  copyRevision: 0,
 });
 
 const foldSigner = Update.foldChild({
@@ -51,11 +83,54 @@ const foldSigner = Update.foldChild({
 export const update = (
   model: Model,
   message: Message,
-): Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages> =>
-  Message.match(message, {
+): Update.Return<
+  Model,
+  Message,
+  SigningSession | PdfPreview | SigningImages | Clipboard.Clipboard
+> =>
+  Message.match<
+    Update.Return<Model, Message, SigningSession | PdfPreview | SigningImages | Clipboard.Clipboard>
+  >(message, {
     GotSignerMessage: ({ message }) => foldSigner(model, message),
-    SelectedProvider: ({ filename }) => ({ model: { ...model, provider: filename } }),
-    SelectedManager: ({ manager }) => ({ model: { ...model, manager } }),
+    SelectedProvider: ({ filename }) => ({
+      model: {
+        ...model,
+        provider: filename,
+        copied: undefined,
+        copyFailed: undefined,
+        copyRevision: model.copyRevision + 1,
+      },
+    }),
+    SelectedManager: ({ manager }) => ({
+      model: {
+        ...model,
+        manager,
+        copied: undefined,
+        copyFailed: undefined,
+        copyRevision: model.copyRevision + 1,
+      },
+    }),
+    ClickedCopy: ({ target, text }) => {
+      const revision = model.copyRevision + 1;
+      return {
+        model: { ...model, copyRevision: revision, copied: undefined, copyFailed: undefined },
+        commands: [CopyText({ target, text, revision })],
+      };
+    },
+    CopiedText: ({ target, revision }) =>
+      revision !== model.copyRevision
+        ? { model }
+        : {
+            model: { ...model, copied: target, copyFailed: undefined },
+            commands: [ClearCopy({ revision })],
+          },
+    RejectedCopy: ({ target, revision }) =>
+      revision !== model.copyRevision
+        ? { model }
+        : { model: { ...model, copied: undefined, copyFailed: target } },
+    ClearedCopy: ({ revision }) => ({
+      model: revision === model.copyRevision ? { ...model, copied: undefined } : model,
+    }),
   });
 
 export const homeEntry = (locale: typeof SiteLocale.Type): ContentEntry => ({
@@ -125,6 +200,9 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
   return h.div(
     [h.Class("landing")],
     [
+      model.copyFailed === undefined
+        ? h.empty
+        : h.p([h.Attribute("role", "alert")], [m.site_copy_error({}, options)]),
       h.section(
         [h.Class("landing-hero")],
         [
@@ -135,6 +213,18 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
           h.h1([], [m.hero_title({}, options)]),
           h.p([], [m.hero_subhead({}, options)]),
           h.pre([], [h.code([], [install])]),
+          h.button(
+            [
+              h.Type("button"),
+              h.Id("home-copy-hero"),
+              h.OnClick(Message.ClickedCopy({ target: "hero", text: install })),
+            ],
+            [
+              model.copied === "hero"
+                ? m.install_copied_label({}, options)
+                : m.install_copy_label({}, options),
+            ],
+          ),
           h.a(
             [h.Href(localizedSitePath("docs", model.locale)), h.Class("site-action")],
             [m.hero_cta_docs({}, options)],
@@ -219,7 +309,26 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
                 h.Attribute("aria-labelledby", `home-provider-${provider.filename.slice(0, -3)}`),
                 h.Hidden(model.provider !== provider.filename),
               ],
-              [h.p([], [provider.filename]), h.pre([], [h.code([], [provider.code])])],
+              [
+                h.p([], [provider.filename]),
+                h.pre([], [h.code([], [provider.code])]),
+                h.button(
+                  [
+                    h.Type("button"),
+                    h.Id(
+                      model.provider === provider.filename
+                        ? "home-copy-provider"
+                        : `home-copy-provider-${provider.filename}`,
+                    ),
+                    h.OnClick(Message.ClickedCopy({ target: "provider", text: provider.code })),
+                  ],
+                  [
+                    model.copied === "provider"
+                      ? m.showcase_copied({}, options)
+                      : m.showcase_copy({}, options),
+                  ],
+                ),
+              ],
             ),
           ),
           h.a(
@@ -277,8 +386,32 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
             ),
           ),
           h.pre([h.Id("home-install-command")], [h.code([], [install])]),
+          h.button(
+            [
+              h.Type("button"),
+              h.Id("home-copy-install"),
+              h.OnClick(Message.ClickedCopy({ target: "install", text: install })),
+            ],
+            [
+              model.copied === "install"
+                ? m.install_copied_label({}, options)
+                : m.install_copy_label({}, options),
+            ],
+          ),
           h.h3([], [m.gs_step2_heading({}, options)]),
           h.pre([], [h.code([], [firstCallExample])]),
+          h.button(
+            [
+              h.Type("button"),
+              h.Id("home-copy-example"),
+              h.OnClick(Message.ClickedCopy({ target: "example", text: firstCallExample })),
+            ],
+            [
+              model.copied === "example"
+                ? m.showcase_copied({}, options)
+                : m.showcase_copy({}, options),
+            ],
+          ),
         ],
       ),
       h.section(

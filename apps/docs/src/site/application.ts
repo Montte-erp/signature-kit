@@ -9,6 +9,7 @@ import { defineMessageUnion } from "foldkit/message";
 import type { HttpClient } from "effect/http";
 
 import * as BrowserKeyValueStore from "@effect/platform-browser/BrowserKeyValueStore";
+import * as Clipboard from "@effect/platform-browser/Clipboard";
 import type * as KeyValueStore from "effect/persistence/KeyValueStore";
 import * as Preferences from "./preferences.ts";
 
@@ -270,6 +271,7 @@ export const contentApplication = {
     signingSessionLayer,
     signingImagesLayer,
     contentDiagramsBrowserLayer,
+    Clipboard.layer,
   ),
   init: (flags: ContentFlags): Update.Return<ContentModel, Message, KeyValueStore.KeyValueStore> =>
     Update.foldChildInit(Preferences.init(flags.locale), {
@@ -293,6 +295,7 @@ export const contentApplication = {
     | PdfPreview
     | SigningImages
     | ContentDiagrams
+    | Clipboard.Clipboard
   > =>
     Message.match(message, {
       MountedContent: () => ({ model, commands: [RenderDiagrams()] }),

@@ -250,6 +250,7 @@
   "site_main_navigation": "Navegação principal",
   "site_doc_navigation": "Navegação da documentação",
   "site_documentation": "Documentação",
+  "site_copy_error": "O navegador não conseguiu copiar o texto. Selecione-o e copie manualmente.",
   "site_feed_title": "Blog do SignatureKit",
   "site_feed_description": "Histórias, integrações e decisões de engenharia do SignatureKit.",
   "site_theme": "Tema",
