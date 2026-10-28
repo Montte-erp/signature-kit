@@ -589,7 +589,9 @@ footer {
   font-weight: 500;
 }
 .signing-dialog input[type="password"],
-.signing-inline input[type="password"] {
+.signing-inline input[type="password"],
+.signing-dialog input[type="text"],
+.signing-inline input[type="text"] {
   display: block;
   width: min(30rem, 100%);
   margin-block: 0.5rem 1rem;
@@ -643,4 +645,11 @@ footer {
   cursor: grab;
   touch-action: none;
   font-weight: 600;
+}
+
+.stamp-settings {
+  margin-block: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--site-border);
+  border-radius: 0.5rem;
 }

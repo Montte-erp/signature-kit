@@ -3,9 +3,10 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { readA1FixtureFromBrowser } from "../../../tooling/testing/fixtures.browser.ts";
 import { verifyPdfSignatures } from "@signature-kit/pdf/verify";
+import { inspectPdf } from "./pdf-inspection.browser.ts";
 
 describe("Foldkit signing dialog", () => {
-  it("imports real PDFs, removes documents and releases its session when closed", async () => {
+  it("customizes a visible mark, signs real PDFs and clears its session", async ({ signal }) => {
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
@@ -241,6 +242,21 @@ describe("Foldkit signing dialog", () => {
               .toBe("true"),
           );
           expect(certificate.value).toBe("");
+          const title = page.querySelector<HTMLInputElement>("#stamp-title");
+          const color = page.querySelector<HTMLInputElement>("#stamp-color");
+          const identity = page.querySelector<HTMLInputElement>("#stamp-name");
+          const date = page.querySelector<HTMLInputElement>("#stamp-date");
+          if (title === null || color === null || identity === null || date === null)
+            expect.fail("The signer must expose visible stamp customization");
+          title.value = "Reviewed locally";
+          title.dispatchEvent(new Event("input", { bubbles: true }));
+          color.value = "#14532d";
+          color.dispatchEvent(new Event("input", { bubbles: true }));
+          identity.click();
+          date.click();
+          yield* Effect.promise(() =>
+            expect.poll(() => [identity.checked, date.checked]).toEqual([false, false]),
+          );
           const rubric = page.querySelector<HTMLInputElement>("#signing-rubric");
           if (rubric === null) expect.fail("The native signer must expose rubric options");
           rubric.click();
@@ -288,6 +304,21 @@ describe("Foldkit signing dialog", () => {
           const signedPdf = new Uint8Array(yield* Effect.promise(() => artifact.arrayBuffer()));
           const verification = yield* verifyPdfSignatures({ pdf: signedPdf });
           expect(verification[0]?.valid).toBe(true);
+          const inspected = yield* inspectPdf(signedPdf);
+          const visibleText = inspected.map((page) => page.text).join("\n");
+          expect(visibleText).toContain("Reviewed locally");
+          expect(visibleText).not.toContain("Signatário");
+          expect(visibleText).not.toContain("Data");
+          expect(
+            inspected.some((page) => {
+              const pixels = page.image.data;
+              for (let index = 0; index < pixels.length; index += 4) {
+                if (pixels[index] === 20 && pixels[index + 1] === 83 && pixels[index + 2] === 45)
+                  return true;
+              }
+              return false;
+            }),
+          ).toBe(true);
           yield* Effect.promise(() => expect(fetch(artifact.url)).rejects.toThrow());
           const remove = page.querySelector<HTMLButtonElement>(
             '#signing-documents button[data-action="remove"]',
@@ -360,6 +391,7 @@ describe("Foldkit signing dialog", () => {
           expect(runtimeIssues).toEqual([]);
         }),
       ),
+      { signal },
     );
-  });
+  }, 30000);
 });

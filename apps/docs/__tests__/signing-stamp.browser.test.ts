@@ -2,13 +2,13 @@ import { PDFDocument } from "@cantoo/pdf-lib";
 import { a1SignaturesLayer } from "@signature-kit/a1/signer";
 import { verifyPdfSignatures } from "@signature-kit/pdf/verify";
 import { Effect, Redacted } from "effect";
-import * as PdfJs from "pdfjs-dist";
+import { inspectPdf } from "./pdf-inspection.browser.ts";
 import { expect, it } from "vitest";
 
 import { readA1FixtureFromBrowser } from "../../../tooling/testing/fixtures.browser.ts";
 import { SigningSession, signingSessionLayer } from "../src/site/signing-session.ts";
 
-it("exports a visible signature and rubrics only on the other pages", async () => {
+it("exports a visible signature and rubrics only on the other pages", async ({ signal }) => {
   await Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
@@ -37,36 +37,14 @@ it("exports a visible signature and rubrics only on the other pages", async () =
         const blob = yield* session.exportDocument(document.id);
         const signed = new Uint8Array(yield* Effect.promise(() => blob.arrayBuffer()));
         expect((yield* verifyPdfSignatures({ pdf: signed }))[0]?.valid).toBe(true);
-        const port = yield* Effect.acquireRelease(
-          Effect.sync(
-            () =>
-              new Worker(new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url), {
-                type: "module",
-              }),
-          ),
-          (port) => Effect.sync(() => port.terminate()),
-        );
-        const worker = yield* Effect.acquireRelease(
-          Effect.sync(() => PdfJs.PDFWorker.create({ port })),
-          (worker) => Effect.sync(() => worker.destroy()),
-        );
-        const loading = yield* Effect.acquireRelease(
-          Effect.sync(() => PdfJs.getDocument({ data: signed, worker })),
-          (loading) => Effect.promise(() => loading.destroy()),
-        );
-        const rendered = yield* Effect.promise(() => loading.promise);
-        const texts = yield* Effect.forEach([1, 2], (number) =>
-          Effect.gen(function* () {
-            const page = yield* Effect.promise(() => rendered.getPage(number));
-            const content = yield* Effect.promise(() => page.getTextContent());
-            return content.items.flatMap((item) => ("str" in item ? [item.str] : [])).join(" ");
-          }),
-        );
+        const pages = yield* inspectPdf(signed);
+        const texts = pages.map((page) => page.text);
         expect(texts[0]).toContain("Visible signer");
         expect(texts[0]).not.toContain("Other page rubric");
         expect(texts[1]).toContain("Other page rubric");
         expect(texts[1]).not.toContain("Visible signer");
       }).pipe(Effect.provide(signingSessionLayer)),
     ),
+    { signal },
   );
-});
+}, 30000);

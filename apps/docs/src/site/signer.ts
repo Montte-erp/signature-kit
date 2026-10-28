@@ -15,7 +15,8 @@ import {
 } from "@signature-kit/signatures";
 import { defineMessageUnion } from "foldkit/message";
 import * as Submodel from "foldkit/submodel";
-import type * as Update from "foldkit/update";
+import * as Update from "foldkit/update";
+import * as Stamp from "./stamp.ts";
 import { errorMessage } from "@signature-kit/i18n";
 import {
   PdfErrorCodeSchema,
@@ -75,7 +76,7 @@ export const Model = Schema.Struct({
   previewPageIndex: PdfSignaturePlacementInputSchema.fields.pageIndex,
   previewState: Schema.Literals(["idle", "loading", "ready", "failed"]),
   drag: Schema.optional(PlacementDrag),
-  rubricEveryPage: Schema.Boolean,
+  stamp: Stamp.Model,
   certificateReady: Schema.Boolean,
   passwordRequired: Schema.Boolean,
 });
@@ -85,7 +86,7 @@ export const Message = defineMessageUnion({
   PickedCertificate: {},
   LoadedCertificate: {},
   ClickedSign: {},
-  ToggledRubric: {},
+  GotStampMessage: { message: Stamp.Message },
   RequiredPassword: {},
   SignedDocuments: { documents: Schema.Array(SigningDocument) },
   FailedSignature: { documents: Schema.Array(SigningDocument), issue: SigningIssue },
@@ -378,10 +379,10 @@ const LoadCertificate = Command.define("LoadSigningCertificate", {
 });
 
 const SignDocuments = Command.define("SignSessionDocuments", {
-  args: { locale: SiteLocale, rubricEveryPage: Schema.Boolean },
+  args: { preferences: Stamp.Model },
   messages: [Message.SignedDocuments, Message.FailedSignature, Message.RequiredPassword],
   interrupt: true,
-  execute: Effect.fn(function* ({ locale, rubricEveryPage }) {
+  execute: Effect.fn(function* ({ preferences }) {
     const session = yield* SigningSession;
     const certificate = yield* session.certificate;
     if (Option.isNone(certificate))
@@ -399,25 +400,7 @@ const SignDocuments = Command.define("SignSessionDocuments", {
       const profile = yield* parseA1CertificateProfile(options);
       const time = yield* Clock.currentTimeMillis;
       const signingTime = new Date(time);
-      const copy = { locale };
-      const badge = {
-        header: { text: m.signer_stamp_title({}, copy) },
-        rows: [
-          [{ label: m.signer_stamp_signer_label({}, copy), value: profile.subject }],
-          [{ label: m.signer_preview_document({}, copy), value: profile.document }],
-          [
-            {
-              label: m.signer_stamp_date_label({}, copy),
-              value: new Intl.DateTimeFormat(locale, {
-                dateStyle: "short",
-                timeStyle: "short",
-              }).format(signingTime),
-            },
-          ],
-        ],
-        footer: [{ text: "SignatureKit" }],
-        theme: { headerColor: "#3B5BDB", borderColor: "#3B5BDB" },
-      };
+      const badge = Stamp.signatureBadge(preferences, profile, signingTime);
       const documents = yield* session.documents;
       const results = yield* Effect.forEach(
         documents.filter((document) => document.rect !== undefined),
@@ -426,7 +409,12 @@ const SignDocuments = Command.define("SignSessionDocuments", {
             .signDocument(
               document.id,
               { policy: "pades-ades", name: profile.subject, signingTime },
-              { badge, rubricInitials: profile.subject, rubricEveryPage, border: false },
+              {
+                badge,
+                rubricInitials: profile.subject,
+                rubricEveryPage: preferences.rubricEveryPage,
+                border: false,
+              },
             )
             .pipe(Effect.result),
       ).pipe(Effect.provide(a1SignaturesLayer(options)));
@@ -504,7 +492,7 @@ export const init = (
   activeDocumentId: undefined,
   previewPageIndex: 0,
   previewState: "idle",
-  rubricEveryPage: false,
+  stamp: Stamp.init(locale),
   certificateReady: false,
   passwordRequired: false,
 });
@@ -521,6 +509,13 @@ const updateDocuments = (model: Model, documents: readonly SigningDocument[]): M
     previewState: first === undefined ? "idle" : "loading",
   };
 };
+
+const foldStamp = Update.foldChild({
+  update: Stamp.update,
+  read: (model: Model) => Option.some(model.stamp),
+  write: (model, stamp) => ({ ...model, stamp }),
+  toParentMessage: (message) => Message.GotStampMessage({ message }),
+});
 
 export const update = (
   model: Model,
@@ -764,12 +759,9 @@ export const update = (
               error: undefined,
               passwordRequired: false,
             },
-            commands: [
-              SignDocuments({ locale: model.locale, rubricEveryPage: model.rubricEveryPage }),
-            ],
+            commands: [SignDocuments({ preferences: model.stamp })],
           },
-    ToggledRubric: () =>
-      model.busy ? { model } : { model: { ...model, rubricEveryPage: !model.rubricEveryPage } },
+    GotStampMessage: ({ message }) => (model.busy ? { model } : foldStamp(model, message)),
     RequiredPassword: (): Update.Return<Model, Message, SigningSession | PdfPreview> => ({
       model: { ...model, busy: false, activity: "idle", passwordRequired: true },
     }),
@@ -1081,20 +1073,13 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
           model.passwordRequired
             ? h.p([h.Attribute("role", "alert")], [m.signer_error_password_required({}, options)])
             : h.empty,
-          h.label(
-            [h.Attribute("for", "signing-rubric")],
-            [
-              h.input([
-                h.Id("signing-rubric"),
-                h.Type("checkbox"),
-                h.Checked(model.rubricEveryPage),
-                h.Disabled(model.busy),
-                h.OnClick(Message.ToggledRubric()),
-              ]),
-              m.signer_chk_rubric({}, options),
-            ],
-          ),
-          h.p([], [m.signer_rubric_note_initials({}, options)]),
+          h.submodel({
+            slotId: "signing-stamp",
+            model: model.stamp,
+            view: Stamp.view,
+            viewInputs: { disabled: model.busy },
+            toParentMessage: (message) => Message.GotStampMessage({ message }),
+          }),
           h.button(
             [
               h.Id("signing-sign"),
