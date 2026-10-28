@@ -1,4 +1,4 @@
-import { Effect, Option, Schema, Stream } from "effect";
+import { Effect, Match, Option, Schema, Stream } from "effect";
 import * as Command from "foldkit/command";
 import * as Mount from "foldkit/mount";
 import * as Submodel from "foldkit/submodel";
@@ -383,15 +383,14 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
             [
               names[row.id]({}, options),
               " · ",
-              row.state === "stamped"
-                ? m.autosign_doc_signed({}, options)
-                : row.state === "stamping"
-                  ? m.autosign_doc_signing({}, options)
-                  : row.state === "ready"
-                    ? m.autosign_doc_ready({}, options)
-                    : row.state === "failed"
-                      ? m.signer_error_generic({}, options)
-                      : m.autosign_doc_generating({}, options),
+              Match.value(row.state).pipe(
+                Match.when("stamped", () => m.autosign_doc_signed({}, options)),
+                Match.when("stamping", () => m.autosign_doc_signing({}, options)),
+                Match.when("ready", () => m.autosign_doc_ready({}, options)),
+                Match.when("failed", () => m.signer_error_generic({}, options)),
+                Match.when("queued", () => m.autosign_doc_generating({}, options)),
+                Match.exhaustive,
+              ),
             ],
           ),
         ),
