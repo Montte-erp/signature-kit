@@ -1,4 +1,5 @@
-import { Effect } from "effect";
+import { mountCodeBlocks } from "../src/site/code-block.ts";
+import { Effect, Exit } from "effect";
 import { expect, it } from "vitest";
 
 it("copies installation commands, highlighted examples and the actual Markdown source", async ({
@@ -89,3 +90,48 @@ it("copies installation commands, highlighted examples and the actual Markdown s
     { signal },
   );
 }, 30000);
+
+it("restores authored code when its widget scope exits with a failure", async ({ signal }) => {
+  await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const host = yield* Effect.acquireRelease(
+          Effect.sync(() => {
+            const element = document.createElement("section");
+            document.body.append(element);
+            return element;
+          }),
+          (element) => Effect.sync(() => element.remove()),
+        );
+        const original = document.createElement("pre");
+        const code = document.createElement("code");
+        code.className = "language-package-install";
+        code.textContent = "@signature-kit/signatures @signature-kit/a1";
+        original.append(code);
+        host.append(original);
+        const exit = yield* Effect.scoped(
+          Effect.gen(function* () {
+            yield* mountCodeBlocks(host, "en-US");
+            yield* Effect.promise(() =>
+              expect
+                .poll(() => host.querySelector('[data-code-widget="package-install"]'))
+                .not.toBeNull(),
+            );
+            return yield* Effect.fail("The article host ended the widget scope.");
+          }),
+        ).pipe(Effect.exit);
+        expect(Exit.isFailure(exit)).toBe(true);
+        yield* Effect.promise(
+          () =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+            ),
+        );
+        expect(host.querySelector("pre")).toBe(original);
+        expect(host.querySelector("[data-code-widget]")).toBeNull();
+        expect(host.textContent).toBe("@signature-kit/signatures @signature-kit/a1");
+      }),
+    ),
+    { signal },
+  );
+}, 10000);

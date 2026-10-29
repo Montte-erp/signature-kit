@@ -150,7 +150,6 @@ export const mountCodeBlocks = Effect.fn(function* (root: Element, locale: typeo
         const slot = yield* Effect.acquireRelease(
           Effect.sync(() => {
             const element = document.createElement("div");
-            element.id = "content-code-" + crypto.randomUUID();
             if (isInstallation) original.replaceWith(element);
             else original.prepend(element);
             return element;
@@ -161,6 +160,12 @@ export const mountCodeBlocks = Effect.fn(function* (root: Element, locale: typeo
               else element.remove();
             }),
         );
+        const container = yield* Effect.sync(() => {
+          const element = document.createElement("div");
+          element.id = "content-code-" + crypto.randomUUID();
+          slot.append(element);
+          return element;
+        });
         const flags = yield* Schema.decodeUnknownEffect(Flags)({
           kind: isInstallation ? Kind.literals[1] : Kind.literals[0],
           source: isInstallation
@@ -186,7 +191,7 @@ export const mountCodeBlocks = Effect.fn(function* (root: Element, locale: typeo
                     failed: false,
                   },
                 }),
-                container: slot,
+                container,
                 resources: Clipboard.layer,
                 devTools: false,
               }),
