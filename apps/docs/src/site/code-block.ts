@@ -150,6 +150,7 @@ export const mountCodeBlocks = Effect.fn(function* (root: Element, locale: typeo
         const slot = yield* Effect.acquireRelease(
           Effect.sync(() => {
             const element = document.createElement("div");
+            element.id = "content-code-" + crypto.randomUUID();
             if (isInstallation) original.replaceWith(element);
             else original.prepend(element);
             return element;
@@ -177,7 +178,13 @@ export const mountCodeBlocks = Effect.fn(function* (root: Element, locale: typeo
                 view,
                 flags: Effect.succeed(flags),
                 init: (flags) => ({
-                  model: { ...flags, manager: "bun", revision: 0, copied: false, failed: false },
+                  model: {
+                    ...flags,
+                    manager: PackageManager.literals[0],
+                    revision: 0,
+                    copied: false,
+                    failed: false,
+                  },
                 }),
                 container: slot,
                 resources: Clipboard.layer,
