@@ -25,7 +25,7 @@ export const renderDocument: Server.DocumentRenderer = (application, assets) => 
   const json =
     payload !== undefined && defaultTreeAdapter.isElementNode(payload)
       ? payload.childNodes
-          .filter(defaultTreeAdapter.isTextNode)
+          .filter((node) => defaultTreeAdapter.isTextNode(node))
           .map((node) => node.value)
           .join("")
       : undefined;

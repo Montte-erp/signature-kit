@@ -48,5 +48,13 @@
     "react/self-closing-comp": "error",
     "react/jsx-boolean-value": "error"
   },
-  "ignorePatterns": ["**/.next/**", "**/paraglide/**", "**/.source/**"]
+  "ignorePatterns": ["**/.next/**", "**/paraglide/**", "**/.source/**"],
+  "overrides": [
+    {
+      "files": ["apps/docs/src/entry.server.ts", "apps/docs/src/site/document.ts"],
+      "rules": {
+        "effecttsgo/schema-sync": "off"
+      }
+    }
+  ]
 }

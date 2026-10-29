@@ -29,7 +29,7 @@ import type { SigningImages } from "./signing-images.ts";
 import * as Search from "./search.ts";
 import { ContentDiagrams, contentDiagramsBrowserLayer, DiagramTheme } from "./content-diagrams.ts";
 
-import { freeSigningPath, localizedSitePath } from "../../lib/site-route.ts";
+import { freeSigningPath, localizedSitePath, SiteLocale } from "../../lib/site-route.ts";
 import { m } from "../../paraglide/messages.js";
 
 export { ContentFlags } from "./config.ts";

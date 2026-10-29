@@ -10,7 +10,7 @@ import { homeEntry } from "../site/landing.ts";
 import { freeSigningEntry } from "../site/free-signing.ts";
 
 import { localizedSitePath } from "../../lib/site-route.ts";
-import { SiteContent, SiteAsset } from "../site/config.ts";
+import type { SiteContent, SiteAsset } from "../site/config.ts";
 import { SocialImages } from "./social.ts";
 import { rssArtifacts, sitemapArtifact, textArtifacts } from "./publication.ts";
 

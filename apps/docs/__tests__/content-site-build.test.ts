@@ -70,9 +70,9 @@ describe("Foldkit site publication", () => {
           if (html === undefined || !defaultTreeAdapter.isElementNode(html))
             return yield* Effect.die("Published HTML requires a root");
           const elements = html.childNodes
-            .filter(defaultTreeAdapter.isElementNode)
+            .filter((node) => defaultTreeAdapter.isElementNode(node))
             .flatMap((node) => node.childNodes)
-            .filter(defaultTreeAdapter.isElementNode);
+            .filter((node) => defaultTreeAdapter.isElementNode(node));
           const stylesheet = elements
             .find(
               (node) =>
