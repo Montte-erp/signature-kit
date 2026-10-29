@@ -297,7 +297,114 @@ const view = (model: ContentModel, h: HtmlBuilder<Message>): Document => {
                 ),
           ],
         ),
-        h.footer([], ["SignatureKit · MIT"]),
+        h.footer(
+          [h.Class("site-footer")],
+          [
+            h.div(
+              [h.Class("footer-brand")],
+              [h.strong([], ["SignatureKit"]), h.p([], [m.footer_brand_blurb({}, options)])],
+            ),
+            h.nav(
+              [h.Attribute("aria-label", m.footer_col_docs({}, options))],
+              [
+                h.h2([], [m.footer_col_docs({}, options)]),
+                h.ul(
+                  [],
+                  [
+                    {
+                      path: "docs/get-started/quickstart",
+                      label: m.footer_link_quickstart({}, options),
+                    },
+                    {
+                      path: "docs/signing/signers",
+                      label: m.footer_link_signing_boundary({}, options),
+                    },
+                    { path: "docs/signing/pdf", label: m.footer_link_pdf({}, options) },
+                    { path: "docs/signing/xml", label: m.footer_link_xml({}, options) },
+                    { path: "docs/signing/errors", label: m.footer_link_errors({}, options) },
+                  ].map((link) =>
+                    h.li(
+                      [],
+                      [h.a([h.Href(localizedSitePath(link.path, model.locale))], [link.label])],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            h.nav(
+              [h.Attribute("aria-label", m.footer_col_project({}, options))],
+              [
+                h.h2([], [m.footer_col_project({}, options)]),
+                h.ul(
+                  [],
+                  [
+                    h.li(
+                      [],
+                      [
+                        h.a(
+                          [h.Href(localizedSitePath("docs/providers/request-shape", model.locale))],
+                          [m.footer_col_providers({}, options)],
+                        ),
+                      ],
+                    ),
+                    h.li(
+                      [],
+                      [
+                        h.a(
+                          [h.Href(localizedSitePath("blog", model.locale))],
+                          [m.footer_link_blog({}, options)],
+                        ),
+                      ],
+                    ),
+                    h.li(
+                      [],
+                      [
+                        h.a(
+                          [
+                            h.Href("https://github.com/Montte-erp/signature-kit"),
+                            h.Target("_blank"),
+                            h.Rel("noreferrer"),
+                          ],
+                          [m.footer_link_github({}, options)],
+                        ),
+                      ],
+                    ),
+                    h.li(
+                      [],
+                      [
+                        h.a(
+                          [
+                            h.Href("https://github.com/Montte-erp/signature-kit/issues"),
+                            h.Target("_blank"),
+                            h.Rel("noreferrer"),
+                          ],
+                          [m.footer_link_issues({}, options)],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            h.div(
+              [h.Class("footer-attribution")],
+              [
+                h.p(
+                  [],
+                  [
+                    m.footer_attribution_prefix({}, options),
+                    " ",
+                    h.a(
+                      [h.Href("https://montte.co"), h.Target("_blank"), h.Rel("noreferrer")],
+                      ["Montte"],
+                    ),
+                  ],
+                ),
+                h.p([], [m.footer_copyright({}, options)]),
+              ],
+            ),
+          ],
+        ),
       ],
     ),
   };

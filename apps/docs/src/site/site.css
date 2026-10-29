@@ -716,3 +716,41 @@ footer {
 .article-actions {
   margin-block: 1rem 1.5rem;
 }
+
+.site-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));
+  gap: 2rem;
+}
+.site-footer h2 {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+}
+.site-footer ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.site-footer li + li {
+  margin-top: 0.75rem;
+}
+.footer-brand {
+  max-width: 24rem;
+}
+.footer-attribution {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid var(--site-border);
+  padding-top: 1rem;
+}
+@media (max-width: 600px) {
+  .site-footer {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .footer-brand {
+    grid-column: 1 / -1;
+  }
+}
