@@ -14,6 +14,7 @@ export const contentDocument = (
   assets: DocumentAssets,
   flags: ContentFlags,
 ) => {
+  // effect-boundary: application document decoding [allow-run: synchronous native SSR document boundary]
   const canonical = Schema.decodeUnknownSync(Schema.NonEmptyString)(application.canonical);
   const image = `${flags.siteUrl}${localizedSitePath(flags.path, flags.locale)}.webp`;
   const head: Element[] = [

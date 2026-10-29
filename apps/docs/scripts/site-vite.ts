@@ -19,6 +19,7 @@ export const siteViteConfig = (
     },
     async load(id) {
       if (id !== "\0signature-kit:content") return;
+      // effect-boundary: native host invocation [allow-run: Vite and HTTP application boundary]
       const json = await Effect.runPromise(
         Schema.encodeEffect(Schema.fromJsonString(SiteContent))(content),
       );

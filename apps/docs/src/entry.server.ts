@@ -8,6 +8,7 @@ import { contentDocument } from "./site/document.ts";
 import { localizedSitePath } from "../lib/site-route.ts";
 import { baseLocale } from "../paraglide/runtime.js";
 
+// effect-boundary: application document decoding [allow-run: synchronous native SSR document boundary]
 const content = Schema.decodeUnknownSync(SiteContent)(encodedContent);
 export const prerenderPaths = content.pages.map((page) =>
   localizedSitePath(page.path, page.locale),
@@ -28,11 +29,13 @@ export const renderDocument: Server.DocumentRenderer = (application, assets) => 
           .map((node) => node.value)
           .join("")
       : undefined;
+  // effect-boundary: application document decoding [allow-run: synchronous native SSR document boundary]
   const flags = Schema.decodeUnknownSync(Schema.fromJsonString(ContentFlags))(json);
   return contentDocument(application, assets, flags);
 };
 
 export const renderPage = (request: Request): Promise<Server.EntryResult> =>
+  // effect-boundary: native host invocation [allow-run: Vite and HTTP application boundary]
   Effect.runPromise(
     Effect.gen(function* () {
       if (request.method !== "GET" && request.method !== "HEAD") {
