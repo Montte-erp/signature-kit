@@ -238,7 +238,10 @@ describe("Foldkit site publication", () => {
                 schedule: Schedule.spaced(Duration.millis(500)),
                 while: (issue) => issue.reason._tag === "TransportError",
               }),
-              Effect.timeout(Duration.seconds(10)),
+              Effect.timeoutOrElse({
+                duration: Duration.seconds(10),
+                orElse: () => Effect.dieMessage("Native host readiness did not complete"),
+              }),
             ),
           );
           expect(ready.status).toBe(200);
@@ -247,15 +250,30 @@ describe("Foldkit site publication", () => {
             const response = yield* HttpClient.get(origin + "/en-US");
             expect(response.status).toBe(200);
             expect(yield* response.text).toContain("SignatureKit");
-          }).pipe(Effect.timeout(Duration.seconds(10)));
+          }).pipe(
+            Effect.timeoutOrElse({
+              duration: Duration.seconds(10),
+              orElse: () => Effect.dieMessage("Native home GET did not complete"),
+            }),
+          );
           yield* Effect.gen(function* () {
             const response = yield* HttpClient.head(origin + "/en-US");
             expect(response.status).toBe(200);
             expect(yield* response.text).toBe("");
-          }).pipe(Effect.timeout(Duration.seconds(10)));
+          }).pipe(
+            Effect.timeoutOrElse({
+              duration: Duration.seconds(10),
+              orElse: () => Effect.dieMessage("Native home HEAD did not complete"),
+            }),
+          );
           const rendered = yield* HttpClient.get(
             origin + "/en-US/docs/get-started/installation",
-          ).pipe(Effect.timeout(Duration.seconds(10)));
+          ).pipe(
+            Effect.timeoutOrElse({
+              duration: Duration.seconds(10),
+              orElse: () => Effect.dieMessage("Native request-time SSR did not complete"),
+            }),
+          );
           expect(rendered.status).toBe(200);
           expect(yield* rendered.text).toContain("Install the packages");
           const missing = yield* HttpClient.get(origin + "/server/fetch.js");
