@@ -18,7 +18,7 @@ export default mergeConfig(baseBrowserConfig, {
       }),
     },
   },
-  plugins: [contentTestServer],
+  plugins: [contentTestServer()],
   resolve: {
     dedupe: ["react", "react-dom"],
     alias: {

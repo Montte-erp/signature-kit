@@ -6,12 +6,11 @@ import { fileURLToPath } from "node:url";
 import { defaultTreeAdapter, parse } from "parse5";
 import { fromXml } from "xast-util-from-xml";
 
-import { Config, Duration, Effect, Fiber, Layer, Option, Schedule, Schema } from "effect";
+import { Duration, Effect, Layer, Schema } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 import * as Http from "foldkit/http";
-import * as FoldkitNode from "@foldkit/node";
 import { FoldkitBuildManifest } from "@foldkit/vite-plugin";
-import { localHttpServer } from "../../../tooling/testing/local-http.ts";
+import { contentTestHost } from "../scripts/content-test-host.ts";
 import { describe, expect, it } from "vitest";
 
 import { buildContentSite } from "../scripts/build-content-site";
@@ -215,45 +214,12 @@ describe("Foldkit site publication", () => {
           yield* Effect.promise(() =>
             rm(join(clientRoot, "en-US/docs/get-started/installation/index.html")),
           );
-          const origin = yield* Effect.scoped(
-            localHttpServer(async () => ({ status: 204 })).pipe(
-              Effect.map((server) => server.baseUrl),
-            ),
+          const origin = yield* contentTestHost({ manifestPath, rootDirectory: appRoot });
+          const registryResponse = yield* HttpClient.get(origin + "/r/registry.json");
+          expect(registryResponse.status).toBe(200);
+          expect(yield* registryResponse.text).toContain(
+            "https://ui.shadcn.com/schema/registry.json",
           );
-          const port = yield* Schema.decodeUnknownEffect(Schema.FiniteFromString)(
-            new URL(origin).port,
-          );
-          const host = yield* Effect.forkScoped(
-            FoldkitNode.serve({
-              port: Config.succeed(port),
-              origin: Config.succeed(Option.some(origin)),
-              manifestPath,
-              rootDirectory: appRoot,
-            }),
-          );
-          const ready = yield* Effect.raceFirst(
-            Fiber.join(host),
-            Effect.scoped(
-              Effect.gen(function* () {
-                const response = yield* HttpClient.get(origin + "/r/registry.json");
-                const body = yield* response.text;
-                return { status: response.status, body };
-              }),
-            ).pipe(
-              Effect.timeout(Duration.millis(500)),
-              Effect.retry({
-                schedule: Schedule.spaced(Duration.millis(100)),
-                while: (issue) =>
-                  issue._tag === "TimeoutError" || issue.reason._tag === "TransportError",
-              }),
-              Effect.timeoutOrElse({
-                duration: Duration.seconds(10),
-                orElse: () => Effect.die("Native host readiness did not complete"),
-              }),
-            ),
-          );
-          expect(ready.status).toBe(200);
-          expect(ready.body).toContain("https://ui.shadcn.com/schema/registry.json");
           yield* Effect.gen(function* () {
             const response = yield* HttpClient.get(origin + "/en-US");
             expect(response.status).toBe(200);
