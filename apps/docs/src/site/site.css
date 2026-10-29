@@ -768,3 +768,42 @@ footer {
   min-width: 2.75rem;
   min-height: 2.75rem;
 }
+
+.page-feedback {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--site-border);
+}
+.feedback-opinions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.feedback-opinions p {
+  flex: 1;
+  margin: 0;
+}
+.page-feedback form {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+.page-feedback textarea {
+  resize: vertical;
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--site-border);
+  border-radius: 0.5rem;
+  background: var(--site-card);
+  color: inherit;
+  font: inherit;
+}
+.page-feedback button[aria-pressed="true"] {
+  border-color: currentColor;
+  font-weight: 600;
+}
+.page-feedback button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}

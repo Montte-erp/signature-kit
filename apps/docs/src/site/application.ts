@@ -1,3 +1,4 @@
+import * as Feedback from "./feedback.ts";
 import * as ArticleActions from "./article-actions.ts";
 import { mountCodeBlocks } from "./code-block.ts";
 import type { AutoDocuments, AutoPreview } from "./auto-documents.ts";
@@ -41,6 +42,7 @@ const ContentModel = Schema.Struct({
   systemDark: Schema.Boolean,
   search: Search.Model,
   articleActions: ArticleActions.Model,
+  feedback: Feedback.Model,
   preferences: Preferences.Model,
   landing: Landing.Model,
 });
@@ -52,6 +54,7 @@ const Message = defineMessageUnion({
   GotLandingMessage: { message: Landing.Message },
   GotSearchMessage: { message: Search.Message },
   GotArticleActionsMessage: { message: ArticleActions.Message },
+  GotFeedbackMessage: { message: Feedback.Message },
   GotPreferencesMessage: { message: Preferences.Message },
 });
 type Message = typeof Message.Type;
@@ -115,6 +118,13 @@ const foldArticleActions = Update.foldChild({
   read: (model: ContentModel) => Option.some(model.articleActions),
   write: (model, articleActions) => ({ ...model, articleActions }),
   toParentMessage: (message) => Message.GotArticleActionsMessage({ message }),
+});
+
+const foldFeedback = Update.foldChild({
+  update: Feedback.update,
+  read: (model: ContentModel) => Option.some(model.feedback),
+  write: (model, feedback) => ({ ...model, feedback }),
+  toParentMessage: (message) => Message.GotFeedbackMessage({ message }),
 });
 
 const foldSearch = Update.foldChild({
@@ -266,6 +276,14 @@ const view = (model: ContentModel, h: HtmlBuilder<Message>): Document => {
                       h.InnerHTML(model.page.html),
                       h.OnMount(MountContent({ locale: model.locale })),
                     ]),
+                    model.sourceUrl === undefined
+                      ? h.empty
+                      : h.submodel({
+                          slotId: "page-feedback",
+                          model: model.feedback,
+                          view: Feedback.view,
+                          toParentMessage: (message) => Message.GotFeedbackMessage({ message }),
+                        }),
                   ],
                 ),
             model.page.headings.length === 0
@@ -443,6 +461,7 @@ export const contentApplication = {
           path: flags.path,
           sourceUrl: flags.sourceUrl,
         }),
+        feedback: Feedback.init(flags.locale, flags.path),
         landing: Landing.init(flags.locale, flags.path === freeSigningPath ? "inline" : "dialog"),
         preferences,
       }),
@@ -472,6 +491,7 @@ export const contentApplication = {
       GotLandingMessage: ({ message }) => foldLanding(model, message),
       GotSearchMessage: ({ message }) => foldSearch(model, message),
       GotArticleActionsMessage: ({ message }) => foldArticleActions(model, message),
+      GotFeedbackMessage: ({ message }) => foldFeedback(model, message),
       GotPreferencesMessage: ({ message }) => foldPreferences(model, message),
     }),
   view,

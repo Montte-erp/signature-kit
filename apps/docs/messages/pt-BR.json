@@ -268,5 +268,13 @@
   "site_page_actions": "Ações da página",
   "site_copy_markdown": "Copiar Markdown",
   "site_view_markdown": "Ver Markdown",
-  "site_view_source": "Ver código-fonte"
+  "site_view_source": "Ver código-fonte",
+  "site_feedback_prompt": "Esta página foi útil?",
+  "site_feedback_good": "Sim",
+  "site_feedback_bad": "Não",
+  "site_feedback_message": "Comentário (opcional)",
+  "site_feedback_submit": "Enviar comentário",
+  "site_feedback_sending": "Enviando…",
+  "site_feedback_sent": "Obrigado. Seu comentário foi enviado.",
+  "site_feedback_failed": "Não foi possível enviar seu comentário. Tente novamente mais tarde."
 }
