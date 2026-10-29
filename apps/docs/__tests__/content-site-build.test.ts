@@ -234,7 +234,6 @@ describe("Foldkit site publication", () => {
           const ready = yield* Effect.raceFirst(
             Fiber.join(host),
             HttpClient.get(origin + "/r/registry.json").pipe(
-              Effect.tapError((issue) => Effect.logError("[DEBUG-native-host]", issue)),
               Effect.retry({
                 schedule: Schedule.spaced(Duration.millis(500)),
                 while: (issue) => issue.reason._tag === "TransportError",
@@ -244,7 +243,16 @@ describe("Foldkit site publication", () => {
           );
           expect(ready.status).toBe(200);
           yield* ready.text;
-          yield* Effect.log("[DEBUG-native-host] static response complete");
+          const homeResponse = yield* HttpClient.get(origin + "/en-US").pipe(
+            Effect.timeout(Duration.seconds(10)),
+          );
+          expect(homeResponse.status).toBe(200);
+          expect(yield* homeResponse.text).toContain("SignatureKit");
+          const homeHead = yield* HttpClient.head(origin + "/en-US").pipe(
+            Effect.timeout(Duration.seconds(10)),
+          );
+          expect(homeHead.status).toBe(200);
+          expect(yield* homeHead.text).toBe("");
           const rendered = yield* HttpClient.get(
             origin + "/en-US/docs/get-started/installation",
           ).pipe(Effect.timeout(Duration.seconds(10)));
