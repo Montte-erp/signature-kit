@@ -243,16 +243,16 @@ describe("Foldkit site publication", () => {
           );
           expect(ready.status).toBe(200);
           yield* ready.text;
-          const homeResponse = yield* HttpClient.get(origin + "/en-US").pipe(
-            Effect.timeout(Duration.seconds(10)),
-          );
-          expect(homeResponse.status).toBe(200);
-          expect(yield* homeResponse.text).toContain("SignatureKit");
-          const homeHead = yield* HttpClient.head(origin + "/en-US").pipe(
-            Effect.timeout(Duration.seconds(10)),
-          );
-          expect(homeHead.status).toBe(200);
-          expect(yield* homeHead.text).toBe("");
+          yield* Effect.gen(function* () {
+            const response = yield* HttpClient.get(origin + "/en-US");
+            expect(response.status).toBe(200);
+            expect(yield* response.text).toContain("SignatureKit");
+          }).pipe(Effect.timeout(Duration.seconds(10)));
+          yield* Effect.gen(function* () {
+            const response = yield* HttpClient.head(origin + "/en-US");
+            expect(response.status).toBe(200);
+            expect(yield* response.text).toBe("");
+          }).pipe(Effect.timeout(Duration.seconds(10)));
           const rendered = yield* HttpClient.get(
             origin + "/en-US/docs/get-started/installation",
           ).pipe(Effect.timeout(Duration.seconds(10)));
