@@ -188,6 +188,18 @@ export const subscriptions = Subscription.aggregate(
 
 export const view = Submodel.defineView<Model, Message>((model, h) => {
   const options = { locale: model.locale };
+  const providerIndex = providerExamples.findIndex(
+    (provider) => provider.filename === model.provider,
+  );
+  const previousProvider = Option.getOrThrow(
+    EffectArray.get(
+      providerExamples,
+      (providerIndex + providerExamples.length - 1) % providerExamples.length,
+    ),
+  );
+  const nextProvider = Option.getOrThrow(
+    EffectArray.get(providerExamples, (providerIndex + 1) % providerExamples.length),
+  );
   const install = packageInstallCommand(
     model.manager,
     "@signature-kit/signatures @signature-kit/a1",
@@ -298,46 +310,72 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
           h.h2([], [m.showcase_title({}, options)]),
           h.p([], [m.showcase_lead({}, options)]),
           h.div(
+            [h.Class("provider-navigation")],
             [
-              h.Attribute("role", "tablist"),
-              h.Attribute("aria-label", m.showcase_card_provider({}, options)),
-            ],
-            providerExamples.map((provider, index) =>
               h.button(
                 [
                   h.Type("button"),
-                  h.Id(`home-provider-${provider.filename.slice(0, -3)}`),
-                  h.Attribute("role", "tab"),
-                  h.Attribute("aria-selected", String(model.provider === provider.filename)),
-                  h.Attribute("aria-controls", `home-example-${provider.filename}`),
-                  h.Tabindex(model.provider === provider.filename ? 0 : -1),
-                  h.OnKeyDownFocus((key, modifiers) => {
-                    if (modifiers.altKey || modifiers.ctrlKey || modifiers.metaKey)
-                      return Option.none();
-                    return Match.value(key).pipe(
-                      Match.when("ArrowRight", () =>
-                        EffectArray.get(providerExamples, (index + 1) % providerExamples.length),
-                      ),
-                      Match.when("ArrowLeft", () =>
-                        EffectArray.get(
-                          providerExamples,
-                          (index + providerExamples.length - 1) % providerExamples.length,
-                        ),
-                      ),
-                      Match.when("Home", () => EffectArray.head(providerExamples)),
-                      Match.when("End", () => EffectArray.last(providerExamples)),
-                      Match.orElse(() => Option.none()),
-                      Option.map((next) => ({
-                        focusSelector: `#home-provider-${next.filename.slice(0, -3)}`,
-                        message: Message.SelectedProvider({ filename: next.filename }),
-                      })),
-                    );
-                  }),
-                  h.OnClick(Message.SelectedProvider({ filename: provider.filename })),
+                  h.Id("home-provider-previous"),
+                  h.Attribute("aria-label", m.showcase_prev({}, options)),
+                  h.OnClick(Message.SelectedProvider({ filename: previousProvider.filename })),
                 ],
-                [provider.name],
+                ["←"],
               ),
-            ),
+              h.div(
+                [
+                  h.Attribute("role", "tablist"),
+                  h.Attribute("aria-label", m.showcase_card_provider({}, options)),
+                ],
+                providerExamples.map((provider, index) =>
+                  h.button(
+                    [
+                      h.Type("button"),
+                      h.Id(`home-provider-${provider.filename.slice(0, -3)}`),
+                      h.Attribute("role", "tab"),
+                      h.Attribute("aria-selected", String(model.provider === provider.filename)),
+                      h.Attribute("aria-controls", `home-example-${provider.filename}`),
+                      h.Tabindex(model.provider === provider.filename ? 0 : -1),
+                      h.OnKeyDownFocus((key, modifiers) => {
+                        if (modifiers.altKey || modifiers.ctrlKey || modifiers.metaKey)
+                          return Option.none();
+                        return Match.value(key).pipe(
+                          Match.when("ArrowRight", () =>
+                            EffectArray.get(
+                              providerExamples,
+                              (index + 1) % providerExamples.length,
+                            ),
+                          ),
+                          Match.when("ArrowLeft", () =>
+                            EffectArray.get(
+                              providerExamples,
+                              (index + providerExamples.length - 1) % providerExamples.length,
+                            ),
+                          ),
+                          Match.when("Home", () => EffectArray.head(providerExamples)),
+                          Match.when("End", () => EffectArray.last(providerExamples)),
+                          Match.orElse(() => Option.none()),
+                          Option.map((next) => ({
+                            focusSelector: `#home-provider-${next.filename.slice(0, -3)}`,
+                            message: Message.SelectedProvider({ filename: next.filename }),
+                          })),
+                        );
+                      }),
+                      h.OnClick(Message.SelectedProvider({ filename: provider.filename })),
+                    ],
+                    [provider.name],
+                  ),
+                ),
+              ),
+              h.button(
+                [
+                  h.Type("button"),
+                  h.Id("home-provider-next"),
+                  h.Attribute("aria-label", m.showcase_next({}, options)),
+                  h.OnClick(Message.SelectedProvider({ filename: nextProvider.filename })),
+                ],
+                ["→"],
+              ),
+            ],
           ),
           ...providerExamples.map((provider) =>
             h.div(

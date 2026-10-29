@@ -754,3 +754,18 @@ footer {
     grid-column: 1 / -1;
   }
 }
+
+.provider-navigation {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.provider-navigation [role="tablist"] {
+  flex: 1;
+  min-width: 0;
+}
+.provider-navigation > button {
+  flex-shrink: 0;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+}
