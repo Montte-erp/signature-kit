@@ -42,5 +42,13 @@ describe("Foldkit content rendering", () => {
     expect(html).toContain("Use native Uint8Array copies");
     expect(html).toContain('href="/en-US/docs"');
     expect(html).not.toContain("react-server-dom");
+    const footer = html.slice(html.indexOf("<footer"));
+    expect(footer).toContain('href="/en-US/docs/get-started/quickstart"');
+    expect(footer).toContain('href="/en-US/docs/signing/pdf"');
+    expect(footer).toContain('href="/en-US/docs/signing/xml"');
+    expect(footer).toContain('href="/en-US/docs/signing/errors"');
+    expect(footer).toContain('href="/en-US/docs/providers/request-shape"');
+    expect(footer).toContain('href="https://github.com/Montte-erp/signature-kit/issues"');
+    expect(footer).toContain('href="https://montte.co"');
   });
 });
