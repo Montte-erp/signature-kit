@@ -22,7 +22,7 @@ export const contentTestServer: Plugin = {
       ["bun@1.4.3", join(appRoot, "scripts/build-content-site.ts"), outputDir],
       { cwd: appRoot },
     );
-    const serve = sirv(outputDir, { dev: true });
+    const serve = sirv(join(outputDir, "client"), { dev: true });
     server.middlewares.use((request, response, next) => {
       const pathname = request.url?.split("?")[0];
       if (pathname === undefined) return next();
@@ -33,7 +33,7 @@ export const contentTestServer: Plugin = {
         void Effect.runPromise(
           Effect.gen(function* () {
             const source = yield* Effect.promise(() =>
-              readFile(join(outputDir, pathname, "index.html"), "utf8"),
+              readFile(join(outputDir, "client", pathname, "index.html"), "utf8"),
             );
             const document = parse(source);
             const html = document.childNodes.find(

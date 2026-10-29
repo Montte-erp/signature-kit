@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Schema } from "effect";
 import { renderDocument } from "foldkit/experimental/server";
 import type { DocumentAssets, RenderedApplication } from "foldkit/experimental/server";
 import type { Element } from "hast";
@@ -9,12 +9,12 @@ import { freeSigningStructuredData } from "./free-signing.ts";
 import { baseLocale } from "../../paraglide/runtime.js";
 import type { ContentFlags } from "./application.ts";
 
-export const renderContentDocument = Effect.fn(function* (
+export const contentDocument = (
   application: RenderedApplication,
   assets: DocumentAssets,
   flags: ContentFlags,
-) {
-  const canonical = yield* Schema.decodeUnknownEffect(Schema.NonEmptyString)(application.canonical);
+) => {
+  const canonical = Schema.decodeUnknownSync(Schema.NonEmptyString)(application.canonical);
   const image = `${flags.siteUrl}${localizedSitePath(flags.path, flags.locale)}.webp`;
   const head: Element[] = [
     {
@@ -153,4 +153,4 @@ export const renderContentDocument = Effect.fn(function* (
     });
   }
   return renderDocument(application, assets, { head: toHtml({ type: "root", children: head }) });
-});
+};

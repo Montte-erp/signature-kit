@@ -1,8 +1,9 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { defaultTreeAdapter, parse } from "parse5";
 import { fromXml } from "xast-util-from-xml";
 
 import { Config, Duration, Effect, Fiber, Layer, Option, Schedule, Schema } from "effect";
@@ -24,12 +25,18 @@ describe("Foldkit site publication", () => {
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          const outputDir = yield* Effect.acquireRelease(
+          const buildRoot = yield* Effect.acquireRelease(
             Effect.promise(() => mkdtemp(join(tmpdir(), "signature-kit-site-"))),
             (directory) => Effect.promise(() => rm(directory, { recursive: true, force: true })),
           );
+          const outputDir = join(buildRoot, "client");
+          yield* Effect.promise(() => mkdir(outputDir));
           yield* Effect.promise(() => writeFile(join(outputDir, "obsolete.html"), "old build"));
-          yield* buildContentSite({ outputDir, siteUrl: "https://signaturekit.dev" });
+          const metadata = yield* buildContentSite({
+            outputDir: buildRoot,
+            siteUrl: "https://signaturekit.dev",
+          });
+          expect(metadata.clientDirectory).toBe(outputDir);
           const outputs = yield* Effect.promise(() => readdir(outputDir));
           expect(outputs).not.toContain("obsolete.html");
           expect(outputs.filter((name) => name.endsWith(".js") || name.endsWith(".mjs"))).toEqual(
@@ -56,9 +63,37 @@ describe("Foldkit site publication", () => {
           expect(freeSigning).not.toContain('hreflang="en-US"');
           const englishOutputs = yield* Effect.promise(() => readdir(join(outputDir, "en-US")));
           expect(englishOutputs).not.toContain("assine-documentos-gratis");
-          const css = yield* Effect.promise(() =>
-            readFile(join(outputDir, "assets/content.css"), "utf8"),
+          const document = parse(home);
+          const html = document.childNodes.find(
+            (node) => defaultTreeAdapter.isElementNode(node) && node.tagName === "html",
           );
+          if (html === undefined || !defaultTreeAdapter.isElementNode(html))
+            return yield* Effect.die("Published HTML requires a root");
+          const elements = html.childNodes
+            .filter(defaultTreeAdapter.isElementNode)
+            .flatMap((node) => node.childNodes)
+            .filter(defaultTreeAdapter.isElementNode);
+          const stylesheet = elements
+            .find(
+              (node) =>
+                node.tagName === "link" &&
+                node.attrs.some(
+                  (attribute) => attribute.name === "rel" && attribute.value === "stylesheet",
+                ),
+            )
+            ?.attrs.find((attribute) => attribute.name === "href")?.value;
+          const entry = elements
+            .find(
+              (node) =>
+                node.tagName === "script" &&
+                node.attrs.some(
+                  (attribute) => attribute.name === "type" && attribute.value === "module",
+                ),
+            )
+            ?.attrs.find((attribute) => attribute.name === "src")?.value;
+          if (stylesheet === undefined || entry === undefined)
+            return yield* Effect.die("Published HTML requires emitted script and stylesheet links");
+          const css = yield* Effect.promise(() => readFile(join(outputDir, stylesheet), "utf8"));
           expect(css.length).toBeGreaterThan(0);
           const english = yield* Effect.promise(() =>
             readFile(join(outputDir, "en-US/docs/get-started/installation/index.html"), "utf8"),
@@ -132,9 +167,7 @@ describe("Foldkit site publication", () => {
           );
           expect(search).toContain('"path":"docs/signing/certificates"');
           expect(search).toContain("signatures.inspect()");
-          const script = yield* Effect.promise(() =>
-            readFile(join(outputDir, "assets/content.js"), "utf8"),
-          );
+          const script = yield* Effect.promise(() => readFile(join(outputDir, entry), "utf8"));
 
           expect(english).toContain("Install the packages");
           expect(english).toContain(
@@ -159,7 +192,7 @@ describe("Foldkit site publication", () => {
           expect(certificates).toContain('aria-label="On this page"');
           expect(certificates).toContain('href="#read-the-identity"');
           expect(english).toContain("data-foldkit-app");
-          expect(english).toContain('src="/assets/content.js"');
+          expect(english).toContain(`src="${entry}"`);
           expect(portuguese).toContain('<html lang="pt-BR"');
           expect(portuguese).toContain("Instale os pacotes");
           expect(english).toContain('aria-label="Documentation navigation"');
@@ -168,15 +201,15 @@ describe("Foldkit site publication", () => {
           expect(release).toContain("Native byte conversion and verified release gates");
           expect(script.length).toBeGreaterThan(0);
           const appRoot = fileURLToPath(new URL("../", import.meta.url));
-          const manifestPath = join(outputDir, "server/foldkit.build.json");
+          const manifestPath = join(buildRoot, "server/foldkit.build.json");
           const manifest = yield* Schema.decodeUnknownEffect(
             Schema.fromJsonString(FoldkitBuildManifest),
           )(yield* Effect.promise(() => readFile(manifestPath, "utf8")));
           const clientRoot = resolve(appRoot, manifest.client);
-          expect(clientRoot).toBe(join(outputDir, "client"));
-          expect(resolve(appRoot, manifest.server)).toBe(join(outputDir, "server"));
+          expect(clientRoot).toBe(join(buildRoot, "client"));
+          expect(resolve(appRoot, manifest.server)).toBe(join(buildRoot, "server"));
           const serverEntry = yield* Effect.promise(() =>
-            readFile(join(outputDir, "server", manifest.serverEntry), "utf8"),
+            readFile(join(buildRoot, "server", manifest.serverEntry), "utf8"),
           );
           expect(serverEntry.length).toBeGreaterThan(0);
           yield* Effect.promise(() =>

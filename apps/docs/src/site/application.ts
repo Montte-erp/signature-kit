@@ -29,21 +29,11 @@ import type { SigningImages } from "./signing-images.ts";
 import * as Search from "./search.ts";
 import { ContentDiagrams, contentDiagramsBrowserLayer, DiagramTheme } from "./content-diagrams.ts";
 
-import { freeSigningPath, localizedSitePath, SiteLocale } from "../../lib/site-route.ts";
+import { freeSigningPath, localizedSitePath } from "../../lib/site-route.ts";
 import { m } from "../../paraglide/messages.js";
-import { ContentDocument, ContentPage, DocumentationGroup } from "../content/config.ts";
 
-export const ContentFlags = Schema.Struct({
-  page: ContentPage,
-  navigation: Schema.Array(DocumentationGroup),
-  alternates: Schema.Array(SiteLocale),
-  locale: SiteLocale,
-  path: Schema.String,
-  siteUrl: Schema.String,
-  sourceUrl: ContentDocument.fields.sourceUrl,
-});
-
-export type ContentFlags = typeof ContentFlags.Type;
+export { ContentFlags } from "./config.ts";
+import { ContentFlags } from "./config.ts";
 
 const ContentModel = Schema.Struct({
   ...ContentFlags.fields,

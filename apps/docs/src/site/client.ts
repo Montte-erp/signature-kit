@@ -5,8 +5,6 @@ import * as Runtime from "foldkit/runtime";
 import { contentApplication } from "./application.ts";
 import "./site.css";
 
-declare const __SITE_BUILD_ID__: string;
-
 Runtime.hydrate(
   Runtime.makeApplication({
     ...contentApplication,
@@ -15,5 +13,4 @@ Runtime.hydrate(
     ),
     container: document.querySelector<HTMLElement>("[data-foldkit-app]"),
   }),
-  { buildId: __SITE_BUILD_ID__ },
 );
