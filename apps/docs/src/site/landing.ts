@@ -38,6 +38,8 @@ export const Message = defineMessageUnion({
   GotSignerMessage: { message: Signer.Message },
   GotAutoDemoMessage: { message: AutoDemo.Message },
   SelectedProvider: { filename: ProviderFilename },
+  ClickedPreviousProvider: {},
+  ClickedNextProvider: {},
   SelectedManager: { manager: PackageManager },
   ClickedCopy: { target: CopyTarget, text: Schema.String },
   CopiedText: { target: CopyTarget, revision: Schema.Int },
@@ -77,6 +79,16 @@ export const init = (
   provider: "clicksign.ts",
   manager: "bun",
   copyRevision: 0,
+});
+
+const selectProvider = (model: Model, filename: Model["provider"]) => ({
+  model: {
+    ...model,
+    provider: filename,
+    copied: undefined,
+    copyFailed: undefined,
+    copyRevision: model.copyRevision + 1,
+  },
 });
 
 const foldSigner = Update.foldChild({
@@ -122,15 +134,31 @@ export const update = (
   >(message, {
     GotSignerMessage: ({ message }) => foldSigner(model, message),
     GotAutoDemoMessage: ({ message }) => foldAutoDemo(model, message),
-    SelectedProvider: ({ filename }) => ({
-      model: {
-        ...model,
-        provider: filename,
-        copied: undefined,
-        copyFailed: undefined,
-        copyRevision: model.copyRevision + 1,
-      },
-    }),
+    SelectedProvider: ({ filename }) => selectProvider(model, filename),
+    ClickedPreviousProvider: () =>
+      selectProvider(
+        model,
+        Option.getOrThrow(
+          EffectArray.get(
+            providerExamples,
+            (providerExamples.findIndex((provider) => provider.filename === model.provider) +
+              providerExamples.length -
+              1) %
+              providerExamples.length,
+          ),
+        ).filename,
+      ),
+    ClickedNextProvider: () =>
+      selectProvider(
+        model,
+        Option.getOrThrow(
+          EffectArray.get(
+            providerExamples,
+            (providerExamples.findIndex((provider) => provider.filename === model.provider) + 1) %
+              providerExamples.length,
+          ),
+        ).filename,
+      ),
     SelectedManager: ({ manager }) => ({
       model: {
         ...model,
@@ -188,18 +216,6 @@ export const subscriptions = Subscription.aggregate(
 
 export const view = Submodel.defineView<Model, Message>((model, h) => {
   const options = { locale: model.locale };
-  const providerIndex = providerExamples.findIndex(
-    (provider) => provider.filename === model.provider,
-  );
-  const previousProvider = Option.getOrThrow(
-    EffectArray.get(
-      providerExamples,
-      (providerIndex + providerExamples.length - 1) % providerExamples.length,
-    ),
-  );
-  const nextProvider = Option.getOrThrow(
-    EffectArray.get(providerExamples, (providerIndex + 1) % providerExamples.length),
-  );
   const install = packageInstallCommand(
     model.manager,
     "@signature-kit/signatures @signature-kit/a1",
@@ -317,7 +333,7 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
                   h.Type("button"),
                   h.Id("home-provider-previous"),
                   h.Attribute("aria-label", m.showcase_prev({}, options)),
-                  h.OnClick(Message.SelectedProvider({ filename: previousProvider.filename })),
+                  h.OnClick(Message.ClickedPreviousProvider()),
                 ],
                 ["←"],
               ),
@@ -371,7 +387,7 @@ export const view = Submodel.defineView<Model, Message>((model, h) => {
                   h.Type("button"),
                   h.Id("home-provider-next"),
                   h.Attribute("aria-label", m.showcase_next({}, options)),
-                  h.OnClick(Message.SelectedProvider({ filename: nextProvider.filename })),
+                  h.OnClick(Message.ClickedNextProvider()),
                 ],
                 ["→"],
               ),
