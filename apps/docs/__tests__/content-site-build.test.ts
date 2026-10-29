@@ -187,7 +187,7 @@ describe("Foldkit site publication", () => {
               Effect.map((server) => server.baseUrl),
             ),
           );
-          const port = yield* Schema.decodeUnknownEffect(Schema.NumberFromString)(
+          const port = yield* Schema.decodeUnknownEffect(Schema.FiniteFromString)(
             new URL(origin).port,
           );
           const host = yield* Effect.forkScoped(
