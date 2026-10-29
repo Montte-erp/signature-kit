@@ -233,7 +233,8 @@ describe("Foldkit site publication", () => {
           );
           const ready = yield* Effect.raceFirst(
             Fiber.join(host),
-            HttpClient.head(origin + "/en-US").pipe(
+            HttpClient.get(origin + "/en-US").pipe(
+              Effect.tapError((issue) => Effect.logError("[DEBUG-native-host]", issue)),
               Effect.retry({
                 schedule: Schedule.spaced(Duration.millis(25)),
                 while: (issue) => issue.reason._tag === "TransportError",
@@ -242,6 +243,7 @@ describe("Foldkit site publication", () => {
             ),
           );
           expect(ready.status).toBe(200);
+          yield* ready.text;
           const rendered = yield* HttpClient.get(origin + "/en-US/docs/get-started/installation");
           expect(rendered.status).toBe(200);
           expect(yield* rendered.text).toContain("Install the packages");

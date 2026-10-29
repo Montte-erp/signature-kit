@@ -6,16 +6,16 @@ workflow, not a byte signature or a document format.
 
 ## Ownership
 
-| Context | Owner | Contract |
-| --- | --- | --- |
-| Byte signing and signer identity | `core/signatures` | Certificate schemas, `Signatures`, typed errors |
-| Certificate material | `core/certificates`, `shared/crypto` | PKCS#12 import and X.509 inspection |
-| Remote signature requests | Each package under `signers/` | Provider-specific resource, credentials, lifecycle and statuses |
-| Document preparation and signing | `formats/pdf`, `formats/xml` | Placement, mutation, signing and verification |
-| Conformance validation | `validators/iti` | Local checks and upstream validator results |
-| React integration | `formats/react` | Public headless hooks and their browser data seams |
-| Site navigation and content | `apps/docs` | Localized URLs, documentation, articles and release notes |
-| Signing demonstrations | `apps/docs` | User interactions that invoke format and signer capabilities |
+| Context                          | Owner                                | Contract                                                        |
+| -------------------------------- | ------------------------------------ | --------------------------------------------------------------- |
+| Byte signing and signer identity | `core/signatures`                    | Certificate schemas, `Signatures`, typed errors                 |
+| Certificate material             | `core/certificates`, `shared/crypto` | PKCS#12 import and X.509 inspection                             |
+| Remote signature requests        | Each package under `signers/`        | Provider-specific resource, credentials, lifecycle and statuses |
+| Document preparation and signing | `formats/pdf`, `formats/xml`         | Placement, mutation, signing and verification                   |
+| Conformance validation           | `validators/iti`                     | Local checks and upstream validator results                     |
+| React integration                | `formats/react`                      | Public headless hooks and their browser data seams              |
+| Site navigation and content      | `apps/docs`                          | Localized URLs, documentation, articles and release notes       |
+| Signing demonstrations           | `apps/docs`                          | User interactions that invoke format and signer capabilities    |
 
 Do not move application state into core or provider packages. Each remote signer
 retains its own upstream vocabulary. Foldkit models and messages belong to the
@@ -35,7 +35,11 @@ signing remain in the format and signer packages.
 
 Content publication compiles the Markdown/MDX AST into validated content entries,
 navigation and search indexes. Native Foldkit SSR and hydration share flags and a
-build identity. Canonical locale URLs, metadata, feeds, social images and registry
+build identity. The native Vite plugin owns both bundles, prerendering and the build
+manifest. The Node adapter serves the public client directory and delegates page
+requests to the emitted fetch handler. The server consumes the compiled content
+catalog rather than loading Markdown or generating images during requests.
+Canonical locale URLs, metadata, feeds, social images and registry
 assets belong to this publication boundary. Paraglide messages receive the locale
 explicitly in server and browser rendering.
 
