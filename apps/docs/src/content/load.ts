@@ -16,7 +16,7 @@ import { rssArtifacts, sitemapArtifact, textArtifacts } from "./publication.ts";
 
 const contentRoot = fileURLToPath(new URL("../../content/", import.meta.url));
 
-export const loadContentCatalog = Effect.fn(function* () {
+const loadContentCatalog = Effect.fn(function* () {
   const files = yield* Effect.promise(() => readdir(contentRoot, { recursive: true }));
   const sources = files.filter((file) => file.endsWith(".mdx"));
   const sourceSet = new Set(files);

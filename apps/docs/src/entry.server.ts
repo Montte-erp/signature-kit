@@ -47,12 +47,22 @@ export const renderPage = (request: Request): Promise<Server.EntryResult> =>
       if (url.pathname === "/")
         return Server.Responded(Response.redirect(new URL(`/${baseLocale}`, url), 307));
       const asset = content.assets.find((candidate) => "/" + candidate.fileName === url.pathname);
-      if (asset !== undefined)
+      if (asset !== undefined) {
+        const body =
+          asset.contentType === "image/webp"
+            ? new ReadableStream({
+                start(controller) {
+                  controller.enqueue(asset.source);
+                  controller.close();
+                },
+              })
+            : asset.source;
         return Server.Responded(
-          new Response(request.method === "HEAD" ? null : asset.source, {
+          new Response(request.method === "HEAD" ? null : body, {
             headers: { "Content-Type": asset.contentType },
           }),
         );
+      }
       const flags = content.pages.find(
         (page) => localizedSitePath(page.path, page.locale) === url.pathname,
       );

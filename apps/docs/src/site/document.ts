@@ -7,7 +7,7 @@ import { toHtml } from "hast-util-to-html";
 import { freeSigningPath, localizedSitePath } from "../../lib/site-route.ts";
 import { freeSigningStructuredData } from "./free-signing.ts";
 import { baseLocale } from "../../paraglide/runtime.js";
-import type { ContentFlags } from "./application.ts";
+import type { ContentFlags } from "./config.ts";
 
 export const contentDocument = (
   application: RenderedApplication,

@@ -15,7 +15,10 @@ const ContentSiteBuildOptions = Schema.Struct({
 export const buildContentSite = Effect.fn(function* (options: typeof ContentSiteBuildOptions.Type) {
   const content = yield* loadSiteContent(options.siteUrl);
   const builder = yield* Effect.promise(() =>
-    createBuilder(siteViteConfig(content, options.outputDir, options.siteUrl)),
+    createBuilder({
+      ...siteViteConfig(content, options.outputDir, options.siteUrl, true),
+      configFile: false,
+    }),
   );
   yield* Effect.promise(() => builder.buildApp());
   const plugin = builder.config.plugins.find((candidate) => candidate.name === "foldkit:build");

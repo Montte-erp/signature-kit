@@ -11,6 +11,7 @@ export const siteViteConfig = (
   content: typeof SiteContent.Type,
   outputDir: string,
   siteUrl: string,
+  production: boolean,
 ): UserConfig => {
   const contentModule: Plugin = {
     name: "signature-kit:content",
@@ -33,14 +34,14 @@ export const siteViteConfig = (
     },
   };
   return {
-    configFile: false,
     root: appRoot,
     envPrefix: [],
-    oxc: { jsx: { development: false } },
-    define: { "process.env.NODE_ENV": JSON.stringify("production") },
+    oxc: { jsx: { development: !production } },
+    define: production ? { "process.env.NODE_ENV": JSON.stringify("production") } : undefined,
     resolve: { tsconfigPaths: true },
     ssr: { noExternal: true },
     logLevel: "warn",
+    build: { emptyOutDir: true },
     plugins: [
       contentModule,
       ...foldkit({
