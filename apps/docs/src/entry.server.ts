@@ -3,6 +3,7 @@ import * as Server from "foldkit/experimental/server";
 import { defaultTreeAdapter, parseFragment } from "parse5";
 import encodedContent from "virtual:signature-kit/content";
 import { SiteContent, ContentFlags } from "./site/config.ts";
+import { feedbackResponse } from "./feedback/api.ts";
 import { contentApplication } from "./site/application.ts";
 import { contentDocument } from "./site/document.ts";
 import { localizedSitePath } from "../lib/site-route.ts";
@@ -38,6 +39,9 @@ export const renderPage = (request: Request): Promise<Server.EntryResult> =>
   // effect-boundary: native host invocation [allow-run: Vite and HTTP application boundary]
   Effect.runPromise(
     Effect.gen(function* () {
+      if (new URL(request.url).pathname.startsWith("/api/feedback/")) {
+        return Server.Responded(yield* feedbackResponse(request));
+      }
       if (request.method !== "GET" && request.method !== "HEAD") {
         return Server.Responded(
           new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } }),
