@@ -1,10 +1,16 @@
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { fromXml } from "xast-util-from-xml";
 
-import { Effect, Layer } from "effect";
+import { Config, Duration, Effect, Fiber, Layer, Option, Schedule, Schema } from "effect";
+import { HttpClient } from "effect/http";
+import * as Http from "foldkit/http";
+import * as FoldkitNode from "@foldkit/node";
+import { FoldkitBuildManifest } from "@foldkit/vite-plugin";
+import { localHttpServer } from "../../../tooling/testing/local-http.ts";
 import { describe, expect, it } from "vitest";
 
 import { buildContentSite } from "../scripts/build-content-site";
@@ -161,8 +167,62 @@ describe("Foldkit site publication", () => {
           expect(english).toContain('href="/en-US/docs/providers/clicksign"');
           expect(release).toContain("Native byte conversion and verified release gates");
           expect(script.length).toBeGreaterThan(0);
+          const appRoot = fileURLToPath(new URL("../", import.meta.url));
+          const manifestPath = join(outputDir, "server/foldkit.build.json");
+          const manifest = yield* Schema.decodeUnknownEffect(
+            Schema.fromJsonString(FoldkitBuildManifest),
+          )(yield* Effect.promise(() => readFile(manifestPath, "utf8")));
+          const clientRoot = resolve(appRoot, manifest.client);
+          expect(clientRoot).toBe(join(outputDir, "client"));
+          expect(resolve(appRoot, manifest.server)).toBe(join(outputDir, "server"));
+          const serverEntry = yield* Effect.promise(() =>
+            readFile(join(outputDir, "server", manifest.serverEntry), "utf8"),
+          );
+          expect(serverEntry.length).toBeGreaterThan(0);
+          yield* Effect.promise(() =>
+            rm(join(clientRoot, "en-US/docs/get-started/installation/index.html")),
+          );
+          const origin = yield* Effect.scoped(
+            localHttpServer(async () => ({ status: 204 })).pipe(
+              Effect.map((server) => server.baseUrl),
+            ),
+          );
+          const port = yield* Schema.decodeUnknownEffect(Schema.NumberFromString)(
+            new URL(origin).port,
+          );
+          const host = yield* Effect.forkScoped(
+            FoldkitNode.serve({
+              port: Config.succeed(port),
+              origin: Config.succeed(Option.some(origin)),
+              manifestPath,
+              rootDirectory: appRoot,
+            }),
+          );
+          const ready = yield* Effect.raceFirst(
+            Fiber.join(host),
+            HttpClient.head(origin + "/en-US").pipe(
+              Effect.retry({
+                schedule: Schedule.spaced(Duration.millis(25)),
+                while: (issue) => issue.reason._tag === "TransportError",
+              }),
+              Effect.timeout(Duration.seconds(10)),
+            ),
+          );
+          expect(ready.status).toBe(200);
+          const rendered = yield* HttpClient.get(origin + "/en-US/docs/get-started/installation");
+          expect(rendered.status).toBe(200);
+          expect(yield* rendered.text).toContain("Install the packages");
+          const missing = yield* HttpClient.get(origin + "/server/fetch.js");
+          expect(missing.status).toBe(404);
+          yield* missing.text;
+          const refused = yield* HttpClient.post(origin + "/pt-BR/docs/get-started/installation");
+          expect(refused.status).toBe(405);
+          expect(refused.headers.allow).toContain("GET");
+          yield* refused.text;
         }),
-      ).pipe(Effect.provide(Layer.merge(contentHighlighterLayer, socialImagesLayer))),
+      ).pipe(
+        Effect.provide(Layer.mergeAll(contentHighlighterLayer, socialImagesLayer, Http.layer)),
+      ),
       { signal },
     );
   }, 90000);
