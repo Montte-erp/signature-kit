@@ -63,6 +63,13 @@ describe("Foldkit landing page", () => {
           yield* Effect.promise(() =>
             expect.poll(() => page.activeElement?.id).toBe("home-provider-clicksign"),
           );
+          yield* Effect.promise(() =>
+            expect
+              .poll(() =>
+                page.getElementById("home-provider-clicksign")?.getAttribute("aria-selected"),
+              )
+              .toBe("true"),
+          );
           const previous = page.querySelector<HTMLButtonElement>("#home-provider-previous");
           const next = page.querySelector<HTMLButtonElement>("#home-provider-next");
           if (previous === null || next === null)
