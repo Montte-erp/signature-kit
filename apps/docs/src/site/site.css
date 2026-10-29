@@ -157,17 +157,16 @@ pre code {
 }
 .content-callout {
   border: 1px solid var(--site-border);
-  border-left-width: 3px;
   border-radius: 0.5rem;
   padding: 0.5rem 1.25rem;
   margin: 1.5rem 0;
   background: var(--site-card);
 }
 .content-callout[data-type="warn"] {
-  border-left-color: #ca8a04;
+  border-color: #ca8a04;
 }
 .content-callout[data-type="error"] {
-  border-left-color: #dc2626;
+  border-color: #dc2626;
 }
 .content-steps {
   border-left: 1px solid var(--site-border);
