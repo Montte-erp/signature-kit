@@ -63,6 +63,30 @@ describe("Foldkit landing page", () => {
           yield* Effect.promise(() =>
             expect.poll(() => page.activeElement?.id).toBe("home-provider-clicksign"),
           );
+          const previous = page.querySelector<HTMLButtonElement>("#home-provider-previous");
+          const next = page.querySelector<HTMLButtonElement>("#home-provider-next");
+          if (previous === null || next === null)
+            expect.fail("Provider examples must retain visible previous and next controls");
+          previous.focus();
+          previous.click();
+          yield* Effect.promise(() =>
+            expect
+              .poll(() =>
+                page.getElementById("home-provider-documenso")?.getAttribute("aria-selected"),
+              )
+              .toBe("true"),
+          );
+          expect(page.activeElement).toBe(previous);
+          next.focus();
+          next.click();
+          yield* Effect.promise(() =>
+            expect
+              .poll(() =>
+                page.getElementById("home-provider-clicksign")?.getAttribute("aria-selected"),
+              )
+              .toBe("true"),
+          );
+          expect(page.activeElement).toBe(next);
           const npm = page.querySelector<HTMLButtonElement>("#home-install-npm");
           if (npm === null) expect.fail("The home must offer npm installation");
           npm.click();
