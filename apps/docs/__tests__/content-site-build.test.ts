@@ -233,10 +233,18 @@ describe("Foldkit site publication", () => {
           );
           const ready = yield* Effect.raceFirst(
             Fiber.join(host),
-            HttpClient.get(origin + "/r/registry.json").pipe(
+            Effect.scoped(
+              Effect.gen(function* () {
+                const response = yield* HttpClient.get(origin + "/r/registry.json");
+                const body = yield* response.text;
+                return { status: response.status, body };
+              }),
+            ).pipe(
+              Effect.timeout(Duration.millis(500)),
               Effect.retry({
-                schedule: Schedule.spaced(Duration.millis(500)),
-                while: (issue) => issue.reason._tag === "TransportError",
+                schedule: Schedule.spaced(Duration.millis(100)),
+                while: (issue) =>
+                  issue._tag === "TimeoutError" || issue.reason._tag === "TransportError",
               }),
               Effect.timeoutOrElse({
                 duration: Duration.seconds(10),
@@ -245,7 +253,7 @@ describe("Foldkit site publication", () => {
             ),
           );
           expect(ready.status).toBe(200);
-          yield* ready.text;
+          expect(ready.body).toContain("https://ui.shadcn.com/schema/registry.json");
           yield* Effect.gen(function* () {
             const response = yield* HttpClient.get(origin + "/en-US");
             expect(response.status).toBe(200);
@@ -266,16 +274,16 @@ describe("Foldkit site publication", () => {
               orElse: () => Effect.die("Native home HEAD did not complete"),
             }),
           );
-          const rendered = yield* HttpClient.get(
-            origin + "/en-US/docs/get-started/installation",
-          ).pipe(
+          yield* Effect.gen(function* () {
+            const rendered = yield* HttpClient.get(origin + "/en-US/docs/get-started/installation");
+            expect(rendered.status).toBe(200);
+            expect(yield* rendered.text).toContain("Install the packages");
+          }).pipe(
             Effect.timeoutOrElse({
               duration: Duration.seconds(10),
               orElse: () => Effect.die("Native request-time SSR did not complete"),
             }),
           );
-          expect(rendered.status).toBe(200);
-          expect(yield* rendered.text).toContain("Install the packages");
           const missing = yield* HttpClient.get(origin + "/server/fetch.js");
           expect(missing.status).toBe(404);
           yield* missing.text;
@@ -283,17 +291,24 @@ describe("Foldkit site publication", () => {
           expect(refused.status).toBe(405);
           expect(refused.headers.allow).toContain("GET");
           yield* refused.text;
-          const feedbackRequest = yield* HttpClientRequest.bodyJson(
-            HttpClientRequest.post(origin + "/api/feedback/page"),
-            {
-              route: "/en-US/docs/get-started/installation",
-              opinion: "good",
-              message: "The installation instructions are clear.",
-            },
+          yield* Effect.gen(function* () {
+            const feedbackRequest = yield* HttpClientRequest.bodyJson(
+              HttpClientRequest.post(origin + "/api/feedback/page"),
+              {
+                route: "/en-US/docs/get-started/installation",
+                opinion: "good",
+                message: "The installation instructions are clear.",
+              },
+            );
+            const feedback = yield* HttpClient.execute(feedbackRequest);
+            expect(feedback.status).toBe(503);
+            expect(yield* feedback.json).toMatchObject({ code: "unavailable" });
+          }).pipe(
+            Effect.timeoutOrElse({
+              duration: Duration.seconds(10),
+              orElse: () => Effect.die("Native feedback API did not complete"),
+            }),
           );
-          const feedback = yield* HttpClient.execute(feedbackRequest);
-          expect(feedback.status).toBe(503);
-          expect(yield* feedback.json).toMatchObject({ code: "unavailable" });
         }),
       ).pipe(
         Effect.provide(Layer.mergeAll(contentHighlighterLayer, socialImagesLayer, Http.layer)),
