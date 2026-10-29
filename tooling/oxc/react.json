@@ -51,7 +51,7 @@
   "ignorePatterns": ["**/.next/**", "**/paraglide/**", "**/.source/**"],
   "overrides": [
     {
-      "files": ["apps/docs/src/entry.server.ts", "apps/docs/src/site/document.ts"],
+      "files": ["**/apps/docs/src/entry.server.ts", "**/apps/docs/src/site/document.ts"],
       "rules": {
         "effecttsgo/schema-sync": "off"
       }
