@@ -38,6 +38,11 @@ export const renderPage = (request: Request): Promise<Server.EntryResult> =>
   // effect-boundary: native host invocation [allow-run: Vite and HTTP application boundary]
   Effect.runPromise(
     Effect.gen(function* () {
+      yield* Effect.log(
+        "[DEBUG-native-host] fetch entry",
+        request.method,
+        new URL(request.url).pathname,
+      );
       if (request.method !== "GET" && request.method !== "HEAD") {
         return Server.Responded(
           new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } }),
