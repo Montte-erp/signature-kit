@@ -240,7 +240,7 @@ describe("Foldkit site publication", () => {
               }),
               Effect.timeoutOrElse({
                 duration: Duration.seconds(10),
-                orElse: () => Effect.dieMessage("Native host readiness did not complete"),
+                orElse: () => Effect.die("Native host readiness did not complete"),
               }),
             ),
           );
@@ -253,7 +253,7 @@ describe("Foldkit site publication", () => {
           }).pipe(
             Effect.timeoutOrElse({
               duration: Duration.seconds(10),
-              orElse: () => Effect.dieMessage("Native home GET did not complete"),
+              orElse: () => Effect.die("Native home GET did not complete"),
             }),
           );
           yield* Effect.gen(function* () {
@@ -263,7 +263,7 @@ describe("Foldkit site publication", () => {
           }).pipe(
             Effect.timeoutOrElse({
               duration: Duration.seconds(10),
-              orElse: () => Effect.dieMessage("Native home HEAD did not complete"),
+              orElse: () => Effect.die("Native home HEAD did not complete"),
             }),
           );
           const rendered = yield* HttpClient.get(
@@ -271,7 +271,7 @@ describe("Foldkit site publication", () => {
           ).pipe(
             Effect.timeoutOrElse({
               duration: Duration.seconds(10),
-              orElse: () => Effect.dieMessage("Native request-time SSR did not complete"),
+              orElse: () => Effect.die("Native request-time SSR did not complete"),
             }),
           );
           expect(rendered.status).toBe(200);
