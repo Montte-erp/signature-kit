@@ -7,7 +7,7 @@ import { defaultTreeAdapter, parse } from "parse5";
 import { fromXml } from "xast-util-from-xml";
 
 import { Config, Duration, Effect, Fiber, Layer, Option, Schedule, Schema } from "effect";
-import { HttpClient } from "effect/http";
+import { HttpClient, HttpClientRequest } from "effect/http";
 import * as Http from "foldkit/http";
 import * as FoldkitNode from "@foldkit/node";
 import { FoldkitBuildManifest } from "@foldkit/vite-plugin";
@@ -265,6 +265,17 @@ describe("Foldkit site publication", () => {
           expect(refused.status).toBe(405);
           expect(refused.headers.allow).toContain("GET");
           yield* refused.text;
+          const feedbackRequest = yield* HttpClientRequest.bodyJson(
+            HttpClientRequest.post(origin + "/api/feedback/page"),
+            {
+              route: "/en-US/docs/get-started/installation",
+              opinion: "good",
+              message: "The installation instructions are clear.",
+            },
+          );
+          const feedback = yield* HttpClient.execute(feedbackRequest);
+          expect(feedback.status).toBe(503);
+          expect(yield* feedback.json).toMatchObject({ code: "unavailable" });
         }),
       ).pipe(
         Effect.provide(Layer.mergeAll(contentHighlighterLayer, socialImagesLayer, Http.layer)),
