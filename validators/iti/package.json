@@ -1,6 +1,6 @@
 {
   "name": "@signature-kit/iti",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -35,15 +35,15 @@
     "@peculiar/asn1-schema": "2.11.0",
     "@signature-kit/cms": "^0.2.1",
     "@signature-kit/http": "^0.1.0",
-    "@signature-kit/pdf": "^0.3.0",
-    "@signature-kit/signatures": "^0.1.0",
+    "@signature-kit/pdf": "^0.4.0",
+    "@signature-kit/signatures": "^0.2.0",
     "asn1js": "4.0.0",
     "effect": "4.0.5",
     "pkijs": "3.4.3"
   },
   "devDependencies": {
     "@cantoo/pdf-lib": "2.11.1",
-    "@signature-kit/a1": "^0.3.0"
+    "@signature-kit/a1": "^0.4.0"
   },
   "nx": {
     "implicitDependencies": [

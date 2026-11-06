@@ -1,75 +1,117 @@
 core:changelogs:
-  - content: "---\npackages:\n  \"@signature-kit/cms\":\n    type: patch\n---\n\n## Native byte conversion and verified release gates\n\nUse native Uint8Array copies at ASN.1 and WebCrypto boundaries, removing redundant buffer adapters while preserving byte offsets and detached-signature verification. Add coverage for sliced buffers and tampered content.\n\nThe workspace now discovers every browser test, isolates live provider suites from local runs, and requires the complete CI validation workflow before publishing.\n"
-    filename: native-cms-buffers.md
+  - content: "---\npackages:\n  \"@signature-kit/signatures\":\n    type: minor\n  \"@signature-kit/certificates\":\n    type: minor\n  \"@signature-kit/pdf\":\n    type: minor\n  \"@signature-kit/clicksign\":\n    type: minor\n  \"@signature-kit/assinafy\":\n    type: minor\n  \"@signature-kit/zapsign\":\n    type: minor\n  \"@signature-kit/docuseal\":\n    type: minor\n  \"@signature-kit/documenso\":\n    type: minor\n  \"@signature-kit/react\":\n    type: patch\n  \"@signature-kit/xml\":\n    type: patch\n  \"@signature-kit/http\":\n    type: patch\n  \"@signature-kit/i18n\":\n    type: patch\n  \"@signature-kit/crypto\":\n    type: patch\n  \"@signature-kit/asn1\":\n    type: patch\n  \"@signature-kit/cms\":\n    type: patch\n  \"@signature-kit/iti\":\n    type: patch\n---\n\n## Runtime updates and signature inspection\n\nUpdate to stable Effect 4 and current compatible dependencies. Error classes use the native branded Schema.TaggedError constructor. Use TypeScript 7 for builds and checks with the official TypeScript 6 API compatibility alias. Upgrade direct ASN.1 dependencies to v4, interchange SDK values through DER, and encode timestamp requests with the native RFC 3161 schema. Packages do not require a consumer ASN.1 override.\n\nAdd per-signature PDF verification, certificate-validity inspection through the Effect clock, and cancellable polling for final request states in all five remote signers. Applications control polling deadlines and retry policy; a terminal request is not necessarily completed.\n\n\nUpdate the documentation runtime, use the loading task for PDF.js cleanup, and fix dynamic Node routes by forwarding Request.duplex in the Hono adapter. Keep the app and Fumapress on a single Waku runtime.\n\nReject non-finite domain numbers, validate XML signature methods before WebCrypto verification, and preserve unexpected SDK failures as defects. Strengthen native Effect and accessibility lint checks.\n\nAdd branded PDF stamps with proportional PNG logos and handwriting, theme/title controls, and a PDF-rendered preview. Run browser PDF preparation and preview rendering through native Effect worker RPC with scoped termination and typed validation failures. Preserve caller buffers and signing dates across the worker boundary.\n\nFix structured batch stamp option conflicts, reject badges without usable drawing space, and prevent premeasured text from wrapping into adjacent rows. Restore signer interaction after React StrictMode mount replay and register localized Fumapress demo routes through the framework's native locale option. Add real worker, StrictMode, PDF text-stream, cropped/rotated page, cancellation, and invalid-image regressions.\n"
+    filename: runtime-updates-and-inspection.md
+    v: 0.0.0
+  - content: "---\npackages:\n  \"@signature-kit/http\":\n    type: patch\n  \"@signature-kit/xml\":\n    type: patch\n  \"@signature-kit/crypto\":\n    type: patch\n  \"@signature-kit/iti\":\n    type: patch\n---\n\n## Simplify Effect programs\n\nUse native void effects and value-discarding combinators while preserving public success, error, and dependency contracts. The workspace now enforces Effect correctness and selected simplification rules through the official Effect TypeScript-Go integration with Oxlint.\n"
+    filename: effect-oxlint-cleanup.md
+    v: 0.0.0
+  - content: "---\npackages:\n  \"@signature-kit/a1\":\n    type: minor\n---\n\n## Publish A1 with Node-resolvable imports\n\nRelease the fully specified relative imports already in source, so `@signature-kit/a1/signer` loads under native Node ESM instead of failing with `ERR_MODULE_NOT_FOUND`.\n\nThis release also removes the unused `A1Signer` service and `a1SignerLayer`; use `a1SignaturesLayer` or `loadA1SignerAdapter`.\n"
+    filename: a1-node-esm-release.md
     v: 0.0.0
 core:packages:
   - id: npm:signature-kit
     updated: false
   - id: npm:@signature-kit/docs
-    updated: false
-  - id: npm:@signature-kit/certificates
-    updated: false
-  - id: npm:@signature-kit/react
-    updated: false
-  - id: npm:@signature-kit/xml
-    updated: false
-  - id: npm:@signature-kit/http
-    updated: false
-  - id: npm:@signature-kit/pdf
-    updated: false
-  - id: npm:@signature-kit/i18n
-    updated: false
-  - id: npm:@signature-kit/signatures
-    updated: false
-  - id: npm:@signature-kit/a1
-    updated: false
-  - id: npm:@signature-kit/assinafy
-    updated: false
-  - id: npm:@signature-kit/clicksign
-    updated: false
-  - id: npm:@signature-kit/documenso
-    updated: false
-  - id: npm:@signature-kit/docuseal
-    updated: false
-  - id: npm:@signature-kit/zapsign
-    updated: false
-  - id: npm:@signature-kit/asn1
-    updated: false
+    updated: true
   - changelogIds:
-      - native-cms-buffers.md
+      - runtime-updates-and-inspection.md
+    id: npm:@signature-kit/certificates
+    updated: true
+  - changelogIds:
+      - effect-oxlint-cleanup.md
+      - runtime-updates-and-inspection.md
+    id: npm:@signature-kit/http
+    updated: true
+  - changelogIds:
+      - runtime-updates-and-inspection.md
+    id: npm:@signature-kit/signatures
+    updated: true
+  - changelogIds:
+      - runtime-updates-and-inspection.md
+    id: npm:@signature-kit/i18n
+    updated: true
+  - changelogIds:
+      - runtime-updates-and-inspection.md
+    id: npm:@signature-kit/pdf
+    updated: true
+  - changelogIds:
+      - runtime-updates-and-inspection.md
+    id: npm:@signature-kit/react
+    updated: true
+  - changelogIds:
+      - effect-oxlint-cleanup.md
+      - runtime-updates-and-inspection.md
+    id: npm:@signature-kit/xml
+    updated: true
+  - changelogIds:
+      - runtime-updates-and-inspection.md
+    id: npm:@signature-kit/asn1
+    updated: true
+  - changelogIds:
+      - effect-oxlint-cleanup.md
+      - runtime-updates-and-inspection.md
+    id: npm:@signature-kit/crypto
+    updated: true
+  - changelogIds:
+      - runtime-updates-and-inspection.md
     id: npm:@signature-kit/cms
     updated: true
-  - id: npm:@signature-kit/crypto
-    updated: false
+  - changelogIds:
+      - a1-node-esm-release.md
+    id: npm:@signature-kit/a1
+    updated: true
+  - changelogIds:
+      - runtime-updates-and-inspection.md
+    id: npm:@signature-kit/assinafy
+    updated: true
+  - changelogIds:
+      - runtime-updates-and-inspection.md
+    id: npm:@signature-kit/clicksign
+    updated: true
+  - changelogIds:
+      - runtime-updates-and-inspection.md
+    id: npm:@signature-kit/documenso
+    updated: true
+  - changelogIds:
+      - runtime-updates-and-inspection.md
+    id: npm:@signature-kit/docuseal
+    updated: true
+  - changelogIds:
+      - runtime-updates-and-inspection.md
+    id: npm:@signature-kit/zapsign
+    updated: true
   - id: npm:@tooling/integration-tests
-    updated: false
+    updated: true
   - id: npm:@tooling/oxc
     updated: false
   - id: npm:@tooling/static-checks
     updated: false
   - id: npm:@tooling/typescript
     updated: false
-  - id: npm:@signature-kit/iti
-    updated: false
+  - changelogIds:
+      - effect-oxlint-cleanup.md
+      - runtime-updates-and-inspection.md
+    id: npm:@signature-kit/iti
+    updated: true
 npm:packages:
   - id: npm:signature-kit
   - id: npm:@signature-kit/docs
   - id: npm:@signature-kit/certificates
+  - id: npm:@signature-kit/http
+  - id: npm:@signature-kit/signatures
+  - id: npm:@signature-kit/i18n
+  - id: npm:@signature-kit/pdf
   - id: npm:@signature-kit/react
   - id: npm:@signature-kit/xml
-  - id: npm:@signature-kit/http
-  - id: npm:@signature-kit/pdf
-  - id: npm:@signature-kit/i18n
-  - id: npm:@signature-kit/signatures
+  - id: npm:@signature-kit/asn1
+  - id: npm:@signature-kit/crypto
+  - id: npm:@signature-kit/cms
   - id: npm:@signature-kit/a1
   - id: npm:@signature-kit/assinafy
   - id: npm:@signature-kit/clicksign
   - id: npm:@signature-kit/documenso
   - id: npm:@signature-kit/docuseal
   - id: npm:@signature-kit/zapsign
-  - id: npm:@signature-kit/asn1
-  - id: npm:@signature-kit/cms
-  - id: npm:@signature-kit/crypto
   - id: npm:@tooling/integration-tests
   - id: npm:@tooling/oxc
   - id: npm:@tooling/static-checks
