@@ -33,7 +33,7 @@ const baseConfig = defineConfig({
     name: SITE_NAME,
     baseUrl: SITE_URL,
     git: {
-      user: "Montte-erp",
+      user: "Licitei",
       repo: "signature-kit",
       branch: "main",
     },
@@ -209,7 +209,7 @@ export default baseConfig
       const locale = parseLocale(lang ?? "") ?? i18n.defaultLanguage;
       return {
         ...baseOptions(locale),
-        githubUrl: "https://github.com/Montte-erp/signature-kit",
+        githubUrl: "https://github.com/Licitei/signature-kit",
         links: [
           { text: locale === "pt-BR" ? "Documentação" : "Documentation", url: `/${locale}/docs` },
           { text: "Blog", url: `/${locale}/blog` },

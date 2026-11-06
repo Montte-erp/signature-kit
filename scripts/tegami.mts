@@ -23,7 +23,7 @@ export const createReleaseProject = (cwd = process.cwd()) =>
         dir: "apps/docs/content/changelog",
       }),
       github({
-        repo: "Montte-erp/signature-kit",
+        repo: "Licitei/signature-kit",
         versionPr: {
           branch: "tegami/version-packages",
           base: "main",
