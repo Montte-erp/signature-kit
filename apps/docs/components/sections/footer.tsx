@@ -2,7 +2,7 @@ import type { SVGProps } from "react";
 import { Link } from "fumapress/client";
 
 import { Logo } from "@/components/logo";
-import { MontteLogo } from "@/components/brand/montte-logo";
+import { LiciteiLogo } from "@/components/brand/licitei-logo";
 import { Button } from "@/components/ui/button";
 import { localePath } from "@/lib/links";
 import { m } from "@/paraglide/messages";
@@ -13,7 +13,7 @@ const GithubMark = (props: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
-const GITHUB_URL = "https://github.com/Montte-erp/signature-kit";
+const GITHUB_URL = "https://github.com/Licitei/signature-kit";
 
 const DOCS_LINKS: ReadonlyArray<{ readonly href: string; readonly label: () => string }> = [
   { href: "/docs/get-started/quickstart", label: m.footer_link_quickstart },
@@ -113,15 +113,14 @@ export const Footer = () => (
         <p className="text-xs text-muted-foreground">
           {m.footer_attribution_prefix()}{" "}
           <a
-            aria-label="Montte"
+            aria-label="Licitei"
             className="inline-flex items-center gap-1.5 align-baseline text-sm font-semibold tracking-tight text-foreground transition-colors hover:text-foreground"
-            href="https://montte.co"
+            href="https://licitei.com.br"
             rel="noreferrer"
             target="_blank"
-            title="Montte"
+            title="Licitei"
           >
-            <MontteLogo className="h-3 w-auto" />
-            Montte
+            <LiciteiLogo className="h-4 w-auto" />
           </a>
         </p>
         <p className="font-mono text-xs text-muted-foreground">{m.footer_copyright()}</p>

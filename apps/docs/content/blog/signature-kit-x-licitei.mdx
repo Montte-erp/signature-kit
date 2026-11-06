@@ -1,8 +1,8 @@
 ---
 title: "SignatureKit × Licitei: signing in the browser, without per-signature fees"
-description: "How Montte and Licitei moved A1 signing into the browser: zero marginal cost, the flow unbroken, the private key never leaving the device."
+description: "How Licitei moved A1 signing into the browser: zero marginal cost, the flow unbroken, the private key never leaving the device."
 date: "2026-06-26"
-author: "Montte"
+author: "Licitei"
 ---
 
 [Licitei](https://licitei.com.br) is one of the largest public-procurement (*licitação*) platforms in Brazil. To bid, a user has to sign: every proposal (*proposta*) and every qualification declaration (*declaração de habilitação*) needs a real digital signature with the bidder's A1 certificate.
@@ -31,7 +31,7 @@ The per-signature price isn't paying for the cryptography. A public-key signatur
 
 That liability is the real cost. NIST is unambiguous that a signing private key should remain under the sole control of its owner and be protected against disclosure ([NIST SP 800-57 Pt. 1 Rev. 5](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf)). Disclose it and "the integrity and non-repudiation qualities of all data signed by that key are suspect" — one exposure invalidates every signature the key ever produced ([NIST SP 800-57 Pt. 1 Rev. 5](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf)). Doing this safely on a server is expensive on its own terms: AWS KMS meters asymmetric signing at $0.15 per 10,000 requests — explicitly excluded from the free tier — plus $1 per key per month, and hardware-backed custody via a CloudHSM custom key store adds HSM instances at $1.60 per hour, roughly $2,380 a month for the two HSMs AWS recommends for availability, before a single signature ([AWS KMS pricing](https://aws.amazon.com/kms/pricing/)).
 
-So Montte and Licitei asked the obvious question: what if the server isn't in the loop at all?
+So Licitei asked the obvious question: what if the server isn't in the loop at all?
 
 ## Sign in the browser
 

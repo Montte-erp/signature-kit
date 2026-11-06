@@ -1,6 +1,6 @@
 # SignatureKit Agent Guidelines
 
-SignatureKit is open-source, Effect-native infrastructure for digital-signature
+SignatureKit is part of licitei-oss, maintained by Licitei. It is open-source, Effect-native infrastructure for digital-signature
 runtimes. A1 / PKCS#12 is the first backend, not the product definition.
 
 ## Language and naming

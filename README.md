@@ -1,5 +1,7 @@
 # SignatureKit
 
+A library from **licitei-oss**, the open-source initiative maintained by [Licitei](https://licitei.com.br).
+
 Effect-native digital-signature infrastructure for TypeScript runtimes.
 
 SignatureKit separates signing power from document mutation: signer adapters expose one typed `Signatures` service, while format packages own PDF/PAdES and XML-DSig bytes. A1 / PKCS#12 is the first local backend; remote SaaS providers are modeled as retained Alchemy resources, not as local key holders.
