@@ -1,6 +1,6 @@
 {
   "name": "@signature-kit/a1",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -31,10 +31,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@signature-kit/certificates": "^0.2.1",
+    "@signature-kit/certificates": "^0.3.0",
     "@signature-kit/crypto": "^0.2.1",
     "@signature-kit/http": "^0.1.0",
-    "@signature-kit/signatures": "^0.1.0",
+    "@signature-kit/signatures": "^0.2.0",
     "effect": "4.0.5"
   },
   "nx": {

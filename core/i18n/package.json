@@ -1,6 +1,6 @@
 {
   "name": "@signature-kit/i18n",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -33,7 +33,7 @@
   },
   "devDependencies": {
     "@signature-kit/crypto": "^0.2.1",
-    "@signature-kit/signatures": "^0.1.0"
+    "@signature-kit/signatures": "^0.2.0"
   },
   "nx": {
     "implicitDependencies": [
