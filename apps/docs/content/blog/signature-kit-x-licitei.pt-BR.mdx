@@ -1,8 +1,8 @@
 ---
 title: "SignatureKit × Licitei: assinar com A1 no navegador, sem cobrar por assinatura"
-description: "Como a Montte e a Licitei levaram a assinatura A1 para o navegador: custo marginal zero, fluxo intacto e a chave privada nunca sai do dispositivo."
+description: "Como a Licitei levou a assinatura A1 para o navegador: custo marginal zero, fluxo intacto e a chave privada nunca sai do dispositivo."
 date: "2026-06-26"
-author: "Montte"
+author: "Licitei"
 ---
 
 A [Licitei](https://licitei.com.br) é uma das maiores plataformas de licitação do Brasil. Para disputar, o usuário precisa assinar: cada proposta e cada declaração de habilitação exige uma assinatura digital de verdade, com o certificado A1 do licitante.
@@ -35,7 +35,7 @@ E essa guarda é cara de verdade. Assinar no servidor com custódia gerenciada s
 
 Custódia também é **responsabilidade**, não só custo. A recomendação do NIST é direta: a chave privada deve permanecer **sob controle exclusivo de seu titular** e ser protegida contra divulgação não autorizada ([NIST SP 800-57 Part 1 Rev. 5](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf)). E o que está em jogo se isso falha é tudo: o próprio NIST alerta que a divulgação de uma chave privada de assinatura torna **suspeitas a integridade e a irretratabilidade de todos os dados já assinados** por aquela chave ([NIST SP 800-57 Part 1 Rev. 5](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf)). Concentrar milhares de `.pfx` de licitantes num servidor é concentrar exatamente esse risco.
 
-Então a Montte e a Licitei fizeram a pergunta óbvia: e se o servidor não estiver no caminho?
+Então a Licitei fez a pergunta óbvia: e se o servidor não estiver no caminho?
 
 ## Assine no navegador
 

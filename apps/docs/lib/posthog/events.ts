@@ -11,5 +11,5 @@ export const docsAnalyticsProperties = (runtime: DocsAnalyticsRuntime) => ({
   event_prefix: DOCS_ANALYTICS_EVENT_PREFIX,
   source_product: "signature-kit",
   source_surface: "docs",
-  owning_company: "montte",
+  owning_company: "licitei",
 });
