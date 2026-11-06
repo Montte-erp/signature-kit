@@ -25,7 +25,7 @@ export function Hero({ locale }: { readonly locale: Locale }) {
           variant="outline"
           className="gap-2 px-3 py-1 font-mono text-xs text-muted-foreground hover:text-foreground"
         >
-          <a href="https://github.com/Montte-erp/signature-kit" rel="noreferrer" target="_blank">
+          <a href="https://github.com/Licitei/signature-kit" rel="noreferrer" target="_blank">
             {m.hero_badge({}, { locale })}
             <ArrowRight data-icon="inline-end" />
           </a>

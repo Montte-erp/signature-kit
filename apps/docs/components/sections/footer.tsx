@@ -13,7 +13,7 @@ const GithubMark = (props: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
-const GITHUB_URL = "https://github.com/Montte-erp/signature-kit";
+const GITHUB_URL = "https://github.com/Licitei/signature-kit";
 
 const DOCS_LINKS: ReadonlyArray<{ readonly href: string; readonly label: () => string }> = [
   { href: "/docs/get-started/quickstart", label: m.footer_link_quickstart },
