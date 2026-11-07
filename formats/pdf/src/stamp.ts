@@ -12,7 +12,7 @@ import {
 } from "@cantoo/pdf-lib";
 import type { PDFFont, PDFPage, PDFImage, RGB } from "@cantoo/pdf-lib";
 import qrcode from "qrcode-generator";
-import { Effect, Schema } from "effect";
+import { Effect, Match, Schema } from "effect";
 import { inflateZlibBounded, hasPdfByteRange } from "./byte-range.js";
 import {
   PdfError,
@@ -2440,6 +2440,94 @@ export const createPdfStampPreview = (
           pageIndex: 0,
           rect: { pageIndex: 0, x: 2, y: 2, width: valid.width, height: valid.height },
         });
+      }),
+    ),
+  );
+
+export const PdfIllustrativeDocumentInputSchema = Schema.Struct({
+  title: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(120)),
+  body: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(400)),
+  variant: Schema.Literals(["line", "field", "witnessed", "initials"]),
+  marked: Schema.Boolean,
+  markLabel: Schema.optional(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(60))),
+});
+
+export const createIllustrativePdf = (input: unknown) =>
+  Schema.decodeUnknownEffect(PdfIllustrativeDocumentInputSchema)(input).pipe(
+    Effect.mapError(
+      (issue) =>
+        new PdfError({
+          code: PdfErrorCodeValue.stampFailed,
+          retryable: false,
+          operation: PdfOperationValue.stamp,
+          reason: "Illustrative document input failed schema validation.",
+          schemaName: PdfSchemaNameValue.pdfIllustrativeDocumentInput,
+          issueMessage: String(issue),
+        }),
+    ),
+    Effect.flatMap((data) =>
+      Effect.tryPromise({
+        try: async () => {
+          const pdf = await PDFDocument.create();
+          const font = await pdf.embedFont(StandardFonts.Helvetica);
+          const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+          const page = pdf.addPage([595, 842]);
+          page.drawText(data.title, { x: 48, y: 770, size: 20, font: bold });
+          page.drawText(data.body, {
+            x: 48,
+            y: 720,
+            size: 11,
+            font,
+            maxWidth: 499,
+            lineHeight: 17,
+          });
+          page.drawText("EXEMPLO VISUAL / VISUAL EXAMPLE", { x: 48, y: 125, size: 12, font: bold });
+          page.drawText("NAO E ASSINATURA DIGITAL / NOT A DIGITAL SIGNATURE", {
+            x: 48,
+            y: 105,
+            size: 10,
+            font,
+          });
+          page.drawLine({ start: { x: 48, y: 190 }, end: { x: 300, y: 190 }, thickness: 1 });
+          Match.value(data.variant).pipe(
+            Match.when("line", () => undefined),
+            Match.when("field", () =>
+              page.drawRectangle({
+                x: 48,
+                y: 185,
+                width: 252,
+                height: 42,
+                borderWidth: 1,
+                borderColor: rgb(0.45, 0.45, 0.45),
+              }),
+            ),
+            Match.when("witnessed", () =>
+              page.drawLine({ start: { x: 330, y: 190 }, end: { x: 545, y: 190 }, thickness: 1 }),
+            ),
+            Match.when("initials", () =>
+              page.drawRectangle({
+                x: 320,
+                y: 185,
+                width: 70,
+                height: 42,
+                borderWidth: 1,
+                borderColor: rgb(0.45, 0.45, 0.45),
+              }),
+            ),
+            Match.exhaustive,
+          );
+          page.drawText(data.variant, { x: 48, y: 170, size: 10, font });
+          if (data.marked)
+            page.drawText(data.markLabel ?? "EXAMPLE", { x: 55, y: 202, size: 16, font: bold });
+          return pdf.save();
+        },
+        catch: () =>
+          new PdfError({
+            code: PdfErrorCodeValue.stampFailed,
+            retryable: false,
+            operation: PdfOperationValue.stamp,
+            reason: "Failed to create illustrative PDF document.",
+          }),
       }),
     ),
   );

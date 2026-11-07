@@ -4,9 +4,18 @@ import * as React from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { describe, expect, it, afterEach } from "vitest";
-import { clearA1Certificate, clearA1Signer, useA1Signer } from "@signature-kit/react/a1";
+import {
+  clearA1Certificate,
+  clearA1Signer,
+  disposeA1Session,
+  getLoadedA1CertificateProfile,
+  loadA1Certificate,
+  signA1Documents,
+  useA1Signer,
+} from "@signature-kit/react/a1";
 import type { A1SignerHook } from "@signature-kit/react/a1";
-import type { A1SignerInput } from "@signature-kit/react/config";
+import type { A1SignerInput, A1SignerSignedRow } from "@signature-kit/react/config";
+import { verifyPdf, verifyPdfSignatures } from "@signature-kit/pdf/verify";
 import { SignatureKitErrorCodeValue } from "@signature-kit/signatures";
 
 const CERTIFICATE_PASSWORD = "changeit";
@@ -111,6 +120,72 @@ if (typeof document === "undefined") {
     clearA1Signer();
   });
 
+  it("loads an A1 certificate and exposes a ready profile", async () => {
+    const pfx = await Effect.runPromise(readA1FixtureFromBrowser("ecpf"));
+
+    const outcome = await loadA1Certificate(pfx, CERTIFICATE_PASSWORD);
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) {
+      return;
+    }
+    expect(outcome.profile.document).toBe("12345678901");
+
+    const profile = getLoadedA1CertificateProfile();
+    expect(profile).not.toBeNull();
+    expect(profile?.fingerprint).toBe(outcome.profile.fingerprint);
+    expect(profile?.document).toBe(outcome.profile.document);
+  }, 30000);
+
+  it("keeps wrong certificate password in a typed SignatureKitError", async () => {
+    const pfx = await Effect.runPromise(readA1FixtureFromBrowser("ecpf"));
+
+    const outcome = await loadA1Certificate(pfx, "wrong-password");
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.error.code).toBe(SignatureKitErrorCodeValue.wrongPassword);
+      expect(outcome.error.message).toBe("Wrong certificate password.");
+    }
+  }, 30000);
+
+  it("signs two PDFs in input order and verifies both outputs", async () => {
+    const pfx = await Effect.runPromise(readA1FixtureFromBrowser("ecpf"));
+    const documents: A1SignerInput["documents"] = [
+      { id: "doc-1", name: "Document one", pdf: createPdf() },
+      { id: "doc-2", name: "Document two", pdf: createPdf() },
+    ];
+
+    const outcome = await signA1Documents({
+      documents,
+      credentials: { pfx, password: CERTIFICATE_PASSWORD },
+      signing: {},
+    });
+
+    expect(outcome.ok).toBe(true);
+
+    if (!outcome.ok) {
+      return;
+    }
+
+    expect(outcome.rows).toHaveLength(2);
+    expect(outcome.rows[0]).toMatchObject({ id: "doc-1", status: "signed" });
+    expect(outcome.rows[1]).toMatchObject({ id: "doc-2", status: "signed" });
+
+    const signedRows = outcome.rows.filter(
+      (row): row is A1SignerSignedRow => row.status === "signed",
+    );
+
+    expect(signedRows).toHaveLength(2);
+
+    const verifications = await Promise.all(
+      signedRows.map((row) => Effect.runPromise(verifyPdf({ pdf: row.signedPdf }))),
+    );
+
+    expect(verifications.every((result) => result.valid)).toBe(true);
+    expect(verifications.every((result) => result.signatureCount === 1)).toBe(true);
+  }, 30000);
+
   it("renders A1 signer hook state in browser", async () => {
     const probe = mountSigner();
     cleanup = probe.cleanup;
@@ -160,6 +235,73 @@ if (typeof document === "undefined") {
     }
   });
 
+  it("signs and verifies with the loaded worker session", async () => {
+    const pfx = await Effect.runPromise(readA1FixtureFromBrowser("ecpf"));
+    const loaded = await loadA1Certificate(pfx, CERTIFICATE_PASSWORD);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) expect.fail("expected a loaded certificate");
+    const result = await signA1Documents({
+      documents: [makeDocuments("loaded")[0]].filter((document) => document !== undefined),
+      credentials: { profile: loaded.profile },
+      signing: {},
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) expect.fail("expected signing to complete");
+    const row = result.rows[0];
+    if (row?.status !== "signed") expect.fail("expected a signed PDF");
+    const verified = await Effect.runPromise(verifyPdfSignatures({ pdf: row.signedPdf }));
+    expect(verified.map((signature) => signature.cryptographicValid)).toEqual([true]);
+  }, 30000);
+
+  it("disposes the shared loaded session explicitly", async () => {
+    const pfx = await Effect.runPromise(readA1FixtureFromBrowser("ecpf"));
+    expect((await loadA1Certificate(pfx, CERTIFICATE_PASSWORD)).ok).toBe(true);
+    expect(await disposeA1Session()).toEqual([true]);
+    const result = await signA1Documents({ documents: makeDocuments("disposed"), signing: {} });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: SignatureKitErrorCodeValue.invalidInput },
+    });
+  }, 30000);
+
+  it("shares concurrent disposal results and rejects admission until disposal finishes", async () => {
+    const pfx = await Effect.runPromise(readA1FixtureFromBrowser("ecpf"));
+    expect((await loadA1Certificate(pfx, CERTIFICATE_PASSWORD)).ok).toBe(true);
+    const first = disposeA1Session();
+    const second = disposeA1Session();
+    const load = loadA1Certificate(pfx, CERTIFICATE_PASSWORD);
+    const sign = signA1Documents({ documents: makeDocuments("during-disposal"), signing: {} });
+    expect(await load).toMatchObject({
+      ok: false,
+      error: { code: SignatureKitErrorCodeValue.unsupportedOperation },
+    });
+    expect(await sign).toMatchObject({
+      ok: false,
+      error: { code: SignatureKitErrorCodeValue.unsupportedOperation },
+    });
+    expect(await Promise.all([first, second])).toEqual([[true], [true]]);
+    expect((await loadA1Certificate(pfx, CERTIFICATE_PASSWORD)).ok).toBe(true);
+  }, 30000);
+
+  it("keeps cleared state when an entered signing run settles", async () => {
+    const pfx = await Effect.runPromise(readA1FixtureFromBrowser("ecpf"));
+    const probe = mountSigner();
+    cleanup = probe.cleanup;
+    await waitFor(() => probe.getHook() !== null, "signer hook is mounted");
+    expect((await loadA1Certificate(pfx, CERTIFICATE_PASSWORD)).ok).toBe(true);
+    const pending = signA1Documents({ documents: makeDocuments("cleared"), signing: {} });
+    await waitFor(
+      () => probe.getHook()?.rows.some((row) => row.status === "signing") === true,
+      "signing row is visible",
+    );
+    clearA1Signer();
+    expect(await pending).toMatchObject({ ok: false });
+    await waitFor(() => {
+      const signer = probe.getHook();
+      return signer !== null && !signer.busy && signer.rows.length === 0 && signer.error === null;
+    }, "cleared signer remains idle");
+  }, 30000);
+
   it("keeps first batch rows when a concurrent sign call is rejected", async () => {
     const pfx = await Effect.runPromise(readA1FixtureFromBrowser("ecpf"));
     const probe = mountSigner();
@@ -207,6 +349,11 @@ if (typeof document === "undefined") {
       1200,
     );
 
+    for (const row of firstOutcome.rows) {
+      if (row.status !== "signed") expect.fail("expected signed PDF");
+      const verified = await Effect.runPromise(verifyPdfSignatures({ pdf: row.signedPdf }));
+      expect(verified.map((signature) => signature.cryptographicValid)).toEqual([true]);
+    }
     const signer = currentSigner(probe);
     expect(signer.rows.map((row) => row.id)).toEqual(["first-1", "first-2"]);
     expect(signer.rows.map((row) => row.status)).toEqual(["signed", "signed"]);

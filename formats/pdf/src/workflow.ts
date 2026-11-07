@@ -907,13 +907,7 @@ const prepareAndSignRubrics = (
       );
 };
 
-export const prepareAndSignPdf = (
-  input: PdfPrepareAndSignInput,
-): Effect.Effect<
-  Uint8Array,
-  PdfError | CmsError | SignatureKitError,
-  Signatures | LiteParseWorkerFactory
-> =>
+const preparePdfVisibleDocument = (input: PdfPrepareAndSignInput) =>
   Schema.decodeUnknownEffect(PdfPrepareAndSignInputSchema)(input).pipe(
     Effect.mapError(
       (issue) =>
@@ -932,12 +926,11 @@ export const prepareAndSignPdf = (
         name: valid.documentName ?? DEFAULT_PREPARE_AND_SIGN_DOCUMENT_NAME,
         pdf: valid.pdf,
       }).pipe(
-        Effect.flatMap(({ document, pdfPages }) => {
-          const pages = document.pages;
-          return prepareAndSignStampRects(valid, pages).pipe(
+        Effect.flatMap(({ document, pdfPages }) =>
+          prepareAndSignStampRects(valid, document.pages).pipe(
             Effect.flatMap((stampRects) => {
               const signatureRect = stampRects[stampRects.length - 1];
-              if (signatureRect === undefined) {
+              if (signatureRect === undefined)
                 return Effect.fail(
                   new PdfError({
                     code: PdfErrorCodeValue.noAvailablePlacement,
@@ -946,45 +939,59 @@ export const prepareAndSignPdf = (
                     reason: "Text-anchor search did not find a signature placement.",
                   }),
                 );
-              }
-              const signaturePageIndexes = stampRects.map((stampRect) => stampRect.pageIndex);
-              const forIncrementalUpdate = hasPdfByteRange(valid.pdf);
               return prepareAndSignMainStamp(valid, stampRects).pipe(
                 Effect.flatMap((stamped) =>
                   prepareAndSignRubrics(
                     valid,
                     stamped,
-                    pages,
-                    signaturePageIndexes,
-                    forIncrementalUpdate,
+                    document.pages,
+                    stampRects.map((rect) => rect.pageIndex),
+                    hasPdfByteRange(valid.pdf),
                   ),
                 ),
-                Effect.flatMap((rubriced) =>
+                Effect.flatMap((pdf) =>
                   widgetRectFromPage(
                     pdfPages[signatureRect.pageIndex],
                     signatureRect,
                     PdfOperationValue.prepareAndSign,
                   ).pipe(
-                    Effect.flatMap((widgetRect) =>
-                      signPdfDocument({
-                        pdf: rubriced,
-                        ...valid.signing,
-                        appearance: {
-                          placement: {
-                            kind: "manual",
-                            pageIndex: signatureRect.pageIndex,
-                            widgetRect,
-                          },
-                        },
-                      }),
-                    ),
+                    Effect.map((widgetRect) => ({
+                      pdf,
+                      widgetRect,
+                      signatureRect,
+                      signing: valid.signing,
+                    })),
                   ),
                 ),
               );
             }),
-          );
-        }),
+          ),
+        ),
       ),
+    ),
+  );
+
+export const preparePdfVisualPreview = (
+  input: PdfPrepareAndSignInput,
+): Effect.Effect<Uint8Array, PdfError, LiteParseWorkerFactory> =>
+  preparePdfVisibleDocument(input).pipe(Effect.map((prepared) => prepared.pdf));
+
+export const prepareAndSignPdf = (
+  input: PdfPrepareAndSignInput,
+): Effect.Effect<
+  Uint8Array,
+  PdfError | CmsError | SignatureKitError,
+  Signatures | LiteParseWorkerFactory
+> =>
+  preparePdfVisibleDocument(input).pipe(
+    Effect.flatMap(({ pdf, widgetRect, signatureRect, signing }) =>
+      signPdfDocument({
+        pdf,
+        ...signing,
+        appearance: {
+          placement: { kind: "manual", pageIndex: signatureRect.pageIndex, widgetRect },
+        },
+      }),
     ),
   );
 

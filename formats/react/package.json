@@ -36,15 +36,16 @@
     "access": "public"
   },
   "scripts": {
-    "test": "vitest run --root ../.. formats/react/__tests__/a1.test.ts",
-    "test:browser": "vitest run --root ../.. --config tooling/vitest/browser.config.ts formats/react/__tests__/a1.browser.test.tsx formats/react/__tests__/a1.race.browser.test.tsx formats/react/__tests__/browser-pdf.browser.test.tsx formats/react/__tests__/sync-store.browser.test.tsx"
+    "test": "vitest run --root ../.. --exclude '**/*.browser.test.*' --exclude '**/*.integration.test.*' --exclude '**/*.performance.test.*' formats/react/__tests__",
+    "test:browser": "vitest run --root ../.. --config tooling/vitest/browser.config.ts formats/react/__tests__"
   },
   "dependencies": {
+    "@effect/platform-browser": "4.1.0",
     "@signature-kit/a1": "^0.4.0",
     "@signature-kit/cms": "^0.2.1",
     "@signature-kit/pdf": "^0.4.0",
     "@signature-kit/signatures": "^0.2.0",
-    "effect": "4.0.5"
+    "effect": "4.1.0"
   },
   "devDependencies": {
     "@types/react": "19.3.0",

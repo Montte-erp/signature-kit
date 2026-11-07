@@ -51,6 +51,9 @@
     },
     {
       "path": "./validators/iti"
+    },
+    {
+      "path": "./apps/signing-domain"
     }
   ]
 }

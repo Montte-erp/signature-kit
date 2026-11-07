@@ -4,10 +4,6 @@
 # generated content
 .source
 
-# paraglide (generated i18n runtime + inlang cache)
-/paraglide
-/project.inlang/cache
-
 # test & build
 /coverage
 /dist/
@@ -22,3 +18,5 @@
 # others
 .env*.local
 .vercel
+
+/dist-foldkit/

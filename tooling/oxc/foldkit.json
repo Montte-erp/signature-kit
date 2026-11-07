@@ -1,0 +1,4 @@
+{
+  "$schema": "../../node_modules/@effect/tsgo/oxlint-schema.json",
+  "extends": ["./base.json", "../../node_modules/@foldkit/oxlint-plugin/recommended.json"]
+}

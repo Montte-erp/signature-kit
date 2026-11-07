@@ -19,7 +19,7 @@
     "@signature-kit/cms",
     "@signature-kit/signatures",
     "@tanstack/react-form@1.33.5",
-    "effect@4.0.5",
+    "effect@4.1.0",
     "lucide-react"
   ],
   "files": [

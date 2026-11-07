@@ -145,6 +145,57 @@ describe("workspace layer checks", () => {
     });
   });
 
+  it("ignores Foldkit build output while checking the same import in source", async () => {
+    const root = await createTempWorkspace();
+    await writePackage(
+      root,
+      "shared/crypto",
+      "@signature-kit/crypto",
+      {},
+      [],
+      "export const crypto = true;\n",
+    );
+    await mkdir(join(root, "apps/docs/foldkit"), { recursive: true });
+    await mkdir(join(root, "apps/docs/foldkit/dist-foldkit"), { recursive: true });
+    await mkdir(join(root, "apps/docs/foldkit/paraglide"), { recursive: true });
+    await mkdir(join(root, "apps/docs/dist-foldkit/client/assets"), { recursive: true });
+    await mkdir(join(root, "apps/docs/dist-foldkit/server"), { recursive: true });
+    await writeJson(join(root, "apps/docs/package.json"), {
+      name: "@signature-kit/docs",
+      version: "0.0.0",
+      private: true,
+      type: "module",
+      dependencies: {},
+    });
+    const invalidImport = 'import "@signature-kit/crypto";\n';
+    await writeFile(join(root, "apps/docs/foldkit/main.ts"), invalidImport);
+    await writeFile(join(root, "apps/docs/foldkit/dist-foldkit/source.ts"), invalidImport);
+    await writeFile(join(root, "apps/docs/foldkit/paraglide/source.ts"), invalidImport);
+    await writeFile(join(root, "apps/docs/dist-foldkit/client/assets/app.js"), invalidImport);
+    await writeFile(join(root, "apps/docs/dist-foldkit/server/fetch.mjs"), invalidImport);
+    const diagnostics = collectWorkspaceLayerDiagnostics(root);
+    expect(diagnostics).toHaveLength(3);
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        {
+          path: "apps/docs/foldkit/dist-foldkit/source.ts",
+          message:
+            "@signature-kit/docs imports @signature-kit/crypto without declaring it in package.json.",
+        },
+        {
+          path: "apps/docs/foldkit/main.ts",
+          message:
+            "@signature-kit/docs imports @signature-kit/crypto without declaring it in package.json.",
+        },
+        {
+          path: "apps/docs/foldkit/paraglide/source.ts",
+          message:
+            "@signature-kit/docs imports @signature-kit/crypto without declaring it in package.json.",
+        },
+      ]),
+    );
+  });
+
   it("requires package dependencies and tsconfig references to stay aligned", async () => {
     const root = await createTempWorkspace();
     await writePackage(

@@ -44,14 +44,16 @@
   },
   "dependencies": {
     "@peculiar/asn1-cms": "2.11.0",
-    "@peculiar/asn1-ess": "2.11.0",
     "@peculiar/asn1-schema": "2.11.0",
     "@peculiar/asn1-tsp": "2.11.0",
     "@peculiar/asn1-x509": "2.11.0",
     "@signature-kit/asn1": "^0.2.1",
     "asn1js": "4.0.0",
-    "effect": "4.0.5",
+    "effect": "4.1.0",
     "pkijs": "3.4.3"
+  },
+  "devDependencies": {
+    "@peculiar/asn1-ess": "2.11.0"
   },
   "nx": {
     "targets": {

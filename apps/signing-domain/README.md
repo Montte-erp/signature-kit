@@ -1,0 +1,9 @@
+# Signing domain
+
+`SigningSession` is the consistency boundary for one browser signing session. Address every queue operation for that session to the same session id. `StartBatch` accepts 1–100 unique, nonempty document identifiers and a positive integer `batchId` greater than every batch previously started in that session. The worker must retain that number in each callback. A running batch cannot be replaced; cancel it first. New sessions start at batch 0. Do not reuse a session id after discarding its in-memory host while callbacks from the old host are still possible.
+
+A worker starts the next queued document, then records its completion or failure before starting another. A failure of one document does not stop later documents. `CompleteBatch` records that all documents were processed, even if some or all failed. `FailBatch` marks unfinished documents failed; `CancelBatch` marks unfinished documents cancelled. Both clear the active document. Late callbacks and attempts to reuse a batch number are rejected.
+
+Commands and events carry only batch numbers, mode, and opaque document identifiers. Keep certificate material, passwords, PDF bytes, error details, and signed output in the operation's private runtime, outside the Domain and any UI or HMR model. Identifiers must be generated metadata, never content or secrets.
+
+`SigningModel` and `SigningApi` are native Domain declarations. Host the model in the worker's lifetime with an in-memory platform and expose its client to the queue. `SigningApi` permits reads without authentication and is only suitable for an isolated local worker; any remotely reachable host must add an appropriate authorization boundary before serving it. No durable storage is configured. Foldkit can derive commands and subscriptions from the Api using `@alchemy.run/domain/Foldkit`; consume receipts and state rather than maintaining a second queue state machine.

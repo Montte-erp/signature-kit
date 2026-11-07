@@ -1,12 +1,11 @@
-import { parseA1CertificateProfile, a1SignaturesLayer } from "@signature-kit/a1/signer";
+/// <reference types="vite/client" />
 import {
   SignatureKitError,
   SignatureKitErrorCodeValue,
   SignatureKitOperationValue,
 } from "@signature-kit/signatures";
-import { prepareAndSignPdf } from "@signature-kit/pdf/workflow";
-import { liteParseWorkerBrowserLayer } from "@signature-kit/pdf/liteparse-browser";
-import { Effect, Layer, Redacted, Result, Schema } from "effect";
+import { Effect, Exit, Redacted, Result, Schema, Scope } from "effect";
+import { makeObservedA1WorkerSession } from "./a1-worker-client.js";
 import type { Result as EffectResult } from "effect/Result";
 import { createSyncStore, useSyncStore } from "./sync-store.js";
 import { A1CertificateLoadInputSchema, A1SignerInputSchema } from "./config.js";
@@ -21,20 +20,36 @@ import type {
 } from "./config.js";
 import type { A1CertificateProfile } from "@signature-kit/a1/config";
 
-type A1CertificateCredentials = {
-  readonly pfx: Uint8Array;
-  readonly password: Redacted.Redacted<string>;
-};
-
-type A1CertificateStoreState = A1CertificateSnapshot & {
-  readonly credentials: A1CertificateCredentials | null;
-};
-
-const initialCertificateState: A1CertificateStoreState = {
+const initialCertificateState: A1CertificateSnapshot = {
   status: "idle",
   profile: null,
   error: null,
-  credentials: null,
+};
+
+type WorkerSession = Effect.Success<ReturnType<typeof makeObservedA1WorkerSession>>;
+let loadedSession: {
+  readonly worker: WorkerSession;
+  readonly generation: number;
+  readonly owner: Scope.Closeable;
+} | null = null;
+const closingSessions = new Set<Promise<boolean>>();
+const activeOperations = new Set<Promise<unknown>>();
+let closeOutcomes: boolean[] | null = null;
+let disposal: Promise<ReadonlyArray<boolean>> | null = null;
+
+const makeA1WorkerSession = makeObservedA1WorkerSession((drained) => closeOutcomes?.push(drained));
+
+const closeLoadedSession = (): void => {
+  const session = loadedSession;
+  loadedSession = null;
+  if (session !== null) {
+    // effect-boundary: hook event action [allow-run: hook event-action boundary]
+    const closing = Effect.runPromise(
+      session.worker.close.pipe(Effect.ensuring(Scope.close(session.owner, Exit.void))),
+    );
+    closingSessions.add(closing);
+    void closing.then(() => closingSessions.delete(closing));
+  }
 };
 
 const initialSignerState: A1SignerSnapshot = {
@@ -43,7 +58,7 @@ const initialSignerState: A1SignerSnapshot = {
   error: null,
 };
 
-const certificateStore = createSyncStore<A1CertificateStoreState>(initialCertificateState);
+const certificateStore = createSyncStore<A1CertificateSnapshot>(initialCertificateState);
 const signerStore = createSyncStore<A1SignerSnapshot>(initialSignerState);
 type OperationInterruptor = () => void;
 
@@ -75,7 +90,7 @@ let signerOperation = 0;
 
 const updateCertificateState = (
   operation: number,
-  update: (state: A1CertificateStoreState) => A1CertificateStoreState,
+  update: (state: A1CertificateSnapshot) => A1CertificateSnapshot,
 ): void => {
   if (operation !== certificateOperation) return;
   certificateStore.setState(update);
@@ -109,69 +124,80 @@ const failingRows = (
     row.status === "signed" || row.status === "failed" ? row : { ...row, status: "failed", error },
   );
 
-const resolveA1SignerCredentials = (
+const resolveA1SignerSession = (
   credentials: A1SignerCredentials | undefined,
-): Effect.Effect<A1CertificateCredentials, SignatureKitError> => {
-  const stored = certificateStore.getSnapshot();
-
-  if (credentials === undefined) {
-    return stored.credentials === null
-      ? Effect.fail(
-          new SignatureKitError({
-            code: SignatureKitErrorCodeValue.invalidInput,
-            retryable: false,
-            reason:
-              "A1 signing requires explicit pfx/password credentials or a loaded certificate.",
-            operation: SignatureKitOperationValue.schemaDecode,
-            schemaName: "A1SignerCredentials",
-          }),
-        )
-      : Effect.succeed(stored.credentials);
+): Effect.Effect<
+  { readonly worker: WorkerSession; readonly generation: number; readonly temporary: boolean },
+  SignatureKitError,
+  Scope.Scope
+> => {
+  if (credentials !== undefined && "pfx" in credentials) {
+    const password = Redacted.make(credentials.password);
+    return Effect.gen(function* () {
+      const worker = yield* makeA1WorkerSession;
+      const initialized = yield* worker.client
+        .Initialize({ pfx: credentials.pfx, password: Redacted.value(password) })
+        .pipe(
+          Effect.catchTag("RpcClientError", () =>
+            Effect.fail(
+              new SignatureKitError({
+                code: SignatureKitErrorCodeValue.unsupportedOperation,
+                retryable: false,
+                reason: "A1 worker communication failed.",
+              }),
+            ),
+          ),
+        );
+      return { worker, generation: initialized.generation, temporary: true };
+    });
   }
-
-  if ("pfx" in credentials) {
-    return Effect.succeed({ pfx: credentials.pfx, password: Redacted.make(credentials.password) });
-  }
-
+  const session = loadedSession;
+  const profile = certificateStore.getSnapshot().profile;
   if (
-    stored.credentials === null ||
-    stored.profile === null ||
-    stored.profile.fingerprint !== credentials.profile.fingerprint
+    session === null ||
+    profile === null ||
+    (credentials !== undefined && credentials.profile.fingerprint !== profile.fingerprint)
   ) {
     return Effect.fail(
       new SignatureKitError({
         code: SignatureKitErrorCodeValue.invalidInput,
         retryable: false,
-        reason: "The requested A1 certificate profile is not loaded in the hook store.",
+        reason: "A1 signing requires explicit pfx/password credentials or a loaded certificate.",
         operation: SignatureKitOperationValue.schemaDecode,
         schemaName: "A1SignerCredentials",
       }),
     );
   }
-
-  return Effect.succeed(stored.credentials);
+  return Effect.succeed({ ...session, temporary: false });
 };
 
 export const clearA1Certificate = (): void => {
   certificateOperation += 1;
   interruptCertificateOperation();
+  closeLoadedSession();
+  interruptSignerOperation();
+  signerOperation += 1;
+  signerStore.setState(() => initialSignerState);
   certificateStore.setState(() => initialCertificateState);
 };
 
-export const loadA1Certificate = async (
+const loadCertificate = async (
   pfx: Uint8Array,
   // secret-boundary: React hook action accepts a UI password and immediately wraps it in Redacted [allow-string-secret: hook event-action boundary]
   password: string,
 ): Promise<A1CertificateLoadOutcome> => {
   const operation = ++certificateOperation;
   interruptCertificateOperation();
+  closeLoadedSession();
+  interruptSignerOperation();
+  signerOperation += 1;
+  signerStore.setState(() => initialSignerState);
 
   updateCertificateState(operation, (state) => ({
     ...state,
     status: "loading",
     profile: null,
     error: null,
-    credentials: null,
   }));
   const program = Schema.decodeUnknownEffect(A1CertificateLoadInputSchema)({ pfx, password }).pipe(
     Effect.mapError(
@@ -185,11 +211,40 @@ export const loadA1Certificate = async (
           issueMessage: String(issue),
         }),
     ),
-    Effect.flatMap((valid) =>
-      parseA1CertificateProfile({ pfx: valid.pfx, password: Redacted.make(valid.password) }).pipe(
-        Effect.map((profile) => ({ profile, credentials: valid })),
-      ),
-    ),
+    Effect.flatMap((valid) => {
+      const password = Redacted.make(valid.password);
+      return Effect.gen(function* () {
+        const ownership = yield* Effect.acquireRelease(
+          Scope.make().pipe(Effect.map((owner) => ({ owner, adopted: false }))),
+          (ownership) =>
+            ownership.adopted ? Effect.void : Scope.close(ownership.owner, Exit.void),
+        );
+        const owner = ownership.owner;
+        const worker = yield* makeA1WorkerSession.pipe(Scope.provide(owner));
+        const initialized = yield* worker.client
+          .Initialize({ pfx: valid.pfx, password: Redacted.value(password) })
+          .pipe(
+            Effect.catchTag("RpcClientError", () =>
+              Effect.fail(
+                new SignatureKitError({
+                  code: SignatureKitErrorCodeValue.unsupportedOperation,
+                  retryable: false,
+                  reason: "A1 worker communication failed.",
+                }),
+              ),
+            ),
+            Effect.onError(() => Scope.close(owner, Exit.void)),
+          );
+        yield* Effect.sync(() => {
+          if (operation === certificateOperation) {
+            loadedSession = { worker, generation: initialized.generation, owner };
+            ownership.adopted = true;
+          }
+        });
+        return { ...initialized, worker, owner };
+      });
+    }),
+    Effect.scoped,
   );
 
   // effect-boundary: React hook event action [allow-run: hook event-action boundary]
@@ -197,7 +252,9 @@ export const loadA1Certificate = async (
     EffectResult<
       {
         readonly profile: A1CertificateProfile;
-        readonly credentials: { readonly pfx: Uint8Array; readonly password: string };
+        readonly generation: number;
+        readonly worker: WorkerSession;
+        readonly owner: Scope.Closeable;
       },
       SignatureKitError
     >
@@ -219,20 +276,19 @@ export const loadA1Certificate = async (
       status: "error",
       profile: null,
       error: result.failure,
-      credentials: null,
     }));
     return { ok: false, error: result.failure };
   }
 
-  const credentials = {
-    pfx: result.success.credentials.pfx,
-    password: Redacted.make(result.success.credentials.password),
-  };
+  if (operation !== certificateOperation) {
+    // effect-boundary: hook event action [allow-run: hook event-action boundary]
+    await Effect.runPromise(Scope.close(result.success.owner, Exit.void));
+    return { ok: false, error: interruptedOperationError() };
+  }
   updateCertificateState(operation, () => ({
     status: "ready",
     profile: result.success.profile,
     error: null,
-    credentials,
   }));
   return { ok: true, profile: result.success.profile };
 };
@@ -243,7 +299,7 @@ export const clearA1Signer = (): void => {
   signerStore.setState(() => initialSignerState);
 };
 
-export const signA1Documents = async (input: A1SignerInput): Promise<A1SignerRunOutcome> => {
+const signDocuments = async (input: A1SignerInput): Promise<A1SignerRunOutcome> => {
   if (signerStore.getSnapshot().busy) {
     const busyConflict = new SignatureKitError({
       code: SignatureKitErrorCodeValue.invalidInput,
@@ -277,39 +333,52 @@ export const signA1Documents = async (input: A1SignerInput): Promise<A1SignerRun
       ),
     ),
     Effect.flatMap((valid) =>
-      resolveA1SignerCredentials(valid.credentials).pipe(
-        Effect.flatMap((credentials) => {
-          const layer = a1SignaturesLayer(credentials);
-          return Effect.forEach(valid.documents, (document): Effect.Effect<A1SignerRow> => {
+      resolveA1SignerSession(valid.credentials).pipe(
+        Effect.flatMap((session) =>
+          Effect.forEach(valid.documents, (document): Effect.Effect<A1SignerRow> => {
             const name = rowName(document);
             const stampSize = document.stampSize ?? valid.stamp?.stampSize;
             return Effect.sync(() =>
               replaceRow(operation, { id: document.id, name, status: "signing" }),
             ).pipe(
               Effect.flatMap(() =>
-                prepareAndSignPdf({
-                  pdf: document.pdf,
-                  documentId: document.id,
-                  ...(document.name === undefined ? {} : { documentName: document.name }),
-                  ...(document.pages === undefined ? {} : { pages: document.pages }),
-                  ...(document.pageTextBoxes === undefined
-                    ? {}
-                    : { pageTextBoxes: document.pageTextBoxes }),
-                  ...(document.stampRects === undefined ? {} : { stampRects: document.stampRects }),
-                  ...(document.anchors === undefined ? {} : { anchors: document.anchors }),
-                  ...(stampSize === undefined ? {} : { stampSize }),
-                  ...(valid.stamp?.badge === undefined ? {} : { badge: valid.stamp.badge }),
-                  ...(valid.stamp?.lines === undefined ? {} : { lines: valid.stamp.lines }),
-                  ...(valid.stamp?.inkPng === undefined ? {} : { inkPng: valid.stamp.inkPng }),
-                  ...(valid.stamp?.border === undefined ? {} : { border: valid.stamp.border }),
-                  ...(valid.stamp?.qr === undefined ? {} : { qr: valid.stamp.qr }),
-                  ...(valid.stamp?.rubric === undefined ? {} : { rubric: valid.stamp.rubric }),
-                  signing: valid.signing,
-                }).pipe(
-                  // effect-boundary: React hook action [allow-provide: per-call signer credentials and browser worker parser]
-                  Effect.provide(Layer.merge(layer, liteParseWorkerBrowserLayer)),
-                  Effect.result,
-                ),
+                session.worker.client
+                  .Sign({
+                    generation: session.generation,
+                    input: {
+                      pdf: document.pdf,
+                      documentId: document.id,
+                      ...(document.name === undefined ? {} : { documentName: document.name }),
+                      ...(document.pages === undefined ? {} : { pages: document.pages }),
+                      ...(document.pageTextBoxes === undefined
+                        ? {}
+                        : { pageTextBoxes: document.pageTextBoxes }),
+                      ...(document.stampRects === undefined
+                        ? {}
+                        : { stampRects: document.stampRects }),
+                      ...(document.anchors === undefined ? {} : { anchors: document.anchors }),
+                      ...(stampSize === undefined ? {} : { stampSize }),
+                      ...(valid.stamp?.badge === undefined ? {} : { badge: valid.stamp.badge }),
+                      ...(valid.stamp?.lines === undefined ? {} : { lines: valid.stamp.lines }),
+                      ...(valid.stamp?.inkPng === undefined ? {} : { inkPng: valid.stamp.inkPng }),
+                      ...(valid.stamp?.border === undefined ? {} : { border: valid.stamp.border }),
+                      ...(valid.stamp?.qr === undefined ? {} : { qr: valid.stamp.qr }),
+                      ...(valid.stamp?.rubric === undefined ? {} : { rubric: valid.stamp.rubric }),
+                      signing: valid.signing,
+                    },
+                  })
+                  .pipe(
+                    Effect.catchTag("RpcClientError", () =>
+                      Effect.fail(
+                        new SignatureKitError({
+                          code: SignatureKitErrorCodeValue.unsupportedOperation,
+                          retryable: false,
+                          reason: "A1 worker communication failed.",
+                        }),
+                      ),
+                    ),
+                    Effect.result,
+                  ),
               ),
               Effect.flatMap((result) =>
                 Effect.sync((): A1SignerRow => {
@@ -321,10 +390,11 @@ export const signA1Documents = async (input: A1SignerInput): Promise<A1SignerRun
                 }),
               ),
             );
-          });
-        }),
+          }).pipe(Effect.ensuring(session.temporary ? session.worker.close : Effect.void)),
+        ),
       ),
     ),
+    Effect.scoped,
     Effect.ensuring(
       Effect.sync(() => updateSignerState(operation, (state) => ({ ...state, busy: false }))),
     ),
@@ -359,6 +429,48 @@ export const signA1Documents = async (input: A1SignerInput): Promise<A1SignerRun
 
   return { ok: true, rows: result.success };
 };
+
+const trackOperation = <A>(operation: Promise<A>): Promise<A> => {
+  activeOperations.add(operation);
+  void operation.then(() => activeOperations.delete(operation));
+  return operation;
+};
+
+export const loadA1Certificate = (
+  pfx: Uint8Array,
+  // secret-boundary: React hook event action [allow-string-secret: hook event-action boundary]
+  password: string,
+): Promise<A1CertificateLoadOutcome> =>
+  disposal === null
+    ? trackOperation(loadCertificate(pfx, password))
+    : Promise.resolve({ ok: false, error: interruptedOperationError() });
+
+export const signA1Documents = (input: A1SignerInput): Promise<A1SignerRunOutcome> =>
+  disposal === null
+    ? trackOperation(signDocuments(input))
+    : Promise.resolve({ ok: false, error: interruptedOperationError() });
+
+export const disposeA1Session = (): Promise<ReadonlyArray<boolean>> => {
+  if (disposal !== null) return disposal;
+  const outcomes: boolean[] = [];
+  closeOutcomes = outcomes;
+  disposal = Promise.resolve().then(async () => {
+    clearA1Certificate();
+    await Promise.all(activeOperations);
+    await Promise.all(closingSessions);
+    closeOutcomes = null;
+    disposal = null;
+    return outcomes;
+  });
+  return disposal;
+};
+
+if (import.meta.hot !== undefined) {
+  // oxlint-disable-next-line typescript/no-misused-promises -- Vite awaits the dispose callback at runtime.
+  import.meta.hot.dispose(async () => {
+    await disposeA1Session();
+  });
+}
 
 export type A1CertificateHook = A1CertificateSnapshot & {
   // secret-boundary: React hook action accepts a UI password and immediately wraps it in Redacted [allow-string-secret: hook event-action boundary]

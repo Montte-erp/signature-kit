@@ -39,6 +39,7 @@
       "@signature-kit/cms/inspect": ["../../shared/cms/src/inspect.ts"],
       "@signature-kit/http": ["../../core/http/src/http.ts"],
       "@signature-kit/signatures": ["../../core/signatures/src/signatures.ts"],
+      "@signature-kit/signatures/session": ["../../core/signatures/src/session.ts"],
       "@signature-kit/i18n": ["../../core/i18n/src/i18n.ts"],
       "@signature-kit/crypto/base64": ["../../shared/crypto/src/base64.ts"],
       "@signature-kit/crypto/config": ["../../shared/crypto/src/config.ts"],

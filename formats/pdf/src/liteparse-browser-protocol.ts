@@ -12,6 +12,7 @@ const liteParsePageCountSchema = Schema.Number.check(
 export const LiteParseWorkerRequestSchema = Schema.Struct({
   pdf: Schema.Uint8Array,
   pageCount: liteParsePageCountSchema,
+  screenshots: Schema.optional(Schema.Boolean),
 });
 export type LiteParseWorkerRequest = (typeof LiteParseWorkerRequestSchema)["Type"];
 

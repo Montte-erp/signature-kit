@@ -67,7 +67,8 @@
         "formats/**/tsconfig.json",
         "shared/**/tsconfig.json",
         "signers/**/tsconfig.json",
-        "validators/**/tsconfig.json"
+        "validators/**/tsconfig.json",
+        "apps/signing-domain/tsconfig.json"
       ],
       "options": {
         "compiler": "tsc",

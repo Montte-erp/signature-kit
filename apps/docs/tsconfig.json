@@ -24,6 +24,9 @@
   "exclude": ["node_modules", "vitest.browser.config.ts"],
   "references": [
     {
+      "path": "../signing-domain"
+    },
+    {
       "path": "../../core/signatures"
     },
     {

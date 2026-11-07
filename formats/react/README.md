@@ -27,6 +27,8 @@ Migration note: components moved out of the npm package and into the registry. R
 - `@signature-kit/react/sync-store` — `createSyncStore` and `useSyncStore` for headless external state.
 - `@signature-kit/react/config` — Schema-backed hook inputs, certificate state, signer rows, snapshots, and outcomes.
 
+Certificate loading and signing run in a dedicated browser Web Worker over Effect RPC. The hook store contains certificate metadata, not the PFX or password. Clearing or replacing a certificate terminates its worker session and interrupts its active operations. Direct credentials use a temporary worker session. The application bundler must support module workers constructed from a URL relative to the package module.
+
 Certificate persistence is not included. If an app remembers a password or encrypted PFX bytes, it owns that storage policy and passes fresh inputs back to the hooks.
 
 ## Example
