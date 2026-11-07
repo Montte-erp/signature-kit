@@ -30,7 +30,7 @@
   },
   "dependencies": {
     "@signature-kit/signatures": "^0.2.0",
-    "effect": "4.0.5"
+    "effect": "4.1.0"
   },
   "nx": {
     "targets": {

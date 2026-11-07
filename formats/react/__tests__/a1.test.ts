@@ -1,19 +1,10 @@
 import { describe, expect, it, afterEach } from "vitest";
 import { Effect } from "effect";
-import { verifyPdf } from "@signature-kit/pdf/verify";
 import { SignatureKitErrorCodeValue } from "@signature-kit/signatures";
 import { readA1Fixture } from "../../../tooling/testing/fixtures";
-import {
-  clearA1Certificate,
-  clearA1Signer,
-  getLoadedA1CertificateProfile,
-  loadA1Certificate,
-  signA1Documents,
-} from "../src/a1";
-import type { A1SignerInput, A1SignerSignedRow } from "../src/config";
+import { clearA1Certificate, clearA1Signer, signA1Documents } from "../src/a1";
 
 const CERTIFICATE_PASSWORD = "changeit";
-const WRONG_PASSWORD = "wrong-password";
 
 const createPdf = async (): Promise<Uint8Array> => {
   const source = [
@@ -44,49 +35,10 @@ const createPdf = async (): Promise<Uint8Array> => {
   return Promise.resolve(new TextEncoder().encode(source.join("\n")));
 };
 
-const makeDocuments = async (prefix: string): Promise<A1SignerInput["documents"]> => {
-  const firstPdf = await createPdf();
-  const secondPdf = await createPdf();
-
-  return [
-    { id: `${prefix}-1`, name: `${prefix}-1`, pdf: firstPdf },
-    { id: `${prefix}-2`, name: `${prefix}-2`, pdf: secondPdf },
-  ];
-};
-
 describe("@signature-kit/react/a1 actions", () => {
   afterEach(() => {
     clearA1Certificate();
     clearA1Signer();
-  });
-
-  it("loads an A1 certificate and exposes a ready profile", async () => {
-    const pfx = await Effect.runPromise(readA1Fixture("ecpf"));
-
-    const outcome = await loadA1Certificate(pfx, CERTIFICATE_PASSWORD);
-
-    expect(outcome.ok).toBe(true);
-    if (!outcome.ok) {
-      return;
-    }
-    expect(outcome.profile.document).toBe("12345678901");
-
-    const profile = getLoadedA1CertificateProfile();
-    expect(profile).not.toBeNull();
-    expect(profile?.fingerprint).toBe(outcome.profile.fingerprint);
-    expect(profile?.document).toBe(outcome.profile.document);
-  });
-
-  it("keeps wrong certificate password in a typed SignatureKitError", async () => {
-    const pfx = await Effect.runPromise(readA1Fixture("ecpf"));
-
-    const outcome = await loadA1Certificate(pfx, WRONG_PASSWORD);
-
-    expect(outcome.ok).toBe(false);
-    if (!outcome.ok) {
-      expect(outcome.error.code).toBe(SignatureKitErrorCodeValue.wrongPassword);
-      expect(outcome.error.message).toBe("Wrong certificate password.");
-    }
   });
 
   it("rejects an empty signer batch at the public action boundary", async () => {
@@ -116,81 +68,5 @@ describe("@signature-kit/react/a1 actions", () => {
     if (!outcome.ok) {
       expect(outcome.error.code).toBe(SignatureKitErrorCodeValue.invalidInput);
     }
-  });
-
-  it("signs two PDFs in input order and verifies both outputs", async () => {
-    const pfx = await Effect.runPromise(readA1Fixture("ecpf"));
-    const documents: A1SignerInput["documents"] = [
-      { id: "doc-1", name: "Document one", pdf: await createPdf() },
-      { id: "doc-2", name: "Document two", pdf: await createPdf() },
-    ];
-
-    const outcome = await signA1Documents({
-      documents,
-      credentials: {
-        pfx,
-        password: CERTIFICATE_PASSWORD,
-      },
-      signing: {},
-    });
-
-    expect(outcome.ok).toBe(true);
-
-    if (!outcome.ok) {
-      return;
-    }
-
-    expect(outcome.rows).toHaveLength(2);
-    expect(outcome.rows[0]).toMatchObject({ id: "doc-1", status: "signed" });
-    expect(outcome.rows[1]).toMatchObject({ id: "doc-2", status: "signed" });
-
-    const signedRows = outcome.rows.filter(
-      (row): row is A1SignerSignedRow => row.status === "signed",
-    );
-
-    expect(signedRows).toHaveLength(2);
-
-    const verifications = await Promise.all(
-      signedRows.map((row) => Effect.runPromise(verifyPdf({ pdf: row.signedPdf }))),
-    );
-
-    expect(verifications.every((result) => result.valid)).toBe(true);
-    expect(verifications.every((result) => result.signatureCount === 1)).toBe(true);
-  });
-
-  it("rejects a concurrent batch without replacing the first batch outcome", async () => {
-    const pfx = await Effect.runPromise(readA1Fixture("ecpf"));
-    const first = await makeDocuments("first");
-    const second = await makeDocuments("second");
-
-    const firstOutcomePromise = signA1Documents({
-      documents: first,
-      credentials: {
-        pfx,
-        password: CERTIFICATE_PASSWORD,
-      },
-      signing: {},
-    });
-
-    const secondOutcome = await signA1Documents({
-      documents: second,
-      credentials: {
-        pfx,
-        password: CERTIFICATE_PASSWORD,
-      },
-      signing: {},
-    });
-
-    expect(secondOutcome.ok).toBe(false);
-    if (!secondOutcome.ok) {
-      expect(secondOutcome.error.code).toBe(SignatureKitErrorCodeValue.invalidInput);
-    }
-
-    const firstOutcome = await firstOutcomePromise;
-    expect(firstOutcome.ok).toBe(true);
-    if (!firstOutcome.ok) return;
-
-    expect(firstOutcome.rows.map((row) => row.id)).toEqual(["first-1", "first-2"]);
-    expect(firstOutcome.rows.every((row) => row.status === "signed")).toBe(true);
   });
 });

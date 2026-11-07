@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Check } from "../src/model";
+import { roots } from "../src/config";
 import { checks } from "../src/rule-set";
 import { schemaContractChecks } from "../src/rules/schema-contracts";
 import { errorHandlingChecks } from "../src/rules/error-handling";
@@ -13,7 +14,11 @@ import { observabilityCatalogChecks } from "../src/rules/observability-catalogs"
 import { configChecks } from "../src/rules/config";
 import { dependencyChecks } from "../src/rules/dependencies";
 import { hasCheckedExtension } from "../src/filesystem";
-import { importDeclarationLineMap, runDeclarativeChecks } from "../src/runner";
+import {
+  importDeclarationLineMap,
+  runDeclarativeChecks,
+  runFileDeclarativeChecks,
+} from "../src/runner";
 import { createCheckContexts } from "../src/source-context";
 
 const expectedChecks = [
@@ -679,6 +684,35 @@ export const ExampleProvider = () =>
         'import type { Signatures } from "@signature-kit/signatures";\nconst value: Signatures = input;\n',
       ),
     ).toBe(false);
+  });
+
+  it("selects the signing domain and applies application boundary rules", async () => {
+    const root = await mkdtemp(join(tmpdir(), "signature-kit-domain-selection-"));
+    onTestFinished(() => rm(root, { recursive: true, force: true }));
+    const domainRoot = "apps/signing-domain";
+    expect(roots).toContain(domainRoot);
+    await mkdir(join(root, domainRoot, "src"), { recursive: true });
+    await writeFile(join(root, domainRoot, "src/signing.ts"), "Effect.runPromise(program);\n");
+    expect(
+      runDeclarativeChecks(
+        root,
+        roots.filter((path) => path === domainRoot),
+      ),
+    ).toBe(true);
+    expect(
+      runFileDeclarativeChecks(
+        join(root, "apps/docs/src/page.ts"),
+        "Effect.runPromise(program);\n",
+        root,
+      ),
+    ).toBe(false);
+    expect(
+      runFileDeclarativeChecks(
+        join(root, domainRoot, "src/signing.ts"),
+        "// [allow-run: fixture]\nEffect.runPromise(program);\n",
+        root,
+      ),
+    ).toBe(true);
   });
 
   it("runs fixtures through the declarative entry point", async () => {

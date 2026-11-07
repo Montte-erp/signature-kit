@@ -25,6 +25,7 @@ export const roots = [
   "formats",
   "validators",
   "shared",
+  "apps/signing-domain",
   "apps/docs/components/sections/providers-showcase.tsx",
   "apps/docs/content/docs/providers",
 ].filter((path) => existsSync(path));

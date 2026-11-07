@@ -260,7 +260,10 @@ if (typeof document === "undefined") {
       if (triggerButton === null) return;
       triggerButton.click();
 
-      await waitFor(() => dialog.getAlert() !== null, "wrong password callback alert is rendered");
+      await waitFor(
+        () => dialog.getAlert()?.textContent?.trim() === "Something went wrong.",
+        "wrong password callback alert is rendered",
+      );
 
       expect(dialog.getAlert()?.textContent?.trim()).toBe("Something went wrong.");
       expect(savedPasswordClears).toBe(1);
@@ -298,7 +301,10 @@ if (typeof document === "undefined") {
       if (triggerButton === null) return;
       triggerButton.click();
 
-      await waitFor(() => dialog.getAlert() !== null, "save password callback alert is rendered");
+      await waitFor(
+        () => dialog.getAlert()?.textContent?.trim() === "Something went wrong.",
+        "save password callback alert is rendered",
+      );
 
       expect(wrongPasswordCalls).toBe(1);
       expect(savePasswordCalls).toBe(1);

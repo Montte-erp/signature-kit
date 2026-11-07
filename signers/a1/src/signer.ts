@@ -97,15 +97,17 @@ const signWithKey = (
   content: Uint8Array,
 ): Effect.Effect<Uint8Array, SignatureKitError> =>
   Effect.gen(function* () {
-    const signature = yield* Effect.tryPromise({
-      try: () => crypto.subtle.sign(rsaAlgorithm(algorithm).name, key, toBufferSource(content)),
-      catch: () =>
-        new SignatureKitError({
-          code: SignatureKitErrorCodeValue.signFailed,
-          retryable: false,
-          operation: SignatureKitOperationValue.cryptoSign,
-        }),
-    });
+    const signature = yield* Effect.uninterruptible(
+      Effect.tryPromise({
+        try: () => crypto.subtle.sign(rsaAlgorithm(algorithm).name, key, toBufferSource(content)),
+        catch: () =>
+          new SignatureKitError({
+            code: SignatureKitErrorCodeValue.signFailed,
+            retryable: false,
+            operation: SignatureKitOperationValue.cryptoSign,
+          }),
+      }),
+    );
     return new Uint8Array(signature);
   });
 

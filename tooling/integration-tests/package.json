@@ -8,12 +8,12 @@
     "test:server": "vitest run --root ../.. tooling/integration-tests/__tests__"
   },
   "dependencies": {
-    "@effect/vitest": "4.0.5",
+    "@effect/vitest": "4.1.0",
     "@signature-kit/a1": "^0.4.0",
     "@signature-kit/pdf": "^0.4.0",
     "@signature-kit/signatures": "^0.2.0",
     "@signature-kit/xml": "^0.2.1",
-    "effect": "4.0.5",
+    "effect": "4.1.0",
     "vitest": "^5.0.5"
   },
   "nx": {

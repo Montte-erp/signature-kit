@@ -30,6 +30,7 @@ export default defineConfig({
   },
   test: {
     include: ["**/*.browser.test.*"],
+    globalSetup: ["tooling/testing/__tests__/packed-browser-setup.ts"],
     deps: {
       optimizer: {
         client: { enabled: false },

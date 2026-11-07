@@ -76,12 +76,12 @@
   },
   "dependencies": {
     "@cantoo/pdf-lib": "2.11.1",
-    "@effect/platform-browser": "4.0.5",
+    "@effect/platform-browser": "4.1.0",
     "@llamaindex/liteparse-wasm": "^2.16.0",
     "@signature-kit/cms": "^0.2.1",
     "@signature-kit/i18n": "^0.1.0",
     "@signature-kit/signatures": "^0.2.0",
-    "effect": "4.0.5",
+    "effect": "4.1.0",
     "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {

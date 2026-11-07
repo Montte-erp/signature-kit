@@ -1,0 +1,27 @@
+{
+  "name": "@signature-kit/signing-domain",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/signing.js",
+  "types": "./dist/signing.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/signing.d.ts",
+      "import": "./dist/signing.js"
+    }
+  },
+  "scripts": {
+    "test": "vitest run --root ../.. apps/signing-domain/__tests__"
+  },
+  "dependencies": {
+    "@alchemy.run/domain": "2.0.0-beta.85",
+    "alchemy": "2.0.0-beta.85",
+    "effect": "4.1.0"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.1.0"
+  }
+}

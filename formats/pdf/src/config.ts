@@ -185,6 +185,7 @@ export const PdfSchemaNameSchema = Schema.Literals([
   "PdfSignatureBestGuessPlacementInput",
   "PdfVerificationRequest",
   "PdfMergeDocuments",
+  "PdfIllustrativeDocumentInput",
 ]);
 export type PdfSchemaName = (typeof PdfSchemaNameSchema)["Type"];
 export const PdfSchemaNameValue = {
@@ -209,6 +210,7 @@ export const PdfSchemaNameValue = {
   pdfSignatureBestGuessPlacementInput: "PdfSignatureBestGuessPlacementInput",
   pdfVerificationRequest: "PdfVerificationRequest",
   pdfMergeDocuments: "PdfMergeDocuments",
+  pdfIllustrativeDocumentInput: "PdfIllustrativeDocumentInput",
 } satisfies Record<string, PdfSchemaName>;
 
 export class PdfError extends Schema.TaggedError<PdfError, { readonly brand: unique symbol }>()(

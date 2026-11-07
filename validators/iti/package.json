@@ -38,7 +38,7 @@
     "@signature-kit/pdf": "^0.4.0",
     "@signature-kit/signatures": "^0.2.0",
     "asn1js": "4.0.0",
-    "effect": "4.0.5",
+    "effect": "4.1.0",
     "pkijs": "3.4.3"
   },
   "devDependencies": {

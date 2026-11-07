@@ -1,5 +1,3 @@
-import { ESSCertIDv2, SigningCertificateV2 } from "@peculiar/asn1-ess";
-import { AsnConvert, OctetString } from "@peculiar/asn1-schema";
 import * as asn1js from "asn1js";
 import * as pkijs from "pkijs";
 import { Schema } from "effect";
@@ -18,17 +16,25 @@ const messageDigestAttribute = (messageDigest: Uint8Array): pkijs.Attribute =>
     values: [new asn1js.OctetString({ valueHex: new Uint8Array(messageDigest).buffer })],
   });
 
-const signingCertificateV2Attribute = (certificateSha256: Uint8Array): pkijs.Attribute => {
-  const essCertId = new ESSCertIDv2({
-    certHash: new OctetString(new Uint8Array(certificateSha256).buffer),
-  });
-  const scv2 = new SigningCertificateV2({ certs: [essCertId] });
-  const scv2Der = AsnConvert.serialize(scv2);
-  return new pkijs.Attribute({
+const signingCertificateV2Attribute = (certificateSha256: Uint8Array): pkijs.Attribute =>
+  new pkijs.Attribute({
     type: CmsOid.signingCertificateV2,
-    values: [asn1js.fromBER(scv2Der).result],
+    values: [
+      new asn1js.Sequence({
+        value: [
+          new asn1js.Sequence({
+            value: [
+              new asn1js.Sequence({
+                value: [
+                  new asn1js.OctetString({ valueHex: new Uint8Array(certificateSha256).buffer }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    ],
   });
-};
 
 const SPURI_OID = "1.2.840.113549.1.9.16.5.1";
 

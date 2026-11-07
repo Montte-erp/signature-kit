@@ -15,6 +15,7 @@ const parseLiteParseRequest = (request: LiteParseWorkerRequest): Promise<unknown
       outputFormat: "json",
       preserveVerySmallText: true,
       quiet: true,
+      extractScreenshots: request.screenshots === true,
     });
     return Promise.resolve()
       .then(() => parser.parse(request.pdf))

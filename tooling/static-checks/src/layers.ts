@@ -301,23 +301,23 @@ const distParityDiagnostics = (
     ];
   });
 
-const sourceFilePaths = (directory: string): readonly string[] => {
+const sourceFilePaths = (directory: string, excludedPath: string): readonly string[] => {
   const entries = readdirSync(directory);
   return entries.flatMap((entry) => {
     const path = `${directory}/${entry}`;
     const stats = statSync(path);
     if (stats.isDirectory()) {
       if (
+        path === excludedPath ||
         entry === "dist" ||
         entry === "node_modules" ||
         entry === ".cache" ||
         entry === ".next" ||
-        entry === ".source" ||
-        entry === "paraglide"
+        entry === ".source"
       ) {
         return [];
       }
-      return sourceFilePaths(path);
+      return sourceFilePaths(path, excludedPath);
     }
     if (!stats.isFile()) {
       return [];
@@ -570,22 +570,23 @@ const importDiagnostics = (
   packages: readonly WorkspacePackage[],
   packagesByName: ReadonlyMap<string, WorkspacePackage>,
 ): readonly WorkspaceLayerDiagnostic[] =>
-  sourceFilePaths(`${rootDirectory}/${workspacePackage.directory}`).flatMap(
-    (absoluteSourcePath) => {
-      const sourcePath = normalizePath(relative(rootDirectory, absoluteSourcePath));
-      const source = readFileSync(absoluteSourcePath, "utf8");
-      return importSpecifiers(source, sourcePath).flatMap((specifier) => [
-        ...packageImportDiagnostics(workspacePackage, packagesByName, sourcePath, specifier),
-        ...relativeImportDiagnostics(
-          rootDirectory,
-          workspacePackage,
-          packages,
-          sourcePath,
-          specifier,
-        ),
-      ]);
-    },
-  );
+  sourceFilePaths(
+    `${rootDirectory}/${workspacePackage.directory}`,
+    `${rootDirectory}/apps/docs/dist-foldkit`,
+  ).flatMap((absoluteSourcePath) => {
+    const sourcePath = normalizePath(relative(rootDirectory, absoluteSourcePath));
+    const source = readFileSync(absoluteSourcePath, "utf8");
+    return importSpecifiers(source, sourcePath).flatMap((specifier) => [
+      ...packageImportDiagnostics(workspacePackage, packagesByName, sourcePath, specifier),
+      ...relativeImportDiagnostics(
+        rootDirectory,
+        workspacePackage,
+        packages,
+        sourcePath,
+        specifier,
+      ),
+    ]);
+  });
 
 const remoteSignerPascalNames: ReadonlyMap<string, string> = new Map([
   ["docuseal", "DocuSeal"],

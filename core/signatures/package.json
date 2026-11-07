@@ -20,6 +20,10 @@
     ".": {
       "types": "./dist/signatures.d.ts",
       "import": "./dist/signatures.js"
+    },
+    "./session": {
+      "types": "./dist/session.d.ts",
+      "import": "./dist/session.js"
     }
   },
   "publishConfig": {
@@ -29,7 +33,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "effect": "4.0.5"
+    "effect": "4.1.0"
   },
   "nx": {
     "targets": {
