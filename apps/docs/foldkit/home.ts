@@ -1,3 +1,5 @@
+import { pageRoute } from "./routes";
+import { Button } from "@foldkit/ui";
 import { Effect, Schema } from "effect";
 import { Command } from "foldkit";
 import * as Mount from "foldkit/mount";
@@ -11,10 +13,13 @@ export const Theme = Schema.Literals(["light", "dark"]);
 export const ThemeLoaded = Schema.TaggedStruct("ThemeLoaded", { theme: Theme });
 export const ThemeMount = Mount.define("ThemeMount", {
   messages: [ThemeLoaded],
-  execute: () =>
+  execute: ({ element }) =>
     Effect.try({
-      try: (): typeof Theme.Type =>
-        localStorage.getItem("signaturekit-theme") === "dark" ? "dark" : "light",
+      try: (): typeof Theme.Type => {
+        const theme = localStorage.getItem("signaturekit-theme") === "dark" ? "dark" : "light";
+        element.setAttribute("data-theme", theme);
+        return theme;
+      },
       catch: () => "light",
     }).pipe(
       Effect.orElseSucceed((): typeof Theme.Type => "light"),
@@ -174,7 +179,10 @@ export const signFreeLanding = <Message>(h: HtmlBuilder<Message>, signer: Html) 
         ],
       ),
       h.a([h.Class("home-action"), h.Href("#assinar")], ["Assinar agora"]),
-      h.a([h.Href("/pt-BR/docs/a1-signing/browser-pdf-flow")], ["Como funciona"]),
+      h.a(
+        [h.Href(pageRoute({ locale: "pt-BR", path: "docs/a1-signing/browser-pdf-flow" }))],
+        ["Como funciona"],
+      ),
       h.ul(
         [],
         [
@@ -244,21 +252,27 @@ export const homeView = <Message>(
     h.p([h.Class("home-lead")], [lead]),
   ];
   const copyButton = (target: typeof HomeCopyTarget.Type, location: typeof HomeCopyLocation.Type) =>
-    h.button(
-      [
-        h.Type("button"),
-        h.OnClick(messages.copy(target, location)),
-        h.Class("home-copy"),
-        h.Attribute(
-          "aria-label",
-          target === "provider"
-            ? `${copy.showcase_copy} ${state.provider}`
-            : target === "first"
-              ? `${copy.showcase_copy} first-signature.ts`
-              : `${copy.install_copy_label} ${target === "install" ? "bun" : target}`,
-        ),
-      ],
-      [state.copied === target ? copy.showcase_copied : copy.showcase_copy],
+    Button.view(
+      {
+        onClick: messages.copy(target, location),
+        toView: (attributes) =>
+          h.button(
+            [
+              ...attributes.button,
+              h.Class("home-copy"),
+              h.Attribute(
+                "aria-label",
+                target === "provider"
+                  ? `${copy.showcase_copy} ${state.provider}`
+                  : target === "first"
+                    ? `${copy.showcase_copy} first-signature.ts`
+                    : `${copy.install_copy_label} ${target === "install" ? "bun" : target}`,
+              ),
+            ],
+            [state.copied === target ? copy.showcase_copied : copy.showcase_copy],
+          ),
+      },
+      h,
     );
   const capabilities = [
     [
@@ -316,7 +330,7 @@ export const homeView = <Message>(
           [
             h.code([], [installCommand]),
             copyButton("install", "hero"),
-            h.a([h.Href(`/${state.locale}/docs`)], [copy.hero_cta_docs]),
+            h.a([h.Href(pageRoute({ locale: state.locale, path: "docs" }))], [copy.hero_cta_docs]),
           ],
         ),
       ],
@@ -355,7 +369,10 @@ export const homeView = <Message>(
           [
             h.Class("home-action"),
             h.Href(
-              state.locale === "pt-BR" ? "/pt-BR/assine-documentos-gratis" : "/en-US/sign-free",
+              pageRoute({
+                locale: state.locale,
+                path: state.locale === "pt-BR" ? "assine-documentos-gratis" : "sign-free",
+              }),
             ),
           ],
           [copy.signer_open],
@@ -403,13 +420,19 @@ export const homeView = <Message>(
             h.Attribute("aria-label", copy.showcase_card_provider),
           ],
           homeProviders.map((provider) =>
-            h.button(
-              [
-                h.Type("button"),
-                h.OnClick(messages.select(provider.name)),
-                h.Attribute("aria-pressed", String(provider.name === state.provider)),
-              ],
-              [provider.name],
+            Button.view(
+              {
+                onClick: messages.select(provider.name),
+                toView: (attributes) =>
+                  h.button(
+                    [
+                      ...attributes.button,
+                      h.Attribute("aria-pressed", String(provider.name === state.provider)),
+                    ],
+                    [provider.name],
+                  ),
+              },
+              h,
             ),
           ),
         ),
@@ -435,7 +458,10 @@ export const homeView = <Message>(
             ),
           ),
         ),
-        h.a([h.Href(`/${state.locale}/docs/providers/request-shape`)], [copy.showcase_cta_browse]),
+        h.a(
+          [h.Href(pageRoute({ locale: state.locale, path: "docs/providers/request-shape" }))],
+          [copy.showcase_cta_browse],
+        ),
       ],
     ),
     h.section(
@@ -458,7 +484,10 @@ export const homeView = <Message>(
                 h.h3([], [title ?? ""]),
                 h.p([], [description ?? ""]),
                 h.code([], [code ?? ""]),
-                h.a([h.Href(`/${state.locale}/docs/${path}`)], [copy.cap_read_docs]),
+                h.a(
+                  [h.Href(pageRoute({ locale: state.locale, path: `docs/${path}` }))],
+                  [copy.cap_read_docs],
+                ),
               ],
             ),
           ),
@@ -495,7 +524,10 @@ export const homeView = <Message>(
         h.h2([], [copy.final_title]),
         h.p([], [copy.final_lead]),
         h.a(
-          [h.Class("home-action"), h.Href(`/${state.locale}/docs/get-started/quickstart`)],
+          [
+            h.Class("home-action"),
+            h.Href(pageRoute({ locale: state.locale, path: "docs/get-started/quickstart" })),
+          ],
           [copy.final_cta],
         ),
         h.pre([], [h.code([], [installCommand])]),

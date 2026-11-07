@@ -1,3 +1,4 @@
+import { homeRoute, pageRoute, parsePublicUrl } from "./routes";
 import { Effect } from "effect";
 import { createArticleCatalog } from "./articles";
 import { contentPaths, resolveContent } from "./content";
@@ -28,7 +29,7 @@ export const renderRss = (
           title: "SignatureKit Blog",
           description: "Stories, integrations, and engineering decisions behind SignatureKit.",
         };
-  const channel = url(`/${locale}/blog`);
+  const channel = url(pageRoute({ locale, path: "blog" }));
   const items = entries
     .map(
       (entry) =>
@@ -45,7 +46,7 @@ export const renderRss = (
         )}</guid><pubDate>${new Date(entry.timestamp).toUTCString()}</pubDate><description>${escapeXml(entry.description ?? "")}</description></item>`,
     )
     .join("");
-  return `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>${escapeXml(copy.title)}</title><link>${channel}</link><description>${escapeXml(copy.description)}</description><language>${locale}</language><atom:link href="${channel}/rss.xml" rel="self" type="application/rss+xml" />${items}</channel></rss>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>${escapeXml(copy.title)}</title><link>${channel}</link><description>${escapeXml(copy.description)}</description><language>${locale}</language><atom:link href="${url(pageRoute({ locale, path: "blog/rss.xml" }))}" rel="self" type="application/rss+xml" />${items}</channel></rss>`;
 };
 
 export const createFeeds = (source: {
@@ -98,10 +99,10 @@ export const createFeeds = (source: {
           )
           .map(
             (candidate) =>
-              `<xhtml:link rel="alternate" hreflang="${candidate.locale}" href="${escapeXml(url(`/${candidate.locale}${candidate.path}`))}" />`,
+              `<xhtml:link rel="alternate" hreflang="${candidate.locale}" href="${escapeXml(url(candidate.path === "" ? homeRoute({ locale: candidate.locale }) : pageRoute({ locale: candidate.locale, path: candidate.path.slice(1) })))}" />`,
           )
           .join("");
-        return `<url><loc>${escapeXml(url(`/${page.locale}${page.path}`))}</loc>${page.date !== undefined && page.date !== "" ? `<lastmod>${page.date}</lastmod>` : ""}${links}</url>`;
+        return `<url><loc>${escapeXml(url(page.path === "" ? homeRoute({ locale: page.locale }) : pageRoute({ locale: page.locale, path: page.path.slice(1) })))}</loc>${page.date !== undefined && page.date !== "" ? `<lastmod>${page.date}</lastmod>` : ""}${links}</url>`;
       })
       .join("");
     return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">${entries}</urlset>`;
@@ -110,23 +111,21 @@ export const createFeeds = (source: {
   const feedResponse = (request: Request): Effect.Effect<Response | undefined> =>
     Effect.sync(() => {
       const path = new URL(request.url).pathname;
-      const match = /^\/(en-US|pt-BR)\/blog\/rss\.xml$/.exec(path);
-      if (path !== "/sitemap.xml" && match === null) return undefined;
+      const parsed = parsePublicUrl(request.url);
+      const rss = parsed?._tag === "Page" && parsed.path === "blog/rss.xml";
+      if (path !== "/sitemap.xml" && !rss) return undefined;
       if (request.method !== "GET" && request.method !== "HEAD")
         return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
-      const locale: Locale = match?.[1] === "pt-BR" ? "pt-BR" : "en-US";
-      const body =
-        match !== null
-          ? renderRss(
-              locale,
-              articles(locale, "blog").filter((entry) =>
-                source.resolve(locale, "blog", entry.slug),
-              ),
-            )
-          : renderSitemap();
+      const locale: Locale = parsed?.locale ?? "en-US";
+      const body = rss
+        ? renderRss(
+            locale,
+            articles(locale, "blog").filter((entry) => source.resolve(locale, "blog", entry.slug)),
+          )
+        : renderSitemap();
       return new Response(request.method === "HEAD" ? null : body, {
         headers: {
-          "Content-Type": match !== null ? "application/rss+xml; charset=utf-8" : "application/xml",
+          "Content-Type": rss ? "application/rss+xml; charset=utf-8" : "application/xml",
         },
       });
     });

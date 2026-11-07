@@ -1,0 +1,27 @@
+.signing-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-block: 0.5rem;
+}
+.signing-toggle button {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid currentColor;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.signing-toggle button[data-checked] {
+  background: #3b5bdb;
+  border-color: #3b5bdb;
+  color: white;
+}
+.signing-toggle button:focus-visible {
+  outline: 2px solid #3b5bdb;
+  outline-offset: 2px;
+}
+.signing-toggle span {
+  cursor: pointer;
+}

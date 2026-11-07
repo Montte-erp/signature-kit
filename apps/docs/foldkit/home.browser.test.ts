@@ -972,3 +972,63 @@ it("emits legacy home analytics through the real browser SDK without private con
     ).pipe(Effect.timeout("60 seconds")),
   );
 }, 65000);
+
+it("opens and closes the language popover with the keyboard", async () => {
+  await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const host = yield* Effect.acquireRelease(
+          Effect.sync(() => {
+            const element = document.createElement("div");
+            const container = document.createElement("div");
+            container.id = "language-browser-test";
+            element.append(container);
+            document.body.append(element);
+            return element;
+          }),
+          (element) => Effect.sync(() => element.remove()),
+        );
+        yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            Runtime.embed(
+              Runtime.makeApplication({
+                Flags,
+                Model,
+                init,
+                update,
+                view,
+                container: host.querySelector<HTMLElement>("#language-browser-test"),
+              }),
+              {
+                flags: Effect.succeed(
+                  Flags.make({ locale: "en-US", path: "/search", query: "a & b" }),
+                ),
+              },
+            ),
+          ),
+          (runtime) => Effect.sync(() => runtime.dispose()),
+        );
+        const trigger = yield* Effect.promise(() =>
+          expect
+            .poll(() => host.querySelector<HTMLButtonElement>(".language"))
+            .not.toBeNull()
+            .then(() => host.querySelector<HTMLButtonElement>(".language")),
+        );
+        if (trigger === null) return expect.fail("Missing language trigger");
+        yield* Effect.sync(() => trigger.focus());
+        yield* Effect.promise(() => userEvent.keyboard("{Enter}"));
+        yield* Effect.promise(() =>
+          expect.poll(() => trigger.getAttribute("aria-expanded")).toBe("true"),
+        );
+        expect(host.querySelector('a[lang="pt-BR"]')?.getAttribute("href")).toBe(
+          "/pt-BR/search?q=a+%26+b",
+        );
+        yield* Effect.promise(() => userEvent.keyboard("{Escape}"));
+        yield* Effect.promise(() =>
+          expect.poll(() => trigger.getAttribute("aria-expanded")).toBe("false"),
+        );
+        yield* Effect.promise(() => expect.poll(() => document.activeElement).toBe(trigger));
+      }),
+    ).pipe(Effect.timeout("20 seconds")),
+  );
+}, 25000);

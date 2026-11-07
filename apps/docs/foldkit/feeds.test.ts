@@ -333,6 +333,7 @@ describe("feeds", () => {
               expect(post.headers.get("allow")).toBe("GET, HEAD");
             }
             expect((await fetch(`${base}/en-US/blog/not-real.webp`, { signal })).status).toBe(404);
+            expect((await fetch(`${base}/en-US/.webp`, { signal })).status).toBe(404);
           });
         }),
       ).pipe(Effect.timeout("30 seconds")),

@@ -1,3 +1,6 @@
+import { pageRoute } from "./routes";
+import type { Locale } from "./routes";
+export type { Locale } from "./routes";
 import { Effect, Schema } from "effect";
 import { signatureKitErrorCatalog } from "@signature-kit/signatures";
 import GithubSlugger from "github-slugger";
@@ -29,7 +32,6 @@ const Frontmatter = Schema.Struct({
 });
 const ParsedFrontmatter = Schema.Struct({ valid: Schema.Literal(true), value: Frontmatter });
 const Navigation = Schema.Struct({ title: Schema.String, pages: Schema.Array(Schema.String) });
-export type Locale = "en-US" | "pt-BR";
 const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMdx);
 type NativeNode = ReturnType<typeof parser.parse>["children"][number];
 export type ContentNode = NativeNode;
@@ -76,7 +78,12 @@ export const docsNavigation = (locale: Locale) => {
           links: group.pages.flatMap((page) => {
             const content = resolveContent(locale, "docs", `${part}/${page}`);
             return content !== undefined
-              ? [{ title: content.title, href: `/${locale}/docs/${part}/${page}` }]
+              ? [
+                  {
+                    title: content.title,
+                    href: pageRoute({ locale, path: `docs/${part}/${page}` }),
+                  },
+                ]
               : [];
           }),
         },
@@ -89,7 +96,7 @@ export const docsNavigation = (locale: Locale) => {
             links: [
               {
                 title: content.title,
-                href: `/${locale}/docs${part === "index" ? "" : `/${part}`}`,
+                href: pageRoute({ locale, path: `docs${part === "index" ? "" : `/${part}`}` }),
               },
             ],
           },

@@ -1,3 +1,4 @@
+import { Popover } from "@foldkit/ui";
 import { describe, expect, it } from "vitest";
 import { searchDocs } from "./search";
 import { parseContent, renderContent } from "./content";
@@ -106,8 +107,11 @@ describe("documentation search", () => {
     expect(update(changed, Message.SearchSubmitted()).model.results).toEqual(
       searchDocs("pt-BR", changed.query),
     );
-    const toggled = update(changed, Message.ToggledLanguageMenu()).model;
-    expect(toggled.menuOpen).toBe(true);
+    const toggled = update(
+      changed,
+      Message.GotLanguagePopoverMessage({ message: Popover.Message.RequestedOpen() }),
+    ).model;
+    expect(toggled.languagePopover.isOpen).toBe(true);
     const rendered = await Effect.runPromise(
       Server.renderToString(
         { Flags, init: () => ({ model: toggled }), view },
@@ -115,6 +119,7 @@ describe("documentation search", () => {
       ),
     );
     expect(rendered.html).toContain("/en-US/search?q=configura%C3%A7%C3%A3o+%26+a%2Fb");
+    expect(rendered.html).toContain('aria-current="page"');
     expect(init({ locale: "en-US", path: "/search", query: changed.query }).model.results).toEqual(
       searchDocs("en-US", changed.query),
     );

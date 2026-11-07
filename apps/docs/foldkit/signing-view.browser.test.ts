@@ -160,6 +160,10 @@ it("signs a selected PDF after a wrong password and revokes its download on unmo
             })
             .toMatch(/^blob:/),
         );
+        const progress = app.host.querySelector<HTMLElement>("[data-progress]");
+        expect(progress?.hidden).toBe(false);
+        expect(progress?.getAttribute("aria-valuenow")).toBe("1");
+        expect(progress?.getAttribute("aria-valuemax")).toBe("1");
         const link = app.host.querySelector<HTMLAnchorElement>("[data-downloads] a");
         expect(link?.download).toBe("assinado-document.pdf");
         if (link === null) return expect.fail("Download link missing");
@@ -351,15 +355,18 @@ it("cancels and retries a real signing flow and disposes during another active f
             .poll(() => app.host.querySelector(".signing-rectangle"), { timeout: 30000 })
             .not.toBeNull(),
         );
-        const rubric = app.host.querySelector<HTMLInputElement>("[name=rubric]");
+        yield* Effect.promise(() => expect.poll(() => auto.disabled).toBe(false));
+        const rubric = app.host.querySelector<HTMLButtonElement>("[data-rubric]");
         const source = app.host.querySelector<HTMLSelectElement>("[name=rubricSource]");
         const text = app.host.querySelector<HTMLInputElement>("[name=rubricText]");
         if (rubric === null || source === null || text === null)
           return expect.fail("Rubric controls missing");
-        rubric.checked = true;
         source.value = "text";
         text.value = "Rubrica de teste";
-        rubric.dispatchEvent(new Event("change", { bubbles: true }));
+        rubric.click();
+        yield* Effect.promise(() =>
+          expect.poll(() => rubric.getAttribute("aria-checked")).toBe("true"),
+        );
         yield* Effect.promise(() =>
           expect
             .poll(
@@ -748,15 +755,15 @@ it("maps a click on a cropped and rotated page to the signed PDF widget", async 
         );
         const title = app.host.querySelector<HTMLInputElement>("[name=stampTitle]");
         const color = app.host.querySelector<HTMLInputElement>("[name=stampColor]");
-        const identity = app.host.querySelector<HTMLInputElement>("[name=stampIdentity]");
-        const date = app.host.querySelector<HTMLInputElement>("[name=stampDate]");
+        const identity = app.host.querySelector<HTMLButtonElement>("[data-stamp-identity]");
+        const date = app.host.querySelector<HTMLButtonElement>("[data-stamp-date]");
         const logo = app.host.querySelector<HTMLInputElement>("[name=stampLogo]");
         if (title === null || color === null || identity === null || date === null || logo === null)
           return expect.fail("Required signing controls are missing");
         title.value = "Título de teste";
         color.value = "#3266aa";
-        identity.checked = true;
-        date.checked = true;
+        expect(identity.getAttribute("aria-checked")).toBe("true");
+        expect(date.getAttribute("aria-checked")).toBe("true");
         const logoBytes = yield* Effect.promise(async () => {
           const canvas = document.createElement("canvas");
           canvas.width = 16;
@@ -961,3 +968,35 @@ it("rejects invalid logo PNG data and clears the selection on removal", async ()
     ),
   );
 }, 30000);
+
+it("toggles appearance with the keyboard without resetting sensitive form fields", async () => {
+  await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const app = yield* application;
+        yield* Effect.promise(() =>
+          expect.poll(() => app.host.querySelector("[data-rubric]")).not.toBeNull(),
+        );
+        const rubric = app.host.querySelector<HTMLButtonElement>("[data-rubric]");
+        const password = app.host.querySelector<HTMLInputElement>("[name=password]");
+        const certificate = app.host.querySelector<HTMLInputElement>("[name=pfx]");
+        if (rubric === null || password === null || certificate === null)
+          return expect.fail("Signing controls missing");
+        const files = new DataTransfer();
+        files.items.add(new File(["certificate"], "certificate.p12"));
+        certificate.files = files.files;
+        password.value = "private password";
+        rubric.focus();
+        rubric.dispatchEvent(
+          new KeyboardEvent("keyup", { key: " ", bubbles: true, cancelable: true }),
+        );
+        yield* Effect.promise(() =>
+          expect.poll(() => rubric.getAttribute("aria-checked")).toBe("true"),
+        );
+        expect(document.activeElement).toBe(rubric);
+        expect(password.value).toBe("private password");
+        expect(certificate.files?.item(0)?.name).toBe("certificate.p12");
+      }),
+    ),
+  );
+});

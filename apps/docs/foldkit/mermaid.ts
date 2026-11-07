@@ -74,7 +74,7 @@ export const mermaidView = <Message>(
     ],
     [
       meta != null && meta.length > 0 ? h.p([], [meta]) : null,
-      h.div([h.Attribute("data-mermaid-output", "")], []),
+      h.div([h.Attribute("data-mermaid-output", "")]),
       h.div(
         [h.Attribute("data-mermaid-fallback", "")],
         [h.pre([], [h.code([h.Class("language-mermaid")], [source])])],

@@ -1,3 +1,4 @@
+import { parsePublicUrl } from "./foldkit/routes";
 import { foldkit } from "@foldkit/vite-plugin";
 import { defineConfig } from "vite";
 import type { Plugin } from "vite";
@@ -8,7 +9,8 @@ const socialImages: Plugin = {
   configureServer(server) {
     server.middlewares.use((request, response, next) => {
       const url = new URL(request.url ?? "/", "http://localhost");
-      if (!/^\/(en-US|pt-BR)\/.*\.webp$/.test(url.pathname)) return next();
+      const route = parsePublicUrl(url.href);
+      if (route?._tag !== "Page" || !route.path.endsWith(".webp")) return next();
       const controller = new AbortController();
       const cancel = () => controller.abort();
       response.once("close", cancel);

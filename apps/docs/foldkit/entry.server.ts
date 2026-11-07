@@ -1,3 +1,5 @@
+import { homeRoute, pageRoute, parsePublicUrl } from "./routes";
+export { parsePublicUrl } from "./routes";
 import { Effect, Schema } from "effect";
 import { DOMImplementation, XMLSerializer } from "@xmldom/xmldom";
 import en from "../messages/en-US.json";
@@ -27,10 +29,10 @@ export const createServerComposition = (
   const { feedResponse } = createFeeds(source);
   const view = createView(source);
   const prerenderPaths = [
-    "/en-US",
-    "/pt-BR",
-    "/pt-BR/assine-documentos-gratis",
-    "/en-US/sign-free",
+    homeRoute({ locale: "en-US" }),
+    homeRoute({ locale: "pt-BR" }),
+    pageRoute({ locale: "pt-BR", path: "assine-documentos-gratis" }),
+    pageRoute({ locale: "en-US", path: "sign-free" }),
     ...articlePaths(),
     ...tagPaths(),
     ...source
@@ -39,7 +41,7 @@ export const createServerComposition = (
       .map((path) => {
         const locale = path.endsWith(".pt-BR") ? "pt-BR" : "en-US";
         const slug = path.slice(5).replace(/\.pt-BR$/, "");
-        return `/${locale}/docs${slug === "index" ? "" : `/${slug}`}`;
+        return pageRoute({ locale, path: slug === "index" ? "docs" : `docs/${slug}` });
       }),
   ];
   const MetadataSchema = Schema.Union([
@@ -60,19 +62,19 @@ export const createServerComposition = (
         : undefined;
     if (url === undefined) return undefined;
     const locale = application.lang === "pt-BR" ? "pt-BR" : "en-US";
-    const match = /^\/(en-US|pt-BR)(\/.*)?$/.exec(url.pathname);
-    const path = match?.[2] ?? "";
+    const route = parsePublicUrl(url.href);
+    const path = route?._tag === "Page" ? `/${route.path}` : "";
     const articleMatch = /^\/(blog|changelog)\/([^/]+)$/.exec(path);
     const section = articleMatch?.[1] === "blog" ? "blog" : "changelog";
     const slug =
       articleMatch !== null
-        ? (articles(match?.[1] === "pt-BR" ? "pt-BR" : "en-US", section).find(
+        ? (articles(route?.locale === "pt-BR" ? "pt-BR" : "en-US", section).find(
             (entry) => encodeURIComponent(entry.slug) === articleMatch[2],
           )?.slug ?? "")
         : "";
     const article =
       articleMatch !== null && slug !== "tags"
-        ? source.resolve(match?.[1] === "pt-BR" ? "pt-BR" : "en-US", section, slug)
+        ? source.resolve(route?.locale === "pt-BR" ? "pt-BR" : "en-US", section, slug)
         : undefined;
     const docs =
       path === "/docs" || path.startsWith("/docs/")
@@ -137,7 +139,7 @@ export const createServerComposition = (
           : "/sign-free"
         : path;
     const alternate = (candidate: string) =>
-      `https://signaturekit.dev/${candidate}${alternatePath(candidate)}`;
+      `https://signaturekit.dev${alternatePath(candidate) === "" ? homeRoute({ locale: candidate === "pt-BR" ? "pt-BR" : "en-US" }) : pageRoute({ locale: candidate === "pt-BR" ? "pt-BR" : "en-US", path: alternatePath(candidate).slice(1) })}`;
     const elements = [
       meta("og:site_name", "SignatureKit", true),
       meta("og:type", article !== undefined ? "article" : "website", true),
@@ -166,7 +168,7 @@ export const createServerComposition = (
             ),
           ]
         : []),
-      ...(path === "/search" || match?.[1] !== locale ? [meta("robots", "noindex")] : []),
+      ...(path === "/search" || route?.locale !== locale ? [meta("robots", "noindex")] : []),
     ];
     return { elements, description, locale };
   };
@@ -239,19 +241,21 @@ export const createServerComposition = (
     if (feedback !== undefined) return Server.Responded(feedback);
     const feed = await Effect.runPromise(feedResponse(request));
     if (feed !== undefined) {
-      const match = /^\/(en-US|pt-BR)\/blog\/rss\.xml$/.exec(new URL(request.url).pathname);
-      if (match !== null && feed.status === 200)
-        await captureServerEvent("blog_rss_requested", request, { locale: match[1] });
+      const parsed = parsePublicUrl(request.url);
+      if (parsed?._tag === "Page" && parsed.path === "blog/rss.xml" && feed.status === 200)
+        await captureServerEvent("blog_rss_requested", request, { locale: parsed.locale });
       return Server.Responded(feed);
     }
     const path = new URL(request.url).pathname;
-    const image = /^\/(en-US|pt-BR)(\/.*)\.webp$/.exec(path);
-    if (image !== null) {
-      const imagePath = image[2] === "/index" ? "" : image[2];
-      const page = await renderPage(
-        new Request(`https://signaturekit.dev/${image[1]}${imagePath}`),
-        buildId,
-      );
+    const parsedImage = parsePublicUrl(request.url);
+    if (parsedImage?._tag === "Page" && parsedImage.path.endsWith(".webp")) {
+      const imagePath = parsedImage.path.slice(0, -5);
+      if (imagePath === "") return Server.Responded(new Response("Not found", { status: 404 }));
+      const pagePath =
+        imagePath === "index"
+          ? homeRoute({ locale: parsedImage.locale })
+          : pageRoute({ locale: parsedImage.locale, path: imagePath });
+      const page = await renderPage(new Request(`https://signaturekit.dev${pagePath}`), buildId);
       if (page._tag !== "Rendered")
         return Server.Responded(new Response("Not found", { status: 404 }));
       if (request.method !== "GET" && request.method !== "HEAD")
@@ -280,11 +284,14 @@ export const createServerComposition = (
       );
     }
     if (path === "/")
-      return Server.Responded(Response.redirect(new URL("/en-US", request.url), 302));
-    const match = /^\/(en-US|pt-BR)(\/.*)?$/.exec(path);
-    if (match === null) return Server.Responded(new Response("Not found", { status: 404 }));
-    const locale = match[1] === "pt-BR" ? "pt-BR" : "en-US";
-    const route = match[2] ?? "";
+      return Server.Responded(
+        Response.redirect(new URL(homeRoute({ locale: "en-US" }), request.url), 302),
+      );
+    const parsedRoute = parsePublicUrl(request.url);
+    if (parsedRoute === undefined)
+      return Server.Responded(new Response("Not found", { status: 404 }));
+    const locale = parsedRoute.locale;
+    const route = parsedRoute._tag === "Page" ? `/${parsedRoute.path}` : "";
     const docs = route === "/docs" || route.startsWith("/docs/");
     const section =
       route === "/blog" || route.startsWith("/blog/")
@@ -310,7 +317,9 @@ export const createServerComposition = (
       section !== undefined &&
       !tagRoute &&
       route !== `/${section}` &&
-      !articles(locale, section).some((entry) => entry.href === `/${locale}${route}`)
+      !articles(locale, section).some(
+        (entry) => entry.href === pageRoute({ locale, path: route.slice(1) }),
+      )
     )
       return Server.Responded(new Response("Not found", { status: 404 }));
     const rawQuery = route === "/search" ? (new URL(request.url).searchParams.get("q") ?? "") : "";

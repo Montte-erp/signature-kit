@@ -1,3 +1,4 @@
+import { pageRoute } from "./routes";
 import { Effect, Schema } from "effect";
 import { contentPaths, resolveContent } from "./content";
 import type { Locale } from "./content";
@@ -55,7 +56,7 @@ export const indexArticles = (
   Array.from(entries, ({ slug, content }) => ({
     ...content,
     slug,
-    href: `/${locale}/${section}/${encodeURIComponent(slug)}`,
+    href: pageRoute({ locale, path: `${section}/${encodeURIComponent(slug)}` }),
   })).sort((a, b) => b.timestamp - a.timestamp || a.slug.localeCompare(b.slug));
 
 export const createArticleCatalog = (source: {
@@ -93,7 +94,7 @@ export const createArticleCatalog = (source: {
   const articlePaths = () =>
     (["en-US", "pt-BR"] satisfies Locale[]).flatMap((locale) =>
       (["blog", "changelog"] satisfies ArticleSection[]).flatMap((section) => [
-        `/${locale}/${section}`,
+        pageRoute({ locale, path: section }),
         ...articles(locale, section).map((article) => article.href),
       ]),
     );
@@ -102,8 +103,10 @@ export const createArticleCatalog = (source: {
     indexTags(articles(locale, "blog"), (slug) => source.resolve(locale, "blog", slug));
   const tagPaths = () =>
     (["en-US", "pt-BR"] satisfies Locale[]).flatMap((locale) => [
-      `/${locale}/blog/tags`,
-      ...blogTags(locale).map(({ slug }) => `/${locale}/blog/tags/${encodeURIComponent(slug)}`),
+      pageRoute({ locale, path: "blog/tags" }),
+      ...blogTags(locale).map(({ slug }) =>
+        pageRoute({ locale, path: `blog/tags/${encodeURIComponent(slug)}` }),
+      ),
     ]);
 
   return { resolveArticle, articles, articlePaths, blogTags, tagPaths };

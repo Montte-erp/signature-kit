@@ -1,3 +1,4 @@
+import { Popover } from "@foldkit/ui";
 import { describe, expect, it } from "vitest";
 import { createServer } from "node:http";
 import { once } from "node:events";
@@ -5,7 +6,7 @@ import { DOMParser } from "@xmldom/xmldom";
 import { Effect, Schema } from "effect";
 import * as Server from "foldkit/experimental/server";
 import { parseContent, renderContent } from "./content";
-import { createView, Flags, init } from "./main";
+import { createView, Flags, init, Message, update } from "./main";
 import type { HtmlBuilder } from "foldkit/html";
 import {
   ArticleDate,
@@ -161,7 +162,10 @@ describe("Foldkit articles", () => {
           {
             Flags,
             init: (flags: typeof Flags.Type) => ({
-              model: { ...init(flags).model, menuOpen: true },
+              model: update(
+                init(flags).model,
+                Message.GotLanguagePopoverMessage({ message: Popover.Message.RequestedOpen() }),
+              ).model,
             }),
             view: createView(source),
           },

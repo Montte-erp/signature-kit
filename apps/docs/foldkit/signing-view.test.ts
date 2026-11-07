@@ -1,8 +1,10 @@
+import { Popover } from "@foldkit/ui";
 import { expect, it } from "vitest";
 import { Effect } from "effect";
 import * as Server from "foldkit/experimental/server";
-import { Flags, init, view } from "./main";
+import { Flags, init, Message, update, view } from "./main";
 import { renderPage, prerenderPaths } from "./entry.server";
+import { Message as SigningFormMessage } from "./signing-view";
 
 it("renders both canonical signing routes and links them from the home pages", async () => {
   for (const [locale, path, title] of [
@@ -27,7 +29,10 @@ it("renders language links for signing routes and preserves documentation and ar
     ["en-US", "/blog/example", "/en-US/blog/example", "/pt-BR/blog/example"],
   ] satisfies ["en-US" | "pt-BR", string, string, string][]) {
     const openMenu = (flags: typeof Flags.Type) => ({
-      model: { ...init(flags).model, menuOpen: true },
+      model: update(
+        init(flags).model,
+        Message.GotLanguagePopoverMessage({ message: Popover.Message.RequestedOpen() }),
+      ).model,
     });
     const page = JSON.stringify(
       await Effect.runPromise(
@@ -40,4 +45,16 @@ it("renders language links for signing routes and preserves documentation and ar
     expect(page).toContain(`href=\\"${english}\\"`);
     expect(page).toContain(`href=\\"${portuguese}\\"`);
   }
+});
+
+it("updates appearance toggles without storing certificate material in the model", () => {
+  const initial = init({ locale: "pt-BR", path: "/assine-documentos-gratis" }).model;
+  const changed = update(
+    initial,
+    Message.GotSigningFormMessage({
+      message: SigningFormMessage.RubricToggled({ checked: true }),
+    }),
+  ).model;
+  expect(changed.signingForm).toEqual({ identity: true, date: true, rubric: true });
+  expect(Object.keys(changed.signingForm).sort()).toEqual(["date", "identity", "rubric"]);
 });

@@ -82,7 +82,9 @@ describe("Foldkit content", () => {
     expect(html).not.toContain('href=\\"javascript:');
     expect(html).toContain("hello");
     expect(html).toContain("a --&gt; b");
+    expect(html).toContain("data-mermaid-output");
     expect(html).toContain("data-mermaid-fallback");
+    expect(html).toContain('aria-busy=\\"true\\"');
   });
 
   it("splits phrasing around nested flow components with hydratable server markup", async () => {

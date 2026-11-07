@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { realpath, stat } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -27,7 +27,10 @@ const prerendered = new Map(
 
 export const fetch = async (request) => {
   const path = new URL(request.url).pathname;
-  if (/^\/(en-US|pt-BR)\/.*\.webp$/.test(path)) {
+  const route = Schema.decodeUnknownOption(
+    Schema.Struct({ _tag: Schema.Literal("Page"), path: Schema.String }),
+  )(handler.parsePublicUrl(request.url));
+  if (Option.isSome(route) && route.value.path.endsWith(".webp")) {
     const result = await handler.renderPage(request);
     return result._tag === "Responded" ? result.response : new Response(null, { status: 404 });
   }

@@ -1,3 +1,4 @@
+import { pageRoute } from "./routes";
 import { Schema } from "effect";
 import { signatureKitErrorCatalog } from "@signature-kit/signatures";
 import GithubSlugger from "github-slugger";
@@ -48,7 +49,10 @@ export const searchDocs = (
     score: number;
   }[] = [];
   for (const { slug, page } of pages) {
-    const base = `/${locale}/docs${slug === "index" ? "" : `/${slug.split("/").map(encodeURIComponent).join("/")}`}`;
+    const base = pageRoute({
+      locale,
+      path: `docs${slug === "index" ? "" : `/${slug.split("/").map(encodeURIComponent).join("/")}`}`,
+    });
     const slugger = new GithubSlugger();
     const sections: { heading: string; href: string; text: string }[] = [
       { heading: "", href: base, text: page.description ?? "" },
